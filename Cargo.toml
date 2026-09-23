@@ -1,0 +1,48 @@
+[workspace]
+resolver = "2"
+members = [
+  "crates/core",
+  "crates/daemon",
+  "crates/mcp",
+  "crates/cli",
+  "plugins/github",
+  "plugins/jira",
+  "plugins/git",
+  "judges/laya",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+rust-version = "1.85"
+repository = "https://github.com/StevenJPx2/chauffeur"
+
+[workspace.dependencies]
+chauffeur-core = { path = "crates/core" }
+chauffeur-daemon = { path = "crates/daemon" }
+chauffeur-mcp = { path = "crates/mcp" }
+chauffeur-plugin-github = { path = "plugins/github" }
+chauffeur-plugin-jira = { path = "plugins/jira" }
+chauffeur-plugin-git = { path = "plugins/git" }
+chauffeur-judge-laya = { path = "judges/laya" }
+
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "io-std", "io-util", "process", "time", "net"] }
+axum = "0.8"
+reqwest = { version = "0.12", default-features = false, features = ["json", "stream"] }
+futures-util = "0.3"
+
+[workspace.lints.clippy]
+correctness = { level = "deny", priority = -1 }
+suspicious = "warn"
+style = "warn"
+complexity = "warn"
+perf = "warn"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = true

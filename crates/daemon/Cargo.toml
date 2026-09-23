@@ -1,0 +1,22 @@
+[package]
+name = "chauffeur-daemon"
+description = "HTTP daemon shell for the Chauffeur SDK"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+
+[dependencies]
+chauffeur-core = { workspace = true }
+chauffeur-plugin-github = { workspace = true }
+chauffeur-plugin-jira = { workspace = true }
+chauffeur-plugin-git = { workspace = true }
+chauffeur-judge-laya = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+axum = { workspace = true }
+futures-util = { workspace = true }
+
+[lints]
+workspace = true

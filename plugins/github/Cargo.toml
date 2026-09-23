@@ -1,0 +1,14 @@
+[package]
+name = "chauffeur-plugin-github"
+description = "GitHub steering rules for Chauffeur"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+
+[dependencies]
+chauffeur-core = { workspace = true }
+
+[lints]
+workspace = true
