@@ -1,72 +1,55 @@
-export type Target = {
-  kind: "opencode-session"
-  id: string
-}
-
-export type ToolCall = {
-  name: string
-  summary: string
-  at: number
-}
-
-export type AgentContext = {
-  agent_id: string
-  status: string
-  source: string
-  tool_history: ToolCall[]
-  notifications: Notice[]
-  hooks: string[]
-  idle_at: number
-}
-
-export type Notice = {
-  source: string
-  title: string
-  body: string
-  acknowledged: boolean
-}
-
-export type QueuedReminder = {
-  id: string
-  target: Target
-  reminder: {
-    agent_id: string
-    rule_id: string
-    urgency: "routine" | "important" | "urgent"
-    text: string
-  }
-  queued_at: number
-}
-
-export type SkillContext = {
-  event: string
-  action: string
-  agent_id: string
-  occurred_at: number
-  state: string
-  evidence: Record<string, boolean>
-}
-
-export type SkillEffect = "allow" | "deny" | "ask" | "prompt" | "remind"
-
-export type SkillResult = {
-  skill_id: string
-  status: "unmatched" | "missing_evidence" | "cooldown" | "evaluated" | "judge_failure"
-  effect: SkillEffect | null
-  message: string | null
-  reminder: string | null
-  missing_evidence: string[]
-  confidence: number | null
-  branch: "positive" | "negative" | "uncertain" | null
-}
-
-export type EventFrame =
-  | { type: "subscribed"; target: Target }
-  | { type: "event"; target: Target; reminders: QueuedReminder[] }
-  | { type: "heartbeat" }
-
 export type RpcResponse<T> = {
   id?: number
   result?: T
   error?: string
 }
+
+export type ModelRef = { provider: string; model: string }
+
+export type CatalogEntry = { id: string; description: string; bytes: number }
+
+export type Resource = { requested: string; resolved: string }
+
+export type SignalKind =
+  | {
+    type: "permission_request"
+    action: string
+    resources: Resource[]
+    request: string
+    workspace: string
+    user_requests: string[]
+  }
+  | {
+    type: "user_message"
+    text: string
+    first_in_context: boolean
+    skills: CatalogEntry[]
+    tools: CatalogEntry[]
+    model: ModelRef | null
+    code_mode: CatalogEntry[]
+  }
+  | { type: "tool_result"; tool: string; ok: boolean; input: string; error: string }
+  | { type: "turn_end" }
+  | {
+    type: "model_error"
+    model: ModelRef
+    error_type: string
+    status: number | null
+    message: string
+    tool_executed: boolean
+    available: Array<{ model: ModelRef; usable: boolean }>
+  }
+  | { type: "model_succeeded"; model: ModelRef }
+
+export type Signal = { agent_id: string; at: number; kind: SignalKind }
+
+export type Effect =
+  | { type: "permission"; agent_id: string; decision: "allow" | "deny" | "ask"; message: string | null }
+  | { type: "attach_skills"; agent_id: string; skills: string[] }
+  | { type: "remind"; agent_id: string; rule_id: string; text: string }
+  | { type: "nudge"; agent_id: string; tool: string; text: string }
+  | { type: "hide_tools"; agent_id: string; tools: string[] }
+  | { type: "reveal_tools"; agent_id: string; tools: string[] }
+  | { type: "surface_tools"; agent_id: string; namespaces: string[] }
+  | { type: "switch_model"; agent_id: string; model: ModelRef }
+  | { type: "keep_model"; agent_id: string }

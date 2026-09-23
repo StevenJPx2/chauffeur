@@ -1,0 +1,16 @@
+[package]
+name = "chauffeur-capability-idle-reminder"
+description = "Chauffeur capability: nudge an idle agent with plugin rules"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+
+[dependencies]
+chauffeur-core = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[lints]
+workspace = true

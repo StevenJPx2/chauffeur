@@ -1,6 +1,6 @@
 //! Thin MCP stdio adapter over the daemon client.
 
-use chauffeur_core::{AgentContext, DaemonClient, SkillContext, Target};
+use chauffeur_core::{DaemonClient, Signal};
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
@@ -63,60 +63,15 @@ fn initialize() -> Value {
 fn tool_list() -> Value {
     json!({ "tools": [
         {
-            "name": "steer_idle",
-            "description": "Evaluate an idle agent context and queue applicable reminders.",
+            "name": "signal",
+            "description": "Report one agent observation to the Chauffeur engine and return its effects.",
             "inputSchema": {
                 "type": "object",
-                "properties": {
-                    "target": { "type": "object" },
-                    "context": { "type": "object" }
-                },
-                "required": ["target", "context"]
-            }
-        },
-        {
-            "name": "reminders_read",
-            "description": "Read queued reminders for a host target.",
-            "inputSchema": target_schema()
-        },
-        {
-            "name": "reminders_acknowledge",
-            "description": "Acknowledge reminders delivered to an agent session.",
-            "inputSchema": {
-                "type": "object",
-                "properties": {
-                    "target": { "type": "object" },
-                    "reminder_ids": { "type": "array", "items": { "type": "string" } }
-                },
-                "required": ["target", "reminder_ids"]
-            }
-        },
-        {
-            "name": "skills_list",
-            "description": "List validated skill contracts loaded by the daemon.",
-            "inputSchema": { "type": "object", "properties": {} }
-        },
-        {
-            "name": "skill_evaluate",
-            "description": "Evaluate a validated skill contract against a host event and evidence.",
-            "inputSchema": {
-                "type": "object",
-                "properties": {
-                    "skill_id": { "type": "string" },
-                    "context": { "type": "object" }
-                },
-                "required": ["skill_id", "context"]
+                "properties": { "signal": { "type": "object" } },
+                "required": ["signal"]
             }
         }
     ] })
-}
-
-fn target_schema() -> Value {
-    json!({
-        "type": "object",
-        "properties": { "target": { "type": "object" } },
-        "required": ["target"]
-    })
 }
 
 async fn call_tool(client: &DaemonClient, params: Value) -> Result<Value, String> {
@@ -129,32 +84,10 @@ async fn call_tool(client: &DaemonClient, params: Value) -> Result<Value, String
         .cloned()
         .unwrap_or_else(|| json!({}));
     let value = match name {
-        "steer_idle" => {
-            let target = field::<Target>(&arguments, "target")?;
-            let context = field::<AgentContext>(&arguments, "context")?;
-            serde_json::to_value(client.steer(target, context).await?)
-                .map_err(|error| error.to_string())?
-        }
-        "reminders_read" => {
-            let target = field::<Target>(&arguments, "target")?;
-            serde_json::to_value(client.reminders(target).await?)
-                .map_err(|error| error.to_string())?
-        }
-        "reminders_acknowledge" => {
-            let target = field::<Target>(&arguments, "target")?;
-            let ids = field::<Vec<String>>(&arguments, "reminder_ids")?;
-            client.acknowledge(target, ids).await?;
-            json!({ "ok": true })
-        }
-        "skills_list" => {
-            serde_json::to_value(client.skills().await?).map_err(|error| error.to_string())?
-        }
-        "skill_evaluate" => {
-            let skill_id = field::<String>(&arguments, "skill_id")?;
-            let context = field::<SkillContext>(&arguments, "context")?;
+        "signal" => {
+            let signal = field::<Signal>(&arguments, "signal")?;
 
-            serde_json::to_value(client.evaluate_skill(skill_id, context).await?)
-                .map_err(|error| error.to_string())?
+            serde_json::to_value(client.signal(signal).await?).map_err(|error| error.to_string())?
         }
         _ => return Err(format!("unknown tool {name}")),
     };

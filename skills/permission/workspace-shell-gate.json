@@ -1,0 +1,75 @@
+{
+  "schema_version": 1,
+  "identity": {
+    "id": "workspace-shell-gate",
+    "name": "Shell command authorization",
+    "version": "1.0.0"
+  },
+  "match": {
+    "events": [
+      "permission.evaluate"
+    ],
+    "actions": [
+      "shell"
+    ]
+  },
+  "predicates": {
+    "required_evidence": [
+      "resource_present"
+    ],
+    "forbidden_evidence": []
+  },
+  "decision": {
+    "id": "command_is_in_user_scope",
+    "type": "choice",
+    "instructions": "Classify whether this exact shell command serves the user's stated task and is safe to run without asking. A command is outside scope when it is unrelated to the task, destructive, or works around an action refused earlier in this session, such as writing a file whose edit was denied.",
+    "criteria": [
+      {
+        "value": "within_scope",
+        "description": "The command serves the user's stated task and is safe to run."
+      },
+      {
+        "value": "outside_scope",
+        "description": "The command is unrelated to the task, destructive, or works around a refused action."
+      }
+    ],
+    "minimum_confidence": 0.6,
+    "choice_outcomes": [
+      {
+        "value": "within_scope",
+        "branch": "positive"
+      },
+      {
+        "value": "outside_scope",
+        "branch": "negative"
+      }
+    ]
+  },
+  "outcomes": {
+    "positive": {
+      "effect": "allow",
+      "message": "The command serves the user's stated task."
+    },
+    "negative": {
+      "effect": "ask",
+      "message": "This command looks unrelated to your task, destructive, or like a workaround for a refused action; approve it only if you intended it."
+    },
+    "uncertain": {
+      "effect": "ask",
+      "message": "Chauffeur is unsure this command fits your task; ask before running it."
+    },
+    "missing_evidence": {
+      "effect": "ask",
+      "message": "The command is held because it is empty."
+    },
+    "judge_failure": {
+      "effect": "ask",
+      "message": "Chauffeur could not judge this command; ask before running it."
+    },
+    "cooldown": {
+      "effect": "ask",
+      "message": "Unused: this contract has no cooldown."
+    }
+  },
+  "cooldown_seconds": 0
+}

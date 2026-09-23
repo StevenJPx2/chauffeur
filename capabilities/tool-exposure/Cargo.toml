@@ -1,0 +1,15 @@
+[package]
+name = "chauffeur-capability-tool-exposure"
+description = "Chauffeur capability: choose each context's tool set at its first user message"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+
+[dependencies]
+chauffeur-core = { workspace = true }
+serde = { workspace = true }
+
+[lints]
+workspace = true

@@ -1,11 +1,11 @@
-//! Steering rules: a deterministic gate, a fuzzy situation for the decision
-//! model, and a templated reminder.
+//! Idle-reminder rules: a structural gate, a fuzzy situation for System One,
+//! and a templated reminder. Plugins contribute them.
+
+use std::collections::HashSet;
 
 use serde::Deserialize;
 
-use crate::context::AgentContext;
-
-pub const DEFAULT_THRESHOLD: f32 = 0.6;
+pub const DEFAULT_THRESHOLD: f32 = 0.7;
 pub const DEFAULT_COOLDOWN_SECS: u64 = 30;
 
 /// Exact preconditions checked before the model is consulted. Structural
@@ -30,8 +30,69 @@ pub struct Gate {
     pub tools_not_called: Vec<String>,
 }
 
+/// Structural facts about an agent that rule gates check.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct IdleFacts {
+    pub status: String,
+    pub source: String,
+    pub hooks: Vec<String>,
+    pub tools_called: HashSet<String>,
+}
+
+impl IdleFacts {
+    /// Derive status and source from the tools an agent has run: a PR opened
+    /// means `in_review`; Jira or GitHub tools set the source.
+    #[must_use]
+    pub fn from_tools(tools_called: HashSet<String>) -> Self {
+        let status = if tools_called.contains("github_open_pr") {
+            "in_review"
+        } else {
+            "implementing"
+        };
+        let source = if tools_called.iter().any(|tool| tool.starts_with("jira_")) {
+            "jira"
+        } else if tools_called.iter().any(|tool| tool.starts_with("github_")) {
+            "github"
+        } else {
+            ""
+        };
+
+        Self {
+            status: status.into(),
+            source: source.into(),
+            hooks: Vec::new(),
+            tools_called,
+        }
+    }
+
+    /// Add integration events as `source:kind` hooks. Agents often open PRs
+    /// and read Jira through the shell, so events count too: any GitHub event
+    /// means the pull request exists (`in_review`), and any Jira event means a
+    /// Jira source.
+    #[must_use]
+    pub fn with_hooks(mut self, hooks: Vec<String>) -> Self {
+        if hooks.iter().any(|hook| hook.starts_with("github:")) {
+            self.status = "in_review".into();
+
+            if self.source.is_empty() {
+                self.source = "github".into();
+            }
+        }
+        if hooks.iter().any(|hook| hook.starts_with("jira:")) {
+            self.source = "jira".into();
+        }
+
+        self.hooks = hooks;
+        self
+    }
+
+    fn has_called(&self, tool: &str) -> bool {
+        self.tools_called.contains(tool)
+    }
+}
+
 impl Gate {
-    pub fn admits(&self, context: &AgentContext) -> bool {
+    pub fn admits(&self, context: &IdleFacts) -> bool {
         let status_ok = self.status.is_empty() || self.status.contains(&context.status);
         let source_ok = self.source.is_empty() || self.source.contains(&context.source);
         let hooks_ok =
@@ -229,21 +290,7 @@ mod tests {
 
     #[test]
     fn gate_checks_structural_tool_facts() {
-        use crate::context::{AgentContext, ToolCall};
-
-        let context = AgentContext {
-            agent_id: "a".into(),
-            status: "implementing".into(),
-            source: "github".into(),
-            tool_history: vec![ToolCall {
-                name: "edit".into(),
-                summary: String::new(),
-                at: 1,
-            }],
-            notifications: Vec::new(),
-            hooks: Vec::new(),
-            idle_at: 1,
-        };
+        let context = IdleFacts::from_tools(HashSet::from(["edit".to_string()]));
         let no_pr_yet = Gate {
             tools_called: vec!["edit".into()],
             tools_not_called: vec!["github_open_pr".into()],
@@ -254,8 +301,22 @@ mod tests {
             ..Gate::default()
         };
 
+        assert_eq!(context.status, "implementing");
         assert!(no_pr_yet.admits(&context));
         assert!(!pr_exists.admits(&context));
+    }
+
+    #[test]
+    fn facts_derive_status_and_source_from_tools() {
+        let facts = IdleFacts::from_tools(HashSet::from([
+            "github_open_pr".to_string(),
+            "jira_view_issue".to_string(),
+        ]));
+
+        assert_eq!(
+            (facts.status.as_str(), facts.source.as_str()),
+            ("in_review", "jira")
+        );
     }
 
     #[test]

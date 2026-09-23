@@ -1,19 +1,11 @@
 import { spawn } from "node:child_process"
-import type {
-  AgentContext,
-  EventFrame,
-  QueuedReminder,
-  RpcResponse,
-  SkillContext,
-  SkillResult,
-  Target,
-} from "./protocol.js"
+import type { Effect, RpcResponse, Signal } from "./protocol.js"
 
-const DEFAULT_URL = "http://127.0.0.1:18788"
-const MAX_FRAME_BYTES = 1_000_000
-const SKILL_EFFECTS = ["allow", "deny", "ask", "prompt", "remind"] as const
-const SKILL_STATUSES = ["unmatched", "missing_evidence", "cooldown", "evaluated", "judge_failure"] as const
-const SKILL_BRANCHES = ["positive", "negative", "uncertain"] as const
+const DEFAULT_URL = "http://127.0.0.1:18790"
+const RPC_TIMEOUT_MS = 30_000
+// Matches the engine's reply timeout; model routing blocks the host's retry decision.
+const SIGNAL_TIMEOUT_MS = 15_000
+const PERMISSION_DECISIONS = ["allow", "deny", "ask"] as const
 
 export class DaemonBridge {
   readonly url = (process.env.CHAUFFEUR_DAEMON_URL ?? DEFAULT_URL).replace(/\/$/, "")
@@ -39,68 +31,14 @@ export class DaemonBridge {
     throw new Error("chauffeur daemon did not become healthy within 10 seconds")
   }
 
-  async steer(target: Target, context: AgentContext): Promise<void> {
-    await this.rpc("steer", { target, context })
-  }
+  async signal(signal: Signal, timeoutMs = SIGNAL_TIMEOUT_MS): Promise<Effect[]> {
+    const result = await this.rpc<unknown>("signal", { signal }, timeoutMs)
 
-  async acknowledge(target: Target, reminderIDs: string[]): Promise<void> {
-    await this.rpc("reminders.acknowledge", { target, reminder_ids: reminderIDs })
-  }
-
-  async skills(): Promise<string[]> {
-    const result = await this.rpc<unknown>("skills.list", {})
-
-    if (!Array.isArray(result) || !result.every((id) => typeof id === "string")) {
-      throw new Error("chauffeur returned invalid skill IDs")
+    if (!isRecord(result) || !Array.isArray(result.effects) || !result.effects.every(isEffect)) {
+      throw new Error("chauffeur returned invalid effects")
     }
 
-    return result
-  }
-
-  async evaluateSkill(skillID: string, context: SkillContext): Promise<SkillResult> {
-    const result = await this.rpc<unknown>("skill.evaluate", { skill_id: skillID, context })
-
-    if (!isSkillResult(result)) throw new Error("chauffeur returned an invalid skill result")
-
-    return result
-  }
-
-  async subscribe(
-    target: Target,
-    signal: AbortSignal,
-    deliver: (reminders: QueuedReminder[]) => Promise<void>,
-  ): Promise<void> {
-    while (!signal.aborted) {
-      try {
-        await this.subscribeOnce(target, signal, deliver)
-      } catch (error) {
-        if (signal.aborted) return
-
-        console.error(`[chauffeur] event stream disconnected: ${error instanceof Error ? error.message : String(error)}`)
-      }
-
-      await delay(1_000)
-    }
-  }
-
-  private async subscribeOnce(
-    target: Target,
-    signal: AbortSignal,
-    deliver: (reminders: QueuedReminder[]) => Promise<void>,
-  ): Promise<void> {
-    const query = new URLSearchParams({ target: JSON.stringify(target) })
-    const response = await fetch(`${this.url}/events?${query}`, {
-      headers: this.headers(),
-      signal,
-    })
-
-    if (!response.ok || !response.body) throw new Error(`chauffeur event stream returned ${response.status}`)
-
-    for await (const data of sseData(response.body, signal)) {
-      const frame = decodeFrame(data)
-
-      if (frame?.type === "event") await deliver(frame.reminders)
-    }
+    return result.effects
   }
 
   private async healthy(): Promise<boolean> {
@@ -112,11 +50,12 @@ export class DaemonBridge {
     }
   }
 
-  private async rpc<T>(method: string, params: unknown): Promise<T> {
+  private async rpc<T>(method: string, params: unknown, timeoutMs = RPC_TIMEOUT_MS): Promise<T> {
     const response = await fetch(`${this.url}/rpc`, {
       method: "POST",
       headers: { "content-type": "application/json", ...this.headers() },
       body: JSON.stringify({ id: 1, method, params }),
+      signal: AbortSignal.timeout(timeoutMs),
     })
     const envelope = decodeRpc<T>(await response.json())
 
@@ -132,39 +71,6 @@ export class DaemonBridge {
   }
 }
 
-async function* sseData(stream: ReadableStream<Uint8Array>, signal: AbortSignal): AsyncGenerator<string> {
-  const reader = stream.getReader()
-  const decoder = new TextDecoder()
-  let buffer = ""
-
-  try {
-    while (!signal.aborted) {
-      const { done, value } = await reader.read()
-
-      if (done) return
-
-      buffer += decoder.decode(value, { stream: true })
-
-      if (buffer.length > MAX_FRAME_BYTES) throw new Error("chauffeur event frame exceeds 1 MB")
-
-      const frames = buffer.split("\n\n")
-      buffer = frames.pop() ?? ""
-
-      for (const frame of frames) {
-        const data = frame
-          .split("\n")
-          .filter((line) => line.startsWith("data: "))
-          .map((line) => line.slice(6))
-          .join("\n")
-
-        if (data) yield data
-      }
-    }
-  } finally {
-    reader.releaseLock()
-  }
-}
-
 function decodeRpc<T>(value: unknown): RpcResponse<T> {
   if (!isRecord(value)) throw new Error("invalid chauffeur RPC response")
 
@@ -175,37 +81,26 @@ function decodeRpc<T>(value: unknown): RpcResponse<T> {
   }
 }
 
-function decodeFrame(data: string): EventFrame | undefined {
-  const value: unknown = JSON.parse(data)
+function isEffect(value: unknown): value is Effect {
+  if (!isRecord(value) || typeof value.agent_id !== "string") return false
+  if (value.type === "keep_model") return true
+  if (value.type === "attach_skills") return isStringArray(value.skills)
+  if (value.type === "hide_tools" || value.type === "reveal_tools") return isStringArray(value.tools)
+  if (value.type === "surface_tools") return isStringArray(value.namespaces)
+  if (value.type === "remind") return typeof value.rule_id === "string" && typeof value.text === "string"
+  if (value.type === "nudge") return typeof value.tool === "string" && typeof value.text === "string"
+  if (value.type === "permission") {
+    return isOneOf(value.decision, PERMISSION_DECISIONS) && (value.message === null || typeof value.message === "string")
+  }
 
-  if (!isRecord(value) || typeof value.type !== "string") return undefined
-  if (value.type === "heartbeat") return { type: "heartbeat" }
-  if (value.type === "subscribed" && isTarget(value.target)) return { type: "subscribed", target: value.target }
-  if (value.type !== "event" || !isTarget(value.target) || !Array.isArray(value.reminders)) return undefined
-
-  return { type: "event", target: value.target, reminders: value.reminders as QueuedReminder[] }
+  return value.type === "switch_model"
+    && isRecord(value.model)
+    && typeof value.model.provider === "string"
+    && typeof value.model.model === "string"
 }
 
-function isTarget(value: unknown): value is Target {
-  return isRecord(value) && value.kind === "opencode-session" && typeof value.id === "string"
-}
-
-function isSkillResult(value: unknown): value is SkillResult {
-  if (!isRecord(value)) return false
-
-  return typeof value.skill_id === "string"
-    && isOneOf(value.status, SKILL_STATUSES)
-    && (value.effect === null || isOneOf(value.effect, SKILL_EFFECTS))
-    && (typeof value.message === "string" || value.message === null)
-    && (typeof value.reminder === "string" || value.reminder === null)
-    && Array.isArray(value.missing_evidence)
-    && value.missing_evidence.every((item) => typeof item === "string")
-    && (value.confidence === null
-      || (typeof value.confidence === "number"
-        && Number.isFinite(value.confidence)
-        && value.confidence >= 0
-        && value.confidence <= 1))
-    && (value.branch === null || isOneOf(value.branch, SKILL_BRANCHES))
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((item) => typeof item === "string")
 }
 
 function isOneOf<const Values extends readonly string[]>(

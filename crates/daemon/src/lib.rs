@@ -1,92 +1,87 @@
-//! Thin HTTP host for [`chauffeur_core::Runtime`].
+//! Thin HTTP host for the Chauffeur engine.
 
-use std::collections::{HashMap, VecDeque};
-use std::convert::Infallible;
+mod engine;
+mod sourcefed;
+
+pub use engine::{EngineHandle, EngineOptions};
+
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
-use std::time::Duration;
 
-use axum::body::Body;
-use axum::extract::{DefaultBodyLimit, Query, State};
+use axum::extract::{DefaultBodyLimit, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{get, post};
+use axum::routing::post;
 use axum::{Json, Router};
 use chauffeur_core::{
-    DaemonRequest, EventFrame, JsonReminderQueue, Plugin, Runtime, Target, compose, dispatch,
-    load_skills,
+    DaemonRequest, DaemonResponse, Effect, METHOD_HEALTH, METHOD_SIGNAL, SignalParams, SignalResult,
 };
-use chauffeur_judge_laya::{LayaJudge, default_socket_path};
-use chauffeur_plugin_git::GitPlugin;
-use chauffeur_plugin_github::GitHubPlugin;
-use chauffeur_plugin_jira::JiraPlugin;
-use futures_util::stream;
-use tokio::sync::broadcast;
+use chauffeur_judge_jev::JevConfig;
+use serde_json::json;
 
-pub const DEFAULT_PORT: u16 = 18_788;
+pub const DEFAULT_PORT: u16 = 18_790;
 
 #[derive(Clone)]
 struct AppState {
-    runtime: Arc<Runtime>,
+    engine: EngineHandle,
     token: Option<String>,
 }
 
 pub struct DaemonOptions {
     pub address: SocketAddr,
     pub token: Option<String>,
-    pub state_dir: PathBuf,
-    pub laya_socket: PathBuf,
+    pub config_dir: PathBuf,
     pub skills_dir: PathBuf,
+    pub idle_reminders: bool,
+    pub state_file: Option<PathBuf>,
 }
 
 impl DaemonOptions {
     pub fn from_env(address: SocketAddr) -> Result<Self, String> {
         let home = std::env::var_os("HOME").ok_or("HOME is not set")?;
-        let state_dir = std::env::var_os("CHAUFFEUR_STATE_DIR").map_or_else(
-            || PathBuf::from(&home).join(".local/state/chauffeur"),
+        let config_dir = std::env::var_os("CHAUFFEUR_CONFIG_DIR").map_or_else(
+            || PathBuf::from(&home).join(".config/chauffeur"),
             PathBuf::from,
         );
-        let laya_socket = std::env::var_os("LAYA_SOCKET")
-            .map_or_else(|| default_socket_path(Path::new(&home)), PathBuf::from);
-        let skills_dir =
-            std::env::var_os("CHAUFFEUR_SKILLS_DIR").map_or_else(default_skills_dir, PathBuf::from);
+        // Usually a symlink to this repo's `skills/` folder.
+        let skills_dir = std::env::var_os("CHAUFFEUR_SKILLS_DIR")
+            .map_or_else(|| config_dir.join("skills"), PathBuf::from);
 
         Ok(Self {
             address,
             token: std::env::var("CHAUFFEUR_DAEMON_TOKEN").ok(),
-            state_dir,
-            laya_socket,
+            config_dir,
             skills_dir,
+            idle_reminders: std::env::var("CHAUFFEUR_IDLE_STEERING")
+                .is_ok_and(|value| value == "true"),
+            state_file: Some(state_dir(Path::new(&home))?.join("state.json")),
         })
     }
 }
 
-pub fn build_runtime(options: &DaemonOptions) -> Result<Arc<Runtime>, String> {
-    let plugins: Vec<Box<dyn Plugin>> = vec![
-        Box::new(GitHubPlugin),
-        Box::new(JiraPlugin),
-        Box::new(GitPlugin),
-    ];
-    let rules = compose(&plugins)?;
-    let skills = load_skills(&options.skills_dir)?;
-    let judge = LayaJudge::connect(&options.laya_socket)?;
-    let queue = Arc::new(JsonReminderQueue::new(&options.state_dir));
-
-    let runtime = Runtime::with_skills(rules, skills, Box::new(judge), queue)?;
-
-    Ok(Arc::new(runtime))
-}
-
 pub async fn serve(options: DaemonOptions) -> Result<(), String> {
     let address = options.address;
+    let jev = JevConfig::from_env()
+        .ok_or("TYPESAFE_API_KEY is required: Jev is Chauffeur's System One provider")?;
+
+    let engine = EngineHandle::spawn(EngineOptions {
+        config_dir: options.config_dir,
+        skills_dir: options.skills_dir,
+        jev,
+        idle_reminders: options.idle_reminders,
+        state_file: options.state_file,
+    })
+    .await?;
     let state = AppState {
-        runtime: build_runtime(&options)?,
+        engine,
         token: options.token,
     };
     let app = Router::new()
         .route("/rpc", post(rpc).layer(DefaultBodyLimit::max(128 * 1024)))
-        .route("/events", get(events))
+        .route(
+            "/integrations/sourcefed",
+            post(sourcefed_event).layer(DefaultBodyLimit::max(64 * 1024)),
+        )
         .with_state(state);
     let listener = tokio::net::TcpListener::bind(address)
         .await
@@ -106,116 +101,74 @@ async fn rpc(
         return StatusCode::UNAUTHORIZED.into_response();
     }
 
-    let runtime = Arc::clone(&state.runtime);
-    let response = match tokio::task::spawn_blocking(move || dispatch(&runtime, request)).await {
-        Ok(response) => response,
-        Err(error) => chauffeur_core::DaemonResponse {
-            id: None,
-            result: None,
-            error: Some(format!("dispatch task failed: {error}")),
-        },
+    let id = request.id;
+    let result = match request.method.as_str() {
+        METHOD_HEALTH => Ok(json!({ "ok": true })),
+        METHOD_SIGNAL => signal(&state.engine, request.params).await,
+        method => Err(format!("unknown method {method}")),
     };
-    let status = if response.error.is_some() {
-        StatusCode::BAD_REQUEST
-    } else {
-        StatusCode::OK
+    let (status, response) = match result {
+        Ok(value) => (
+            StatusCode::OK,
+            DaemonResponse {
+                id,
+                result: Some(value),
+                error: None,
+            },
+        ),
+        Err(error) => (
+            StatusCode::BAD_REQUEST,
+            DaemonResponse {
+                id,
+                result: None,
+                error: Some(error),
+            },
+        ),
     };
 
     (status, Json(response)).into_response()
 }
 
-async fn events(
+/// sourcefed asks whether a monitor event reaches its session. The event also
+/// informs later judgments; a failed engine delivers, as sourcefed does.
+async fn sourcefed_event(
     State(state): State<AppState>,
     headers: HeaderMap,
-    Query(query): Query<HashMap<String, String>>,
+    Json(event): Json<sourcefed::ForwardedEvent>,
 ) -> Response {
     if !authorized(&headers, state.token.as_deref()) {
         return StatusCode::UNAUTHORIZED.into_response();
     }
 
-    let Some(encoded) = query.get("target") else {
-        return (StatusCode::BAD_REQUEST, "missing target").into_response();
-    };
-    let Ok(target) = serde_json::from_str::<Target>(encoded) else {
-        return (StatusCode::BAD_REQUEST, "invalid target").into_response();
-    };
-    let Ok(initial) = state.runtime.reminders(&target) else {
-        return (StatusCode::INTERNAL_SERVER_ERROR, "queue unavailable").into_response();
-    };
+    let at = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |elapsed| elapsed.as_secs());
 
-    sse_response(state.runtime, target, initial)
-}
+    match state.engine.ingest(event.into_signal(at)).await {
+        Ok(effects) => {
+            let withheld = effects
+                .iter()
+                .any(|effect| matches!(effect, Effect::WithholdEvent { .. }));
 
-fn sse_response(
-    runtime: Arc<Runtime>,
-    target: Target,
-    initial: Vec<chauffeur_core::QueuedReminder>,
-) -> Response {
-    let mut pending = VecDeque::new();
-    pending.push_back(EventFrame::Subscribed {
-        target: target.clone(),
-    });
-
-    if !initial.is_empty() {
-        pending.push_back(EventFrame::Event {
-            target: target.clone(),
-            reminders: initial,
-        });
-    }
-
-    let state = StreamState {
-        target,
-        pending,
-        receiver: runtime.subscribe(),
-        heartbeat: tokio::time::interval(Duration::from_secs(15)),
-    };
-    let output = stream::unfold(state, next_frame);
-
-    Response::builder()
-        .header("content-type", "text/event-stream")
-        .header("cache-control", "no-cache")
-        .body(Body::from_stream(output))
-        .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
-}
-
-struct StreamState {
-    target: Target,
-    pending: VecDeque<EventFrame>,
-    receiver: broadcast::Receiver<chauffeur_core::QueuedReminder>,
-    heartbeat: tokio::time::Interval,
-}
-
-async fn next_frame(mut state: StreamState) -> Option<(Result<String, Infallible>, StreamState)> {
-    if let Some(frame) = state.pending.pop_front() {
-        return Some((Ok(encode_frame(&frame)), state));
-    }
-
-    loop {
-        tokio::select! {
-            received = state.receiver.recv() => match received {
-                Ok(reminder) if reminder.target == state.target => {
-                    let frame = EventFrame::Event {
-                        target: state.target.clone(),
-                        reminders: vec![reminder],
-                    };
-
-                    return Some((Ok(encode_frame(&frame)), state));
-                }
-                Ok(_) | Err(broadcast::error::RecvError::Lagged(_)) => {}
-                Err(broadcast::error::RecvError::Closed) => return None,
-            },
-            _ = state.heartbeat.tick() => {
-                return Some((Ok(encode_frame(&EventFrame::Heartbeat)), state));
-            }
+            (StatusCode::OK, Json(json!({ "deliver": !withheld }))).into_response()
         }
+        Err(error) => (
+            StatusCode::OK,
+            Json(json!({ "deliver": true, "error": error })),
+        )
+            .into_response(),
     }
 }
 
-fn encode_frame(frame: &EventFrame) -> String {
-    serde_json::to_string(frame).map_or_else(
-        |_| "event: error\ndata: serialization failed\n\n".to_string(),
-        |json| format!("data: {json}\n\n"),
-    )
+async fn signal(
+    engine: &EngineHandle,
+    params: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    let params: SignalParams =
+        serde_json::from_value(params).map_err(|error| format!("invalid params: {error}"))?;
+    let effects = engine.ingest(params.signal).await?;
+
+    serde_json::to_value(SignalResult { effects }).map_err(|error| error.to_string())
 }
 
 fn authorized(headers: &HeaderMap, token: Option<&str>) -> bool {
@@ -229,21 +182,17 @@ fn authorized(headers: &HeaderMap, token: Option<&str>) -> bool {
         .is_some_and(|value| value == format!("Bearer {token}"))
 }
 
-#[must_use]
-pub fn default_state_dir(home: &Path) -> PathBuf {
-    home.join(".local/state/chauffeur")
-}
-
-fn default_skills_dir() -> PathBuf {
-    std::env::current_exe()
-        .ok()
-        .and_then(|executable| {
-            executable
-                .parent()?
-                .parent()?
-                .parent()
-                .map(Path::to_path_buf)
+/// `CHAUFFEUR_STATE_DIR`, else `$XDG_STATE_HOME/chauffeur`, else
+/// `~/.local/state/chauffeur`; created if missing.
+fn state_dir(home: &Path) -> Result<PathBuf, String> {
+    let dir = std::env::var_os("CHAUFFEUR_STATE_DIR")
+        .map(PathBuf::from)
+        .or_else(|| {
+            std::env::var_os("XDG_STATE_HOME").map(|base| PathBuf::from(base).join("chauffeur"))
         })
-        .map(|root| root.join("skills"))
-        .unwrap_or_else(|| PathBuf::from("skills"))
+        .unwrap_or_else(|| home.join(".local/state/chauffeur"));
+
+    std::fs::create_dir_all(&dir).map_err(|error| format!("create {}: {error}", dir.display()))?;
+
+    Ok(dir)
 }

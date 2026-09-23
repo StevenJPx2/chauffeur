@@ -1,20 +1,14 @@
-//! Stable JSON contracts shared by daemon, CLI, MCP, and adapters.
+//! Stable JSON contracts shared by the daemon, CLI, MCP, and host adapters.
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::context::AgentContext;
-use crate::queue::QueuedReminder;
-use crate::skill::{SkillContext, SkillResult};
-use crate::steer::Reminder;
-use crate::target::Target;
+use crate::effect::Effect;
+use crate::signal::Signal;
 
-pub const METHOD_STEER: &str = "steer";
-pub const METHOD_REMINDERS_READ: &str = "reminders.read";
-pub const METHOD_REMINDERS_ACKNOWLEDGE: &str = "reminders.acknowledge";
 pub const METHOD_HEALTH: &str = "health";
-pub const METHOD_SKILL_EVALUATE: &str = "skill.evaluate";
-pub const METHOD_SKILLS_LIST: &str = "skills.list";
+/// Report one observation; returns the effects it produced.
+pub const METHOD_SIGNAL: &str = "signal";
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 pub struct DaemonRequest {
@@ -35,48 +29,13 @@ pub struct DaemonResponse {
     pub error: Option<String>,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
-#[serde(tag = "type", rename_all = "lowercase")]
-pub enum EventFrame {
-    Subscribed {
-        target: Target,
-    },
-    Event {
-        target: Target,
-        reminders: Vec<QueuedReminder>,
-    },
-    Heartbeat,
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct SignalParams {
+    pub signal: Signal,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct SteerParams {
-    pub target: Target,
-    pub context: AgentContext,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
-pub struct SteerResult {
-    pub reminders: Vec<Reminder>,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct TargetParams {
-    pub target: Target,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct AcknowledgeParams {
-    pub target: Target,
-    pub reminder_ids: Vec<String>,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct SkillEvaluateParams {
-    pub skill_id: String,
-    pub context: SkillContext,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct SkillEvaluateResult {
-    pub evaluation: SkillResult,
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct SignalResult {
+    pub effects: Vec<Effect>,
 }

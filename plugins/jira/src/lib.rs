@@ -20,7 +20,7 @@ impl Plugin for JiraPlugin {
             .gate(
                 Gate::default()
                     .source(&["jira"])
-                    .hooks(&["github:pr.merged"])
+                    .hooks(&["github:merged"])
                     .tools_not_called(&["jira_transition_issue"]),
             )
             .priority(20)

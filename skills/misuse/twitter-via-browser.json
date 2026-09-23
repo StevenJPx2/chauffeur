@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "identity": {
+    "id": "twitter-via-browser",
+    "name": "X/Twitter through a browser",
+    "version": "1.0.0"
+  },
+  "match": {
+    "tools": [
+      "shell",
+      "webfetch",
+      "execute"
+    ]
+  },
+  "question": "Does this call use a browser, browser-harness, or raw web requests to read or post on X/Twitter, where the twitter-cli skill does it directly?",
+  "nudge_at_or_above": 0.7,
+  "minimum_confidence": 0.4,
+  "steer": "Use twitter-cli for X/Twitter instead of the browser; the skill below shows how.",
+  "handoff_skill": "twitter-cli",
+  "cooldown_seconds": 120
+}

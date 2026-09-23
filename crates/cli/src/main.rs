@@ -5,11 +5,12 @@ use std::path::Path;
 use std::process::ExitCode;
 use std::{fs::File, io::Read};
 
-use chauffeur_core::{
-    AgentContext, DEFAULT_DAEMON_URL, DaemonClient, SkillContext, Target, load_skill,
-    skill::MAX_CONTEXT_BYTES,
-};
+use chauffeur_capability_permission::load_skill;
+use chauffeur_core::{DEFAULT_DAEMON_URL, DaemonClient, Signal};
 use chauffeur_daemon::{DEFAULT_PORT, DaemonOptions};
+
+/// Matches the daemon's RPC body cap.
+const MAX_SIGNAL_BYTES: usize = 128 * 1024;
 
 #[tokio::main]
 async fn main() -> ExitCode {
@@ -30,10 +31,8 @@ async fn run(args: Vec<String>) -> Result<(), String> {
     match command {
         "daemon" => run_daemon(&args[1..]).await,
         "mcp" => chauffeur_mcp::run_stdio(client()?).await,
-        "steer" => steer(&args[1..]).await,
-        "reminders" => reminders(&args[1..]).await,
-        "skill" => skill(&args[1..]).await,
-        "skills" => skills().await,
+        "skill" => skill(&args[1..]),
+        "signal" => signal(&args[1..]).await,
         "health" => client()?.health().await,
         _ => Err(usage()),
     }
@@ -49,58 +48,32 @@ async fn run_daemon(args: &[String]) -> Result<(), String> {
     chauffeur_daemon::serve(options).await
 }
 
-async fn steer(args: &[String]) -> Result<(), String> {
-    let target = target(args)?;
-    let context_path = option(args, "--context").ok_or("steer needs --context PATH")?;
-    let raw =
-        std::fs::read_to_string(context_path).map_err(|error| format!("read context: {error}"))?;
-    let context: AgentContext =
-        serde_json::from_str(&raw).map_err(|error| format!("decode context: {error}"))?;
-    let result = client()?.steer(target, context).await?;
-
-    println!(
-        "{}",
-        serde_json::to_string_pretty(&result).map_err(|error| error.to_string())?
-    );
-    Ok(())
-}
-
-async fn reminders(args: &[String]) -> Result<(), String> {
-    let Some(action) = args.first().map(String::as_str) else {
-        return Err("reminders needs read or ack".into());
-    };
-    let target = target(&args[1..])?;
-
-    match action {
-        "read" => {
-            let reminders = client()?.reminders(target).await?;
-            println!(
-                "{}",
-                serde_json::to_string_pretty(&reminders).map_err(|error| error.to_string())?
-            );
-            Ok(())
-        }
-        "ack" => {
-            let ids = values(&args[1..], "--id");
-            client()?.acknowledge(target, ids).await
-        }
-        _ => Err("reminders needs read or ack".into()),
+fn skill(args: &[String]) -> Result<(), String> {
+    match (args.first().map(String::as_str), args.get(1)) {
+        (Some("validate"), Some(path)) => validate_skill(path),
+        _ => Err("usage: chauffeur skill validate PATH".into()),
     }
 }
 
-async fn skill(args: &[String]) -> Result<(), String> {
-    let Some(action) = args.first().map(String::as_str) else {
-        return Err("skill needs validate or evaluate".into());
-    };
-
-    match action {
-        "validate" => validate_skill(args.get(1).ok_or("skill validate needs PATH")?),
-        "evaluate" => evaluate_skill(&args[1..]).await,
-        _ => Err("skill needs validate or evaluate".into()),
-    }
-}
-
+/// Validate a permission contract, or a misuse contract (one with
+/// `match.tools`), and print what was accepted.
 fn validate_skill(path: &str) -> Result<(), String> {
+    let bytes = read_bounded(path, MAX_SIGNAL_BYTES)?;
+    let value: serde_json::Value =
+        serde_json::from_slice(&bytes).map_err(|error| format!("{path}: {error}"))?;
+
+    if value["match"]["tools"].is_array() {
+        let contract = chauffeur_capability_tool_misuse::MisuseContract::from_json(&bytes)
+            .map_err(|error| format!("{path}: {error}"))?;
+
+        println!(
+            "valid misuse contract {} watching {:?}",
+            contract.identity.id, contract.matches.tools
+        );
+
+        return Ok(());
+    }
+
     let skill = load_skill(Path::new(path))?;
     let encoded = serde_json::to_string_pretty(&skill).map_err(|error| error.to_string())?;
 
@@ -109,23 +82,14 @@ fn validate_skill(path: &str) -> Result<(), String> {
     Ok(())
 }
 
-async fn evaluate_skill(args: &[String]) -> Result<(), String> {
-    let skill_id = option(args, "--skill").ok_or("skill evaluate needs --skill ID")?;
-    let context_path = option(args, "--context").ok_or("skill evaluate needs --context PATH")?;
-    let bytes = read_bounded(context_path, MAX_CONTEXT_BYTES)?;
-    let context: SkillContext =
-        serde_json::from_slice(&bytes).map_err(|error| format!("decode skill context: {error}"))?;
-    let result = client()?.evaluate_skill(skill_id, context).await?;
-    let encoded = serde_json::to_string_pretty(&result).map_err(|error| error.to_string())?;
-
-    println!("{encoded}");
-
-    Ok(())
-}
-
-async fn skills() -> Result<(), String> {
-    let ids = client()?.skills().await?;
-    let encoded = serde_json::to_string_pretty(&ids).map_err(|error| error.to_string())?;
+/// Send one signal from a JSON file and print the effects it produced.
+async fn signal(args: &[String]) -> Result<(), String> {
+    let path = option(args, "--file").ok_or("signal needs --file PATH")?;
+    let bytes = read_bounded(path, MAX_SIGNAL_BYTES)?;
+    let signal: Signal =
+        serde_json::from_slice(&bytes).map_err(|error| format!("decode signal: {error}"))?;
+    let effects = client()?.signal(signal).await?;
+    let encoded = serde_json::to_string_pretty(&effects).map_err(|error| error.to_string())?;
 
     println!("{encoded}");
 
@@ -148,13 +112,6 @@ fn read_bounded(path: &str, limit: usize) -> Result<Vec<u8>, String> {
     Ok(bytes)
 }
 
-fn target(args: &[String]) -> Result<Target, String> {
-    let kind = option(args, "--target-kind").ok_or("missing --target-kind")?;
-    let id = option(args, "--target-id").ok_or("missing --target-id")?;
-
-    Ok(Target::new(kind, id))
-}
-
 fn client() -> Result<DaemonClient, String> {
     let url = std::env::var("CHAUFFEUR_DAEMON_URL").unwrap_or_else(|_| DEFAULT_DAEMON_URL.into());
     let token = std::env::var("CHAUFFEUR_DAEMON_TOKEN").ok();
@@ -169,13 +126,6 @@ fn option<'a>(args: &'a [String], name: &str) -> Option<&'a str> {
         .map(String::as_str)
 }
 
-fn values(args: &[String], name: &str) -> Vec<String> {
-    args.windows(2)
-        .filter(|pair| pair.first().is_some_and(|argument| argument == name))
-        .filter_map(|pair| pair.get(1).cloned())
-        .collect()
-}
-
 fn usage() -> String {
-    "usage: chauffeur daemon [--port PORT] | mcp | health | skills | skill validate PATH | skill evaluate --skill ID --context PATH | steer --target-kind KIND --target-id ID --context PATH | reminders read|ack --target-kind KIND --target-id ID [--id ID]".into()
+    "usage: chauffeur daemon [--port PORT] | mcp | health | skill validate PATH | signal --file PATH".into()
 }

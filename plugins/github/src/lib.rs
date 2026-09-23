@@ -10,7 +10,9 @@ impl Plugin for GitHubPlugin {
     }
 
     fn rules(&self) -> Vec<Rule> {
-        vec![create_pr(), fix_ci(), address_review()]
+        // CI failures and review requests reach the agent from sourcefed
+        // itself; Chauffeur adds only follow-through sourcefed cannot know.
+        vec![create_pr()]
     }
 }
 
@@ -25,38 +27,15 @@ fn create_pr() -> Rule {
     .priority(15)
 }
 
-fn fix_ci() -> Rule {
-    Rule::new(
-        "github:fix-ci",
-        "Fix CI failures",
-        "There is an unread notification saying CI checks failed.",
-        "CI checks are failing on your PR. Read the failing check, fix the cause, and push.",
-    )
-    .gate(Gate::default().status(&["in_review"]))
-    .priority(25)
-    .once()
-}
-
-fn address_review() -> Rule {
-    Rule::new(
-        "github:address-review",
-        "Address PR review comments",
-        "There is an unread notification that a reviewer requested changes on the pull request.",
-        "A reviewer requested changes on your PR. Address the feedback and push updates.",
-    )
-    .gate(Gate::default().status(&["in_review"]))
-    .priority(20)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn plugin_owns_three_prefixed_rules() {
+    fn plugin_owns_prefixed_rules() {
         let rules = GitHubPlugin.rules();
 
-        assert_eq!(rules.len(), 3);
+        assert_eq!(rules.len(), 1);
         assert!(rules.iter().all(|rule| rule.id.starts_with("github:")));
     }
 }

@@ -13,6 +13,8 @@ path = "src/main.rs"
 
 [dependencies]
 chauffeur-core = { workspace = true }
+chauffeur-capability-permission = { workspace = true }
+chauffeur-capability-tool-misuse = { workspace = true }
 chauffeur-daemon = { workspace = true }
 chauffeur-mcp = { workspace = true }
 serde_json = { workspace = true }

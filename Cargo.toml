@@ -8,7 +8,16 @@ members = [
   "plugins/github",
   "plugins/jira",
   "plugins/git",
-  "judges/laya",
+  "plugins/anthropic",
+  "plugins/openai",
+  "capabilities/model-router",
+  "capabilities/skill-exposure",
+  "capabilities/tool-exposure",
+  "capabilities/permission",
+  "capabilities/idle-reminder",
+  "capabilities/tool-misuse",
+  "capabilities/event-gate",
+  "judges/jev",
 ]
 
 [workspace.package]
@@ -25,14 +34,22 @@ chauffeur-mcp = { path = "crates/mcp" }
 chauffeur-plugin-github = { path = "plugins/github" }
 chauffeur-plugin-jira = { path = "plugins/jira" }
 chauffeur-plugin-git = { path = "plugins/git" }
-chauffeur-judge-laya = { path = "judges/laya" }
+chauffeur-judge-jev = { path = "judges/jev" }
+chauffeur-plugin-anthropic = { path = "plugins/anthropic" }
+chauffeur-plugin-openai = { path = "plugins/openai" }
+chauffeur-capability-model-router = { path = "capabilities/model-router" }
+chauffeur-capability-skill-exposure = { path = "capabilities/skill-exposure" }
+chauffeur-capability-tool-exposure = { path = "capabilities/tool-exposure" }
+chauffeur-capability-permission = { path = "capabilities/permission" }
+chauffeur-capability-idle-reminder = { path = "capabilities/idle-reminder" }
+chauffeur-capability-tool-misuse = { path = "capabilities/tool-misuse" }
+chauffeur-capability-event-gate = { path = "capabilities/event-gate" }
 
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "io-std", "io-util", "process", "time", "net"] }
 axum = "0.8"
-reqwest = { version = "0.12", default-features = false, features = ["json", "stream"] }
-futures-util = "0.3"
+reqwest = { version = "0.12", default-features = false, features = ["json"] }
 
 [workspace.lints.clippy]
 correctness = { level = "deny", priority = -1 }
