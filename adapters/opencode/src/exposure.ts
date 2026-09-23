@@ -64,7 +64,7 @@ export async function installExposure(ctx: Plugin.Context, daemon: DaemonBridge)
     if (isIntegrationMessage(event.metadata)) return
 
     try {
-      const { context, firstInContext, skills } = await admission(ctx, event)
+      const { context, firstInContext, skills, model } = await admission(ctx, event, (set) => remember(sessionID, set))
 
       // A new context hides nothing until the engine decides; a later message
       // offers the hidden tools, which the engine may bring back.
@@ -73,7 +73,6 @@ export async function installExposure(ctx: Plugin.Context, daemon: DaemonBridge)
       const hidden = firstInContext ? null : await current(sessionID, event.sessionID)
       const tools = await toolsToJudge(ctx, firstInContext, hidden, requestTools)
       const codeMode = codeModeCatalog(await ctx.tool.list(), requestTools, surfacedIn(context))
-      const model = (await ctx.session.get({ sessionID: event.sessionID })).model
       const effects = await daemon.signal(signal(sessionID, {
         type: "user_message",
         text: clip(event.prompt.text, TEXT_CODE_POINTS),
@@ -116,12 +115,42 @@ async function apply(ctx: Plugin.Context, event: SessionPrompt, effects: Effect[
   }
 }
 
-/** The prompt's context, whether it starts one, and the skills to judge. */
-async function admission(ctx: Plugin.Context, event: SessionPrompt) {
+/**
+ * The prompt's context, whether it starts one, the skills to judge, and the
+ * session's model. A subagent's first prompt continues its parent's context
+ * instead of starting one.
+ */
+async function admission(ctx: Plugin.Context, event: SessionPrompt, remember: (set: Hidden) => void) {
   const context = currentContext(await ctx.session.context({ sessionID: event.sessionID }))
-  const firstInContext = !context.some((message) => message.type === "user" && !isIntegrationMessage(message.metadata))
+  const fresh = !context.some((message) => message.type === "user" && !isIntegrationMessage(message.metadata))
+  const session = await ctx.session.get({ sessionID: event.sessionID })
 
-  return { context, firstInContext, skills: await skillsToJudge(ctx, context, event) }
+  if (fresh && session.parentID) await inherit(ctx, event, session.parentID, remember)
+
+  return {
+    context,
+    firstInContext: fresh && !session.parentID,
+    skills: await skillsToJudge(ctx, context, event),
+    model: session.model,
+  }
+}
+
+/**
+ * Start a subagent from its parent: the parent's skills are attached to its
+ * first prompt, and the parent's hidden tools stay hidden, so the engine
+ * judges only what the subagent adds.
+ */
+async function inherit(ctx: Plugin.Context, event: SessionPrompt, parentID: SessionID, remember: (set: Hidden) => void): Promise<void> {
+  const parent = currentContext(await ctx.session.context({ sessionID: parentID }))
+  const present = new Set((event.prompt.skills ?? []).map((skill) => skill.id))
+  // Safe: these IDs were attached in the parent, so they are host skill IDs.
+  const skills = [...attachedSkills(parent)].filter((id) => !present.has(id as Skill.ID)).map((id) => ({ id: id as Skill.ID }))
+  const hidden = await restoreHidden(ctx, parentID).catch(() => null)
+
+  event.prompt.skills = [...(event.prompt.skills ?? []), ...skills]
+  remember(hidden)
+
+  if (hidden !== null) event.metadata = { ...event.metadata, [HIDDEN_METADATA_KEY]: [...hidden] }
 }
 
 /** Skills not yet in this context, within the catalog cap. */
@@ -132,7 +161,7 @@ async function skillsToJudge(ctx: Plugin.Context, context: ReadonlyArray<History
 }
 
 /** Skills already in this context: attached to user messages or delivered mid-turn. */
-function attachedSkills(context: ReadonlyArray<HistoryMessage>, event: SessionPrompt): Set<string> {
+function attachedSkills(context: ReadonlyArray<HistoryMessage>, event?: SessionPrompt): Set<string> {
   return new Set([
     ...context.flatMap((message) => (message.type === "user" ? message.skills ?? [] : [])).map((skill) => skill.id),
     ...context.flatMap((message) => {
@@ -140,7 +169,7 @@ function attachedSkills(context: ReadonlyArray<HistoryMessage>, event: SessionPr
 
       return typeof id === "string" ? [id] : []
     }),
-    ...(event.prompt.skills ?? []).map((skill) => skill.id),
+    ...(event?.prompt.skills ?? []).map((skill) => skill.id),
   ])
 }
 

@@ -20,8 +20,7 @@ are capabilities or plugins that hang off that core.
 | Irreversible-harm backstop | built |
 | Integration events and the sourcefed event gate, model switch-back, tool-group reveal, misuse contracts, persistence across restarts | built |
 | Ephemeral enhancements | not yet built |
-| Code Mode tool surfacing, skill-list removal | built |
-| Audit log, child-session inheritance | not yet built |
+| Code Mode tool surfacing, skill-list removal, audit log, child-session inheritance | built |
 
 
 ## Three planes
@@ -98,6 +97,10 @@ any capability sees them.
 | Persistent enhancement | attach to the admitted user prompt (`prompt` hook: `skills`, `metadata`), or `session.synthetic` (`resume` to wake an idle agent, `steer` mid-turn, `resume: false` to wait for the next turn) | in history; monotonic | skill preload, hidden-tool record, idle reminder, misuse nudge, drift skill |
 | Ephemeral enhancement | append to `messages` in the `context` hook | this request only, re-sent while active | none yet: appending needs `@opencode/ai`'s `Message` class, a direct dependency not yet added |
 | Decision | control seam; never touches the prompt | immediate | permission allow/deny/ask, model switch |
+
+A subagent's first prompt continues its parent's context rather than starting
+one: the adapter attaches the parent's skills to it and keeps the parent's
+hidden tools hidden, so the engine judges only what the subagent adds.
 
 What a context has already received is rebuilt from its own history: attached skills are read from user messages and from
 synthetic messages carrying `chauffeur.skill` since the last compaction, and
@@ -389,7 +392,13 @@ The adapter sends **Signals** and applies **Effects**; it holds no policy.
   (default `$XDG_STATE_HOME/chauffeur` or `~/.local/state/chauffeur`),
   atomically, and loads it at start. A state file over 8 MiB, from another
   version, or that no longer parses is ignored, so the daemon starts fresh.
-- Every decision is to be logged to a bounded, redacted local JSONL audit log.
+- **Audit log.** Every signal that asked System One, was vetoed, produced
+  effects, or failed appends one JSONL record to
+  `$CHAUFFEUR_STATE_DIR/audit.jsonl`: the signal's kind and a short summary,
+  the namespaced questions, the answers or System One's error, the veto, the
+  effects, and the time spent waiting. Text is secret-redacted and clipped; the
+  file rotates once to `audit.1.jsonl` past 8 MiB. `chauffeur audit [N]` prints
+  the last N decisions, one line each.
 
 ## Configuration
 

@@ -59,6 +59,7 @@ async fn first_user_message_attaches_skills_and_hides_unneeded_tools() {
         jev,
         idle_reminders: false,
         state_file: None,
+        audit_file: None,
     })
     .await
     .expect("engine starts");

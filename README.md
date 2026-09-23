@@ -55,6 +55,19 @@ The daemon keeps what it has learned about each session in
 `~/.local/state/chauffeur/state.json` (`CHAUFFEUR_STATE_DIR`), so a restart
 loses nothing.
 
+Every decision is logged to `~/.local/state/chauffeur/audit.jsonl`. To see
+why Chauffeur did something:
+
+```sh
+chauffeur audit      # the last 20 decisions
+chauffeur audit 100
+```
+
+```text
+00:16:40 UTC ses_f32a1b… user_message Check my latest Twitter mentions → attach_skills ["twitter-cli"] | 1 asked, 493 ms
+00:16:42 UTC ses_f32a1b… permission_request shell rm -rf / → permission deny | 0 asked, 0 ms; vetoed: rm -rf /
+```
+
 ## Run
 
 ```sh

@@ -1,5 +1,7 @@
 //! Chauffeur CLI. All behavior goes through the daemon protocol.
 
+mod audit;
+
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::Path;
 use std::process::ExitCode;
@@ -34,6 +36,7 @@ async fn run(args: Vec<String>) -> Result<(), String> {
         "skill" => skill(&args[1..]),
         "signal" => signal(&args[1..]).await,
         "health" => client()?.health().await,
+        "audit" => audit(&args[1..]),
         _ => Err(usage()),
     }
 }
@@ -46,6 +49,15 @@ async fn run_daemon(args: &[String]) -> Result<(), String> {
     let options = DaemonOptions::from_env(address)?;
 
     chauffeur_daemon::serve(options).await
+}
+
+fn audit(args: &[String]) -> Result<(), String> {
+    let address = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), DEFAULT_PORT);
+    let path = DaemonOptions::from_env(address)?
+        .audit_file
+        .ok_or("the daemon keeps no audit log")?;
+
+    audit::run(args, &path)
 }
 
 fn skill(args: &[String]) -> Result<(), String> {
@@ -127,5 +139,5 @@ fn option<'a>(args: &'a [String], name: &str) -> Option<&'a str> {
 }
 
 fn usage() -> String {
-    "usage: chauffeur daemon [--port PORT] | mcp | health | skill validate PATH | signal --file PATH".into()
+    "usage: chauffeur daemon [--port PORT] | mcp | health | audit [N] | skill validate PATH | signal --file PATH".into()
 }

@@ -1,5 +1,6 @@
 //! Thin HTTP host for the Chauffeur engine.
 
+mod audit;
 mod engine;
 mod sourcefed;
 
@@ -34,11 +35,13 @@ pub struct DaemonOptions {
     pub skills_dir: PathBuf,
     pub idle_reminders: bool,
     pub state_file: Option<PathBuf>,
+    pub audit_file: Option<PathBuf>,
 }
 
 impl DaemonOptions {
     pub fn from_env(address: SocketAddr) -> Result<Self, String> {
         let home = std::env::var_os("HOME").ok_or("HOME is not set")?;
+        let state = state_dir(Path::new(&home))?;
         let config_dir = std::env::var_os("CHAUFFEUR_CONFIG_DIR").map_or_else(
             || PathBuf::from(&home).join(".config/chauffeur"),
             PathBuf::from,
@@ -54,7 +57,8 @@ impl DaemonOptions {
             skills_dir,
             idle_reminders: std::env::var("CHAUFFEUR_IDLE_STEERING")
                 .is_ok_and(|value| value == "true"),
-            state_file: Some(state_dir(Path::new(&home))?.join("state.json")),
+            state_file: Some(state.join("state.json")),
+            audit_file: Some(state.join("audit.jsonl")),
         })
     }
 }
@@ -70,6 +74,7 @@ pub async fn serve(options: DaemonOptions) -> Result<(), String> {
         jev,
         idle_reminders: options.idle_reminders,
         state_file: options.state_file,
+        audit_file: options.audit_file,
     })
     .await?;
     let state = AppState {

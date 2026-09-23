@@ -9,6 +9,7 @@ use crate::effect::{Effect, PermissionDecision};
 use crate::signal::Signal;
 use crate::situation::Situation;
 use crate::system_one::{Answer, Question, SystemOne};
+use crate::trace::{Trace, TracedAnswer, TracedQuestion};
 
 pub const MAX_AGENTS: usize = 256;
 /// Bumped when the saved state's shape changes; older state is ignored.
@@ -19,6 +20,7 @@ pub struct Engine {
     capabilities: Vec<Box<dyn Capability>>,
     situations: HashMap<String, Situation>,
     backstop: Backstop,
+    trace: Trace,
 }
 
 impl Engine {
@@ -38,6 +40,7 @@ impl Engine {
             system_one,
             capabilities,
             situations: HashMap::new(),
+            trace: Trace::default(),
             backstop: Backstop::new(Vec::new()),
         })
     }
@@ -87,12 +90,21 @@ impl Engine {
         }
     }
 
+    /// What the last [`Engine::ingest`] asked and received, for auditing.
+    #[must_use]
+    pub fn trace(&self) -> &Trace {
+        &self.trace
+    }
+
     pub fn ingest(&mut self, signal: &Signal) -> Result<Vec<Effect>, String> {
+        self.trace = Trace::default();
         signal.validate()?;
         self.record(signal);
 
         // Irreversible harm is vetoed before any capability or model call.
         if let Some(pattern) = self.backstop.veto(signal) {
+            self.trace.veto = Some(pattern.to_string());
+
             return Ok(vec![Effect::Permission {
                 agent_id: signal.agent_id.clone(),
                 decision: PermissionDecision::Deny,
@@ -181,7 +193,22 @@ impl Engine {
                 })
             })
             .collect();
-        let answers = self.system_one.ask(&situation.render(), &questions).ok();
+        let started = std::time::Instant::now();
+        let result = self.system_one.ask(&situation.render(), &questions);
+
+        self.trace.elapsed_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
+        self.trace.questions = questions.iter().map(TracedQuestion::new).collect();
+
+        let answers = match result {
+            Ok(answers) => {
+                self.trace.answers = answers.iter().map(TracedAnswer::new).collect();
+                Some(answers)
+            }
+            Err(error) => {
+                self.trace.error = Some(error.0);
+                None
+            }
+        };
         let mut effects = Vec::new();
 
         for (index, _) in &asks {
@@ -403,5 +430,27 @@ mod tests {
         let mut fresh = engine(false, &calls);
         fresh.load(stale);
         assert!(fresh.situations.is_empty());
+    }
+
+    #[test]
+    fn each_ingest_leaves_a_trace_of_what_was_asked_and_answered() {
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let mut ok = engine(false, &calls);
+        ok.ingest(&signal()).unwrap();
+
+        let ids: Vec<&str> = ok
+            .trace()
+            .questions
+            .iter()
+            .map(|question| question.id.as_str())
+            .collect();
+        assert_eq!(ids, vec!["one/a", "one/b", "two/a", "two/b"]);
+        assert_eq!(ok.trace().answers.len(), 4);
+        assert!(ok.trace().error.is_none());
+
+        let mut failing = engine(true, &calls);
+        failing.ingest(&signal()).unwrap();
+        assert_eq!(failing.trace().error.as_deref(), Some("down"));
+        assert!(failing.trace().answers.is_empty());
     }
 }

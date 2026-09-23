@@ -46,6 +46,8 @@ pub struct EngineOptions {
     /// Where per-agent memory is kept across restarts; `None` keeps it in
     /// memory only.
     pub state_file: Option<PathBuf>,
+    /// Where every decision is appended as JSONL; `None` keeps no log.
+    pub audit_file: Option<PathBuf>,
 }
 
 impl EngineHandle {
@@ -58,6 +60,7 @@ impl EngineHandle {
             .name("chauffeur-engine".into())
             .spawn(move || {
                 let state_file = options.state_file.clone();
+                let audit_file = options.audit_file.clone();
                 let mut engine = match build_engine(options) {
                     Ok(engine) => {
                         let _ = ready.send(Ok(()));
@@ -74,7 +77,13 @@ impl EngineHandle {
                 }
 
                 while let Some(job) = queue.blocking_recv() {
-                    let _ = job.reply.send(engine.ingest(&job.signal));
+                    let result = engine.ingest(&job.signal);
+
+                    if let Some(path) = &audit_file {
+                        crate::audit::append(path, &job.signal, engine.trace(), &result);
+                    }
+
+                    let _ = job.reply.send(result);
 
                     if let Some(path) = &state_file {
                         persist(&engine, path);

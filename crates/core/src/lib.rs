@@ -16,6 +16,7 @@ pub mod rule;
 pub mod signal;
 pub mod situation;
 pub mod system_one;
+pub mod trace;
 
 pub use backstop::{Backstop, BackstopConfig};
 pub use capability::{Capability, Plan};
@@ -36,3 +37,4 @@ pub use system_one::{
     Answer, AnswerValue, ChoiceOption, Question, QuestionKind, SystemOne, SystemOneError,
     validate_answers,
 };
+pub use trace::Trace;
