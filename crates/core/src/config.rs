@@ -31,7 +31,9 @@ pub fn load_config<T: DeserializeOwned + Default>(path: &Path) -> Result<T, Stri
 }
 
 /// Read every `*.json` file directly in `directory`, sorted by path. A missing
-/// directory has none. At most `max_files` files of `max_bytes` each.
+/// directory has none. At most `max_files` files of `max_bytes` each. A
+/// symlinked file is rejected, so a contract cannot be read from outside its
+/// folder.
 pub fn read_json_files(
     directory: &Path,
     max_files: usize,
@@ -76,9 +78,14 @@ pub fn read_json_files(
     paths
         .into_iter()
         .map(|path| {
-            let size = std::fs::metadata(&path)
-                .map_err(|error| format!("stat {}: {error}", path.display()))?
-                .len();
+            let metadata = std::fs::symlink_metadata(&path)
+                .map_err(|error| format!("stat {}: {error}", path.display()))?;
+
+            if !metadata.is_file() {
+                return Err(format!("{} must be a regular file", path.display()));
+            }
+
+            let size = metadata.len();
 
             if size > max_bytes {
                 return Err(format!("{} exceeds {max_bytes} bytes", path.display()));

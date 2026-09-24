@@ -16,7 +16,7 @@ are capabilities or plugins that hang off that core.
 |---|---|
 | Sense → Classify → Act engine, System One interface, Jev provider (HTTPS via rustls), secret redaction | built |
 | Model router capability, Anthropic and OpenAI provider plugins, OpenCode signal/effect adapter | built |
-| Skill exposure, tool exposure, permission (skill contract), idle-reminder, and tool-misuse capabilities | built |
+| Skill exposure, tool exposure, permission (skill contract), project-local JSON skills, idle-reminder, and tool-misuse capabilities | built |
 | Irreversible-harm backstop | built |
 | Integration events and the sourcefed event gate, model switch-back, tool-group reveal, misuse contracts, persistence across restarts | built |
 | Ephemeral enhancements | not yet built |
@@ -111,7 +111,7 @@ new effect and no adapter change:
 | `permission` | answers the pending permission request: allow, deny, or ask with a message | permission contracts, the backstop |
 | `model` | switches the model (with its thinking variant) and retries, or keeps it and applies its own retry policy | model router |
 | `tools` | hides or shows named tools in this context | tool exposure |
-| `context` | adds skills (the host resolves their bodies) and text to the conversation, at a `delivery`: `prompt` (with the user message being admitted), `steer` (the running turn), `resume` (wakes an idle agent), or `wait` (for the next turn) | skill exposure, tool exposure (Code Mode notes), tool misuse, idle reminders |
+| `context` | adds skills (the host resolves their bodies) and text to the conversation, at a `delivery`: `prompt` (with the user message being admitted), `steer` (the running turn), `resume` (wakes an idle agent), or `wait` (for the next turn) | skill exposure, tool exposure (Code Mode notes), tool misuse, project skills, idle reminders |
 | `gate` | delivers or withholds the integration event being gated | event gate |
 
 Every `context` delivery lands in history at the tail, so the cached prefix
@@ -273,9 +273,30 @@ judgment skips the nudge. Reminders run only when the daemon has
 `CHAUFFEUR_IDLE_STEERING=true`; turn ends are always reported.
 
 Rules add follow-through only. sourcefed already delivers CI failures and
-review requests to the session, so the shipped rules are `github:create-pr`,
-`git:conflict-loop`, and `jira:transition-after-merge` (after `github:merged`
-on a Jira-sourced agent).
+review requests to the session, so the shipped rules are `git:conflict-loop`
+and `jira:transition-after-merge` (after `github:merged` on a Jira-sourced
+agent). PR follow-through is a project-local skill contract.
+
+### Project-local JSON skills
+
+`capabilities/project-skills` reads `.chauffeur/skills/*.json` in the current
+Git worktree and its ancestor directories up to the Git root. A nested
+directory's contracts apply when the session runs there; another repository's
+contracts cannot enter its questions. Files are strict, bounded JSON. Each
+contract declares a `turn_end` trigger, tool-call facts, one or two ordered
+Noul judgments, confidence thresholds, and a `resume` or `wait` context
+effect. Jev judges each step; a second round runs only when its first judgment
+passes. A failed or uncertain judgment delivers nothing. `once` effects are
+recorded per session and workspace until the next user request. No agent skill
+body is attached.
+
+The HPDP Overlay worktree can keep verification and PR follow-through
+contracts in its own `.chauffeur/skills/`. The first PR judgment checks the
+latest user instruction, including a request not to create a PR; the second
+checks whether the work is verified and ready. The host supplies the current
+workspace and latest user request on turn end; tool calls are tracked by
+workspace. Use `chauffeur skill validate-project /path/to/worktree` to check
+the active contracts.
 
 ### Integration events and the event gate
 
@@ -423,12 +444,13 @@ The adapter sends **Signals** and applies **Effects**; it holds no policy.
 | `capabilities/tool-exposure` | tool-exposure capability |
 | `capabilities/permission` | permission capability and the skill-contract format |
 | `capabilities/idle-reminder` | idle-reminder capability and the rule-plugin contract |
+| `capabilities/project-skills` | project-local scoped JSON contracts and bounded Jev judgment chains |
 | `capabilities/tool-misuse` | tool-misuse capability and the misuse-contract format |
 | `capabilities/event-gate` | event-gate capability |
 | `plugins/anthropic`, `plugins/openai` | provider tier tables |
-| `plugins/github`, `plugins/jira`, `plugins/git` | idle-reminder rules |
+| `plugins/jira`, `plugins/git` | idle-reminder rules |
 | `judges/jev` | Jev System One provider |
-| `adapters/opencode` | signals in, effects out |
+| `adapters/opencode` | signals in, effects out; an Effect plugin whose hooks share the plugin scope |
 
 ## Failure and bounds
 

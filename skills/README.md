@@ -11,6 +11,14 @@ rejected, and `chauffeur skill validate PATH` checks one.
 | `misuse/` | Misuse contracts: tool calls Jev checks after they run, with the steer message and an optional skill to hand over. |
 | `handoff/` | Skills Chauffeur hands over, in OpenCode's `SKILL.md` format: `slack-cli`, `jira-cli`, and `twitter-cli`. Link them into a skills directory OpenCode reads, such as `~/.agents/skills`. |
 
+Project-local skills live under each Git worktree's `.chauffeur/skills/`, with
+optional deeper `.chauffeur/skills/` directories for sessions opened there.
+They are separate from host-loaded `SKILL.md` files: a contract states when to
+ask Jev, up to two dependent yes/no judgments, and a `resume` or `wait` message
+when both judgments pass. The current workspace and tool-call history scope
+the contract to its project. Use `chauffeur skill validate-project WORKSPACE`
+to check all active files.
+
 ## Misuse contracts
 
 ```json

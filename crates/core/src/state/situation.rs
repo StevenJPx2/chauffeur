@@ -111,7 +111,7 @@ fn describe(kind: &SignalKind) -> Option<String> {
             summary,
             ..
         } => Some(format!("{source} {kind} event: {summary}")),
-        SignalKind::ModelSucceeded { .. } | SignalKind::TurnEnd => None,
+        SignalKind::ModelSucceeded { .. } | SignalKind::TurnEnd { .. } => None,
     }
 }
 
@@ -130,6 +130,7 @@ mod tests {
             kind: SignalKind::ToolResult {
                 tool: format!("tool-{n}"),
                 ok: true,
+                workspace: String::new(),
                 input: String::new(),
                 error: String::new(),
                 user_request: String::new(),
@@ -173,6 +174,7 @@ mod tests {
             kind: SignalKind::ToolResult {
                 tool: "edit".into(),
                 ok: false,
+                workspace: String::new(),
                 input: r#"{"path":"main.rs"}"#.into(),
                 error: "permission denied".into(),
                 user_request: String::new(),

@@ -167,7 +167,7 @@ impl Capability for IdleReminder {
                 self.record_hook(&signal.agent_id, format!("{source}:{kind}"));
                 Plan::Skip
             }
-            SignalKind::TurnEnd => {
+            SignalKind::TurnEnd { .. } => {
                 Plan::Ask(self.candidates(signal).into_iter().map(question).collect())
             }
             _ => Plan::Skip,
@@ -176,7 +176,7 @@ impl Capability for IdleReminder {
 
     fn decide(&mut self, signal: &Signal, answers: Option<&[Answer]>) -> Vec<Effect> {
         // A failed judgment skips the nudge.
-        let (SignalKind::TurnEnd, Some(answers)) = (&signal.kind, answers) else {
+        let (SignalKind::TurnEnd { .. }, Some(answers)) = (&signal.kind, answers) else {
             return Vec::new();
         };
         let mut chosen: Vec<Rule> = self

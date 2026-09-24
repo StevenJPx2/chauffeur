@@ -62,6 +62,7 @@ async fn usage_limit_switches_to_the_judged_same_tier_model() {
         SignalKind::ToolResult {
             tool: "edit".into(),
             ok: true,
+            workspace: String::new(),
             input: String::new(),
             error: String::new(),
             user_request: String::new(),

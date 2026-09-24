@@ -110,6 +110,9 @@ pub enum SignalKind {
     ToolResult {
         tool: String,
         ok: bool,
+        /// The session's current workspace, for project-local contracts.
+        #[serde(default)]
+        workspace: String,
         /// Clipped summary of the tool's input.
         #[serde(default)]
         input: String,
@@ -125,8 +128,14 @@ pub enum SignalKind {
         #[serde(default)]
         candidates: Vec<CatalogEntry>,
     },
-    /// The agent finished its turn and is idle.
-    TurnEnd,
+    /// The agent finished its turn and is idle. The host supplies its current
+    /// workspace and latest user request for scoped follow-through contracts.
+    TurnEnd {
+        #[serde(default)]
+        workspace: String,
+        #[serde(default)]
+        user_request: String,
+    },
     /// A model request failed. The host reports every retryable error; core
     /// decides whether it is a usage limit.
     ModelError {
@@ -173,9 +182,16 @@ impl Signal {
             ));
         }
 
-        match &self.kind {
+        self.kind.validate()
+    }
+}
+
+impl SignalKind {
+    fn validate(&self) -> Result<(), String> {
+        match self {
             SignalKind::ToolResult {
                 tool,
+                workspace,
                 input,
                 error,
                 user_request,
@@ -184,34 +200,27 @@ impl Signal {
                 ..
             } => {
                 bounded(tool, "tool")?;
+                bounded(workspace, "workspace")?;
                 bounded(input, "tool input")?;
                 bounded(error, "tool error")?;
                 bounded(user_request, "user request")?;
                 bounded(evidence, "tool evidence")?;
                 validate_catalog(candidates, "tool candidates")
             }
-            SignalKind::TurnEnd => Ok(()),
+            SignalKind::TurnEnd {
+                workspace,
+                user_request,
+            } => {
+                bounded(workspace, "workspace")?;
+                bounded(user_request, "user request")
+            }
             SignalKind::ModelError {
                 model,
                 error_type,
                 message,
                 available,
                 ..
-            } => {
-                validate_model(model)?;
-                bounded(error_type, "error_type")?;
-                bounded(message, "message")?;
-
-                if available.len() > MAX_AVAILABLE_MODELS {
-                    return Err(format!(
-                        "signal lists more than {MAX_AVAILABLE_MODELS} models"
-                    ));
-                }
-
-                available
-                    .iter()
-                    .try_for_each(|entry| validate_model(&entry.model))
-            }
+            } => validate_model_error(model, error_type, message, available),
             SignalKind::ModelSucceeded { model } => validate_model(model),
             SignalKind::IntegrationEvent {
                 source,
@@ -219,16 +228,7 @@ impl Signal {
                 summary,
                 body,
                 ..
-            } => {
-                if source.is_empty() || kind.is_empty() {
-                    return Err("integration event source and kind must be non-empty".into());
-                }
-
-                bounded(source, "source")?;
-                bounded(kind, "kind")?;
-                bounded(summary, "summary")?;
-                bounded(body, "body")
-            }
+            } => validate_integration_event(source, kind, summary, body),
             SignalKind::PermissionRequest {
                 action,
                 resources,
@@ -239,20 +239,7 @@ impl Signal {
                 bounded(action, "action")?;
                 bounded(request, "request")?;
                 bounded(workspace, "workspace")?;
-
-                if resources.len() > MAX_RESOURCES || user_requests.len() > MAX_USER_REQUESTS {
-                    return Err(format!(
-                        "signal lists more than {MAX_RESOURCES} resources or {MAX_USER_REQUESTS} user requests"
-                    ));
-                }
-
-                resources.iter().try_for_each(|resource| {
-                    bounded(&resource.requested, "resource")?;
-                    bounded(&resource.resolved, "resource")
-                })?;
-                user_requests
-                    .iter()
-                    .try_for_each(|text| bounded(text, "user request"))
+                validate_permission_lists(resources, user_requests)
             }
             SignalKind::UserMessage {
                 text,
@@ -261,19 +248,83 @@ impl Signal {
                 model,
                 code_mode,
                 ..
-            } => {
-                bounded(text, "text")?;
-                validate_code_mode(code_mode)?;
-
-                if let Some(model) = model {
-                    validate_model(model)?;
-                }
-
-                validate_catalog(skills, "skills")?;
-                validate_catalog(tools, "tools")
-            }
+            } => validate_user_message(text, skills, tools, model.as_ref(), code_mode),
         }
     }
+}
+
+fn validate_integration_event(
+    source: &str,
+    kind: &str,
+    summary: &str,
+    body: &str,
+) -> Result<(), String> {
+    if source.is_empty() || kind.is_empty() {
+        return Err("integration event source and kind must be non-empty".into());
+    }
+
+    bounded(source, "source")?;
+    bounded(kind, "kind")?;
+    bounded(summary, "summary")?;
+    bounded(body, "body")
+}
+
+fn validate_user_message(
+    text: &str,
+    skills: &[CatalogEntry],
+    tools: &[CatalogEntry],
+    model: Option<&ModelRef>,
+    code_mode: &[CodeModeNamespace],
+) -> Result<(), String> {
+    bounded(text, "text")?;
+    validate_code_mode(code_mode)?;
+
+    if let Some(model) = model {
+        validate_model(model)?;
+    }
+
+    validate_catalog(skills, "skills")?;
+    validate_catalog(tools, "tools")
+}
+
+fn validate_model_error(
+    model: &ModelRef,
+    error_type: &str,
+    message: &str,
+    available: &[AvailableModel],
+) -> Result<(), String> {
+    validate_model(model)?;
+    bounded(error_type, "error_type")?;
+    bounded(message, "message")?;
+
+    if available.len() > MAX_AVAILABLE_MODELS {
+        return Err(format!(
+            "signal lists more than {MAX_AVAILABLE_MODELS} models"
+        ));
+    }
+
+    available
+        .iter()
+        .try_for_each(|entry| validate_model(&entry.model))
+}
+
+fn validate_permission_lists(
+    resources: &[Resource],
+    user_requests: &[String],
+) -> Result<(), String> {
+    if resources.len() > MAX_RESOURCES || user_requests.len() > MAX_USER_REQUESTS {
+        return Err(format!(
+            "signal lists more than {MAX_RESOURCES} resources or {MAX_USER_REQUESTS} user requests"
+        ));
+    }
+
+    resources.iter().try_for_each(|resource| {
+        bounded(&resource.requested, "resource")?;
+        bounded(&resource.resolved, "resource")
+    })?;
+    user_requests
+        .iter()
+        .try_for_each(|text| bounded(text, "user request"))
 }
 
 fn validate_code_mode(namespaces: &[CodeModeNamespace]) -> Result<(), String> {

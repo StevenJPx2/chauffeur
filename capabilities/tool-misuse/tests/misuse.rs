@@ -36,6 +36,7 @@ fn call(at: u64, tool: &str) -> Signal {
         kind: SignalKind::ToolResult {
             tool: tool.into(),
             ok: true,
+            workspace: String::new(),
             input: r#"{"command":"python3 patch.py"}"#.into(),
             error: String::new(),
             user_request: String::new(),

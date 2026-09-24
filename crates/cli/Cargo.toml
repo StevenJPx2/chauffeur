@@ -14,6 +14,7 @@ path = "src/main.rs"
 [dependencies]
 chauffeur-core = { workspace = true, features = ["client"] }
 chauffeur-capability-permission = { workspace = true }
+chauffeur-capability-project-skills = { workspace = true }
 chauffeur-capability-tool-misuse = { workspace = true }
 chauffeur-daemon = { workspace = true }
 chauffeur-mcp = { workspace = true }

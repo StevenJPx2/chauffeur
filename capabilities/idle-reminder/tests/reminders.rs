@@ -22,6 +22,7 @@ fn tool(at: u64, name: &str) -> Signal {
         SignalKind::ToolResult {
             tool: name.into(),
             ok: true,
+            workspace: String::new(),
             input: String::new(),
             error: String::new(),
             user_request: String::new(),
@@ -29,6 +30,13 @@ fn tool(at: u64, name: &str) -> Signal {
             candidates: Vec::new(),
         },
     )
+}
+
+fn turn_end() -> SignalKind {
+    SignalKind::TurnEnd {
+        workspace: String::new(),
+        user_request: String::new(),
+    }
 }
 
 fn asked(plan: &Plan) -> Vec<String> {
@@ -76,13 +84,13 @@ fn gates_use_the_tools_the_agent_ran() {
 
     reminders.plan(&Situation::default(), &tool(1, "edit"));
     assert_eq!(
-        asked(&reminders.plan(&Situation::default(), &signal(2, SignalKind::TurnEnd))),
+        asked(&reminders.plan(&Situation::default(), &signal(2, turn_end()))),
         vec!["create-pr"]
     );
 
     reminders.plan(&Situation::default(), &tool(3, "github_open_pr"));
     assert_eq!(
-        asked(&reminders.plan(&Situation::default(), &signal(4, SignalKind::TurnEnd))),
+        asked(&reminders.plan(&Situation::default(), &signal(4, turn_end()))),
         vec!["fix-ci"]
     );
 }
@@ -96,7 +104,7 @@ fn confirmed_rules_remind_by_priority_up_to_the_limit() {
         rule("absent", 20),
     ];
     let mut reminders = IdleReminder::new(rules);
-    let idle = signal(1, SignalKind::TurnEnd);
+    let idle = signal(1, turn_end());
     let answers = [
         noul("low", 0.9),
         noul("high", 0.9),
@@ -121,15 +129,15 @@ fn once_and_cooldown_suppress_repeat_reminders() {
     let answers = [noul("once", 0.9), noul("cool", 0.9)];
 
     assert_eq!(
-        reminded(&reminders.decide(&signal(10, SignalKind::TurnEnd), Some(&answers))),
+        reminded(&reminders.decide(&signal(10, turn_end()), Some(&answers))),
         vec!["once", "cool"]
     );
     assert_eq!(
-        asked(&reminders.plan(&Situation::default(), &signal(20, SignalKind::TurnEnd))),
+        asked(&reminders.plan(&Situation::default(), &signal(20, turn_end()))),
         Vec::<String>::new()
     );
     assert_eq!(
-        asked(&reminders.plan(&Situation::default(), &signal(80, SignalKind::TurnEnd))),
+        asked(&reminders.plan(&Situation::default(), &signal(80, turn_end()))),
         vec!["cool"]
     );
 }
@@ -138,11 +146,7 @@ fn once_and_cooldown_suppress_repeat_reminders() {
 fn a_failed_judgment_skips_the_nudge() {
     let mut reminders = IdleReminder::new(vec![rule("a", 1)]);
 
-    assert!(
-        reminders
-            .decide(&signal(1, SignalKind::TurnEnd), None)
-            .is_empty()
-    );
+    assert!(reminders.decide(&signal(1, turn_end()), None).is_empty());
 }
 
 #[test]
@@ -151,7 +155,7 @@ fn a_rule_needs_seventy_percent_by_default() {
     let answers = [noul("a", 0.65), noul("b", 0.7)];
 
     assert_eq!(
-        reminded(&reminders.decide(&signal(1, SignalKind::TurnEnd), Some(&answers))),
+        reminded(&reminders.decide(&signal(1, turn_end()), Some(&answers))),
         vec!["b"]
     );
 }
@@ -175,7 +179,7 @@ fn integration_events_become_hooks_and_facts() {
     let transition =
         rule("transition", 2).gate(Gate::default().source(&["jira"]).hooks(&["github:merged"]));
     let mut reminders = IdleReminder::new(vec![create_pr, transition]);
-    let idle = |at| signal(at, SignalKind::TurnEnd);
+    let idle = |at| signal(at, turn_end());
 
     reminders.plan(&Situation::default(), &tool(1, "edit"));
     assert_eq!(
@@ -211,7 +215,7 @@ fn memory_survives_a_save_and_load() {
     after.load(before.save().expect("idle reminders keep memory"));
 
     assert_eq!(
-        asked(&after.plan(&Situation::default(), &signal(2, SignalKind::TurnEnd))),
+        asked(&after.plan(&Situation::default(), &signal(2, turn_end()))),
         vec!["create-pr"]
     );
     // State that no longer fits is ignored.

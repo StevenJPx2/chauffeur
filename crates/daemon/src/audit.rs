@@ -111,7 +111,7 @@ fn detail(kind: &SignalKind) -> String {
             ..
         } => format!("{source} {kind}: {summary}"),
         SignalKind::ModelSucceeded { model } => model.key(),
-        SignalKind::TurnEnd => String::new(),
+        SignalKind::TurnEnd { .. } => String::new(),
     }
 }
 
@@ -138,6 +138,7 @@ mod tests {
         let tool = signal(SignalKind::ToolResult {
             tool: "shell".into(),
             ok: true,
+            workspace: String::new(),
             input: format!("{{\"command\":\"echo {secret} {unknown}\"}}"),
             error: String::new(),
             user_request: String::new(),
@@ -154,7 +155,10 @@ mod tests {
 
         append(
             &path,
-            &signal(SignalKind::TurnEnd),
+            &signal(SignalKind::TurnEnd {
+                workspace: String::new(),
+                user_request: String::new(),
+            }),
             &Trace::default(),
             &Ok(Vec::new()),
             chauffeur_core::redact_secrets,

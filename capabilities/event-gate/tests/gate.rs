@@ -48,7 +48,10 @@ fn asks_whether_an_integration_event_needs_the_agent() {
         EventGate.plan(
             &Situation::default(),
             &Signal {
-                kind: SignalKind::TurnEnd,
+                kind: SignalKind::TurnEnd {
+                    workspace: String::new(),
+                    user_request: String::new()
+                },
                 ..event("")
             }
         ),

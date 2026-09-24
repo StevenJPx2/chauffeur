@@ -17,6 +17,8 @@ pub const ID: &str = "skill-exposure";
 pub const NONE: &str = "none";
 /// Attach only when the choice is at least this confident.
 pub const MIN_CONFIDENCE: f32 = 0.4;
+/// Mid-turn hand-overs need stronger evidence than prompt admission.
+pub const DRIFT_MIN_CONFIDENCE: f32 = 0.7;
 /// Largest skill that is attached, about 4k tokens.
 pub const MAX_ATTACH_BYTES: u64 = 16_384;
 /// Skills offered per question; the catalog is truncated in host order.
@@ -26,6 +28,7 @@ pub const DRIFT_COOLDOWN_SECS: u64 = 60;
 const MAX_AGENTS: usize = 256;
 const PICK: &str = "pick";
 const DRIFT: &str = "drift";
+const BROWSER_HARNESS: &str = "browser-harness";
 
 /// What one agent can still be offered, from its latest user message.
 #[derive(Clone, Default, Deserialize, Serialize)]
@@ -33,6 +36,14 @@ struct Agent {
     skills: Vec<CatalogEntry>,
     attached: HashSet<String>,
     last_drift_at: Option<u64>,
+    #[serde(default)]
+    tools_seen: u32,
+    #[serde(default)]
+    drift_seen: u32,
+    #[serde(default)]
+    last_tool: Option<String>,
+    #[serde(default)]
+    browser_tool: bool,
 }
 
 impl Agent {
@@ -53,6 +64,21 @@ impl Agent {
     fn drift_due(&self, at: u64) -> bool {
         self.last_drift_at
             .is_none_or(|last| at.saturating_sub(last) >= DRIFT_COOLDOWN_SECS)
+    }
+
+    /// Remember the latest tool action and whether it drove a browser, so a
+    /// browser hand-over is offered only for actual browser use.
+    fn record_tool(&mut self, tool: &str, ok: bool, input: &str) {
+        self.tools_seen = self.tools_seen.saturating_add(1);
+        self.last_tool = Some(format!("tool: {tool}; succeeded: {ok}; input: {input}"));
+        self.browser_tool = tool.starts_with("browser")
+            || (matches!(tool, "shell" | "execute")
+                && (input.contains(BROWSER_HARNESS) || input.contains("tools.browser.")));
+    }
+
+    /// Whether `skill` may be offered by the question `id`.
+    fn admits(&self, id: &str, skill: &str) -> bool {
+        id != DRIFT || skill != BROWSER_HARNESS || self.browser_tool
     }
 }
 
@@ -90,23 +116,34 @@ impl Capability for SkillExposure {
         let (id, instructions) = match &signal.kind {
             SignalKind::UserMessage { skills, .. } => {
                 // The host lists only skills not yet attached in this context.
-                let agent = self.agent(&signal.agent_id);
-                agent.skills.clone_from(skills);
-                agent.attached.clear();
+                *self.agent(&signal.agent_id) = Agent {
+                    skills: skills.clone(),
+                    ..Agent::default()
+                };
 
                 (PICK, PICK_INSTRUCTIONS)
             }
-            SignalKind::ToolResult { .. } | SignalKind::TurnEnd => {
+            SignalKind::ToolResult { .. } | SignalKind::TurnEnd { .. } => {
                 let Some(agent) = self.agents.get_mut(&signal.agent_id) else {
                     return Plan::Skip;
                 };
-                let turn_end = matches!(signal.kind, SignalKind::TurnEnd);
+                let turn_end = matches!(signal.kind, SignalKind::TurnEnd { .. });
 
-                if !turn_end && !agent.drift_due(signal.at) {
+                if let SignalKind::ToolResult {
+                    tool, ok, input, ..
+                } = &signal.kind
+                {
+                    agent.record_tool(tool, *ok, input);
+                }
+
+                if agent.tools_seen == agent.drift_seen
+                    || (!turn_end && !agent.drift_due(signal.at))
+                {
                     return Plan::Skip;
                 }
 
                 agent.last_drift_at = Some(signal.at);
+                agent.drift_seen = agent.tools_seen;
 
                 (DRIFT, DRIFT_INSTRUCTIONS)
             }
@@ -115,13 +152,26 @@ impl Capability for SkillExposure {
         let Some(agent) = self.agents.get(&signal.agent_id) else {
             return Plan::Skip;
         };
-        let offerable = agent.offerable();
+        let offerable: Vec<_> = agent
+            .offerable()
+            .into_iter()
+            .filter(|skill| agent.admits(id, &skill.id))
+            .collect();
 
         if offerable.is_empty() {
             return Plan::Skip;
         }
 
-        Plan::Ask(vec![question(id, instructions, &offerable)])
+        let instructions = if id == DRIFT {
+            format!(
+                "{instructions} Latest tool action: {}",
+                agent.last_tool.as_deref().unwrap_or("unknown")
+            )
+        } else {
+            instructions.to_string()
+        };
+
+        Plan::Ask(vec![question(id, &instructions, &offerable)])
     }
 
     fn decide(&mut self, signal: &Signal, answers: Option<&[Answer]>) -> Vec<Effect> {
@@ -137,11 +187,22 @@ impl Capability for SkillExposure {
             return Vec::new();
         };
 
-        if choice == NONE || answer.effective_confidence() < MIN_CONFIDENCE {
+        let minimum = if answer.id == DRIFT {
+            DRIFT_MIN_CONFIDENCE
+        } else {
+            MIN_CONFIDENCE
+        };
+
+        if choice == NONE || answer.effective_confidence() < minimum {
             return Vec::new();
         }
 
         let agent = self.agent(&signal.agent_id);
+
+        if !agent.admits(&answer.id, choice) {
+            return Vec::new();
+        }
+
         let fits = agent
             .offerable()
             .iter()
@@ -162,7 +223,7 @@ impl Capability for SkillExposure {
 fn context(signal: &Signal, skill: &str) -> Effect {
     let (delivery, text) = match signal.kind {
         SignalKind::UserMessage { .. } => (Delivery::Prompt, None),
-        SignalKind::TurnEnd => (Delivery::Wait, Some(drift_text(skill))),
+        SignalKind::TurnEnd { .. } => (Delivery::Wait, Some(drift_text(skill))),
         _ => (Delivery::Steer, Some(drift_text(skill))),
     };
 
@@ -182,10 +243,10 @@ fn drift_text(skill: &str) -> String {
 const PICK_INSTRUCTIONS: &str = "Which one skill would most help the coding agent act on the \
     user's latest request? Choose none unless a skill clearly helps.";
 
-const DRIFT_INSTRUCTIONS: &str = "Is the coding agent doing its current work with a generic \
-    approach, such as driving a browser or calling raw web APIs, when one of these skills gives \
-    a dedicated, better way to do exactly that? Choose that skill, or none if the agent's \
-    approach is already right.";
+const DRIFT_INSTRUCTIONS: &str = "Which offered skill, if any, directly improves the exact \
+    action in the agent's recent tool result? Choose none if the approach already works. \
+    A skill covering the same topic is not evidence of misuse; successful gh use for GitHub \
+    does not call for a browser or browser-harness hand-over.";
 
 fn question(id: &str, instructions: &str, skills: &[&CatalogEntry]) -> Question {
     let mut options: Vec<ChoiceOption> = skills

@@ -63,7 +63,16 @@ fn audit(args: &[String]) -> Result<(), String> {
 fn skill(args: &[String]) -> Result<(), String> {
     match (args.first().map(String::as_str), args.get(1)) {
         (Some("validate"), Some(path)) => validate_skill(path),
-        _ => Err("usage: chauffeur skill validate PATH".into()),
+        (Some("validate-project"), Some(path)) => {
+            let skills = chauffeur_capability_project_skills::load(path)?;
+
+            for skill in skills {
+                println!("{}: {} judgment step(s)", skill.id, skill.steps.len());
+            }
+
+            Ok(())
+        }
+        _ => Err("usage: chauffeur skill validate PATH | validate-project WORKSPACE".into()),
     }
 }
 

@@ -42,11 +42,33 @@ fn tool_result(at: u64) -> Signal {
         SignalKind::ToolResult {
             tool: "shell".into(),
             ok: true,
+            workspace: String::new(),
             input: r#"{"command":"browser-harness open https://x.com"}"#.into(),
             error: String::new(),
             user_request: String::new(),
             evidence: String::new(),
             candidates: Vec::new(),
+        },
+    )
+}
+
+/// A successful `gh` call, which does not drive a browser.
+fn gh_call(at: u64) -> Signal {
+    let mut tool = tool_result(at);
+
+    if let SignalKind::ToolResult { input, .. } = &mut tool.kind {
+        *input = r#"{"command":"gh pr view 42"}"#.into();
+    }
+
+    tool
+}
+
+fn turn_end(at: u64) -> Signal {
+    signal(
+        at,
+        SignalKind::TurnEnd {
+            workspace: String::new(),
+            user_request: String::new(),
         },
     )
 }
@@ -174,15 +196,63 @@ fn a_tool_result_checks_for_drift_with_a_cooldown_and_never_reoffers() {
         Plan::Skip
     );
 
-    let (_, options) =
-        offered(&exposure.plan(&Situation::default(), &signal(21, SignalKind::TurnEnd)));
+    let (_, options) = offered(&exposure.plan(&Situation::default(), &turn_end(21)));
     assert_eq!(options, vec!["slack".to_string(), NONE.into()]);
+
+    // A turn end without a new tool result since the last check is not judged.
+    assert_eq!(
+        exposure.plan(&Situation::default(), &turn_end(22)),
+        Plan::Skip
+    );
 
     let later = tool_result(21 + DRIFT_COOLDOWN_SECS);
     assert_eq!(
         offered(&exposure.plan(&Situation::default(), &later)).0,
         "drift"
     );
+}
+
+#[test]
+fn a_weak_browser_hand_over_after_effective_gh_use_stays_silent() {
+    let mut exposure = SkillExposure::default();
+    let tool = gh_call(10);
+
+    exposure.plan(
+        &Situation::default(),
+        &message(vec![skill("browser-harness", 10)]),
+    );
+
+    assert_eq!(exposure.plan(&Situation::default(), &tool), Plan::Skip);
+    assert!(
+        exposure
+            .decide(&tool, Some(&[choice("drift", "browser-harness", 0.43)]))
+            .is_empty()
+    );
+    assert_eq!(
+        exposure.plan(&Situation::default(), &turn_end(11)),
+        Plan::Skip
+    );
+}
+
+#[test]
+fn browser_handoff_requires_actual_browser_use_during_drift() {
+    let mut exposure = SkillExposure::default();
+
+    exposure.plan(
+        &Situation::default(),
+        &message(vec![skill("browser-harness", 10), skill("twitter", 10)]),
+    );
+
+    let (id, options) = offered(&exposure.plan(&Situation::default(), &gh_call(10)));
+    assert_eq!(id, "drift");
+    assert_eq!(options, vec!["twitter", NONE]);
+
+    let Plan::Ask(questions) = exposure.plan(&Situation::default(), &tool_result(80)) else {
+        panic!("expected browser drift")
+    };
+    assert!(questions[0].instructions.contains("browser-harness open"));
+    let (_, options) = offered(&Plan::Ask(questions));
+    assert_eq!(options, vec!["browser-harness", "twitter", NONE]);
 }
 
 #[test]

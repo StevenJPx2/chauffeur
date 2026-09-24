@@ -154,6 +154,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "chauffeur-capability-project-skills"
+version = "0.1.0"
+dependencies = [
+ "chauffeur-core",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "chauffeur-capability-skill-exposure"
 version = "0.1.0"
 dependencies = [
@@ -185,6 +194,7 @@ name = "chauffeur-cli"
 version = "0.1.0"
 dependencies = [
  "chauffeur-capability-permission",
+ "chauffeur-capability-project-skills",
  "chauffeur-capability-tool-misuse",
  "chauffeur-core",
  "chauffeur-daemon",
@@ -211,6 +221,7 @@ dependencies = [
  "chauffeur-capability-idle-reminder",
  "chauffeur-capability-model-router",
  "chauffeur-capability-permission",
+ "chauffeur-capability-project-skills",
  "chauffeur-capability-skill-exposure",
  "chauffeur-capability-tool-exposure",
  "chauffeur-capability-tool-misuse",
@@ -218,7 +229,6 @@ dependencies = [
  "chauffeur-judge-jev",
  "chauffeur-plugin-anthropic",
  "chauffeur-plugin-git",
- "chauffeur-plugin-github",
  "chauffeur-plugin-jira",
  "chauffeur-plugin-openai",
  "serde",
@@ -255,13 +265,6 @@ dependencies = [
 
 [[package]]
 name = "chauffeur-plugin-git"
-version = "0.1.0"
-dependencies = [
- "chauffeur-capability-idle-reminder",
-]
-
-[[package]]
-name = "chauffeur-plugin-github"
 version = "0.1.0"
 dependencies = [
  "chauffeur-capability-idle-reminder",

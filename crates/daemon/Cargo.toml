@@ -9,7 +9,6 @@ repository.workspace = true
 
 [dependencies]
 chauffeur-core = { workspace = true }
-chauffeur-plugin-github = { workspace = true }
 chauffeur-plugin-jira = { workspace = true }
 chauffeur-plugin-git = { workspace = true }
 chauffeur-judge-jev = { workspace = true }
@@ -20,6 +19,7 @@ chauffeur-capability-skill-exposure = { workspace = true }
 chauffeur-capability-tool-exposure = { workspace = true }
 chauffeur-capability-permission = { workspace = true }
 chauffeur-capability-idle-reminder = { workspace = true }
+chauffeur-capability-project-skills = { workspace = true }
 chauffeur-capability-tool-misuse = { workspace = true }
 chauffeur-capability-event-gate = { workspace = true }
 serde = { workspace = true }

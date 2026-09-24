@@ -9,6 +9,7 @@ use chauffeur_capability_event_gate::EventGate;
 use chauffeur_capability_idle_reminder::{IdleReminder, Plugin, compose};
 use chauffeur_capability_model_router::{ModelRouter, ModelRouterConfig, Provider};
 use chauffeur_capability_permission::{Permission, load_skills};
+use chauffeur_capability_project_skills::ProjectSkills;
 use chauffeur_capability_skill_exposure::SkillExposure;
 use chauffeur_capability_tool_exposure::{ToolExposure, ToolExposureConfig};
 use chauffeur_capability_tool_misuse::{ToolMisuse, load_contracts};
@@ -18,7 +19,6 @@ use chauffeur_core::{
 use chauffeur_judge_jev::{JevClient, JevConfig};
 use chauffeur_plugin_anthropic::AnthropicProvider;
 use chauffeur_plugin_git::GitPlugin;
-use chauffeur_plugin_github::GitHubPlugin;
 use chauffeur_plugin_jira::JiraPlugin;
 use chauffeur_plugin_openai::OpenAiProvider;
 use tokio::sync::{mpsc, oneshot};
@@ -203,11 +203,7 @@ fn build_engine(options: EngineOptions) -> Result<Engine, String> {
     } else {
         Vec::new()
     });
-    let plugins: Vec<Box<dyn Plugin>> = vec![
-        Box::new(GitHubPlugin),
-        Box::new(JiraPlugin),
-        Box::new(GitPlugin),
-    ];
+    let plugins: Vec<Box<dyn Plugin>> = vec![Box::new(JiraPlugin), Box::new(GitPlugin)];
     let idle = options
         .idle_reminders
         .then(|| compose(&plugins).map(IdleReminder::new))
@@ -220,6 +216,7 @@ fn build_engine(options: EngineOptions) -> Result<Engine, String> {
         Box::new(permission),
         Box::new(misuse),
         Box::new(EventGate),
+        Box::new(ProjectSkills::default()),
     ];
 
     if let Some(idle) = idle {

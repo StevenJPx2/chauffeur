@@ -462,7 +462,7 @@ impl Capability for ModelRouter {
             SignalKind::ToolResult { .. }
             | SignalKind::PermissionRequest { .. }
             | SignalKind::IntegrationEvent { .. }
-            | SignalKind::TurnEnd => Plan::Skip,
+            | SignalKind::TurnEnd { .. } => Plan::Skip,
         }
     }
 

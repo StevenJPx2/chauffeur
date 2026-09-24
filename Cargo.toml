@@ -5,7 +5,6 @@ members = [
   "crates/daemon",
   "crates/mcp",
   "crates/cli",
-  "plugins/github",
   "plugins/jira",
   "plugins/git",
   "plugins/anthropic",
@@ -15,6 +14,7 @@ members = [
   "capabilities/tool-exposure",
   "capabilities/permission",
   "capabilities/idle-reminder",
+  "capabilities/project-skills",
   "capabilities/tool-misuse",
   "capabilities/event-gate",
   "judges/jev",
@@ -31,7 +31,6 @@ repository = "https://github.com/StevenJPx2/chauffeur"
 chauffeur-core = { path = "crates/core", default-features = false }
 chauffeur-daemon = { path = "crates/daemon" }
 chauffeur-mcp = { path = "crates/mcp" }
-chauffeur-plugin-github = { path = "plugins/github" }
 chauffeur-plugin-jira = { path = "plugins/jira" }
 chauffeur-plugin-git = { path = "plugins/git" }
 chauffeur-judge-jev = { path = "judges/jev" }
@@ -42,6 +41,7 @@ chauffeur-capability-skill-exposure = { path = "capabilities/skill-exposure" }
 chauffeur-capability-tool-exposure = { path = "capabilities/tool-exposure" }
 chauffeur-capability-permission = { path = "capabilities/permission" }
 chauffeur-capability-idle-reminder = { path = "capabilities/idle-reminder" }
+chauffeur-capability-project-skills = { path = "capabilities/project-skills" }
 chauffeur-capability-tool-misuse = { path = "capabilities/tool-misuse" }
 chauffeur-capability-event-gate = { path = "capabilities/event-gate" }
 

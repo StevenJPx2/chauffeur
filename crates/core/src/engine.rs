@@ -587,6 +587,7 @@ mod tests {
             kind: SignalKind::ToolResult {
                 tool: "bash".into(),
                 ok: true,
+                workspace: String::new(),
                 input: String::new(),
                 error: String::new(),
                 user_request: String::new(),

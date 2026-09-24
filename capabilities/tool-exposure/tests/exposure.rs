@@ -79,6 +79,7 @@ fn recovery(candidates: &[&str]) -> Signal {
         kind: SignalKind::ToolResult {
             tool: "execute".into(),
             ok: true,
+            workspace: String::new(),
             input: "lookup browser".into(),
             error: String::new(),
             user_request: "open the page".into(),
