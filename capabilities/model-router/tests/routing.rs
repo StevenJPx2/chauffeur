@@ -157,8 +157,12 @@ fn applies_the_judged_choice_and_never_retries_it() {
         router.decide(&signal, Some(&[choice("openai/luna", 0.8)][..])),
         switch("openai/luna")
     );
+    let mut failed = limit(false);
+    if let SignalKind::ModelError { model, .. } = &mut failed.kind {
+        *model = model_ref("openai/luna");
+    }
     assert_eq!(
-        options(&router.plan(&Situation::default(), &signal)),
+        options(&router.plan(&Situation::default(), &failed)),
         vec!["openai/sol", STAY]
     );
 }
@@ -246,6 +250,51 @@ fn success_resets_attempts_and_non_limit_errors_are_ignored() {
         Some(400),
         "Your credit balance is too low to access the Anthropic API."
     ));
+}
+
+#[test]
+fn a_late_success_from_a_previous_model_does_not_reoffer_a_failed_candidate() {
+    let mut router = switched_router();
+    let error = auth_error("openai/sol");
+
+    assert_eq!(
+        options(&router.plan(&Situation::default(), &error)),
+        vec!["openai/luna", STAY]
+    );
+    assert_eq!(
+        router.decide(&error, Some(&[choice("openai/luna", 0.9)])),
+        switch("openai/luna")
+    );
+    let late = Signal {
+        agent_id: "session".into(),
+        at: 3,
+        kind: SignalKind::ModelSucceeded {
+            model: model("openai/sol"),
+        },
+    };
+    router.plan(&Situation::default(), &late);
+
+    let mut limit = limit(false);
+    if let SignalKind::ModelError { model: failed, .. } = &mut limit.kind {
+        *failed = model("openai/luna");
+    }
+    assert_eq!(
+        router.plan(&Situation::default(), &limit),
+        Plan::Settled(vec![Effect::Model {
+            agent_id: "session".into(),
+            model: None
+        }])
+    );
+}
+
+#[test]
+fn a_proposed_switch_that_never_reached_the_host_can_be_retried() {
+    let mut router = switched_router();
+
+    assert_eq!(
+        options(&router.plan(&Situation::default(), &limit(false))),
+        vec!["openai/sol", "openai/luna", STAY]
+    );
 }
 
 #[test]
@@ -461,6 +510,27 @@ fn the_model_left_behind_survives_a_restart() {
             .instructions
             .contains("model anthropic/opus failed")
     );
+}
+
+#[test]
+fn a_second_fallback_does_not_restart_the_original_limits_clock() {
+    let mut router = switched_router();
+    let mut error = auth_error("openai/sol");
+
+    error.at = 240;
+    router.plan(&Situation::default(), &error);
+    assert_eq!(
+        router.decide(&error, Some(&[choice("openai/luna", 0.9)])),
+        switch("openai/luna")
+    );
+
+    assert!(matches!(
+        router.plan(
+            &Situation::default(),
+            &user_message(1 + SWITCH_BACK_AFTER_SECS, "openai/luna")
+        ),
+        Plan::Ask(_)
+    ));
 }
 
 /// The shipped tables, with the host's models listed without variants.

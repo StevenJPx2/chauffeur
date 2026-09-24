@@ -116,6 +116,14 @@ pub enum SignalKind {
         /// Clipped error message when the call failed, such as a refusal.
         #[serde(default)]
         error: String,
+        /// Bounded recent user request and evidence of a missing tool.
+        #[serde(default)]
+        user_request: String,
+        #[serde(default)]
+        evidence: String,
+        /// Registered, currently hidden direct tools with local search matches.
+        #[serde(default)]
+        candidates: Vec<CatalogEntry>,
     },
     /// The agent finished its turn and is idle.
     TurnEnd,
@@ -167,11 +175,20 @@ impl Signal {
 
         match &self.kind {
             SignalKind::ToolResult {
-                tool, input, error, ..
+                tool,
+                input,
+                error,
+                user_request,
+                evidence,
+                candidates,
+                ..
             } => {
                 bounded(tool, "tool")?;
                 bounded(input, "tool input")?;
-                bounded(error, "tool error")
+                bounded(error, "tool error")?;
+                bounded(user_request, "user request")?;
+                bounded(evidence, "tool evidence")?;
+                validate_catalog(candidates, "tool candidates")
             }
             SignalKind::TurnEnd => Ok(()),
             SignalKind::ModelError {

@@ -116,7 +116,8 @@ fn client(base_url: String) -> JevClient {
 #[test]
 fn sends_one_request_and_parses_the_live_answer_shape() {
     let (base_url, server) = serve("200 OK", LIVE_RESPONSE);
-    let state = "agent hit a limit; leaked AKIAABCDEFGHIJKLMNOP in a log";
+    // The engine redacts before handing state and questions to the provider.
+    let state = "agent hit a limit; leaked [REDACTED] in a log";
     let mut answers = client(base_url).ask(state, &questions()).expect("answers");
     let (path, authorization, body) = server.join().expect("fixture");
     let body: serde_json::Value = serde_json::from_str(&body).expect("json body");

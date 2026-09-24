@@ -17,6 +17,12 @@ pub enum Plan {
     Ask(Vec<Question>),
 }
 
+/// The next step of a capability's bounded judgment pipe.
+pub enum PipeStep {
+    Done(Vec<Effect>),
+    Next(Vec<Question>),
+}
+
 pub trait Capability: Send {
     /// Unique capability ID.
     fn id(&self) -> &str;
@@ -27,6 +33,11 @@ pub trait Capability: Send {
     /// `answers` is `None` when System One failed; the capability applies its
     /// failure posture.
     fn decide(&mut self, signal: &Signal, answers: Option<&[Answer]>) -> Vec<Effect>;
+
+    /// Called after a round of answers. One-step capabilities use `decide`.
+    fn advance(&mut self, signal: &Signal, answers: Option<&[Answer]>, _round: usize) -> PipeStep {
+        PipeStep::Done(self.decide(signal, answers))
+    }
 
     /// Per-agent memory to keep across daemon restarts, as JSON. `None` when
     /// the capability keeps none.

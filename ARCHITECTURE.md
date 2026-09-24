@@ -32,7 +32,7 @@ host events: user prompt · agent response · tool call/result · idle · model 
    │ Situation │
    └────┬──────┘
         │  each capability plans: skip · settled effects · a question
-   ┌────▼──────┐  CLASSIFY   one System One request carrying every interested capability's question
+    ┌────▼──────┐  CLASSIFY   one System One request per ready round of capability questions
    │  Router   │             deterministic facts are features in the question, never a separate router
    └────┬──────┘
         │  typed answers
@@ -53,21 +53,25 @@ knows nothing about any capability.
 Every capability is reached through System One. Facts such as a 429, a
 secret-pattern hit, or idle duration become features of the question. A
 capability may ask several questions (one per skill, say). The engine
-namespaces them as `capability/question`, sends every interested capability's
-questions in **one request**, and hands each capability back its own answers;
-Jev evaluates all questions against the state in a single shared pass.
+namespaces them as `capability/question` and batches every ready capability's
+questions into one request per round. Most capabilities finish in one Jev
+call. A dependent tool-recovery judgment adds a second call only when its
+first answer selects a candidate; the bounded tool-result hook then waits up
+to eight seconds. Other effects from that signal wait for the final round.
 
 A capability may settle without a question only on facts that make a judgment
 moot: an empty candidate set, or a veto such as "a tool already ran in the
 failed step, so retrying could repeat it." The **safety backstop** is the only
 other deterministic gate: a last-resort veto on irreversible harm. The engine
 checks every permission request's action, resources, and stated reason against
-built-in patterns (`rm -rf` of `/`, `~`, or `$HOME`; `mkfs`; writes to `/dev/`;
-fork bombs; `chmod -R 777 /`; private-key blocks) plus project substrings in
-`backstop.json` (`{"patterns": [...]}`), which can add patterns but never remove
-built-ins. A match denies before any capability or model call, whatever any
-contract would decide. Patterns that name a root match only the root itself, so
-`rm -rf /tmp/build` is not vetoed. The backstop vetoes; it never routes.
+shipped patterns in `skills/safety/backstop.json` (compiled into the binary)
+and optional `$CHAUFFEUR_CONFIG_DIR/backstop.json` patterns. The config adds by
+default or replaces shipped patterns with `"replace": true`. Shell permission
+requests also ask Jev about irreversible harm; a confident yes denies the call
+and adds its command to `$CHAUFFEUR_STATE_DIR/learned-backstop.json` immediately.
+A match denies before any capability or model call, whatever a contract would
+decide. Patterns that name a root match only the root itself, so `rm -rf
+/tmp/build` is not vetoed. The backstop vetoes; it never routes.
 
 ## System One
 
@@ -84,8 +88,14 @@ any capability sees them.
   Standing aside is safer than acting on a weaker judgment.
 - **Confidence is optional.** Jev omits it for noul; the engine then uses the
   margin `|2p − 1|`.
-- **Egress:** state sent to a remote provider is secret-redacted (built-in
-  private-key and token patterns); everything else is sent as-is.
+- **Egress:** shipped token prefixes in `skills/safety/redaction.json` (compiled
+  in) and private-key blocks are redacted locally. Optional
+  `$CHAUFFEUR_CONFIG_DIR/redaction.json` prefixes add or replace (`"replace":
+  true`) the shipped list. Unknown credential-like strings are masked locally
+  before state and question text reach Jev; Jev judges their shapes, never
+  their values. Secret and context-bound safe shapes are saved immediately in
+  `$CHAUFFEUR_STATE_DIR/learned-redaction.json`. Audit fields use the same
+  redactor. Both learned files are separate from config so they can be reviewed.
 - **No training on Jev output.** TypeSafe's customer agreement (§2.3(b))
   forbids distillation from Jev. Distilled students, when built, train on
   human labels only.
@@ -140,7 +150,12 @@ come first in that prefix.
   and one question per hidden group asks whether the latest request needs it
   now (P ≥ 0.7, confidence ≥ 0.4). Revealing changes the tool list at the front
   of the cached prefix, so the provider re-reads the conversation once; the
-  question says so, and the adapter records the smaller hidden list.
+  question says so, and the adapter records the smaller hidden list. After a
+  tool result reporting a missing tool, a bounded catalog of registered,
+  hidden direct tools can enter a two-step pipe: Jev selects a plausible
+  candidate, then confirms a confident need to reveal it. The adapter saves
+  the smaller hidden list in plugin storage and queues a synthetic session
+  marker before the next model request.
 - **Code Mode.** Only tools the host puts in the request's tool record can be
   hidden. The adapter learns that set from the `context` hook, before anything
   is removed, and offers System One only those tools; before the first request
@@ -289,13 +304,13 @@ Misuse contracts live in `skills/misuse/`. Each names the tools it
 watches, a yes/no question about the call ("Does this call …?"), its bar
 (`nudge_at_or_above`, `minimum_confidence`), a steer message, an optional
 `handoff_skill`, and a cooldown. After a call to a watched tool, every watching
-contract not cooling down asks its question in the one System One request,
+contract not cooling down asks its question in the first System One request,
 shown the call first and told that a call the user explicitly asked for, exactly
 as asked, does not count. A confirmed misuse steers the running turn and
 delivers its hand-over skill. Tools no contract watches are never judged.
 Code Mode tools are called through `execute`, so browser use there is caught by
-watching `execute`. Six contracts ship: hand-rolled patch scripts, `grep -r`,
-`cat` to read files, and X, Slack, or Jira through a browser, handing over
+watching `execute`. Seven contracts ship: hand-rolled patch scripts, `grep -r`,
+`cat` to read files, and X, Slack, Jira, or GitHub through a browser, handing over
 `twitter-cli`, `slack-cli`, and `jira-cli`. On 13 labelled calls they made no
 false nudges and one near miss.
 
@@ -335,7 +350,9 @@ The router:
    failure or confidence below 0.2 it switches to the first candidate, keeping
    the agent unblocked.
 
-A successful response clears the session's tried set. A switch sets the
+A completed model step clears the session's tried set; an HTTP 200 alone does
+not. A cancelled execution invalidates pending model effects, and an
+abandoned daemon reply restores the router's prior state. A switch sets the
 model's thinking variant too. `$CHAUFFEUR_CONFIG_DIR/model-router.json` pins
 preferred fallbacks, with a variant where it matters:
 `{"pins": ["openai/gpt-6-sol", "anthropic/claude-opus-5-5#low"]}`.
@@ -370,9 +387,10 @@ The adapter sends **Signals** and applies **Effects**; it holds no policy.
 
 - **Sense:** `session.hook("prompt")` (user messages, with `skill.list()` and
   `tool.list()` catalogs and `session.context` history), `session.hook("retry")`
-  (model errors), `session.hook("http.response")` (successes),
+  (model errors), `session.hook("model.request")` (per-request tool state),
   `tool.hook("execute.after")` (tool results), `event.subscribe`
-  (`session.execution.started` resets per-step state;
+  (`session.step.ended` reports model success;
+  `session.execution.started` resets per-step state;
   `session.execution.succeeded` and `.failed` end a turn; OpenCode 2.0.15
   emits no `session.status` idle event). Permission resources are file paths
   for `read`, `edit`, `write`, and `patch`, and command text for `shell`.
@@ -396,7 +414,7 @@ The adapter sends **Signals** and applies **Effects**; it holds no policy.
 
 | Path | Role |
 |---|---|
-| `crates/core` | engine, System One interface, capability contract, host vocabulary (signals and the five effects), backstop, redaction, RPC contracts, client; no capability concepts |
+| `crates/core/src` | `lib.rs`, engine, RPC protocol, optional client, and config helpers at the root; `contracts/` holds the host/capability interfaces; `state/` holds rolling context and traces; `features/` holds backstop, redaction, and learning. No capability concepts |
 | `crates/daemon` | engine thread, Jev wiring, plugin composition, HTTP RPC, sourcefed surface |
 | `skills` | permission and misuse contracts, hand-over skills |
 | `crates/cli`, `crates/mcp` | drive the daemon |

@@ -4,15 +4,21 @@
 use std::io::Write;
 use std::path::Path;
 
-use chauffeur_core::{Effect, Signal, SignalKind, Trace, redact_secrets};
-use serde_json::json;
+use chauffeur_core::{Effect, Signal, SignalKind, Trace};
+use serde_json::{Value, json};
 
 const MAX_AUDIT_BYTES: u64 = 8 * 1024 * 1024;
 const MAX_DETAIL_CHARS: usize = 200;
 
 /// Append a record when the signal asked System One, was vetoed, produced
 /// effects, or failed. Signals that changed nothing are not logged.
-pub fn append(path: &Path, signal: &Signal, trace: &Trace, result: &Result<Vec<Effect>, String>) {
+pub fn append(
+    path: &Path,
+    signal: &Signal,
+    trace: &Trace,
+    result: &Result<Vec<Effect>, String>,
+    redact: impl Fn(&str) -> String,
+) {
     let quiet = trace.questions.is_empty()
         && trace.veto.is_none()
         && matches!(result, Ok(effects) if effects.is_empty());
@@ -21,7 +27,7 @@ pub fn append(path: &Path, signal: &Signal, trace: &Trace, result: &Result<Vec<E
         return;
     }
 
-    let record = json!({
+    let mut record = json!({
         "at": signal.at,
         "agent_id": signal.agent_id,
         "signal": kind_name(&signal.kind),
@@ -30,12 +36,33 @@ pub fn append(path: &Path, signal: &Signal, trace: &Trace, result: &Result<Vec<E
         "effects": result.as_ref().ok(),
         "error": result.as_ref().err(),
     });
+    redact_record(&mut record, &redact);
+    if let Some(detail) = record["detail"].as_str() {
+        record["detail"] = Value::String(detail.chars().take(MAX_DETAIL_CHARS).collect());
+    }
 
     if let Err(error) = write(path, &record) {
         eprintln!(
             "chauffeur: audit record not written to {}: {error}",
             path.display()
         );
+    }
+}
+
+fn redact_record(value: &mut Value, redact: &impl Fn(&str) -> String) {
+    match value {
+        Value::String(text) => *text = redact(text),
+        Value::Array(items) => {
+            for item in items {
+                redact_record(item, redact);
+            }
+        }
+        Value::Object(fields) => {
+            for field in fields.values_mut() {
+                redact_record(field, redact);
+            }
+        }
+        _ => {}
     }
 }
 
@@ -61,7 +88,7 @@ fn kind_name(kind: &SignalKind) -> String {
 
 /// A short, redacted summary of what the signal was about.
 fn detail(kind: &SignalKind) -> String {
-    let text = match kind {
+    match kind {
         SignalKind::UserMessage { text, .. } => text.clone(),
         SignalKind::ToolResult { tool, input, .. } => format!("{tool} {input}"),
         SignalKind::PermissionRequest {
@@ -85,12 +112,7 @@ fn detail(kind: &SignalKind) -> String {
         } => format!("{source} {kind}: {summary}"),
         SignalKind::ModelSucceeded { model } => model.key(),
         SignalKind::TurnEnd => String::new(),
-    };
-
-    redact_secrets(&text)
-        .chars()
-        .take(MAX_DETAIL_CHARS)
-        .collect()
+    }
 }
 
 #[cfg(test)]
@@ -112,11 +134,15 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("audit.jsonl");
         let secret = "ghp_abcdefghijklmnopqrstuvwxyz0123456789";
+        let unknown = "Zx9kQ2mP7vL4nR8sT1wY6uB3cD5fG0hJ";
         let tool = signal(SignalKind::ToolResult {
             tool: "shell".into(),
             ok: true,
-            input: format!("{{\"command\":\"echo {secret}\"}}"),
+            input: format!("{{\"command\":\"echo {secret} {unknown}\"}}"),
             error: String::new(),
+            user_request: String::new(),
+            evidence: String::new(),
+            candidates: Vec::new(),
         });
         let nudge = Effect::Context {
             agent_id: "ses".into(),
@@ -131,8 +157,12 @@ mod tests {
             &signal(SignalKind::TurnEnd),
             &Trace::default(),
             &Ok(Vec::new()),
+            chauffeur_core::redact_secrets,
         );
-        append(&path, &tool, &Trace::default(), &Ok(vec![nudge]));
+        let engine = chauffeur_core::Engine::hosted(Vec::new()).unwrap();
+        append(&path, &tool, &Trace::default(), &Ok(vec![nudge]), |text| {
+            engine.redact_for_audit(text)
+        });
 
         let written = std::fs::read_to_string(&path).unwrap();
         let lines: Vec<&str> = written.lines().collect();
@@ -141,6 +171,7 @@ mod tests {
         assert!(lines[0].contains("\"signal\":\"tool_result\""));
         assert!(lines[0].contains("Chauffeur: use rg"));
         assert!(!lines[0].contains(secret));
+        assert!(!lines[0].contains(unknown));
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }

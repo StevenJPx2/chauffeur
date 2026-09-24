@@ -44,6 +44,9 @@ fn tool_result(at: u64) -> Signal {
             ok: true,
             input: r#"{"command":"browser-harness open https://x.com"}"#.into(),
             error: String::new(),
+            user_request: String::new(),
+            evidence: String::new(),
+            candidates: Vec::new(),
         },
     )
 }

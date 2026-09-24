@@ -12,7 +12,9 @@ use chauffeur_capability_permission::{Permission, load_skills};
 use chauffeur_capability_skill_exposure::SkillExposure;
 use chauffeur_capability_tool_exposure::{ToolExposure, ToolExposureConfig};
 use chauffeur_capability_tool_misuse::{ToolMisuse, load_contracts};
-use chauffeur_core::{Backstop, Capability, Effect, Engine, Signal};
+use chauffeur_core::{
+    Backstop, Capability, Effect, Engine, RedactionConfig, Redactor, Signal, load_config,
+};
 use chauffeur_judge_jev::{JevClient, JevConfig};
 use chauffeur_plugin_anthropic::AnthropicProvider;
 use chauffeur_plugin_git::GitPlugin;
@@ -77,16 +79,44 @@ impl EngineHandle {
                 }
 
                 while let Some(job) = queue.blocking_recv() {
+                    if job.reply.is_closed() {
+                        continue;
+                    }
+                    // A model effect only counts when the host is still
+                    // waiting for it; an abandoned retry must not leave a
+                    // phantom attempted model or switch-back origin.
+                    let before = matches!(
+                        job.signal.kind,
+                        chauffeur_core::SignalKind::ModelError { .. }
+                    )
+                    .then(|| engine.save());
                     let result = engine.ingest(&job.signal);
 
-                    if let Some(path) = &audit_file {
-                        crate::audit::append(path, &job.signal, engine.trace(), &result);
+                    if job.reply.is_closed() {
+                        if let Some(before) = before {
+                            engine.load(before);
+                        }
+                        continue;
                     }
 
-                    let _ = job.reply.send(result);
+                    if let Some(path) = &audit_file {
+                        crate::audit::append(path, &job.signal, engine.trace(), &result, |text| {
+                            engine.redact_for_audit(text)
+                        });
+                    }
+
+                    if job.reply.send(result).is_err() {
+                        if let Some(before) = before {
+                            engine.load(before);
+                        }
+                        continue;
+                    }
 
                     if let Some(path) = &state_file {
                         persist(&engine, path);
+                        if engine.take_learned_changed() {
+                            crate::learned::save(&engine, path);
+                        }
                     }
                 }
             })
@@ -197,6 +227,17 @@ fn build_engine(options: EngineOptions) -> Result<Engine, String> {
     }
 
     let backstop = Backstop::load(&options.config_dir.join("backstop.json"))?;
+    let (learned_backstop, learned_shapes) = options
+        .state_file
+        .as_deref()
+        .map(crate::learned::load)
+        .unwrap_or_default();
+    let redaction_path = options.config_dir.join("redaction.json");
+    let config: RedactionConfig = load_config(&redaction_path)?;
+    let redactor = Redactor::new(config, learned_shapes)
+        .map_err(|error| format!("{}: {error}", redaction_path.display()))?;
 
-    Ok(Engine::new(system_one, capabilities)?.with_backstop(backstop))
+    Ok(Engine::new(system_one, capabilities)?
+        .with_backstop(backstop.with_learned(learned_backstop))
+        .with_redactor(redactor))
 }

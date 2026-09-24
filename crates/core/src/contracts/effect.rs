@@ -44,8 +44,9 @@ pub enum Effect {
         agent_id: String,
         model: Option<ModelRef>,
     },
-    /// Hide or show tools in this context. Tools are named, so a tool the
-    /// engine never judged is never removed.
+    /// Omit or restore named direct tools in the model request, as judged by
+    /// System One. Omission also makes them uncallable in that request; it
+    /// does not revoke permissions or affect tools reached through Code Mode.
     Tools {
         agent_id: String,
         hide: Vec<String>,

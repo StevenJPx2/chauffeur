@@ -19,51 +19,95 @@ export async function installModelRouter(
   daemon: DaemonBridge,
 ): Promise<() => Promise<void>> {
   const toolRan = new Map<string, boolean>()
+  const requested = new Map<string, ModelRef>()
+  const generations = new Map<string, number>()
+  const active = new Set<string>()
   const controller = new AbortController()
+  const advance = (sessionID: string, running: boolean): void => {
+    if (!generations.has(sessionID) && generations.size >= MAX_SESSIONS) generations.clear()
+    generations.set(sessionID, (generations.get(sessionID) ?? 0) + 1)
+    if (running) active.add(sessionID)
+    else active.delete(sessionID)
+  }
   const markTool = (sessionID: string, ran: boolean): void => {
     if (!toolRan.has(sessionID) && toolRan.size >= MAX_SESSIONS) toolRan.clear()
 
     toolRan.set(sessionID, ran)
   }
 
-  const retry = await ctx.session.hook("retry", (event) => route(ctx, daemon, event, toolRan.get(String(event.sessionID)) ?? false))
-  const response = await ctx.session.hook("http.response", (event) => {
-    if (!event.response.ok || event.kind !== "primary") return
+  const retry = await ctx.session.hook("retry", (event) => {
+    const id = String(event.sessionID)
+    const generation = generations.get(id)
 
-    send(daemon, signal(String(event.sessionID), { type: "model_succeeded", model: ref(event.model) }))
+    return route(ctx, daemon, event, toolRan.get(id) ?? false, () =>
+      active.has(id) && generations.get(id) === generation)
+  })
+  // A tool in an earlier model request is already settled. Only tools run
+  // during this request can make retrying its failed step unsafe.
+  const request = await ctx.session.hook("model.request", (event) => {
+    if (event.kind !== "primary") return
+
+    markTool(String(event.sessionID), false)
+    if (!requested.has(String(event.sessionID)) && requested.size >= MAX_SESSIONS) requested.clear()
+    requested.set(String(event.sessionID), ref(event.model))
   })
   const tool = await ctx.tool.hook("execute.after", (event) => {
     markTool(String(event.sessionID), true)
   })
 
-  void (async () => {
-    try {
-      for await (const event of ctx.event.subscribe({ signal: controller.signal })) {
-        const id = (event.data as Record<string, unknown>).sessionID
-
-        if (typeof id !== "string") continue
-        if (event.type === "session.execution.started") markTool(id, false)
-      }
-    } catch (error) {
-      if (!controller.signal.aborted) console.error(`[chauffeur] model routing events ended: ${String(error)}`)
-    }
-  })()
+  void watchEvents(ctx, daemon, controller, requested, markTool, advance)
 
   return async () => {
     controller.abort()
     await retry.dispose()
-    await response.dispose()
+    await request.dispose()
     await tool.dispose()
     toolRan.clear()
+    requested.clear()
+    generations.clear()
+    active.clear()
+  }
+}
+
+async function watchEvents(
+  ctx: Plugin.Context,
+  daemon: DaemonBridge,
+  controller: AbortController,
+  requested: Map<string, ModelRef>,
+  markTool: (id: string, ran: boolean) => void,
+  advance: (id: string, running: boolean) => void,
+): Promise<void> {
+  try {
+    for await (const event of ctx.event.subscribe({ signal: controller.signal })) {
+      const id = (event.data as Record<string, unknown>).sessionID
+
+      if (typeof id !== "string") continue
+      if (event.type === "session.execution.started") {
+        advance(id, true)
+        markTool(id, false)
+      }
+      if (event.type === "session.execution.interrupted" || event.type === "session.execution.failed" || event.type === "session.execution.succeeded") {
+        advance(id, false)
+        requested.delete(id)
+      }
+      if (event.type === "session.step.ended") {
+        const model = requested.get(id)
+
+        if (model) send(daemon, signal(id, { type: "model_succeeded", model }))
+      }
+    }
+  } catch (error) {
+    if (!controller.signal.aborted) console.error(`[chauffeur] model routing events ended: ${String(error)}`)
   }
 }
 
 /** Report a failed model request and apply the engine's model decision. */
-async function route(ctx: Plugin.Context, daemon: DaemonBridge, event: SessionRetry, toolExecuted: boolean): Promise<void> {
+async function route(ctx: Plugin.Context, daemon: DaemonBridge, event: SessionRetry, toolExecuted: boolean, valid: () => boolean): Promise<void> {
   const sessionID = String(event.sessionID)
 
   try {
     const models = (await ctx.model.list()).data
+    if (!valid()) return
     const effects = await daemon.signal(signal(sessionID, {
       type: "model_error",
       model: ref(event.model),
@@ -77,20 +121,31 @@ async function route(ctx: Plugin.Context, daemon: DaemonBridge, event: SessionRe
         .sort((a, b) => Number(b.usable) - Number(a.usable))
         .slice(0, MAX_MODELS),
     }))
+    if (!valid()) return
 
     for (const effect of effects) {
       if (effect.agent_id !== sessionID) continue
 
       // Keeping the model (`model: null`) leaves the host's own retry decision in place.
       if (effect.type === "model" && effect.model) {
+        if (!valid()) return
+        const current = (await ctx.session.get({ sessionID: event.sessionID })).model
+
+        // A user or another hook already changed the selection while Jev
+        // answered. Do not overwrite their newer choice with a stale effect.
+        if (!valid() || !current || !sameModel(ref(current), ref(event.model))) return
         await ctx.session.switchModel({ sessionID: event.sessionID, model: hostModel(effect.model) })
-        event.decision = { retry: true, delay: 0 }
+        if (valid()) event.decision = { retry: true, delay: 0 }
       }
     }
   } catch (error) {
     // The host's own retry decision stands when the engine is unavailable.
     console.error(`[chauffeur] model routing unavailable: ${String(error)}`)
   }
+}
+
+export function sameModel(left: ModelRef, right: ModelRef): boolean {
+  return left.provider === right.provider && left.model === right.model && left.variant === right.variant
 }
 
 export function signal(agentID: string, kind: SignalKind): Signal {
@@ -119,4 +174,3 @@ export function hostModel(model: ModelRef): HostModelRef {
 
   return { providerID: model.provider, id: model.model, ...(variant ? { variant } : {}) }
 }
-

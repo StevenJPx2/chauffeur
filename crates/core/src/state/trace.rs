@@ -24,10 +24,14 @@ pub struct Trace {
     pub error: Option<String>,
     /// Time spent waiting for System One.
     pub elapsed_ms: u64,
+    /// What the backstop and redactor learned from this signal's answers.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub learned: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct TracedQuestion {
+    pub round: usize,
     pub id: String,
     pub kind: &'static str,
     pub instructions: String,
@@ -37,6 +41,7 @@ pub struct TracedQuestion {
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct TracedAnswer {
+    pub round: usize,
     pub id: String,
     pub value: serde_json::Value,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -45,7 +50,7 @@ pub struct TracedAnswer {
 
 impl TracedQuestion {
     #[must_use]
-    pub fn new(question: &Question) -> Self {
+    pub fn new(question: &Question, round: usize) -> Self {
         let (kind, options) = match &question.kind {
             QuestionKind::Choice { options } => (
                 "choice",
@@ -56,6 +61,7 @@ impl TracedQuestion {
         };
 
         Self {
+            round,
             id: question.id.clone(),
             kind,
             instructions: redact_secrets(&question.instructions)
@@ -69,7 +75,7 @@ impl TracedQuestion {
 
 impl TracedAnswer {
     #[must_use]
-    pub fn new(answer: &Answer) -> Self {
+    pub fn new(answer: &Answer, round: usize) -> Self {
         let value = match &answer.value {
             AnswerValue::Choice(choice) => serde_json::json!(choice),
             AnswerValue::Score(score) => serde_json::json!(score),
@@ -77,6 +83,7 @@ impl TracedAnswer {
         };
 
         Self {
+            round,
             id: answer.id.clone(),
             value,
             confidence: answer.confidence,

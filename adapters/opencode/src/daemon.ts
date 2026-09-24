@@ -3,8 +3,8 @@ import type { Effect, RpcResponse, Signal } from "./protocol.js"
 
 const DEFAULT_URL = "http://127.0.0.1:18790"
 const RPC_TIMEOUT_MS = 30_000
-// Matches the engine's reply timeout; model routing blocks the host's retry decision.
-const SIGNAL_TIMEOUT_MS = 15_000
+// Give the engine's 15s reply deadline time to return its own timeout first.
+const SIGNAL_TIMEOUT_MS = 20_000
 const PERMISSION_DECISIONS = ["allow", "deny", "ask"] as const
 const DELIVERIES = ["prompt", "steer", "resume", "wait"] as const
 

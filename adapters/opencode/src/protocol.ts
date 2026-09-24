@@ -32,7 +32,7 @@ export type SignalKind =
     model: ModelRef | null
     code_mode: CodeModeNamespace[]
   }
-  | { type: "tool_result"; tool: string; ok: boolean; input: string; error: string }
+  | { type: "tool_result"; tool: string; ok: boolean; input: string; error: string; user_request: string; evidence: string; candidates: CatalogEntry[] }
   | { type: "turn_end" }
   | {
     type: "model_error"

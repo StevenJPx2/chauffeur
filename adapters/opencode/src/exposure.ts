@@ -1,8 +1,8 @@
 import type { Plugin, Skill } from "@opencode/plugin"
 import type { SessionPrompt } from "@opencode/plugin/promise/session"
 import type { DaemonBridge } from "./daemon.js"
-import { hostModel, ref, signal } from "./model-router.js"
-import type { CatalogEntry, ContextEffect, Effect } from "./protocol.js"
+import { hostModel, ref, sameModel, signal } from "./model-router.js"
+import type { CatalogEntry, ContextEffect, Effect, ModelRef } from "./protocol.js"
 import { codeModeNamespaces } from "./code-mode.js"
 import { SKILLS_METADATA_KEY } from "./skills.js"
 import { clip, isIntegrationMessage } from "./text.js"
@@ -15,11 +15,17 @@ const DESCRIPTION_CODE_POINTS = 100
 // Admission waits for exposure; past this the prompt proceeds unenhanced.
 const EXPOSURE_TIMEOUT_MS = 6_000
 const HIDDEN_METADATA_KEY = "chauffeur.hidden"
+const storageKey = (sessionID: string): string => `hidden/${sessionID}`
 
 type HistoryMessage = Awaited<ReturnType<Plugin.Context["session"]["context"]>>[number]
 type SessionID = Parameters<Plugin.Context["session"]["context"]>[0]["sessionID"]
 /** Tools hidden for the context; `null` records that nothing is hidden. */
 type Hidden = ReadonlySet<string> | null
+export type ExposureControl = {
+  dispose: () => Promise<void>
+  candidates: (sessionID: SessionID) => Promise<CatalogEntry[]>
+  reveal: (sessionID: SessionID, names: ReadonlyArray<string>) => Promise<boolean>
+}
 
 /**
  * Senses user prompts with the skill and tool catalogs, attaches the skills
@@ -27,7 +33,7 @@ type Hidden = ReadonlySet<string> | null
  * unneeded for the context, bringing them back when the engine says so.
  * Everything is derived from session history, so a restart loses nothing.
  */
-export async function installExposure(ctx: Plugin.Context, daemon: DaemonBridge): Promise<() => Promise<void>> {
+export async function installExposure(ctx: Plugin.Context, daemon: DaemonBridge): Promise<ExposureControl> {
   const hiddenTools = new Map<string, Hidden>()
   // Tool names the host puts in model requests, seen before anything is removed.
   let requestTools: ReadonlySet<string> | null = null
@@ -40,7 +46,8 @@ export async function installExposure(ctx: Plugin.Context, daemon: DaemonBridge)
     let set = hiddenTools.get(sessionID)
 
     if (set === undefined) {
-      set = await restoreHidden(ctx, id).catch(() => null)
+      const stored = await ctx.storage.get(storageKey(sessionID)).catch(() => undefined)
+      set = isHiddenList(stored) ? (stored.length > 0 ? new Set(stored) : null) : await restoreHidden(ctx, id).catch(() => null)
       remember(sessionID, set)
     }
 
@@ -68,7 +75,10 @@ export async function installExposure(ctx: Plugin.Context, daemon: DaemonBridge)
 
       // A new context hides nothing until the engine decides; a later message
       // offers the hidden tools, which the engine may bring back.
-      if (firstInContext) remember(sessionID, null)
+      if (firstInContext) {
+        await ctx.storage.set(storageKey(sessionID), [])
+        remember(sessionID, null)
+      }
 
       const hidden = firstInContext ? null : await current(sessionID, event.sessionID)
       const tools = await toolsToJudge(ctx, firstInContext, hidden, requestTools)
@@ -83,30 +93,57 @@ export async function installExposure(ctx: Plugin.Context, daemon: DaemonBridge)
         code_mode: codeMode,
       }), EXPOSURE_TIMEOUT_MS)
 
-      await apply(ctx, event, effects, { hidden: hiddenTools.get(sessionID) ?? null, remember: (set) => remember(sessionID, set) })
+      await apply(ctx, event, effects, { hidden: hiddenTools.get(sessionID) ?? null, expected: model ? ref(model) : null, remember: (set) => remember(sessionID, set) })
     } catch (error) {
       // Exposure fails open: the prompt is admitted unenhanced.
       console.error(`[chauffeur] exposure unavailable: ${String(error)}`)
     }
   })
 
-  return async () => {
-    await prompt.dispose()
-    await context.dispose()
-    hiddenTools.clear()
+  return {
+    dispose: async () => {
+      await prompt.dispose()
+      await context.dispose()
+      hiddenTools.clear()
+    },
+    candidates: async (sessionID) => {
+      const hidden = await current(String(sessionID), sessionID)
+      if (hidden === null) return []
+      const tools = await ctx.tool.list()
+      return tools.filter((tool) => hidden.has(tool.id) && tool.id !== "skill" && tool.options?.codemode !== true)
+        .slice(0, MAX_CATALOG).map((tool) => entry(tool.id, tool.description, ""))
+    },
+    reveal: async (sessionID, names) => {
+      const hidden = await current(String(sessionID), sessionID)
+      if (hidden === null || names.length === 0) return false
+      const registered = new Set((await ctx.tool.list()).map((tool) => tool.id))
+      if (!names.every((name) => hidden.has(name) && registered.has(name))) return false
+      const remaining = [...hidden].filter((name) => !names.includes(name))
+      await ctx.session.synthetic({
+        sessionID, text: " ", description: "Chauffeur tool exposure",
+        metadata: { [HIDDEN_METADATA_KEY]: remaining }, delivery: "steer", resume: false,
+      })
+      await ctx.storage.set(storageKey(String(sessionID)), remaining)
+      remember(String(sessionID), remaining.length > 0 ? new Set(remaining) : null)
+      return true
+    },
   }
 }
 
 /** What applying the engine's effects to one prompt needs. */
-type Applying = { hidden: Hidden; remember: (set: Hidden) => void }
+type Applying = { hidden: Hidden; expected: ModelRef | null; remember: (set: Hidden) => void }
 
 async function apply(ctx: Plugin.Context, event: SessionPrompt, effects: Effect[], applying: Applying): Promise<void> {
   for (const effect of effects) {
     if (effect.agent_id !== String(event.sessionID)) continue
 
     if (effect.type === "model" && effect.model) {
+      const current = (await ctx.session.get({ sessionID: event.sessionID })).model
+
+      if (!current || !applying.expected || !sameModel(ref(current), applying.expected)) continue
       await ctx.session.switchModel({ sessionID: event.sessionID, model: hostModel(effect.model) })
     } else if (effect.type === "tools") {
+      await ctx.storage.set(storageKey(String(event.sessionID)), [...new Set([...(applying.hidden ?? []), ...effect.hide])].filter((tool) => !effect.reveal.includes(tool)))
       applyTools(effect, event, applying)
     } else if (effect.type === "context" && effect.delivery === "prompt") {
       attach(effect, event)
@@ -144,10 +181,14 @@ async function inherit(ctx: Plugin.Context, event: SessionPrompt, parentID: Sess
   const present = new Set((event.prompt.skills ?? []).map((skill) => skill.id))
   // Safe: these IDs were attached in the parent, so they are host skill IDs.
   const skills = [...attachedSkills(parent)].filter((id) => !present.has(id as Skill.ID)).map((id) => ({ id: id as Skill.ID }))
-  const hidden = await restoreHidden(ctx, parentID).catch(() => null)
+  const stored = await ctx.storage.get(storageKey(String(parentID))).catch(() => undefined)
+  const hidden = isHiddenList(stored)
+    ? (stored.length > 0 ? new Set(stored) : null)
+    : await restoreHidden(ctx, parentID).catch(() => null)
 
   event.prompt.skills = [...(event.prompt.skills ?? []), ...skills]
   remember(hidden)
+  await ctx.storage.set(storageKey(String(event.sessionID)), [...(hidden ?? [])])
 
   if (hidden !== null) event.metadata = { ...event.metadata, [HIDDEN_METADATA_KEY]: [...hidden] }
 }
@@ -206,10 +247,14 @@ function currentContext(messages: ReadonlyArray<HistoryMessage>): HistoryMessage
 
 async function restoreHidden(ctx: Plugin.Context, sessionID: SessionID): Promise<Hidden> {
   const recorded = currentContext(await ctx.session.context({ sessionID }))
-    .flatMap((message) => (message.type === "user" ? [message.metadata?.[HIDDEN_METADATA_KEY]] : []))
+    .flatMap((message) => (message.type === "user" || message.type === "synthetic" ? [message.metadata?.[HIDDEN_METADATA_KEY]] : []))
     .findLast((value) => Array.isArray(value))
 
   return Array.isArray(recorded) && recorded.every((tool) => typeof tool === "string") ? new Set(recorded) : null
+}
+
+function isHiddenList(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((tool) => typeof tool === "string")
 }
 
 type HostTool = Awaited<ReturnType<Plugin.Context["tool"]["list"]>>[number]

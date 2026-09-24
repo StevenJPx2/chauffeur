@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "identity": {
+    "id": "github-via-browser",
+    "name": "GitHub through a browser",
+    "version": "1.0.0"
+  },
+  "match": {
+    "tools": [
+      "shell",
+      "webfetch",
+      "execute"
+    ]
+  },
+  "question": "Does this call use a browser, browser-harness, or raw web requests to inspect or change GitHub repositories, files, issues, PRs, reviews, or actions where the gh command line can do it directly? Ignore tasks that specifically require viewing or testing the GitHub web UI.",
+  "nudge_at_or_above": 0.7,
+  "minimum_confidence": 0.4,
+  "steer": "Use gh for GitHub repository, PR, issue, and action access instead of browsing GitHub. For source files use gh api or gh repo clone as appropriate.",
+  "cooldown_seconds": 120
+}

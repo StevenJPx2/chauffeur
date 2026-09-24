@@ -64,6 +64,9 @@ async fn usage_limit_switches_to_the_judged_same_tier_model() {
             ok: true,
             input: String::new(),
             error: String::new(),
+            user_request: String::new(),
+            evidence: String::new(),
+            candidates: Vec::new(),
         },
     );
 

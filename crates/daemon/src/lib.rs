@@ -2,6 +2,7 @@
 
 mod audit;
 mod engine;
+mod learned;
 mod sourcefed;
 
 pub use engine::{EngineHandle, EngineOptions};

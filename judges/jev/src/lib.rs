@@ -1,15 +1,13 @@
 //! System One provider for TypeSafe AI's hosted Jev model.
 //!
-//! State is secret-redacted before it leaves the machine. Jev evaluates every
-//! question against the state in one shared pass, so one request serves a
-//! whole routing pass.
+//! The engine redacts state and questions before calling Jev. Jev evaluates
+//! every question against the state in one shared pass.
 
 use std::collections::HashMap;
 use std::time::Duration;
 
 use chauffeur_core::{
-    Answer, AnswerValue, Question, QuestionKind, SystemOne, SystemOneError, redact_secrets,
-    validate_answers,
+    Answer, AnswerValue, Question, QuestionKind, SystemOne, SystemOneError, validate_answers,
 };
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
@@ -74,7 +72,7 @@ impl SystemOne for JevClient {
     }
 
     fn ask(&mut self, state: &str, questions: &[Question]) -> Result<Vec<Answer>, SystemOneError> {
-        let body = request_body(&self.model, &redact_secrets(state), questions);
+        let body = request_body(&self.model, state, questions);
         let response = self
             .http
             .post(&self.endpoint)

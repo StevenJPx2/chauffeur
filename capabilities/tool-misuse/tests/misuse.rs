@@ -38,6 +38,9 @@ fn call(at: u64, tool: &str) -> Signal {
             ok: true,
             input: r#"{"command":"python3 patch.py"}"#.into(),
             error: String::new(),
+            user_request: String::new(),
+            evidence: String::new(),
+            candidates: Vec::new(),
         },
     }
 }

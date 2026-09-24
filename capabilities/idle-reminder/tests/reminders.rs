@@ -24,6 +24,9 @@ fn tool(at: u64, name: &str) -> Signal {
             ok: true,
             input: String::new(),
             error: String::new(),
+            user_request: String::new(),
+            evidence: String::new(),
+            candidates: Vec::new(),
         },
     )
 }

@@ -266,7 +266,6 @@ impl ModelRouter {
 
         // The first limit is what switching back waits on.
         origin.current = next.clone();
-        origin.since = signal.at;
     }
 
     /// On a user message, ask whether to return to the model the agent left.
@@ -393,8 +392,14 @@ impl Capability for ModelRouter {
 
     fn plan(&mut self, _: &Situation, signal: &Signal) -> Plan {
         match &signal.kind {
-            SignalKind::ModelSucceeded { .. } => {
-                self.attempted.remove(&signal.agent_id);
+            SignalKind::ModelSucceeded { model } => {
+                if self
+                    .origins
+                    .get(&signal.agent_id)
+                    .is_none_or(|origin| origin.current == *model)
+                {
+                    self.attempted.remove(&signal.agent_id);
+                }
                 Plan::Skip
             }
             SignalKind::ModelError {
@@ -405,6 +410,17 @@ impl Capability for ModelRouter {
                 tool_executed,
                 available,
             } => {
+                // A retry is still running on the origin: a proposed switch
+                // never reached the host (for example, it was cancelled).
+                // Let the next retry choose that fallback again.
+                if self
+                    .origins
+                    .get(&signal.agent_id)
+                    .is_some_and(|origin| origin.model == *model && origin.current != *model)
+                {
+                    self.origins.remove(&signal.agent_id);
+                    self.attempted.remove(&signal.agent_id);
+                }
                 // A model the router switched to that cannot serve the agent is a
                 // failed switch: move on to the next candidate.
                 let failed_switch = self

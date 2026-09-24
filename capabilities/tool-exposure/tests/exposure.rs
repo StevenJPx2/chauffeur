@@ -1,7 +1,7 @@
 use chauffeur_capability_tool_exposure::{ToolExposure, ToolExposureConfig, group};
 use chauffeur_core::{
-    Answer, AnswerValue, Capability, CatalogEntry, CodeModeNamespace, Delivery, Effect, Plan,
-    Signal, SignalKind, Situation,
+    Answer, AnswerValue, Capability, CatalogEntry, CodeModeNamespace, Delivery, Effect, Engine,
+    Plan, Signal, SignalKind, Situation, Step,
 };
 
 fn tool(id: &str) -> CatalogEntry {
@@ -72,6 +72,113 @@ fn exposure() -> ToolExposure {
     ToolExposure::new(ToolExposureConfig::default())
 }
 
+fn recovery(candidates: &[&str]) -> Signal {
+    Signal {
+        agent_id: "ses".into(),
+        at: 2,
+        kind: SignalKind::ToolResult {
+            tool: "execute".into(),
+            ok: true,
+            input: "lookup browser".into(),
+            error: String::new(),
+            user_request: "open the page".into(),
+            evidence: "tool browser unavailable".into(),
+            candidates: candidates.iter().copied().map(tool).collect(),
+        },
+    }
+}
+
+#[test]
+fn recovery_requires_two_valid_judgments_and_never_reveals_a_base_tool() {
+    let mut engine = Engine::hosted(vec![Box::new(exposure())]).unwrap();
+    let signal = recovery(&["patch", "browser_open"]);
+    let Step::Ask { questions, .. } = engine.begin(&signal).unwrap() else {
+        panic!("expected choice")
+    };
+    assert_eq!(questions.len(), 1);
+    assert!(questions[0].instructions.contains("open the page"));
+    assert!(
+        questions[0]
+            .instructions
+            .contains("tool browser unavailable")
+    );
+    let Step::Ask { questions, .. } = engine.finish(
+        Ok(vec![Answer {
+            id: questions[0].id.clone(),
+            value: AnswerValue::Choice("browser_open".into()),
+            confidence: Some(0.7),
+        }]),
+        1,
+    ) else {
+        panic!("expected follow-up")
+    };
+    assert!(questions[0].instructions.contains("open the page"));
+    let Step::Done(effects) = engine.finish(
+        Ok(vec![Answer {
+            id: questions[0].id.clone(),
+            value: AnswerValue::Choice("reveal_needed".into()),
+            confidence: Some(0.8),
+        }]),
+        1,
+    ) else {
+        panic!("expected reveal")
+    };
+    assert_eq!(
+        effects,
+        vec![Effect::Tools {
+            agent_id: "ses".into(),
+            hide: vec![],
+            reveal: vec!["browser_open".into()]
+        }]
+    );
+    assert_eq!(engine.trace().questions.len(), 2);
+}
+
+#[test]
+fn recovery_none_uncertain_and_failure_keep_tools_hidden() {
+    let mut engine = Engine::hosted(vec![Box::new(exposure())]).unwrap();
+    let signal = recovery(&["browser_open"]);
+    for first in ["none", "browser_open"] {
+        let Step::Ask { questions, .. } = engine.begin(&signal).unwrap() else {
+            panic!("expected choice")
+        };
+        let next = engine.finish(
+            Ok(vec![Answer {
+                id: questions[0].id.clone(),
+                value: AnswerValue::Choice(first.into()),
+                confidence: Some(0.8),
+            }]),
+            1,
+        );
+        if first == "none" {
+            assert_eq!(next, Step::Done(vec![]));
+            continue;
+        }
+        let Step::Ask { questions, .. } = next else {
+            panic!("expected follow-up")
+        };
+        assert_eq!(
+            engine.finish(
+                Ok(vec![Answer {
+                    id: questions[0].id.clone(),
+                    value: AnswerValue::Choice("keep_uncertain".into()),
+                    confidence: Some(0.8),
+                }]),
+                1
+            ),
+            Step::Done(vec![])
+        );
+    }
+    let Step::Ask { .. } = engine.begin(&signal).unwrap() else {
+        panic!("expected choice")
+    };
+    assert_eq!(engine.finish(Err("down".into()), 1), Step::Done(vec![]));
+    assert_eq!(
+        engine.begin(&recovery(&["patch"])).unwrap(),
+        Step::Done(vec![])
+    );
+}
+
 #[test]
 fn a_group_is_the_prefix_before_the_first_underscore() {
     assert_eq!(group("browser_tabs_list"), "browser");
@@ -112,7 +219,10 @@ fn classifier_failure_changes_nothing() {
 #[test]
 fn a_catalog_inside_the_base_set_settles_without_asking() {
     assert_eq!(
-        exposure().plan(&Situation::default(), &message(true, &["read", "skill"])),
+        exposure().plan(
+            &Situation::default(),
+            &message(true, &["read", "patch", "skill"])
+        ),
         Plan::Settled(hidden(&["skill"]))
     );
 }

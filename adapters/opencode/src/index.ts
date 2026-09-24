@@ -24,9 +24,9 @@ export default Plugin.define({
 
     const disposeSkillLoading = await claimSkillLoading(ctx)
     const disposeModelRouter = await installModelRouter(ctx, daemon)
-    const disposeExposure = await installExposure(ctx, daemon)
+    const exposure = await installExposure(ctx, daemon)
     const disposePermission = await installPermission(ctx, daemon)
-    const disposeToolResults = await installToolResults(ctx, daemon)
+    const disposeToolResults = await installToolResults(ctx, daemon, exposure)
     const disposeGate = await installGate(ctx, daemon)
     const disposeIdle = installIdle(ctx, daemon)
 
@@ -37,7 +37,7 @@ export default Plugin.define({
       await disposePermission()
       await disposeToolResults()
       await disposeModelRouter()
-      await disposeExposure()
+      await exposure.dispose()
     }
   },
 })

@@ -15,8 +15,8 @@ use std::collections::HashSet;
 use std::path::Path;
 
 use chauffeur_core::{
-    Answer, AnswerValue, Capability, CatalogEntry, Effect, Plan, Question, QuestionKind, Signal,
-    SignalKind, Situation, load_config,
+    Answer, AnswerValue, Capability, CatalogEntry, ChoiceOption, Effect, PipeStep, Plan, Question,
+    QuestionKind, Signal, SignalKind, Situation, load_config,
 };
 
 use code_mode::Surfaced;
@@ -49,6 +49,7 @@ pub const MIN_CONFIDENCE: f32 = 0.4;
 pub const MAX_GROUPS: usize = 64;
 const MAX_BASE: usize = 64;
 const MAX_LISTED_TOOLS: usize = 6;
+const MAX_RECOVERY_CANDIDATES: usize = 4;
 
 /// A tool's group: its ID up to the first `_`.
 #[must_use]
@@ -167,6 +168,73 @@ impl ToolExposure {
             .flat_map(|group| group.tools.iter().map(|tool| tool.id.clone()))
             .collect()
     }
+
+    fn recovery_candidates<'a>(&self, signal: &'a Signal) -> Vec<&'a CatalogEntry> {
+        let SignalKind::ToolResult { candidates, .. } = &signal.kind else {
+            return Vec::new();
+        };
+        let mut seen = HashSet::new();
+
+        candidates
+            .iter()
+            .filter(|tool| self.judgeable(tool) && seen.insert(tool.id.as_str()))
+            .take(MAX_RECOVERY_CANDIDATES)
+            .collect()
+    }
+
+    fn recover(&self, signal: &Signal, answers: Option<&[Answer]>, round: usize) -> PipeStep {
+        let SignalKind::ToolResult {
+            user_request,
+            evidence,
+            ..
+        } = &signal.kind
+        else {
+            return PipeStep::Done(Vec::new());
+        };
+        let Some(answer) = answers.and_then(|answers| answers.first()) else {
+            return PipeStep::Done(Vec::new());
+        };
+        let candidates = self.recovery_candidates(signal);
+
+        if round == 1 {
+            let AnswerValue::Choice(chosen) = &answer.value else {
+                return PipeStep::Done(Vec::new());
+            };
+            let Some(tool) = candidates.iter().find(|tool| tool.id == *chosen) else {
+                return PipeStep::Done(Vec::new());
+            };
+            return PipeStep::Next(vec![Question {
+                id: format!("recover/{}", tool.id),
+                instructions: format!(
+                    "Does the agent need the hidden direct tool {} ({}) to complete the user's request? Request: {}. Tool result evidence: {}. Reveal only if clearly needed.",
+                    tool.id, tool.description, user_request, evidence
+                ),
+                kind: QuestionKind::Choice {
+                    options: ["reveal_needed", "keep_not_needed", "keep_uncertain"]
+                        .into_iter()
+                        .map(|value| ChoiceOption {
+                            value: value.into(),
+                            description: value.replace('_', " "),
+                        })
+                        .collect(),
+                },
+            }]);
+        }
+
+        let Some(tool) = candidates
+            .iter()
+            .find(|tool| answer.id == format!("recover/{}", tool.id))
+        else {
+            return PipeStep::Done(Vec::new());
+        };
+        if matches!(&answer.value, AnswerValue::Choice(value) if value == "reveal_needed")
+            && answer.effective_confidence() >= MIN_CONFIDENCE
+        {
+            PipeStep::Done(effect(&signal.agent_id, vec![tool.id.clone()], true))
+        } else {
+            PipeStep::Done(Vec::new())
+        }
+    }
 }
 
 fn effect(agent_id: &str, tools: Vec<String>, reveal: bool) -> Vec<Effect> {
@@ -201,6 +269,36 @@ impl Capability for ToolExposure {
     }
 
     fn plan(&mut self, _: &Situation, signal: &Signal) -> Plan {
+        if let SignalKind::ToolResult {
+            user_request,
+            evidence,
+            ..
+        } = &signal.kind
+        {
+            let candidates = self.recovery_candidates(signal);
+            if candidates.is_empty() {
+                return Plan::Skip;
+            }
+            let mut options: Vec<ChoiceOption> = candidates
+                .iter()
+                .map(|tool| ChoiceOption {
+                    value: tool.id.clone(),
+                    description: tool.description.clone(),
+                })
+                .collect();
+            options.push(ChoiceOption {
+                value: "none".into(),
+                description: "No hidden tool fits".into(),
+            });
+            return Plan::Ask(vec![Question {
+                id: "recover/choose".into(),
+                instructions: format!(
+                    "Which registered, hidden direct tool fits the user's request and the tool result? Request: {user_request}. Evidence: {evidence}. Choose none if no offered tool fits."
+                ),
+                kind: QuestionKind::Choice { options },
+            }]);
+        }
+
         let SignalKind::UserMessage {
             first_in_context,
             tools,
@@ -291,6 +389,14 @@ impl Capability for ToolExposure {
 
         effects.extend(self.surfaced.surface(&signal.agent_id, &chosen));
         effects
+    }
+
+    fn advance(&mut self, signal: &Signal, answers: Option<&[Answer]>, round: usize) -> PipeStep {
+        if matches!(signal.kind, SignalKind::ToolResult { .. }) {
+            self.recover(signal, answers, round)
+        } else {
+            PipeStep::Done(self.decide(signal, answers))
+        }
     }
 }
 

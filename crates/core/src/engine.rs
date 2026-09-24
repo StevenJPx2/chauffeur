@@ -1,17 +1,19 @@
-//! Sense → Classify → Act: one System One call per signal across every
-//! interested capability.
+//! Sense → Classify → Act: batch each bounded round across capabilities.
 
 use std::collections::{HashMap, HashSet};
 
 use crate::backstop::Backstop;
-use crate::capability::{Capability, Plan};
+use crate::capability::{Capability, PipeStep, Plan};
 use crate::effect::{Effect, PermissionDecision};
+use crate::learning::{self, Probe};
+use crate::redact::{LearnedShapes, Masking, RedactionConfig, Redactor};
 use crate::signal::Signal;
 use crate::situation::Situation;
-use crate::system_one::{Answer, Question, SystemOne};
+use crate::system_one::{Answer, Question, QuestionKind, SystemOne, validate_answers};
 use crate::trace::{Trace, TracedAnswer, TracedQuestion};
 
 pub const MAX_AGENTS: usize = 256;
+const MAX_ROUNDS: usize = 2;
 /// Bumped when the saved state's shape changes; older state is ignored.
 const STATE_VERSION: u32 = 1;
 
@@ -20,6 +22,9 @@ pub struct Engine {
     capabilities: Vec<Box<dyn Capability>>,
     situations: HashMap<String, Situation>,
     backstop: Backstop,
+    redactor: Redactor,
+    /// The backstop or redactor learned something since the host last asked.
+    learned_changed: bool,
     trace: Trace,
     pending: Option<Pending>,
 }
@@ -29,7 +34,7 @@ pub struct Engine {
 pub enum Step {
     /// Decided without System One.
     Done(Vec<Effect>),
-    /// Ask System One these questions about this state, then finish.
+    /// Ask System One these questions; finishing may produce another round.
     Ask {
         state: String,
         questions: Vec<Question>,
@@ -41,6 +46,10 @@ struct Pending {
     signal: Signal,
     settled: Vec<Effect>,
     asks: Vec<(usize, Vec<Question>)>,
+    probe: Probe,
+    round: usize,
+    irreversible: bool,
+    questions: Vec<Question>,
 }
 
 impl Engine {
@@ -72,15 +81,42 @@ impl Engine {
             situations: HashMap::new(),
             trace: Trace::default(),
             backstop: Backstop::new(Vec::new()),
+            redactor: Redactor::new(RedactionConfig::default(), LearnedShapes::default())?,
+            learned_changed: false,
             pending: None,
         })
     }
 
-    /// Replace the built-in-only backstop, for example with project patterns.
+    /// Replace the default backstop, for example with project patterns.
     #[must_use]
     pub fn with_backstop(mut self, backstop: Backstop) -> Self {
         self.backstop = backstop;
         self
+    }
+
+    /// Replace the default redactor, for example with project prefixes.
+    #[must_use]
+    pub fn with_redactor(mut self, redactor: Redactor) -> Self {
+        self.redactor = redactor;
+        self
+    }
+
+    /// Commands the backstop learned, and shapes the redactor learned.
+    #[must_use]
+    pub fn learned(&self) -> (Vec<String>, LearnedShapes) {
+        (self.backstop.learned().to_vec(), self.redactor.learned())
+    }
+
+    /// Whether anything was learned since the last call, for persisting it.
+    pub fn take_learned_changed(&mut self) -> bool {
+        std::mem::take(&mut self.learned_changed)
+    }
+
+    /// Scrub audit fields with the active defaults, overrides, and learned
+    /// shapes, including credential-like strings not yet judged by Jev.
+    #[must_use]
+    pub fn redact_for_audit(&self, text: &str) -> String {
+        self.redactor.redact(text, &mut Masking::default())
     }
 
     /// Everything the engine remembers per agent, for persistence.
@@ -129,18 +165,21 @@ impl Engine {
 
     /// Run one signal to completion with the engine's own System One.
     pub fn ingest(&mut self, signal: &Signal) -> Result<Vec<Effect>, String> {
-        let (state, questions) = match self.begin(signal)? {
-            Step::Done(effects) => return Ok(effects),
-            Step::Ask { state, questions } => (state, questions),
-        };
-        let started = std::time::Instant::now();
-        let result = match self.system_one.as_mut() {
-            Some(system_one) => system_one.ask(&state, &questions).map_err(|error| error.0),
-            None => Err("no System One provider".to_string()),
-        };
-        let elapsed = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
+        let mut step = self.begin(signal)?;
 
-        Ok(self.finish(result, elapsed))
+        loop {
+            let (state, questions) = match step {
+                Step::Done(effects) => return Ok(effects),
+                Step::Ask { state, questions } => (state, questions),
+            };
+            let started = std::time::Instant::now();
+            let result = match self.system_one.as_mut() {
+                Some(system_one) => system_one.ask(&state, &questions).map_err(|error| error.0),
+                None => Err("no System One provider".to_string()),
+            };
+            let elapsed = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
+            step = self.finish(result, elapsed);
+        }
     }
 
     /// Start a signal. Hosts that call System One themselves ask the returned
@@ -170,43 +209,86 @@ impl Engine {
             .cloned()
             .unwrap_or_default();
         let (settled, asks) = self.plan(&situation, signal);
+        let harm = learning::harm(signal);
 
-        if asks.is_empty() {
+        if asks.is_empty() && harm.is_none() {
             return Ok(Step::Done(settled));
         }
 
-        let questions = self.namespaced(&asks);
+        let (command, harm) = harm.unzip();
+        let mut questions = self.namespaced(&asks);
 
-        self.trace.questions = questions.iter().map(TracedQuestion::new).collect();
+        questions.extend(harm);
+
+        // One numbering across state and questions, so a value keeps its label.
+        let mut masking = Masking::default();
+        let state = self.redactor.redact(&situation.render(), &mut masking);
+        let mut questions = self.redacted(questions, &mut masking);
+
+        questions.extend(learning::secrets(&masking));
+        self.trace.questions = questions
+            .iter()
+            .map(|question| TracedQuestion::new(question, 1))
+            .collect();
         self.pending = Some(Pending {
             signal: signal.clone(),
             settled,
             asks,
+            probe: Probe::new(command, &masking),
+            round: 1,
+            irreversible: false,
+            questions: questions.clone(),
         });
 
-        Ok(Step::Ask {
-            state: situation.render(),
-            questions,
-        })
+        Ok(Step::Ask { state, questions })
     }
 
-    /// Finish the signal [`Engine::begin`] started, with System One's answers
-    /// or its error; each capability applies its failure posture on error.
-    pub fn finish(&mut self, result: Result<Vec<Answer>, String>, elapsed_ms: u64) -> Vec<Effect> {
-        let Some(Pending {
-            signal,
-            mut settled,
-            asks,
-        }) = self.pending.take()
-        else {
-            return Vec::new();
+    /// Questions with their text redacted: capability questions can quote
+    /// the agent's input.
+    fn redacted(&self, questions: Vec<Question>, masking: &mut Masking) -> Vec<Question> {
+        questions
+            .into_iter()
+            .map(|question| {
+                let kind = match question.kind {
+                    QuestionKind::Choice { options } => QuestionKind::Choice {
+                        options: options
+                            .into_iter()
+                            .map(|option| crate::system_one::ChoiceOption {
+                                description: self.redactor.redact(&option.description, masking),
+                                ..option
+                            })
+                            .collect(),
+                    },
+                    other => other,
+                };
+
+                Question {
+                    instructions: self.redactor.redact(&question.instructions, masking),
+                    kind,
+                    ..question
+                }
+            })
+            .collect()
+    }
+
+    /// Finish one round; another may be ready when a capability depends on its answer.
+    pub fn finish(&mut self, result: Result<Vec<Answer>, String>, elapsed_ms: u64) -> Step {
+        let Some(mut pending) = self.pending.take() else {
+            return Step::Done(Vec::new());
         };
-
-        self.trace.elapsed_ms = elapsed_ms;
-
+        self.trace.elapsed_ms = self.trace.elapsed_ms.saturating_add(elapsed_ms);
+        let result = result.and_then(|answers| {
+            validate_answers(&pending.questions, &answers)
+                .map_err(|error| error.0)
+                .map(|()| answers)
+        });
         let answers = match result {
             Ok(answers) => {
-                self.trace.answers = answers.iter().map(TracedAnswer::new).collect();
+                self.trace.answers.extend(
+                    answers
+                        .iter()
+                        .map(|answer| TracedAnswer::new(answer, pending.round)),
+                );
                 Some(answers)
             }
             Err(error) => {
@@ -214,9 +296,67 @@ impl Engine {
                 None
             }
         };
+        if pending.round == 1 {
+            pending.irreversible = answers
+                .as_deref()
+                .is_some_and(|answers| self.learn(&pending.probe, answers));
+        }
+        let (effects, next) = self.advance(
+            &pending.signal,
+            &pending.asks,
+            answers.as_deref(),
+            pending.round,
+        );
+        pending.settled.extend(effects);
 
-        settled.extend(self.decide(&signal, &asks, answers.as_deref()));
-        settled
+        if !next.is_empty() && pending.round < MAX_ROUNDS && answers.is_some() {
+            pending.asks = next;
+            pending.round += 1;
+            let mut masking = Masking::default();
+            let situation = self
+                .situations
+                .get(&pending.signal.agent_id)
+                .cloned()
+                .unwrap_or_default();
+            let state = self.redactor.redact(&situation.render(), &mut masking);
+            let questions = self.redacted(self.namespaced(&pending.asks), &mut masking);
+            self.trace.questions.extend(
+                questions
+                    .iter()
+                    .map(|question| TracedQuestion::new(question, pending.round)),
+            );
+            pending.questions = questions.clone();
+            self.pending = Some(pending);
+            return Step::Ask { state, questions };
+        }
+
+        // A command judged irreversible is denied, whatever a contract said.
+        if pending.irreversible {
+            pending
+                .settled
+                .retain(|effect| !matches!(effect, Effect::Permission { .. }));
+            pending.settled.push(Effect::Permission {
+                agent_id: pending.signal.agent_id.clone(),
+                decision: PermissionDecision::Deny,
+                message: Some(
+                    "Chauffeur blocked an irreversible action; it is now on the backstop list."
+                        .into(),
+                ),
+            });
+        }
+
+        Step::Done(pending.settled)
+    }
+
+    /// Grow the safety lists from the core answers; `true` when the command
+    /// was judged irreversible.
+    fn learn(&mut self, probe: &Probe, answers: &[Answer]) -> bool {
+        let (learned, irreversible) = probe.learn(answers, &mut self.backstop, &mut self.redactor);
+
+        self.learned_changed |= !learned.is_empty();
+        self.trace.learned = learned;
+
+        irreversible
     }
 
     fn record(&mut self, signal: &Signal) {
@@ -278,13 +418,15 @@ impl Engine {
     }
 
     /// Hand each asking capability its own answers, IDs restored.
-    fn decide(
+    fn advance(
         &mut self,
         signal: &Signal,
         asks: &[(usize, Vec<Question>)],
         answers: Option<&[Answer]>,
-    ) -> Vec<Effect> {
+        round: usize,
+    ) -> (Vec<Effect>, Vec<(usize, Vec<Question>)>) {
         let mut effects = Vec::new();
+        let mut next = Vec::new();
 
         for (index, _) in asks {
             let prefix = self.prefix(*index);
@@ -303,11 +445,17 @@ impl Engine {
             });
 
             if let Some(capability) = self.capabilities.get_mut(*index) {
-                effects.extend(capability.decide(signal, local.as_deref()));
+                match capability.advance(signal, local.as_deref(), round) {
+                    PipeStep::Done(done) => effects.extend(done),
+                    PipeStep::Next(questions) if !questions.is_empty() => {
+                        next.push((*index, questions))
+                    }
+                    PipeStep::Next(_) => {}
+                }
             }
         }
 
-        effects
+        (effects, next)
     }
 
     fn prefix(&self, index: usize) -> String {
@@ -441,6 +589,9 @@ mod tests {
                 ok: true,
                 input: String::new(),
                 error: String::new(),
+                user_request: String::new(),
+                evidence: String::new(),
+                candidates: Vec::new(),
             },
         }
     }
@@ -545,11 +696,143 @@ mod tests {
                 confidence: None,
             })
             .collect();
-        let effects = engine.finish(Ok(answers), 42);
+        let Step::Done(effects) = engine.finish(Ok(answers), 42) else {
+            panic!("expected done")
+        };
 
         assert_eq!(effects, vec![keep("one:a,b")]);
         assert_eq!(engine.trace().elapsed_ms, 42);
         // Nothing is pending once finished.
-        assert!(engine.finish(Err("late".into()), 0).is_empty());
+        assert_eq!(engine.finish(Err("late".into()), 0), Step::Done(Vec::new()));
+    }
+
+    struct FollowUp;
+
+    impl Capability for FollowUp {
+        fn id(&self) -> &str {
+            "follow-up"
+        }
+
+        fn plan(&mut self, _: &Situation, _: &Signal) -> Plan {
+            Plan::Ask(vec![Question {
+                id: "first".into(),
+                instructions: "first?".into(),
+                kind: QuestionKind::Noul,
+            }])
+        }
+
+        fn decide(&mut self, _: &Signal, _: Option<&[Answer]>) -> Vec<Effect> {
+            Vec::new()
+        }
+
+        fn advance(
+            &mut self,
+            signal: &Signal,
+            answers: Option<&[Answer]>,
+            round: usize,
+        ) -> PipeStep {
+            if round == 1 && answers.is_some_and(|answers| matches!(answers.first(), Some(Answer { value: AnswerValue::Noul(p), .. }) if *p > 0.7)) {
+                return PipeStep::Next(vec![Question { id: "second".into(), instructions: "second?".into(), kind: QuestionKind::Noul }]);
+            }
+
+            PipeStep::Done(
+                (round == 2 && answers.is_some())
+                    .then(|| keep(&signal.agent_id))
+                    .into_iter()
+                    .collect(),
+            )
+        }
+    }
+
+    #[test]
+    fn dependent_round_is_batched_only_when_requested_and_failures_settle() {
+        let mut engine = Engine::hosted(vec![Box::new(FollowUp)]).unwrap();
+        let Step::Ask { questions, .. } = engine.begin(&signal()).unwrap() else {
+            panic!("expected first round")
+        };
+        assert_eq!(questions[0].id, "follow-up/first");
+        let Step::Ask { questions, .. } = engine.finish(
+            Ok(vec![Answer {
+                id: questions[0].id.clone(),
+                value: AnswerValue::Noul(0.9),
+                confidence: None,
+            }]),
+            4,
+        ) else {
+            panic!("expected second round")
+        };
+        assert_eq!(questions[0].id, "follow-up/second");
+        assert_eq!(
+            engine.finish(Err("timeout".into()), 5),
+            Step::Done(Vec::new())
+        );
+        assert_eq!(engine.trace().questions.len(), 2);
+        assert_eq!(engine.trace().questions[1].round, 2);
+        assert_eq!(engine.trace().answers[0].round, 1);
+        assert_eq!(engine.trace().elapsed_ms, 9);
+
+        let Step::Ask { questions, .. } = engine.begin(&signal()).unwrap() else {
+            panic!("expected first round")
+        };
+        assert_eq!(
+            engine.finish(
+                Ok(vec![Answer {
+                    id: questions[0].id.clone(),
+                    value: AnswerValue::Noul(0.2),
+                    confidence: None,
+                }]),
+                1
+            ),
+            Step::Done(Vec::new())
+        );
+        assert_eq!(engine.trace().questions.len(), 1);
+    }
+
+    #[test]
+    fn an_irreversible_shell_command_is_denied_and_learned_for_the_next_request() {
+        let mut engine = Engine::hosted(Vec::new()).unwrap();
+        let command = "git push --force origin main";
+        let request = Signal {
+            agent_id: "agent".into(),
+            at: 1,
+            kind: SignalKind::PermissionRequest {
+                action: "shell".into(),
+                resources: vec![crate::signal::Resource {
+                    requested: command.into(),
+                    resolved: command.into(),
+                }],
+                request: command.into(),
+                workspace: String::new(),
+                user_requests: Vec::new(),
+            },
+        };
+
+        let Step::Ask { questions, .. } = engine.begin(&request).unwrap() else {
+            panic!("expected the harm question")
+        };
+        assert_eq!(questions.len(), 1);
+        assert_eq!(questions[0].id, "core/irreversible");
+        let Step::Done(denied) = engine.finish(
+            Ok(vec![Answer {
+                id: "core/irreversible".into(),
+                value: AnswerValue::Noul(0.95),
+                confidence: Some(0.9),
+            }]),
+            1,
+        ) else {
+            panic!("expected done")
+        };
+
+        assert!(matches!(
+            denied.as_slice(),
+            [Effect::Permission {
+                decision: PermissionDecision::Deny,
+                ..
+            }]
+        ));
+        assert_eq!(engine.learned().0, vec![command]);
+        assert!(engine.take_learned_changed());
+        assert!(!engine.take_learned_changed());
+        assert!(matches!(engine.begin(&request).unwrap(), Step::Done(_)));
     }
 }

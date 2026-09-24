@@ -1,0 +1,13 @@
+{
+  "patterns": [
+    "rm -rf /",
+    "rm -rf ~",
+    "rm -rf $home",
+    "rm -fr /",
+    "mkfs",
+    "of=/dev/",
+    ":(){ :|:& };:",
+    "chmod -r 777 /",
+    "private key-----"
+  ]
+}

@@ -81,6 +81,7 @@ fn describe(kind: &SignalKind) -> Option<String> {
             ok,
             input,
             error,
+            ..
         } => {
             let outcome = if *ok { "Ran tool" } else { "Tool failed:" };
             let mut line = if input.is_empty() {
@@ -131,6 +132,9 @@ mod tests {
                 ok: true,
                 input: String::new(),
                 error: String::new(),
+                user_request: String::new(),
+                evidence: String::new(),
+                candidates: Vec::new(),
             },
         }
     }
@@ -171,6 +175,9 @@ mod tests {
                 ok: false,
                 input: r#"{"path":"main.rs"}"#.into(),
                 error: "permission denied".into(),
+                user_request: String::new(),
+                evidence: String::new(),
+                candidates: Vec::new(),
             },
         });
 

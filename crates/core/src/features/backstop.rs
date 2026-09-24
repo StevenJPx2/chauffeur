@@ -1,6 +1,8 @@
 //! The irreversible-harm backstop: the one deterministic gate outside System
 //! One. It never routes; it vetoes a permission request whose facts match a
-//! built-in or project pattern. Projects can add patterns, never remove them.
+//! pattern. Patterns come from the shipped defaults
+//! (`skills/safety/backstop.json`), your `backstop.json`, which adds to or
+//! replaces them, and commands System One confidently judged irreversible.
 
 use std::path::Path;
 
@@ -9,31 +11,30 @@ use serde::Deserialize;
 use crate::config::load_config;
 use crate::signal::{Signal, SignalKind};
 
-/// Case-insensitive substrings that mark an irreversible action.
-const BUILT_IN: &[&str] = &[
-    "rm -rf /",
-    "rm -rf ~",
-    "rm -rf $home",
-    "rm -fr /",
-    "mkfs",
-    "of=/dev/",
-    ":(){ :|:& };:",
-    "chmod -r 777 /",
-    "private key-----",
-];
+/// The shipped defaults, compiled in.
+const DEFAULTS: &str = include_str!("../../../../skills/safety/backstop.json");
 const MAX_PATTERNS: usize = 128;
+const MAX_LEARNED: usize = 512;
 const MAX_PATTERN_BYTES: usize = 256;
+/// A learned command must be at least this long, so a short, generic command
+/// never becomes a pattern that blocks everything.
+const MIN_LEARNED_BYTES: usize = 8;
 
-/// Strict JSON config: `{"patterns": ["git push --force origin main"]}`.
+/// Strict JSON config: `{"replace": false, "patterns": ["git push --force origin main"]}`.
+/// Case-insensitive substrings; your file adds to the defaults, or with
+/// `replace` stands in for them.
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct BackstopConfig {
+    #[serde(default)]
+    pub replace: bool,
     #[serde(default)]
     pub patterns: Vec<String>,
 }
 
 pub struct Backstop {
     patterns: Vec<String>,
+    learned: Vec<String>,
 }
 
 impl Backstop {
@@ -42,11 +43,20 @@ impl Backstop {
             .map_err(|error| format!("{}: {error}", path.display()))
     }
 
-    /// Built-in patterns plus the config's, within bounds.
+    /// The defaults plus (or replaced by) the config's patterns, within bounds.
     pub fn from_config(config: BackstopConfig) -> Result<Self, String> {
-        if config.patterns.len() > MAX_PATTERNS
-            || config
-                .patterns
+        let defaults: BackstopConfig =
+            serde_json::from_str(DEFAULTS).map_err(|error| error.to_string())?;
+        let mut patterns = if config.replace {
+            Vec::new()
+        } else {
+            defaults.patterns
+        };
+
+        patterns.extend(config.patterns);
+
+        if patterns.len() > MAX_PATTERNS
+            || patterns
                 .iter()
                 .any(|pattern| pattern.trim().is_empty() || pattern.len() > MAX_PATTERN_BYTES)
         {
@@ -55,19 +65,60 @@ impl Backstop {
             ));
         }
 
-        Ok(Self::new(config.patterns))
+        Ok(Self {
+            patterns: patterns
+                .into_iter()
+                .map(|pattern| pattern.to_lowercase())
+                .collect(),
+            learned: Vec::new(),
+        })
     }
 
-    /// Built-in patterns plus `extra`.
+    /// The defaults plus `extra`.
     #[must_use]
     pub fn new(extra: Vec<String>) -> Self {
-        let patterns = BUILT_IN
-            .iter()
-            .map(|pattern| (*pattern).to_string())
-            .chain(extra.into_iter().map(|pattern| pattern.to_lowercase()))
-            .collect();
+        Self::from_config(BackstopConfig {
+            replace: false,
+            patterns: extra,
+        })
+        .unwrap_or_else(|_| {
+            Self::from_config(BackstopConfig::default())
+                .expect("shipped backstop defaults are valid")
+        })
+    }
 
-        Self { patterns }
+    /// Commands learned earlier; kept apart so they can be reviewed.
+    #[must_use]
+    pub fn with_learned(mut self, learned: Vec<String>) -> Self {
+        self.learned = learned
+            .into_iter()
+            .filter(|pattern| {
+                pattern.len() >= MIN_LEARNED_BYTES && pattern.len() <= MAX_PATTERN_BYTES
+            })
+            .take(MAX_LEARNED)
+            .collect();
+        self
+    }
+
+    #[must_use]
+    pub fn learned(&self) -> &[String] {
+        &self.learned
+    }
+
+    /// Learn a command judged irreversible; `true` when it was new.
+    pub fn learn(&mut self, command: &str) -> bool {
+        let pattern = command.trim().to_lowercase();
+
+        if pattern.len() < MIN_LEARNED_BYTES
+            || pattern.len() > MAX_PATTERN_BYTES
+            || self.learned.len() >= MAX_LEARNED
+            || self.learned.contains(&pattern)
+        {
+            return false;
+        }
+
+        self.learned.push(pattern);
+        true
     }
 
     /// The pattern a permission request matches, if any.
@@ -91,6 +142,7 @@ impl Backstop {
 
         self.patterns
             .iter()
+            .chain(&self.learned)
             .find(|pattern| matches(&facts, pattern))
             .map(String::as_str)
     }
@@ -173,6 +225,34 @@ mod tests {
             backstop
                 .veto(&request("bash", "sudo rm -rf /* && echo", ""))
                 .is_some()
+        );
+    }
+
+    #[test]
+    fn config_can_replace_defaults_and_learned_commands_still_apply() {
+        let mut backstop = Backstop::from_config(BackstopConfig {
+            replace: true,
+            patterns: vec!["git push --force origin main".into()],
+        })
+        .unwrap();
+
+        assert!(backstop.veto(&request("bash", "rm -rf /", "")).is_none());
+        assert!(
+            backstop
+                .veto(&request("bash", "git push --force origin main", ""))
+                .is_some()
+        );
+        assert!(backstop.learn("DROP DATABASE production"));
+        let restored = Backstop::from_config(BackstopConfig {
+            replace: true,
+            patterns: vec![],
+        })
+        .unwrap()
+        .with_learned(backstop.learned().to_vec());
+
+        assert_eq!(
+            restored.veto(&request("shell", "drop database production", "")),
+            Some("drop database production")
         );
     }
 }

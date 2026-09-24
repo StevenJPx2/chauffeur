@@ -1,0 +1,19 @@
+{
+  "prefixes": [
+    { "prefix": "github_pat_", "min_body": 20 },
+    { "prefix": "sk-ant-", "min_body": 20 },
+    { "prefix": "ghp_", "min_body": 20 },
+    { "prefix": "gho_", "min_body": 20 },
+    { "prefix": "ghu_", "min_body": 20 },
+    { "prefix": "ghs_", "min_body": 20 },
+    { "prefix": "ghr_", "min_body": 20 },
+    { "prefix": "xoxb-", "min_body": 10 },
+    { "prefix": "xoxa-", "min_body": 10 },
+    { "prefix": "xoxp-", "min_body": 10 },
+    { "prefix": "xoxr-", "min_body": 10 },
+    { "prefix": "xoxs-", "min_body": 10 },
+    { "prefix": "AKIA", "min_body": 16 },
+    { "prefix": "AIza", "min_body": 35 },
+    { "prefix": "sk-", "min_body": 20 }
+  ]
+}
