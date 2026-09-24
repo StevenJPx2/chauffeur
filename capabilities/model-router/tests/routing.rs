@@ -4,9 +4,10 @@ use chauffeur_capability_model_router::{
     MAX_CANDIDATES, ModelRouter, ModelRouterConfig, STAY, SWITCH_BACK_AFTER_SECS, is_limit_error,
     is_unusable_error,
 };
+use chauffeur_capability_model_router::{Provider, Tier, TierEntry};
 use chauffeur_core::{
-    Answer, AnswerValue, AvailableModel, Capability, Effect, ModelRef, Plan, Provider,
-    QuestionKind, Signal, SignalKind, Situation, Tier, TierEntry,
+    Answer, AnswerValue, AvailableModel, Capability, Effect, ModelRef, Plan, QuestionKind, Signal,
+    SignalKind, Situation,
 };
 
 struct Table(&'static str, Vec<TierEntry>);
@@ -126,9 +127,9 @@ fn choice(value: &str, confidence: f32) -> Answer {
 }
 
 fn switch(key: &str) -> Vec<Effect> {
-    vec![Effect::SwitchModel {
+    vec![Effect::Model {
         agent_id: "session".into(),
-        model: model(key),
+        model: Some(model(key)),
     }]
 }
 
@@ -170,8 +171,9 @@ fn stay_keeps_the_model() {
 
     assert_eq!(
         router.decide(&signal, Some(&[choice(STAY, 0.9)][..])),
-        vec![Effect::KeepModel {
-            agent_id: "session".into()
+        vec![Effect::Model {
+            agent_id: "session".into(),
+            model: None
         }]
     );
 }
@@ -195,8 +197,9 @@ fn a_tool_that_already_ran_blocks_failover_without_asking() {
 
     assert_eq!(
         plan,
-        Plan::Settled(vec![Effect::KeepModel {
-            agent_id: "session".into()
+        Plan::Settled(vec![Effect::Model {
+            agent_id: "session".into(),
+            model: None
         }])
     );
 }
@@ -318,7 +321,7 @@ fn switched_router() -> ModelRouter {
     router.plan(&Situation::default(), &signal);
     assert!(matches!(
         router.decide(&signal, Some(&[chosen])).as_slice(),
-        [Effect::SwitchModel { model, .. }] if model.key() == "openai/sol"
+        [Effect::Model { model: Some(model), .. }] if model.key() == "openai/sol"
     ));
 
     router
@@ -350,9 +353,9 @@ fn switching_back_is_judged_only_after_the_wait_and_on_the_switched_model() {
             &user_message(after, "openai/sol"),
             Some(&[switch_back(0.9)])
         ),
-        vec![Effect::SwitchModel {
+        vec![Effect::Model {
             agent_id: "session".into(),
-            model: model("anthropic/opus")
+            model: Some(model("anthropic/opus"))
         }]
     );
     // Back on the original model: nothing more to judge.
@@ -536,6 +539,6 @@ fn tiers_follow_thinking_variants_and_never_offer_the_same_model() {
     };
     assert!(matches!(
         router.decide(&signal, Some(&[pick])).as_slice(),
-        [Effect::SwitchModel { model, .. }] if model.variant.as_deref() == Some("max") && model.model == "gpt-6-luna"
+        [Effect::Model { model: Some(model), .. }] if model.variant.as_deref() == Some("max") && model.model == "gpt-6-luna"
     ));
 }

@@ -1,6 +1,7 @@
 use chauffeur_capability_tool_exposure::{ToolExposure, ToolExposureConfig, group};
 use chauffeur_core::{
-    Answer, AnswerValue, Capability, CatalogEntry, Effect, Plan, Signal, SignalKind, Situation,
+    Answer, AnswerValue, Capability, CatalogEntry, CodeModeNamespace, Delivery, Effect, Plan,
+    Signal, SignalKind, Situation,
 };
 
 fn tool(id: &str) -> CatalogEntry {
@@ -49,9 +50,10 @@ fn names(tools: &[&str]) -> Vec<String> {
 }
 
 fn hidden(tools: &[&str]) -> Vec<Effect> {
-    vec![Effect::HideTools {
+    vec![Effect::Tools {
         agent_id: "ses".into(),
-        tools: names(tools),
+        hide: names(tools),
+        reveal: Vec::new(),
     }]
 }
 
@@ -141,9 +143,10 @@ fn a_later_message_may_bring_a_hidden_group_back() {
     );
     assert_eq!(
         exposure().decide(&signal, Some(&[noul("browser", 0.9), noul("jira", 0.5)])),
-        vec![Effect::RevealTools {
+        vec![Effect::Tools {
             agent_id: "ses".into(),
-            tools: names(&["browser_open", "browser_click"])
+            hide: Vec::new(),
+            reveal: names(&["browser_open", "browser_click"])
         }]
     );
     assert_eq!(
@@ -152,29 +155,64 @@ fn a_later_message_may_bring_a_hidden_group_back() {
     );
 }
 
-#[test]
-fn a_code_mode_namespace_the_request_needs_is_surfaced() {
-    let mut signal = message(false, &[]);
+fn with_code_mode(first_in_context: bool) -> Signal {
+    let mut signal = message(first_in_context, &[]);
 
     if let SignalKind::UserMessage { code_mode, .. } = &mut signal.kind {
-        *code_mode = vec![tool("browser"), tool("cloudflare")];
+        *code_mode = vec![
+            CodeModeNamespace {
+                name: "browser".into(),
+                size: 45,
+                tools: vec![tool("browser_tabs_open")],
+            },
+            CodeModeNamespace {
+                name: "cloudflare".into(),
+                size: 3389,
+                tools: vec![tool("cloudflare_get_live")],
+            },
+        ];
     }
 
+    signal
+}
+
+#[test]
+fn a_code_mode_namespace_the_request_needs_gets_a_note_once_per_context() {
+    let mut exposure = exposure();
+    let signal = with_code_mode(false);
+    let answers = [
+        noul("code-mode:browser", 0.9),
+        noul("code-mode:cloudflare", 0.1),
+    ];
+
     assert_eq!(
-        asked(&exposure().plan(&Situation::default(), &signal)),
+        asked(&exposure.plan(&Situation::default(), &signal)),
         vec!["code-mode:browser", "code-mode:cloudflare"]
     );
+
+    let effects = exposure.decide(&signal, Some(&answers));
+    let [
+        Effect::Context {
+            delivery: Delivery::Prompt,
+            text: Some(note),
+            ..
+        },
+    ] = effects.as_slice()
+    else {
+        panic!("expected a note on the prompt, got {effects:?}")
+    };
+    assert!(note.contains("## browser (45 tools)\n- browser_tabs_open: browser_tabs_open tool"));
+    assert!(note.contains("search({ namespace: \"browser\""));
+    assert!(!note.contains("cloudflare"));
+
+    // Surfaced once: the next message asks only about the rest.
     assert_eq!(
-        exposure().decide(
-            &signal,
-            Some(&[
-                noul("code-mode:browser", 0.9),
-                noul("code-mode:cloudflare", 0.1)
-            ])
-        ),
-        vec![Effect::SurfaceTools {
-            agent_id: "ses".into(),
-            namespaces: names(&["browser"])
-        }]
+        asked(&exposure.plan(&Situation::default(), &signal)),
+        vec!["code-mode:cloudflare"]
+    );
+    // A new context starts over.
+    assert_eq!(
+        asked(&exposure.plan(&Situation::default(), &with_code_mode(true))),
+        vec!["code-mode:browser", "code-mode:cloudflare"]
     );
 }

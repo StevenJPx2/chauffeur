@@ -1,6 +1,6 @@
 use chauffeur_capability_tool_misuse::{MisuseContract, ToolMisuse};
 use chauffeur_core::{
-    Answer, AnswerValue, Capability, Effect, Plan, Signal, SignalKind, Situation,
+    Answer, AnswerValue, Capability, Delivery, Effect, Plan, Signal, SignalKind, Situation,
 };
 use serde_json::{Value, json};
 
@@ -85,17 +85,13 @@ fn a_confirmed_misuse_steers_hands_over_its_skill_and_cools_down() {
             &call(1, "shell"),
             Some(&[yes("hand-rolled-patch", 0.2), yes("slack-via-browser", 0.9)])
         ),
-        vec![
-            Effect::Nudge {
-                agent_id: "ses".into(),
-                tool: "shell".into(),
-                text: "Chauffeur: Stop doing slack-via-browser.".into()
-            },
-            Effect::AttachSkills {
-                agent_id: "ses".into(),
-                skills: vec!["slack-cli".into()]
-            },
-        ]
+        vec![Effect::Context {
+            agent_id: "ses".into(),
+            delivery: Delivery::Steer,
+            label: "shell check".into(),
+            skills: vec!["slack-cli".into()],
+            text: Some("Chauffeur: Stop doing slack-via-browser.".into())
+        }]
     );
 
     // Cooling down, only the other contract is still asked.

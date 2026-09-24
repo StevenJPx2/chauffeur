@@ -1,7 +1,7 @@
 //! Anthropic provider plugin: static equivalence tiers, by model and
 //! thinking variant.
 
-use chauffeur_core::{Provider, Tier, TierEntry};
+use chauffeur_capability_model_router::{Provider, Tier, TierEntry};
 
 const TIERS: &[TierEntry] = &[
     TierEntry {

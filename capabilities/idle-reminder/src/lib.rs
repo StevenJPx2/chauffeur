@@ -3,12 +3,18 @@
 //! events it received) asks System One whether its situation holds; the
 //! highest-priority confirmed rules become reminders.
 
+mod plugin;
+mod rule;
+
 use std::collections::{HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
 
+pub use plugin::{Plugin, compose};
+pub use rule::{Gate, IdleFacts, Rule, Threshold, load_rules};
+
 use chauffeur_core::{
-    Answer, AnswerValue, Capability, Effect, IdleFacts, Plan, Question, QuestionKind, Rule, Signal,
+    Answer, AnswerValue, Capability, Delivery, Effect, Plan, Question, QuestionKind, Signal,
     SignalKind, Situation,
 };
 
@@ -193,10 +199,13 @@ impl Capability for IdleReminder {
             .map(|rule| {
                 self.record_fired(&signal.agent_id, &rule.id, signal.at);
 
-                Effect::Remind {
+                // A reminder wakes the idle agent.
+                Effect::Context {
                     agent_id: signal.agent_id.clone(),
-                    rule_id: rule.id.clone(),
-                    text: format!("📋 Reminder ({}):\n\n{}", rule.name, rule.reminder),
+                    delivery: Delivery::Resume,
+                    label: rule.id.clone(),
+                    skills: Vec::new(),
+                    text: Some(format!("📋 Reminder ({}):\n\n{}", rule.name, rule.reminder)),
                 }
             })
             .collect()

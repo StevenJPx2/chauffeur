@@ -10,8 +10,8 @@ use std::collections::HashMap;
 pub use contract::{Identity, Match, MisuseContract, load_contracts};
 
 use chauffeur_core::{
-    Answer, AnswerValue, Capability, Effect, Plan, Question, QuestionKind, Signal, SignalKind,
-    Situation,
+    Answer, AnswerValue, Capability, Delivery, Effect, Plan, Question, QuestionKind, Signal,
+    SignalKind, Situation,
 };
 
 pub const ID: &str = "tool-misuse";
@@ -119,18 +119,14 @@ impl Capability for ToolMisuse {
                 (signal.agent_id.clone(), contract.identity.id.clone()),
                 signal.at,
             );
-            effects.push(Effect::Nudge {
+            // The steer, with any hand-over skill, reaches the running turn.
+            effects.push(Effect::Context {
                 agent_id: signal.agent_id.clone(),
-                tool: tool.clone(),
-                text: format!("Chauffeur: {}", contract.steer),
+                delivery: Delivery::Steer,
+                label: format!("{tool} check"),
+                skills: contract.handoff_skill.into_iter().collect(),
+                text: Some(format!("Chauffeur: {}", contract.steer)),
             });
-
-            if let Some(skill) = contract.handoff_skill {
-                effects.push(Effect::AttachSkills {
-                    agent_id: signal.agent_id.clone(),
-                    skills: vec![skill],
-                });
-            }
         }
 
         effects

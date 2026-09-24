@@ -89,13 +89,17 @@ async fn first_user_message_attaches_skills_and_hides_unneeded_tools() {
     assert_eq!(
         effects,
         vec![
-            Effect::AttachSkills {
+            Effect::Context {
                 agent_id: "ses_exposure".into(),
-                skills: vec!["hpdp-overlay".into()]
+                delivery: chauffeur_core::Delivery::Prompt,
+                label: "skill hpdp-overlay".into(),
+                skills: vec!["hpdp-overlay".into()],
+                text: None
             },
-            Effect::HideTools {
+            Effect::Tools {
                 agent_id: "ses_exposure".into(),
-                tools: vec!["skill".into(), "github_create_pr".into()]
+                hide: vec!["skill".into(), "github_create_pr".into()],
+                reveal: Vec::new()
             },
         ]
     );

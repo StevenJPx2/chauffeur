@@ -6,6 +6,7 @@ const RPC_TIMEOUT_MS = 30_000
 // Matches the engine's reply timeout; model routing blocks the host's retry decision.
 const SIGNAL_TIMEOUT_MS = 15_000
 const PERMISSION_DECISIONS = ["allow", "deny", "ask"] as const
+const DELIVERIES = ["prompt", "steer", "resume", "wait"] as const
 
 export class DaemonBridge {
   readonly url = (process.env.CHAUFFEUR_DAEMON_URL ?? DEFAULT_URL).replace(/\/$/, "")
@@ -83,20 +84,20 @@ function decodeRpc<T>(value: unknown): RpcResponse<T> {
 
 function isEffect(value: unknown): value is Effect {
   if (!isRecord(value) || typeof value.agent_id !== "string") return false
-  if (value.type === "keep_model" || value.type === "withhold_event") return true
-  if (value.type === "attach_skills") return isStringArray(value.skills)
-  if (value.type === "hide_tools" || value.type === "reveal_tools") return isStringArray(value.tools)
-  if (value.type === "surface_tools") return isStringArray(value.namespaces)
-  if (value.type === "remind") return typeof value.rule_id === "string" && typeof value.text === "string"
-  if (value.type === "nudge") return typeof value.tool === "string" && typeof value.text === "string"
+  if (value.type === "gate") return typeof value.deliver === "boolean"
+  if (value.type === "tools") return isStringArray(value.hide) && isStringArray(value.reveal)
+  if (value.type === "context") {
+    return isOneOf(value.delivery, DELIVERIES)
+      && typeof value.label === "string"
+      && isStringArray(value.skills)
+      && (value.text === null || typeof value.text === "string")
+  }
   if (value.type === "permission") {
     return isOneOf(value.decision, PERMISSION_DECISIONS) && (value.message === null || typeof value.message === "string")
   }
 
-  return value.type === "switch_model"
-    && isRecord(value.model)
-    && typeof value.model.provider === "string"
-    && typeof value.model.model === "string"
+  return value.type === "model"
+    && (value.model === null || (isRecord(value.model) && typeof value.model.provider === "string" && typeof value.model.model === "string"))
 }
 
 function isStringArray(value: unknown): value is string[] {

@@ -8,7 +8,7 @@ rust-version.workspace = true
 repository.workspace = true
 
 [dependencies]
-chauffeur-core = { workspace = true }
+chauffeur-capability-model-router = { workspace = true }
 
 [lints]
 workspace = true

@@ -30,6 +30,21 @@ pub struct CatalogEntry {
     pub bytes: u32,
 }
 
+/// Tools in a Code Mode namespace reach the model through `execute`, whose
+/// catalog shows each namespace only in part.
+#[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct CodeModeNamespace {
+    pub name: String,
+    /// Every tool in the namespace.
+    pub size: u32,
+    /// The host's best matches for the user's request, best first.
+    pub tools: Vec<CatalogEntry>,
+}
+
+pub const MAX_CODE_MODE_NAMESPACES: usize = 64;
+pub const MAX_CODE_MODE_MATCHES: usize = 8;
+
 /// A model reference as `provider/model`, optionally at a thinking variant
 /// (`provider/model#variant`), such as `anthropic/claude-opus-5-5#high`.
 #[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq, Hash)]
@@ -76,11 +91,10 @@ pub enum SignalKind {
         /// The session's current model, when the host knows it.
         #[serde(default)]
         model: Option<ModelRef>,
-        /// Code Mode tool namespaces not yet surfaced in this context: tools the
-        /// model reaches through `execute`, which its catalog shows only in
-        /// part.
+        /// The host's Code Mode namespaces, with each one's best matches for
+        /// this message.
         #[serde(default)]
-        code_mode: Vec<CatalogEntry>,
+        code_mode: Vec<CodeModeNamespace>,
     },
     /// The agent asked to perform an action that needs permission.
     PermissionRequest {
@@ -232,7 +246,7 @@ impl Signal {
                 ..
             } => {
                 bounded(text, "text")?;
-                validate_catalog(code_mode, "code_mode")?;
+                validate_code_mode(code_mode)?;
 
                 if let Some(model) = model {
                     validate_model(model)?;
@@ -243,6 +257,25 @@ impl Signal {
             }
         }
     }
+}
+
+fn validate_code_mode(namespaces: &[CodeModeNamespace]) -> Result<(), String> {
+    if namespaces.len() > MAX_CODE_MODE_NAMESPACES {
+        return Err(format!(
+            "signal lists more than {MAX_CODE_MODE_NAMESPACES} Code Mode namespaces"
+        ));
+    }
+
+    namespaces.iter().try_for_each(|namespace| {
+        if namespace.name.is_empty() || namespace.tools.len() > MAX_CODE_MODE_MATCHES {
+            return Err(format!(
+                "a Code Mode namespace needs a name and at most {MAX_CODE_MODE_MATCHES} matches"
+            ));
+        }
+
+        bounded(&namespace.name, "Code Mode namespace")?;
+        validate_catalog(&namespace.tools, "Code Mode tools")
+    })
 }
 
 fn validate_catalog(entries: &[CatalogEntry], field: &str) -> Result<(), String> {

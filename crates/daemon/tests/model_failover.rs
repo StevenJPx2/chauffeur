@@ -100,9 +100,9 @@ async fn usage_limit_switches_to_the_judged_same_tier_model() {
 
     assert_eq!(
         effects,
-        vec![Effect::SwitchModel {
+        vec![Effect::Model {
             agent_id: "ses_test".into(),
-            model: model("openai", "gpt-6-sol")
+            model: Some(model("openai", "gpt-6-sol"))
         }]
     );
 

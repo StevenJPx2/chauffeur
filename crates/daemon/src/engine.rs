@@ -6,13 +6,13 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use chauffeur_capability_event_gate::EventGate;
-use chauffeur_capability_idle_reminder::IdleReminder;
-use chauffeur_capability_model_router::{ModelRouter, ModelRouterConfig};
+use chauffeur_capability_idle_reminder::{IdleReminder, Plugin, compose};
+use chauffeur_capability_model_router::{ModelRouter, ModelRouterConfig, Provider};
 use chauffeur_capability_permission::{Permission, load_skills};
 use chauffeur_capability_skill_exposure::SkillExposure;
 use chauffeur_capability_tool_exposure::{ToolExposure, ToolExposureConfig};
 use chauffeur_capability_tool_misuse::{ToolMisuse, load_contracts};
-use chauffeur_core::{Backstop, Capability, Effect, Engine, Plugin, Provider, Signal, compose};
+use chauffeur_core::{Backstop, Capability, Effect, Engine, Signal};
 use chauffeur_judge_jev::{JevClient, JevConfig};
 use chauffeur_plugin_anthropic::AnthropicProvider;
 use chauffeur_plugin_git::GitPlugin;

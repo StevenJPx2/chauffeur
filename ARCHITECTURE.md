@@ -92,18 +92,30 @@ any capability sees them.
 
 ## Effects
 
-| Family | Mechanism in OpenCode | Lifetime | Examples |
-|---|---|---|---|
-| Persistent enhancement | attach to the admitted user prompt (`prompt` hook: `skills`, `metadata`), or `session.synthetic` (`resume` to wake an idle agent, `steer` mid-turn, `resume: false` to wait for the next turn) | in history; monotonic | skill preload, hidden-tool record, idle reminder, misuse nudge, drift skill |
-| Ephemeral enhancement | append to `messages` in the `context` hook | this request only, re-sent while active | none yet: appending needs `@opencode/ai`'s `Message` class, a direct dependency not yet added |
-| Decision | control seam; never touches the prompt | immediate | permission allow/deny/ask, model switch |
+Effects are the host's actions, not capabilities' concepts. Core defines five,
+and no effect names the capability that asked, so a new capability needs no
+new effect and no adapter change:
+
+| Effect | What the host does | Used by |
+|---|---|---|
+| `permission` | answers the pending permission request: allow, deny, or ask with a message | permission contracts, the backstop |
+| `model` | switches the model (with its thinking variant) and retries, or keeps it and applies its own retry policy | model router |
+| `tools` | hides or shows named tools in this context | tool exposure |
+| `context` | adds skills (the host resolves their bodies) and text to the conversation, at a `delivery`: `prompt` (with the user message being admitted), `steer` (the running turn), `resume` (wakes an idle agent), or `wait` (for the next turn) | skill exposure, tool exposure (Code Mode notes), tool misuse, idle reminders |
+| `gate` | delivers or withholds the integration event being gated | event gate |
+
+Every `context` delivery lands in history at the tail, so the cached prefix
+stays intact. Ephemeral context, appended to one request in the `context` hook,
+is not built: it needs `@opencode/ai`'s `Message` class, a direct dependency not
+yet added.
 
 A subagent's first prompt continues its parent's context rather than starting
 one: the adapter attaches the parent's skills to it and keeps the parent's
 hidden tools hidden, so the engine judges only what the subagent adds.
 
-What a context has already received is rebuilt from its own history: attached skills are read from user messages and from
-synthetic messages carrying `chauffeur.skill` since the last compaction, and
+What a context has already received is rebuilt from its own history: attached
+skills are read from user messages and from synthetic messages carrying
+`chauffeur.skills` since the last compaction, and
 the hidden tools from the latest `chauffeur.hidden` metadata. A skill larger
 than 16 KiB is never attached. Everything else the engine remembers per agent
 is persisted by the daemon (see Failure and bounds).
@@ -136,14 +148,16 @@ come first in that prefix.
   tools reach the model through `execute`, whose catalog shows each namespace
   only in part (browser: 4 of 45) and is updated by appended messages.
   Chauffeur never edits the system prompt, so it does not hide Code Mode tools;
-  it **surfaces** them. On each user message the adapter sends the Code Mode
-  namespaces not yet surfaced in the context, and one question per namespace
-  asks whether the request needs it (P ≥ 0.7, confidence ≥ 0.4). For each
-  chosen namespace the adapter ranks its tools by overlap with the request and
-  attaches the top five, with descriptions and the `search({ namespace })` call
-  for exact paths, as a text attachment on the prompt: it reaches the first
-  step, adds nothing to the system prompt, and the namespace is recorded in the
-  message's `chauffeur.surfaced` metadata so it is not repeated.
+  it **surfaces** them. On each user message the adapter sends every Code Mode
+  namespace with its size and its best matches for the request (up to 8, by
+  word overlap, as Code Mode's own search would find them). Tool exposure asks
+  one question per namespace not yet surfaced in the context (P ≥ 0.7,
+  confidence ≥ 0.4) and, for the chosen ones, writes a note listing those
+  matches with the `search({ namespace })` call for exact paths. It arrives as
+  a `context` effect with `prompt` delivery, a text attachment that reaches
+  the first step and adds nothing to the system prompt. Tool exposure
+  remembers what it surfaced per agent, resets at a new context, and persists
+  it with the rest of its state.
 - **Skill list.** At startup the adapter adds a `skill` deny rule to every
   agent through `agent.transform`. OpenCode then leaves both the `skill` tool
   and its skill list (about 4k tokens with 43 skills) out of every request,
@@ -232,7 +246,7 @@ without prompts; a failed judgment still asks:
 ### Idle reminder
 
 Plugins contribute rules: a structural gate (status, source, hooks, tools
-called or not called), a situation, a static reminder, priority, once,
+called, any of a set of tools called, or tools not called), a situation, a static reminder, priority, once,
 cooldown, and a probability threshold (default 0.7). The capability tracks the
 tools each agent has run and the integration events it received, as
 `source:kind` hooks (`github:merged`). The agent is `in_review` once it opened
@@ -362,33 +376,35 @@ The adapter sends **Signals** and applies **Effects**; it holds no policy.
   `session.execution.succeeded` and `.failed` end a turn; OpenCode 2.0.15
   emits no `session.status` idle event). Permission resources are file paths
   for `read`, `edit`, `write`, and `patch`, and command text for `shell`.
-- **Model decision:** `session.switchModel` plus the retry decision.
-- **Permission decision:** `permission.hook("evaluate")`.
-- **Code Mode surfacing:** a `data:text/plain` attachment in `prompt.files`.
+- **`permission`:** `permission.hook("evaluate")`, answered within 600 ms.
+- **`model`:** `session.switchModel` (with the variant) plus the retry
+  decision; the session's model comes from `session.get`.
+- **`tools`:** the hidden list is recorded on the user message's
+  `chauffeur.hidden` metadata and deleted from `tools` in
+  `session.hook("context")`.
+- **`context`, `prompt` delivery:** skills go to `prompt.skills`, text to a
+  `data:text/plain` attachment in `prompt.files`. The prompt waits up to 6 s
+  for the engine, then proceeds unenhanced.
+- **`context`, other deliveries:** one `session.synthetic` message with the
+  text and each skill's body, recording the skills in `chauffeur.skills`
+  metadata: `delivery: "steer"`, `resume: true`, or `resume: false`. The
+  `execute.after` hook waits at most 3 s.
+- **`gate`:** the `chauffeur.gate` plugin RPC's reply.
 - **Skill loading:** a `skill` deny rule on every agent via `agent.transform`.
-- **Skill preload:** `prompt.skills` in the `prompt` hook. The prompt waits up
-  to 6 s for exposure, then proceeds unenhanced. The session's model comes from
-  `session.get`, and a switch back uses `session.switchModel`.
-- **Drift skill:** `session.synthetic` with the skill body and
-  `chauffeur.skill` metadata.
-- **Hidden tools:** deleted from `tools` in `session.hook("context")`.
-- **Idle reminder:** `session.synthetic` with `resume: true`.
-- **Misuse nudge:** `session.synthetic` with `delivery: "steer"`; the
-  `execute.after` hook waits at most 3 s for the judgment.
 
 ## Workspace
 
 | Path | Role |
 |---|---|
-| `crates/core` | engine, Signal/Situation, System One interface, capability/effect/provider/rule-plugin contracts, redaction, RPC contracts, client |
+| `crates/core` | engine, System One interface, capability contract, host vocabulary (signals and the five effects), backstop, redaction, RPC contracts, client; no capability concepts |
 | `crates/daemon` | engine thread, Jev wiring, plugin composition, HTTP RPC, sourcefed surface |
 | `skills` | permission and misuse contracts, hand-over skills |
 | `crates/cli`, `crates/mcp` | drive the daemon |
-| `capabilities/model-router` | model-router capability |
+| `capabilities/model-router` | model-router capability and the provider tier-table contract |
 | `capabilities/skill-exposure` | skill-exposure capability |
 | `capabilities/tool-exposure` | tool-exposure capability |
 | `capabilities/permission` | permission capability and the skill-contract format |
-| `capabilities/idle-reminder` | idle-reminder capability |
+| `capabilities/idle-reminder` | idle-reminder capability and the rule-plugin contract |
 | `capabilities/tool-misuse` | tool-misuse capability and the misuse-contract format |
 | `capabilities/event-gate` | event-gate capability |
 | `plugins/anthropic`, `plugins/openai` | provider tier tables |

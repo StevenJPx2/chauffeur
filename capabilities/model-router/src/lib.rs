@@ -2,13 +2,17 @@
 //! model from the same tier, or decides to stay. Later, System One may switch
 //! the agent back to the model it left once the limit has likely cleared.
 
+mod provider;
+
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::Arc;
 
+pub use provider::{Provider, Tier, TierEntry};
+
 use chauffeur_core::{
-    Answer, AnswerValue, Capability, ChoiceOption, Effect, ModelRef, Plan, Provider, Question,
-    QuestionKind, Signal, SignalKind, Situation, Tier, load_config,
+    Answer, AnswerValue, Capability, ChoiceOption, Effect, ModelRef, Plan, Question, QuestionKind,
+    Signal, SignalKind, Situation, load_config,
 };
 use serde::{Deserialize, Serialize};
 
@@ -317,9 +321,9 @@ impl ModelRouter {
 
         self.attempted.remove(&signal.agent_id);
 
-        vec![Effect::SwitchModel {
+        vec![Effect::Model {
             agent_id: signal.agent_id.clone(),
-            model: origin.model,
+            model: Some(origin.model),
         }]
     }
 
@@ -413,8 +417,9 @@ impl Capability for ModelRouter {
                     return Plan::Skip;
                 }
 
-                let keep = Effect::KeepModel {
+                let keep = Effect::Model {
                     agent_id: signal.agent_id.clone(),
+                    model: None,
                 };
 
                 // A tool already ran in the failed step; retrying elsewhere could repeat it.
@@ -480,12 +485,15 @@ impl Capability for ModelRouter {
                     &next,
                     format!("{error_type}: {}", clip(message, MAX_ERROR_CHARS)),
                 );
-                vec![Effect::SwitchModel {
+                vec![Effect::Model {
                     agent_id,
-                    model: next,
+                    model: Some(next),
                 }]
             }
-            None => vec![Effect::KeepModel { agent_id }],
+            None => vec![Effect::Model {
+                agent_id,
+                model: None,
+            }],
         }
     }
 }

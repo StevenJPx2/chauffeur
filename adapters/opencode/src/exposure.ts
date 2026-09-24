@@ -2,9 +2,9 @@ import type { Plugin, Skill } from "@opencode/plugin"
 import type { SessionPrompt } from "@opencode/plugin/promise/session"
 import type { DaemonBridge } from "./daemon.js"
 import { hostModel, ref, signal } from "./model-router.js"
-import type { CatalogEntry, Effect } from "./protocol.js"
-import { type CodeModeCatalog, codeModeCatalog, surface, surfacedIn } from "./code-mode.js"
-import { SKILL_METADATA_KEY } from "./skills.js"
+import type { CatalogEntry, ContextEffect, Effect } from "./protocol.js"
+import { codeModeNamespaces } from "./code-mode.js"
+import { SKILLS_METADATA_KEY } from "./skills.js"
 import { clip, isIntegrationMessage } from "./text.js"
 
 const MAX_SESSIONS = 256
@@ -72,7 +72,7 @@ export async function installExposure(ctx: Plugin.Context, daemon: DaemonBridge)
 
       const hidden = firstInContext ? null : await current(sessionID, event.sessionID)
       const tools = await toolsToJudge(ctx, firstInContext, hidden, requestTools)
-      const codeMode = codeModeCatalog(await ctx.tool.list(), requestTools, surfacedIn(context))
+      const codeMode = codeModeNamespaces(await ctx.tool.list(), requestTools, event.prompt.text)
       const effects = await daemon.signal(signal(sessionID, {
         type: "user_message",
         text: clip(event.prompt.text, TEXT_CODE_POINTS),
@@ -80,10 +80,10 @@ export async function installExposure(ctx: Plugin.Context, daemon: DaemonBridge)
         skills: skills.map((skill) => entry(skill.id, skill.description ?? skill.name, skill.content)),
         tools: tools.map((tool) => entry(tool.id, tool.description, "")),
         model: model ? ref(model) : null,
-        code_mode: codeMode.entries,
+        code_mode: codeMode,
       }), EXPOSURE_TIMEOUT_MS)
 
-      await apply(ctx, event, effects, { hidden: hiddenTools.get(sessionID) ?? null, remember: (set) => remember(sessionID, set), codeMode })
+      await apply(ctx, event, effects, { hidden: hiddenTools.get(sessionID) ?? null, remember: (set) => remember(sessionID, set) })
     } catch (error) {
       // Exposure fails open: the prompt is admitted unenhanced.
       console.error(`[chauffeur] exposure unavailable: ${String(error)}`)
@@ -98,19 +98,18 @@ export async function installExposure(ctx: Plugin.Context, daemon: DaemonBridge)
 }
 
 /** What applying the engine's effects to one prompt needs. */
-type Applying = { hidden: Hidden; remember: (set: Hidden) => void; codeMode: CodeModeCatalog }
+type Applying = { hidden: Hidden; remember: (set: Hidden) => void }
 
 async function apply(ctx: Plugin.Context, event: SessionPrompt, effects: Effect[], applying: Applying): Promise<void> {
   for (const effect of effects) {
     if (effect.agent_id !== String(event.sessionID)) continue
 
-    if (effect.type === "switch_model") {
-      // Switching back to the model the agent left on a usage limit.
+    if (effect.type === "model" && effect.model) {
       await ctx.session.switchModel({ sessionID: event.sessionID, model: hostModel(effect.model) })
-    } else if (effect.type === "surface_tools") {
-      surface(event, effect.namespaces, applying.codeMode)
-    } else {
-      applyToPrompt(effect, event, applying.hidden, applying.remember)
+    } else if (effect.type === "tools") {
+      applyTools(effect, event, applying)
+    } else if (effect.type === "context" && effect.delivery === "prompt") {
+      attach(effect, event)
     }
   }
 }
@@ -165,30 +164,37 @@ function attachedSkills(context: ReadonlyArray<HistoryMessage>, event?: SessionP
   return new Set([
     ...context.flatMap((message) => (message.type === "user" ? message.skills ?? [] : [])).map((skill) => skill.id),
     ...context.flatMap((message) => {
-      const id = message.type === "synthetic" ? message.metadata?.[SKILL_METADATA_KEY] : undefined
+      const ids = message.type === "synthetic" ? message.metadata?.[SKILLS_METADATA_KEY] : undefined
 
-      return typeof id === "string" ? [id] : []
+      return Array.isArray(ids) ? ids.filter((id): id is string => typeof id === "string") : []
     }),
     ...(event?.prompt.skills ?? []).map((skill) => skill.id),
   ])
 }
 
-function applyToPrompt(effect: Effect, event: SessionPrompt, hidden: Hidden, remember: (set: Hidden) => void): void {
-  if (effect.type === "attach_skills") {
-    // Safe: the engine only returns IDs it received from ctx.skill.list(), the host's skill registry.
-    const attach = effect.skills.map((id) => ({ id: id as Skill.ID }))
+/**
+ * Skills join the prompt as user-selected skills; text joins it as a text
+ * attachment. Both reach the first step and add nothing to the system prompt.
+ */
+function attach(effect: ContextEffect, event: SessionPrompt): void {
+  // Safe: the engine only returns skill IDs it received from ctx.skill.list().
+  const skills = effect.skills.map((id) => ({ id: id as Skill.ID }))
 
-    event.prompt.skills = [...(event.prompt.skills ?? []), ...attach]
-  } else if (effect.type === "hide_tools") {
-    remember(new Set(effect.tools))
-    event.metadata = { ...event.metadata, [HIDDEN_METADATA_KEY]: effect.tools }
-  } else if (effect.type === "reveal_tools" && hidden !== null) {
-    // Recorded on this message, so a restart restores the smaller set.
-    const remaining = [...hidden].filter((tool) => !effect.tools.includes(tool))
+  event.prompt.skills = [...(event.prompt.skills ?? []), ...skills]
 
-    remember(new Set(remaining))
-    event.metadata = { ...event.metadata, [HIDDEN_METADATA_KEY]: remaining }
+  if (effect.text) {
+    const name = `chauffeur-${effect.label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}.txt`
+
+    event.prompt.files = [...(event.prompt.files ?? []), { uri: `data:text/plain;base64,${Buffer.from(effect.text, "utf8").toString("base64")}`, name }]
   }
+}
+
+/** Record the context's hidden tools on this message, so a restart restores them. */
+function applyTools(effect: Extract<Effect, { type: "tools" }>, event: SessionPrompt, { hidden, remember }: Applying): void {
+  const hide = [...new Set([...(hidden ?? []), ...effect.hide])].filter((tool) => !effect.reveal.includes(tool))
+
+  remember(hide.length > 0 ? new Set(hide) : null)
+  event.metadata = { ...event.metadata, [HIDDEN_METADATA_KEY]: hide }
 }
 
 /** Messages since the most recent compaction, which begins a new context. */

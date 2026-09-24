@@ -353,6 +353,14 @@ mod tests {
         }
     }
 
+    /// A harmless effect that names who produced it.
+    fn keep(agent_id: &str) -> Effect {
+        Effect::Model {
+            agent_id: agent_id.into(),
+            model: None,
+        }
+    }
+
     struct Probe {
         id: &'static str,
         interested: bool,
@@ -394,9 +402,7 @@ mod tests {
                 },
             );
 
-            vec![Effect::KeepModel {
-                agent_id: format!("{}:{ids}", self.id),
-            }]
+            vec![keep(&format!("{}:{ids}", self.id))]
         }
     }
 
@@ -445,17 +451,7 @@ mod tests {
         let effects = engine(false, &calls).ingest(&signal()).unwrap();
 
         assert_eq!(*calls.lock().unwrap(), vec![4]);
-        assert_eq!(
-            effects,
-            vec![
-                Effect::KeepModel {
-                    agent_id: "one:a,b".into()
-                },
-                Effect::KeepModel {
-                    agent_id: "two:a,b".into()
-                },
-            ]
-        );
+        assert_eq!(effects, vec![keep("one:a,b"), keep("two:a,b")]);
     }
 
     #[test]
@@ -464,9 +460,7 @@ mod tests {
         let effects = engine(true, &calls).ingest(&signal()).unwrap();
 
         assert_eq!(effects.len(), 2);
-        assert!(effects.contains(&Effect::KeepModel {
-            agent_id: "one:none".into()
-        }));
+        assert!(effects.contains(&keep("one:none")));
     }
 
     #[test]
@@ -553,12 +547,7 @@ mod tests {
             .collect();
         let effects = engine.finish(Ok(answers), 42);
 
-        assert_eq!(
-            effects,
-            vec![Effect::KeepModel {
-                agent_id: "one:a,b".into()
-            }]
-        );
+        assert_eq!(effects, vec![keep("one:a,b")]);
         assert_eq!(engine.trace().elapsed_ms, 42);
         // Nothing is pending once finished.
         assert!(engine.finish(Err("late".into()), 0).is_empty());

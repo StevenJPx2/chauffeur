@@ -1,91 +1,46 @@
 import type { Plugin } from "@opencode/plugin"
-import type { SessionPrompt } from "@opencode/plugin/promise/session"
-import type { CatalogEntry } from "./protocol.js"
+import type { CodeModeNamespace } from "./protocol.js"
 import { clip } from "./text.js"
 
-/** User messages record the Code Mode namespaces surfaced to them here. */
-const SURFACED_METADATA_KEY = "chauffeur.surfaced"
 const MAX_NAMESPACES = 64
-const MAX_LISTED = 5
+const MAX_MATCHES = 8
+const TEXT_CODE_POINTS = 512
+// 100 code points stays within the engine's 400-byte description bound.
 const DESCRIPTION_CODE_POINTS = 100
-const TOOL_DESCRIPTION_CODE_POINTS = 160
 
 type HostTool = Awaited<ReturnType<Plugin.Context["tool"]["list"]>>[number]
-type HistoryMessage = Awaited<ReturnType<Plugin.Context["session"]["context"]>>[number]
-
-/** Code Mode tools by namespace, and the catalog entries sent to the engine. */
-export type CodeModeCatalog = {
-  entries: CatalogEntry[]
-  byNamespace: ReadonlyMap<string, HostTool[]>
-}
 
 /**
- * Tools the host does not put in the request's tool record reach the model
- * through Code Mode's `execute`, whose catalog shows each namespace only in
- * part. Namespaces already surfaced in this context are left out. Unknown
+ * The host's Code Mode namespaces: tools the model reaches through `execute`
+ * rather than the request's tool record. Each carries its size and its best
+ * matches for the request, found the way Code Mode's own search would. Empty
  * until the first request shows which tools are sent directly.
  */
-export function codeModeCatalog(tools: ReadonlyArray<HostTool>, inRequests: ReadonlySet<string> | null, surfaced: ReadonlySet<string>): CodeModeCatalog {
+export function codeModeNamespaces(tools: ReadonlyArray<HostTool>, inRequests: ReadonlySet<string> | null, request: string): CodeModeNamespace[] {
+  if (inRequests === null) return []
+
   const byNamespace = new Map<string, HostTool[]>()
 
-  if (inRequests === null) return { entries: [], byNamespace }
-
   for (const tool of tools) {
+    // Native tools missing from requests were hidden or denied, not moved to Code Mode.
+    if (inRequests.has(tool.id) || tool.options?.codemode === false) continue
+
     const name = namespace(tool)
 
-    // Native tools missing from requests were hidden or denied, not moved to Code Mode.
-    if (inRequests.has(tool.id) || tool.options?.codemode === false || surfaced.has(name)) continue
     if (!byNamespace.has(name) && byNamespace.size >= MAX_NAMESPACES) continue
 
     byNamespace.set(name, [...(byNamespace.get(name) ?? []), tool])
   }
 
-  const entries = [...byNamespace].map(([name, members]) => ({
-    id: name,
-    description: clip(`${members.length} tools, such as ${members.slice(0, 6).map((tool) => tool.id).join(", ")}`, DESCRIPTION_CODE_POINTS),
-    bytes: 0,
+  return [...byNamespace].map(([name, members]) => ({
+    name: clip(name, TEXT_CODE_POINTS),
+    size: members.length,
+    tools: rank(members, request).slice(0, MAX_MATCHES).map((tool) => ({
+      id: clip(tool.id, TEXT_CODE_POINTS),
+      description: clip(tool.description, DESCRIPTION_CODE_POINTS),
+      bytes: 0,
+    })),
   }))
-
-  return { entries, byNamespace }
-}
-
-/** Namespaces already surfaced in this context. */
-export function surfacedIn(context: ReadonlyArray<HistoryMessage>): Set<string> {
-  return new Set(context.flatMap((message) => {
-    const recorded = message.type === "user" ? message.metadata?.[SURFACED_METADATA_KEY] : undefined
-
-    return Array.isArray(recorded) ? recorded.filter((name): name is string => typeof name === "string") : []
-  }))
-}
-
-/**
- * Append a note naming each namespace's tools that best match the request,
- * as a text attachment on the prompt, so it reaches the first step without
- * touching the system prompt. Exact paths come from Code Mode's own `search`.
- */
-export function surface(event: SessionPrompt, namespaces: string[], catalog: CodeModeCatalog): void {
-  const sections = namespaces.flatMap((name) => {
-    const tools = catalog.byNamespace.get(name)
-
-    if (!tools) return []
-
-    const lines = rank(tools, event.prompt.text)
-      .slice(0, MAX_LISTED)
-      .map((tool) => `- ${tool.id}: ${clip(tool.description, TOOL_DESCRIPTION_CODE_POINTS)}`)
-
-    return [`## ${name} (${tools.length} tools)\n${lines.join("\n")}\nFind exact paths with \`search({ namespace: "${name}", query: "…" })\` inside \`execute\`.`]
-  })
-
-  if (sections.length === 0) return
-
-  const note = `Chauffeur: Code Mode tools that fit this request. The catalog shows these namespaces only in part.\n\n${sections.join("\n\n")}\n`
-  const previous = event.metadata?.[SURFACED_METADATA_KEY]
-
-  event.prompt.files = [
-    ...(event.prompt.files ?? []),
-    { uri: `data:text/plain;base64,${Buffer.from(note, "utf8").toString("base64")}`, name: "chauffeur-code-mode-tools.txt" },
-  ]
-  event.metadata = { ...event.metadata, [SURFACED_METADATA_KEY]: [...(Array.isArray(previous) ? previous : []), ...namespaces] }
 }
 
 /** The tool's top-level Code Mode namespace, or its ID prefix. */

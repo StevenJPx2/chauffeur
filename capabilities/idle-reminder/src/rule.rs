@@ -25,6 +25,9 @@ pub struct Gate {
     /// Every one of these tools must appear in the history.
     #[serde(default)]
     pub tools_called: Vec<String>,
+    /// At least one of these tools must appear in the history.
+    #[serde(default)]
+    pub tools_called_any: Vec<String>,
     /// None of these tools may appear in the history.
     #[serde(default)]
     pub tools_not_called: Vec<String>,
@@ -100,7 +103,12 @@ impl Gate {
         let called_ok = self
             .tools_called
             .iter()
-            .all(|tool| context.has_called(tool));
+            .all(|tool| context.has_called(tool))
+            && (self.tools_called_any.is_empty()
+                || self
+                    .tools_called_any
+                    .iter()
+                    .any(|tool| context.has_called(tool)));
         let not_called_ok = !self
             .tools_not_called
             .iter()
@@ -205,6 +213,12 @@ impl Gate {
     #[must_use]
     pub fn tools_called(mut self, tools: &[&str]) -> Self {
         self.tools_called = tools.iter().map(|s| s.to_string()).collect();
+        self
+    }
+
+    #[must_use]
+    pub fn tools_called_any(mut self, tools: &[&str]) -> Self {
+        self.tools_called_any = tools.iter().map(|s| s.to_string()).collect();
         self
     }
 

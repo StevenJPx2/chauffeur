@@ -1,6 +1,7 @@
+use chauffeur_capability_idle_reminder::{Gate, Rule};
 use chauffeur_capability_idle_reminder::{IdleReminder, MAX_REMINDERS};
 use chauffeur_core::{
-    Answer, AnswerValue, Capability, Effect, Gate, Plan, Rule, Signal, SignalKind, Situation,
+    Answer, AnswerValue, Capability, Delivery, Effect, Plan, Signal, SignalKind, Situation,
 };
 
 fn rule(id: &str, priority: u8) -> Rule {
@@ -49,7 +50,12 @@ fn reminded(effects: &[Effect]) -> Vec<&str> {
     effects
         .iter()
         .map(|effect| match effect {
-            Effect::Remind { rule_id, .. } => rule_id.as_str(),
+            // A reminder wakes the agent, labelled with its rule.
+            Effect::Context {
+                delivery: Delivery::Resume,
+                label,
+                ..
+            } => label.as_str(),
             other => panic!("expected reminders, got {other:?}"),
         })
         .collect()
@@ -99,7 +105,7 @@ fn confirmed_rules_remind_by_priority_up_to_the_limit() {
     assert_eq!(reminded(&effects), vec!["high", "mid"]);
     assert_eq!(effects.len(), MAX_REMINDERS);
     assert!(
-        matches!(&effects[0], Effect::Remind { text, .. } if text.contains("HIGH") && text.contains("do high"))
+        matches!(&effects[0], Effect::Context { text: Some(text), .. } if text.contains("HIGH") && text.contains("do high"))
     );
 }
 

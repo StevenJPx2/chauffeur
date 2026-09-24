@@ -9,6 +9,8 @@
 //! namespace only in part; a namespace the request needs is surfaced by an
 //! appended note instead.
 
+mod code_mode;
+
 use std::collections::HashSet;
 use std::path::Path;
 
@@ -16,6 +18,8 @@ use chauffeur_core::{
     Answer, AnswerValue, Capability, CatalogEntry, Effect, Plan, Question, QuestionKind, Signal,
     SignalKind, Situation, load_config,
 };
+
+use code_mode::Surfaced;
 use serde::Deserialize;
 
 pub const ID: &str = "tool-exposure";
@@ -81,6 +85,7 @@ impl ToolExposureConfig {
 
 pub struct ToolExposure {
     base: HashSet<String>,
+    surfaced: Surfaced,
 }
 
 /// One group of judgeable tools, in host order.
@@ -101,6 +106,7 @@ impl ToolExposure {
 
         Self {
             base: base.into_iter().collect(),
+            surfaced: Surfaced::default(),
         }
     }
 
@@ -168,18 +174,30 @@ fn effect(agent_id: &str, tools: Vec<String>, reveal: bool) -> Vec<Effect> {
         return Vec::new();
     }
 
-    let agent_id = agent_id.to_string();
-
-    vec![if reveal {
-        Effect::RevealTools { agent_id, tools }
+    let (hide, reveal) = if reveal {
+        (Vec::new(), tools)
     } else {
-        Effect::HideTools { agent_id, tools }
+        (tools, Vec::new())
+    };
+
+    vec![Effect::Tools {
+        agent_id: agent_id.to_string(),
+        hide,
+        reveal,
     }]
 }
 
 impl Capability for ToolExposure {
     fn id(&self) -> &str {
         ID
+    }
+
+    fn save(&self) -> Option<serde_json::Value> {
+        Some(self.surfaced.save())
+    }
+
+    fn load(&mut self, state: serde_json::Value) {
+        self.surfaced.load(state);
     }
 
     fn plan(&mut self, _: &Situation, signal: &Signal) -> Plan {
@@ -192,11 +210,18 @@ impl Capability for ToolExposure {
         else {
             return Plan::Skip;
         };
+
+        if *first_in_context {
+            self.surfaced.reset(&signal.agent_id);
+        }
+
         let groups = self.groups(tools);
-        let surface: Vec<Question> = code_mode
-            .iter()
+        let surface: Vec<Question> = self
+            .surfaced
+            .pending(&signal.agent_id, code_mode)
+            .into_iter()
             .take(MAX_GROUPS)
-            .map(surface_question)
+            .map(code_mode::question)
             .collect();
 
         if groups.is_empty() && surface.is_empty() {
@@ -252,20 +277,19 @@ impl Capability for ToolExposure {
 
             effect(&signal.agent_id, reveal, true)
         };
-        let namespaces: Vec<String> = code_mode
-            .iter()
+        let chosen: Vec<_> = self
+            .surfaced
+            .pending(&signal.agent_id, code_mode)
+            .into_iter()
             .take(MAX_GROUPS)
-            .filter(|namespace| judged(&surface_id(&namespace.id), |p| p >= REVEAL_AT_OR_ABOVE))
-            .map(|namespace| namespace.id.clone())
+            .filter(|namespace| {
+                judged(&code_mode::question_id(&namespace.name), |p| {
+                    p >= REVEAL_AT_OR_ABOVE
+                })
+            })
             .collect();
 
-        if !namespaces.is_empty() {
-            effects.push(Effect::SurfaceTools {
-                agent_id: signal.agent_id.clone(),
-                namespaces,
-            });
-        }
-
+        effects.extend(self.surfaced.surface(&signal.agent_id, &chosen));
         effects
     }
 }
@@ -283,24 +307,6 @@ fn listing(group: &Group<'_>) -> String {
     }
 
     listed.join("; ")
-}
-
-/// Code Mode questions are kept apart from tool-group questions of the same name.
-fn surface_id(namespace: &str) -> String {
-    format!("code-mode:{namespace}")
-}
-
-fn surface_question(namespace: &CatalogEntry) -> Question {
-    Question {
-        id: surface_id(&namespace.id),
-        instructions: format!(
-            "Will the coding agent need the \"{}\" tools, reached through Code Mode's execute \
-             tool, for the user's latest request? Its catalog shows only some of them. They \
-             are: {}",
-            namespace.id, namespace.description
-        ),
-        kind: QuestionKind::Noul,
-    }
 }
 
 fn hide_question(group: &Group<'_>) -> Question {

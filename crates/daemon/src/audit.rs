@@ -118,10 +118,12 @@ mod tests {
             input: format!("{{\"command\":\"echo {secret}\"}}"),
             error: String::new(),
         });
-        let nudge = Effect::Nudge {
+        let nudge = Effect::Context {
             agent_id: "ses".into(),
-            tool: "shell".into(),
-            text: "Chauffeur: use rg".into(),
+            delivery: chauffeur_core::Delivery::Steer,
+            label: "shell check".into(),
+            skills: Vec::new(),
+            text: Some("Chauffeur: use rg".into()),
         };
 
         append(

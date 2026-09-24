@@ -8,7 +8,7 @@ use std::collections::{HashMap, HashSet};
 use serde::{Deserialize, Serialize};
 
 use chauffeur_core::{
-    Answer, AnswerValue, Capability, CatalogEntry, ChoiceOption, Effect, Plan, Question,
+    Answer, AnswerValue, Capability, CatalogEntry, ChoiceOption, Delivery, Effect, Plan, Question,
     QuestionKind, Signal, SignalKind, Situation,
 };
 
@@ -153,11 +153,30 @@ impl Capability for SkillExposure {
 
         agent.attached.insert(choice.clone());
 
-        vec![Effect::AttachSkills {
-            agent_id: signal.agent_id.clone(),
-            skills: vec![choice.clone()],
-        }]
+        vec![context(signal, choice)]
     }
+}
+
+/// A picked skill joins the user's message; a drift hand-over reaches the
+/// running turn, or waits for the next one once the turn has ended.
+fn context(signal: &Signal, skill: &str) -> Effect {
+    let (delivery, text) = match signal.kind {
+        SignalKind::UserMessage { .. } => (Delivery::Prompt, None),
+        SignalKind::TurnEnd => (Delivery::Wait, Some(drift_text(skill))),
+        _ => (Delivery::Steer, Some(drift_text(skill))),
+    };
+
+    Effect::Context {
+        agent_id: signal.agent_id.clone(),
+        delivery,
+        label: format!("skill {skill}"),
+        skills: vec![skill.to_string()],
+        text,
+    }
+}
+
+fn drift_text(skill: &str) -> String {
+    format!("Chauffeur: the {skill} skill fits this work better than the current approach.")
 }
 
 const PICK_INSTRUCTIONS: &str = "Which one skill would most help the coding agent act on the \

@@ -168,6 +168,7 @@ version = "0.1.0"
 dependencies = [
  "chauffeur-core",
  "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -249,35 +250,35 @@ dependencies = [
 name = "chauffeur-plugin-anthropic"
 version = "0.1.0"
 dependencies = [
- "chauffeur-core",
+ "chauffeur-capability-model-router",
 ]
 
 [[package]]
 name = "chauffeur-plugin-git"
 version = "0.1.0"
 dependencies = [
- "chauffeur-core",
+ "chauffeur-capability-idle-reminder",
 ]
 
 [[package]]
 name = "chauffeur-plugin-github"
 version = "0.1.0"
 dependencies = [
- "chauffeur-core",
+ "chauffeur-capability-idle-reminder",
 ]
 
 [[package]]
 name = "chauffeur-plugin-jira"
 version = "0.1.0"
 dependencies = [
- "chauffeur-core",
+ "chauffeur-capability-idle-reminder",
 ]
 
 [[package]]
 name = "chauffeur-plugin-openai"
 version = "0.1.0"
 dependencies = [
- "chauffeur-core",
+ "chauffeur-capability-model-router",
 ]
 
 [[package]]

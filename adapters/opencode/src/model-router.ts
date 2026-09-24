@@ -81,8 +81,8 @@ async function route(ctx: Plugin.Context, daemon: DaemonBridge, event: SessionRe
     for (const effect of effects) {
       if (effect.agent_id !== sessionID) continue
 
-      // keep_model leaves the host's own retry decision in place.
-      if (effect.type === "switch_model") {
+      // Keeping the model (`model: null`) leaves the host's own retry decision in place.
+      if (effect.type === "model" && effect.model) {
         await ctx.session.switchModel({ sessionID: event.sessionID, model: hostModel(effect.model) })
         event.decision = { retry: true, delay: 0 }
       }

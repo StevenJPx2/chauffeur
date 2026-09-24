@@ -153,7 +153,7 @@ async fn sourcefed_event(
         Ok(effects) => {
             let withheld = effects
                 .iter()
-                .any(|effect| matches!(effect, Effect::WithholdEvent { .. }));
+                .any(|effect| matches!(effect, Effect::Gate { deliver: false, .. }));
 
             (StatusCode::OK, Json(json!({ "deliver": !withheld }))).into_response()
         }

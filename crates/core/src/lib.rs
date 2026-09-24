@@ -1,6 +1,7 @@
-//! Chauffeur SDK: the Sense → Classify → Act engine, System One interface,
-//! capability, provider, and rule-plugin contracts, redaction, and the
-//! daemon client.
+//! Chauffeur's core: the Sense → Classify → Act engine, the System One
+//! interface, the capability contract, the host vocabulary (signals and
+//! effects), the irreversible-harm backstop, redaction, and the daemon
+//! client. It knows no capability; capabilities own their own concepts.
 
 pub mod backstop;
 pub mod capability;
@@ -9,11 +10,8 @@ pub mod client;
 pub mod config;
 pub mod effect;
 pub mod engine;
-pub mod plugin;
 pub mod protocol;
-pub mod provider;
 pub mod redact;
-pub mod rule;
 pub mod signal;
 pub mod situation;
 pub mod system_one;
@@ -24,15 +22,13 @@ pub use capability::{Capability, Plan};
 #[cfg(feature = "client")]
 pub use client::{DEFAULT_DAEMON_URL, DaemonClient};
 pub use config::{load_config, read_json_files};
-pub use effect::{Effect, PermissionDecision};
+pub use effect::{Delivery, Effect, PermissionDecision};
 pub use engine::{Engine, Step};
-pub use plugin::{Plugin, compose};
 pub use protocol::*;
-pub use provider::{Provider, Tier, TierEntry};
 pub use redact::redact_secrets;
-pub use rule::{Gate, IdleFacts, Rule, Threshold, load_rules};
 pub use signal::{
-    AvailableModel, CatalogEntry, MAX_TEXT_BYTES, ModelRef, Resource, Signal, SignalKind,
+    AvailableModel, CatalogEntry, CodeModeNamespace, MAX_TEXT_BYTES, ModelRef, Resource, Signal,
+    SignalKind,
 };
 pub use situation::Situation;
 pub use system_one::{

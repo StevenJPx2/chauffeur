@@ -9,6 +9,9 @@ export type ModelRef = { provider: string; model: string; variant?: string }
 
 export type CatalogEntry = { id: string; description: string; bytes: number }
 
+/** A Code Mode namespace: its size and the host's best matches for the request. */
+export type CodeModeNamespace = { name: string; size: number; tools: CatalogEntry[] }
+
 export type Resource = { requested: string; resolved: string }
 
 export type SignalKind =
@@ -27,7 +30,7 @@ export type SignalKind =
     skills: CatalogEntry[]
     tools: CatalogEntry[]
     model: ModelRef | null
-    code_mode: CatalogEntry[]
+    code_mode: CodeModeNamespace[]
   }
   | { type: "tool_result"; tool: string; ok: boolean; input: string; error: string }
   | { type: "turn_end" }
@@ -45,14 +48,15 @@ export type SignalKind =
 
 export type Signal = { agent_id: string; at: number; kind: SignalKind }
 
+/** Where context enters the conversation; every delivery lands at the tail. */
+export type Delivery = "prompt" | "steer" | "resume" | "wait"
+
+/** Host actions. None names a capability, so new capabilities need no adapter change. */
 export type Effect =
   | { type: "permission"; agent_id: string; decision: "allow" | "deny" | "ask"; message: string | null }
-  | { type: "attach_skills"; agent_id: string; skills: string[] }
-  | { type: "remind"; agent_id: string; rule_id: string; text: string }
-  | { type: "nudge"; agent_id: string; tool: string; text: string }
-  | { type: "hide_tools"; agent_id: string; tools: string[] }
-  | { type: "reveal_tools"; agent_id: string; tools: string[] }
-  | { type: "surface_tools"; agent_id: string; namespaces: string[] }
-  | { type: "switch_model"; agent_id: string; model: ModelRef }
-  | { type: "keep_model"; agent_id: string }
-  | { type: "withhold_event"; agent_id: string }
+  | { type: "model"; agent_id: string; model: ModelRef | null }
+  | { type: "tools"; agent_id: string; hide: string[]; reveal: string[] }
+  | { type: "context"; agent_id: string; delivery: Delivery; label: string; skills: string[]; text: string | null }
+  | { type: "gate"; agent_id: string; deliver: boolean }
+
+export type ContextEffect = Extract<Effect, { type: "context" }>

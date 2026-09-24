@@ -62,8 +62,9 @@ fn only_a_confident_no_withholds() {
 
     assert_eq!(
         EventGate.decide(&signal, Some(&[show(0.1)])),
-        vec![Effect::WithholdEvent {
-            agent_id: "ses".into()
+        vec![Effect::Gate {
+            agent_id: "ses".into(),
+            deliver: false
         }]
     );
     // Unsure, positive, and failed judgments all deliver.

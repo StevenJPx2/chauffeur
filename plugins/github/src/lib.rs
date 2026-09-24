@@ -1,6 +1,6 @@
 //! GitHub-specific steering rules.
 
-use chauffeur_core::{Gate, Plugin, Rule};
+use chauffeur_capability_idle_reminder::{Gate, Plugin, Rule};
 
 pub struct GitHubPlugin;
 
@@ -23,7 +23,14 @@ fn create_pr() -> Rule {
         "The agent has edited or written source code.",
         "You've made code changes but haven't created a PR yet. Run the tests, commit, push the branch, then open the PR.",
     )
-    .gate(Gate::default().status(&["implementing"]).tools_not_called(&["github_open_pr"]))
+    // Only after the agent changed files: the model alone judged a browser-only
+    // session as "edited source code".
+    .gate(
+        Gate::default()
+            .status(&["implementing"])
+            .tools_called_any(&["edit", "write", "patch"])
+            .tools_not_called(&["github_open_pr"]),
+    )
     .priority(15)
 }
 
@@ -37,5 +44,19 @@ mod tests {
 
         assert_eq!(rules.len(), 1);
         assert!(rules.iter().all(|rule| rule.id.starts_with("github:")));
+    }
+
+    #[test]
+    fn create_pr_waits_for_a_file_change() {
+        let gate = &create_pr().gate;
+        let facts = |tools: &[&str]| {
+            chauffeur_capability_idle_reminder::IdleFacts::from_tools(
+                tools.iter().map(|tool| (*tool).to_string()).collect(),
+            )
+        };
+
+        assert!(!gate.admits(&facts(&["execute", "read"])));
+        assert!(gate.admits(&facts(&["read", "edit"])));
+        assert!(!gate.admits(&facts(&["edit", "github_open_pr"])));
     }
 }

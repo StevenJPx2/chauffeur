@@ -1,6 +1,6 @@
 //! Git-specific steering rules.
 
-use chauffeur_core::{Gate, Plugin, Rule};
+use chauffeur_capability_idle_reminder::{Gate, Plugin, Rule};
 
 pub struct GitPlugin;
 

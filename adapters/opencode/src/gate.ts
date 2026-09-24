@@ -56,7 +56,7 @@ export async function installGate(ctx: Plugin.Context, daemon: DaemonBridge): Pr
           actionable: event.actionable,
         }), GATE_TIMEOUT_MS)
 
-        return { deliver: !effects.some((effect) => effect.type === "withhold_event") }
+        return { deliver: !effects.some((effect) => effect.type === "gate" && !effect.deliver) }
       } catch (error) {
         // A failed gate delivers, as sourcefed does without Chauffeur.
         console.error(`[chauffeur] gate unavailable: ${String(error)}`)

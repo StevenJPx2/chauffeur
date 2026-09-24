@@ -2,8 +2,8 @@ use chauffeur_capability_skill_exposure::{
     DRIFT_COOLDOWN_SECS, MAX_ATTACH_BYTES, NONE, SkillExposure,
 };
 use chauffeur_core::{
-    Answer, AnswerValue, Capability, CatalogEntry, Effect, Plan, QuestionKind, Signal, SignalKind,
-    Situation,
+    Answer, AnswerValue, Capability, CatalogEntry, Delivery, Effect, Plan, QuestionKind, Signal,
+    SignalKind, Situation,
 };
 
 fn skill(id: &str, bytes: u64) -> CatalogEntry {
@@ -56,10 +56,27 @@ fn choice(id: &str, value: &str, confidence: f32) -> Answer {
     }
 }
 
-fn attached(skills: &[&str]) -> Vec<Effect> {
-    vec![Effect::AttachSkills {
+/// A skill attached to the user's message.
+fn attached(skill: &str) -> Vec<Effect> {
+    vec![Effect::Context {
         agent_id: "ses".into(),
-        skills: skills.iter().map(|id| (*id).into()).collect(),
+        delivery: Delivery::Prompt,
+        label: format!("skill {skill}"),
+        skills: vec![skill.into()],
+        text: None,
+    }]
+}
+
+/// A drift hand-over into the running turn.
+fn handed_over(skill: &str) -> Vec<Effect> {
+    vec![Effect::Context {
+        agent_id: "ses".into(),
+        delivery: Delivery::Steer,
+        label: format!("skill {skill}"),
+        skills: vec![skill.into()],
+        text: Some(format!(
+            "Chauffeur: the {skill} skill fits this work better than the current approach."
+        )),
     }]
 }
 
@@ -114,7 +131,7 @@ fn attaches_the_confident_choice_only() {
 
     assert_eq!(
         exposure.decide(&signal, Some(&[choice("pick", "twitter", 0.9)])),
-        attached(&["twitter"])
+        attached("twitter")
     );
     assert!(
         exposure
@@ -145,7 +162,7 @@ fn a_tool_result_checks_for_drift_with_a_cooldown_and_never_reoffers() {
     );
     assert_eq!(
         exposure.decide(&first, Some(&[choice("drift", "twitter", 0.8)])),
-        attached(&["twitter"])
+        handed_over("twitter")
     );
 
     // Within the cooldown a tool result is not judged; a turn end always is.

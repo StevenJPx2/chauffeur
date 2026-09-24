@@ -73,8 +73,9 @@ impl Capability for EventGate {
             return Vec::new();
         }
 
-        vec![Effect::WithholdEvent {
+        vec![Effect::Gate {
             agent_id: signal.agent_id.clone(),
+            deliver: false,
         }]
     }
 }

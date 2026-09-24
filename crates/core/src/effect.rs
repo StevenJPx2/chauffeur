@@ -1,4 +1,6 @@
-//! Typed effects a host applies at its seams.
+//! Effects: the actions a host can take at its seams. They name what the host
+//! does, never which capability asked, so a new capability needs no new
+//! effect and no adapter change.
 
 use serde::{Deserialize, Serialize};
 
@@ -12,57 +14,52 @@ pub enum PermissionDecision {
     Ask,
 }
 
+/// Where context enters the agent's conversation. Every delivery lands in
+/// history at the tail, so the cached prefix stays intact.
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, Eq, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum Delivery {
+    /// With the user message being admitted; only valid for that signal.
+    Prompt,
+    /// Into the running turn.
+    Steer,
+    /// As a message that wakes an idle agent.
+    Resume,
+    /// As a message the agent reads on its next turn.
+    Wait,
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Effect {
-    /// Decision: answer the host's pending permission request.
+    /// Answer the host's pending permission request.
     Permission {
         agent_id: String,
         decision: PermissionDecision,
         message: Option<String>,
     },
-    /// Persistent enhancement: attach these skills to the user message being
-    /// admitted, so their bodies enter history at the tail.
-    AttachSkills {
+    /// Switch the agent to `model` and retry now, or with `None` keep it and
+    /// let the host apply its own retry policy.
+    Model {
         agent_id: String,
+        model: Option<ModelRef>,
+    },
+    /// Hide or show tools in this context. Tools are named, so a tool the
+    /// engine never judged is never removed.
+    Tools {
+        agent_id: String,
+        hide: Vec<String>,
+        reveal: Vec<String>,
+    },
+    /// Add skills (the host resolves their bodies) and text to the agent's
+    /// context. `label` names the addition for the user.
+    Context {
+        agent_id: String,
+        delivery: Delivery,
+        label: String,
         skills: Vec<String>,
+        text: Option<String>,
     },
-    /// Persistent enhancement: a reminder delivered into the session so an
-    /// idle agent resumes with it.
-    Remind {
-        agent_id: String,
-        rule_id: String,
-        text: String,
-    },
-    /// Persistent enhancement: steer the running turn after a tool call that
-    /// likely broke the tool's best practice.
-    Nudge {
-        agent_id: String,
-        tool: String,
-        text: String,
-    },
-    /// Base decision: tools to hide for this context. A hide list, so a tool
-    /// the engine never judged is never removed.
-    HideTools {
-        agent_id: String,
-        tools: Vec<String>,
-    },
-    /// Persistent enhancement: point the agent at these Code Mode namespaces'
-    /// tools for the user message being admitted, appended to that message.
-    SurfaceTools {
-        agent_id: String,
-        namespaces: Vec<String>,
-    },
-    /// Show previously hidden tools again; the host's prompt cache is re-read
-    /// once.
-    RevealTools {
-        agent_id: String,
-        tools: Vec<String>,
-    },
-    /// Switch the agent to `model` and retry the failed request now.
-    SwitchModel { agent_id: String, model: ModelRef },
-    /// Keep the current model and let the host apply its own retry policy.
-    KeepModel { agent_id: String },
-    /// Decision: the integration event being gated should not reach the agent.
-    WithholdEvent { agent_id: String },
+    /// Whether the integration event being gated reaches the agent.
+    Gate { agent_id: String, deliver: bool },
 }
