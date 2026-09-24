@@ -250,17 +250,19 @@ on a Jira-sourced agent).
 
 ### Integration events and the event gate
 
-Chauffeur decides which sourcefed events reach the agent. With
-`SOURCEFED_GATE_URL=http://127.0.0.1:18790/integrations/sourcefed` (and
-`SOURCEFED_GATE_TOKEN` when `CHAUFFEUR_DAEMON_TOKEN` is set), sourcefed POSTs
-each monitor event, in its own shape `{target, monitorID, source, event}`,
-before queueing it. The daemon turns it into an `integration_event` signal for
-the monitor's session, recorded in the Situation as
-`github merged event: PR #42 merged`, and the event-gate capability asks
-whether the agent needs to act on it now. Only a confident no (P ≤ 0.3,
-confidence ≥ 0.4) answers `{"deliver": false}`; everything else, including a
-failed judgment, delivers. sourcefed delivers too when Chauffeur is down or
-slower than 3 s. On 12 labelled events Jev withheld every piece of noise (bot
+Chauffeur decides which sourcefed events reach the agent, with no
+configuration. The adapter registers an OpenCode plugin RPC, `chauffeur.gate`
+(`ChauffeurRpc`, plain JSON Schema). sourcefed's OpenCode plugin, which
+delivers each event into a session in the same OpenCode process, calls it
+first with the session, source, kind, summary, body, and actionable flag. The
+adapter sends an `integration_event` signal for that session to the daemon,
+recorded in the Situation as `github merged event: PR #42 merged`, and the
+event-gate capability asks whether the agent needs to act on it now. Only a
+confident no (P ≤ 0.3, confidence ≥ 0.4) withholds the event; everything else,
+including a failed judgment, delivers. sourcefed delivers too when Chauffeur's
+plugin is not loaded, fails, or is slower than 3 s. Other integrations can
+POST sourcefed's event shape `{target, monitorID, source, event}` to the
+daemon's `/integrations/sourcefed` and receive `{"deliver": bool}`. On 12 labelled events Jev withheld every piece of noise (bot
 comments, "LGTM", status and assignee churn, thanks) and showed every event
 that needed action.
 

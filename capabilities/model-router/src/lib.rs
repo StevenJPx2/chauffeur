@@ -67,13 +67,18 @@ pub struct ModelRouterConfig {
 impl ModelRouterConfig {
     /// Load `path`, or the default config when the file does not exist.
     pub fn load(path: &Path) -> Result<Self, String> {
-        let config: Self = load_config(path)?;
+        load_config::<Self>(path)?
+            .checked()
+            .map_err(|error| format!("{}: {error}", path.display()))
+    }
 
-        if config.pins.len() > MAX_PINS {
-            return Err(format!("{}: more than {MAX_PINS} pins", path.display()));
+    /// The config, if within bounds.
+    pub fn checked(self) -> Result<Self, String> {
+        if self.pins.len() > MAX_PINS {
+            return Err(format!("more than {MAX_PINS} pins"));
         }
 
-        Ok(config)
+        Ok(self)
     }
 }
 

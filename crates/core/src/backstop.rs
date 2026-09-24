@@ -38,8 +38,12 @@ pub struct Backstop {
 
 impl Backstop {
     pub fn load(path: &Path) -> Result<Self, String> {
-        let config: BackstopConfig = load_config(path)?;
+        Self::from_config(load_config(path)?)
+            .map_err(|error| format!("{}: {error}", path.display()))
+    }
 
+    /// Built-in patterns plus the config's, within bounds.
+    pub fn from_config(config: BackstopConfig) -> Result<Self, String> {
         if config.patterns.len() > MAX_PATTERNS
             || config
                 .patterns
@@ -47,8 +51,7 @@ impl Backstop {
                 .any(|pattern| pattern.trim().is_empty() || pattern.len() > MAX_PATTERN_BYTES)
         {
             return Err(format!(
-                "{}: at most {MAX_PATTERNS} non-empty patterns of at most {MAX_PATTERN_BYTES} bytes",
-                path.display()
+                "at most {MAX_PATTERNS} non-empty patterns of at most {MAX_PATTERN_BYTES} bytes"
             ));
         }
 

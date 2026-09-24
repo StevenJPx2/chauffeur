@@ -16,11 +16,31 @@ pub const MAX_AGENTS: usize = 256;
 const STATE_VERSION: u32 = 1;
 
 pub struct Engine {
-    system_one: Box<dyn SystemOne>,
+    system_one: Option<Box<dyn SystemOne>>,
     capabilities: Vec<Box<dyn Capability>>,
     situations: HashMap<String, Situation>,
     backstop: Backstop,
     trace: Trace,
+    pending: Option<Pending>,
+}
+
+/// What one signal needs next.
+#[derive(Debug, PartialEq)]
+pub enum Step {
+    /// Decided without System One.
+    Done(Vec<Effect>),
+    /// Ask System One these questions about this state, then finish.
+    Ask {
+        state: String,
+        questions: Vec<Question>,
+    },
+}
+
+/// A signal between [`Engine::begin`] and [`Engine::finish`].
+struct Pending {
+    signal: Signal,
+    settled: Vec<Effect>,
+    asks: Vec<(usize, Vec<Question>)>,
 }
 
 impl Engine {
@@ -28,6 +48,16 @@ impl Engine {
         system_one: Box<dyn SystemOne>,
         capabilities: Vec<Box<dyn Capability>>,
     ) -> Result<Self, String> {
+        let mut engine = Self::hosted(capabilities)?;
+
+        engine.system_one = Some(system_one);
+
+        Ok(engine)
+    }
+
+    /// An engine whose host asks System One: drive it with [`Engine::begin`]
+    /// and [`Engine::finish`].
+    pub fn hosted(capabilities: Vec<Box<dyn Capability>>) -> Result<Self, String> {
         let mut ids = HashSet::new();
 
         for capability in &capabilities {
@@ -37,11 +67,12 @@ impl Engine {
         }
 
         Ok(Self {
-            system_one,
+            system_one: None,
             capabilities,
             situations: HashMap::new(),
             trace: Trace::default(),
             backstop: Backstop::new(Vec::new()),
+            pending: None,
         })
     }
 
@@ -96,8 +127,27 @@ impl Engine {
         &self.trace
     }
 
+    /// Run one signal to completion with the engine's own System One.
     pub fn ingest(&mut self, signal: &Signal) -> Result<Vec<Effect>, String> {
+        let (state, questions) = match self.begin(signal)? {
+            Step::Done(effects) => return Ok(effects),
+            Step::Ask { state, questions } => (state, questions),
+        };
+        let started = std::time::Instant::now();
+        let result = match self.system_one.as_mut() {
+            Some(system_one) => system_one.ask(&state, &questions).map_err(|error| error.0),
+            None => Err("no System One provider".to_string()),
+        };
+        let elapsed = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
+
+        Ok(self.finish(result, elapsed))
+    }
+
+    /// Start a signal. Hosts that call System One themselves ask the returned
+    /// questions about the returned state, then call [`Engine::finish`].
+    pub fn begin(&mut self, signal: &Signal) -> Result<Step, String> {
         self.trace = Trace::default();
+        self.pending = None;
         signal.validate()?;
         self.record(signal);
 
@@ -105,13 +155,13 @@ impl Engine {
         if let Some(pattern) = self.backstop.veto(signal) {
             self.trace.veto = Some(pattern.to_string());
 
-            return Ok(vec![Effect::Permission {
+            return Ok(Step::Done(vec![Effect::Permission {
                 agent_id: signal.agent_id.clone(),
                 decision: PermissionDecision::Deny,
                 message: Some(format!(
                     "Chauffeur blocked an irreversible action (matched \"{pattern}\")."
                 )),
-            }]);
+            }]));
         }
 
         let situation = self
@@ -119,15 +169,54 @@ impl Engine {
             .get(&signal.agent_id)
             .cloned()
             .unwrap_or_default();
-        let (mut effects, asks) = self.plan(&situation, signal);
+        let (settled, asks) = self.plan(&situation, signal);
 
         if asks.is_empty() {
-            return Ok(effects);
+            return Ok(Step::Done(settled));
         }
 
-        effects.extend(self.classify(&situation, signal, asks));
+        let questions = self.namespaced(&asks);
 
-        Ok(effects)
+        self.trace.questions = questions.iter().map(TracedQuestion::new).collect();
+        self.pending = Some(Pending {
+            signal: signal.clone(),
+            settled,
+            asks,
+        });
+
+        Ok(Step::Ask {
+            state: situation.render(),
+            questions,
+        })
+    }
+
+    /// Finish the signal [`Engine::begin`] started, with System One's answers
+    /// or its error; each capability applies its failure posture on error.
+    pub fn finish(&mut self, result: Result<Vec<Answer>, String>, elapsed_ms: u64) -> Vec<Effect> {
+        let Some(Pending {
+            signal,
+            mut settled,
+            asks,
+        }) = self.pending.take()
+        else {
+            return Vec::new();
+        };
+
+        self.trace.elapsed_ms = elapsed_ms;
+
+        let answers = match result {
+            Ok(answers) => {
+                self.trace.answers = answers.iter().map(TracedAnswer::new).collect();
+                Some(answers)
+            }
+            Err(error) => {
+                self.trace.error = Some(error);
+                None
+            }
+        };
+
+        settled.extend(self.decide(&signal, &asks, answers.as_deref()));
+        settled
     }
 
     fn record(&mut self, signal: &Signal) {
@@ -174,16 +263,9 @@ impl Engine {
         (effects, asks)
     }
 
-    /// One System One call for every question. IDs are namespaced by
-    /// capability and restored before each capability decides.
-    fn classify(
-        &mut self,
-        situation: &Situation,
-        signal: &Signal,
-        asks: Vec<(usize, Vec<Question>)>,
-    ) -> Vec<Effect> {
-        let questions: Vec<Question> = asks
-            .iter()
+    /// Every capability's questions in one list, IDs namespaced by capability.
+    fn namespaced(&self, asks: &[(usize, Vec<Question>)]) -> Vec<Question> {
+        asks.iter()
             .flat_map(|(index, questions)| {
                 let prefix = self.prefix(*index);
 
@@ -192,26 +274,19 @@ impl Engine {
                     ..question.clone()
                 })
             })
-            .collect();
-        let started = std::time::Instant::now();
-        let result = self.system_one.ask(&situation.render(), &questions);
+            .collect()
+    }
 
-        self.trace.elapsed_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
-        self.trace.questions = questions.iter().map(TracedQuestion::new).collect();
-
-        let answers = match result {
-            Ok(answers) => {
-                self.trace.answers = answers.iter().map(TracedAnswer::new).collect();
-                Some(answers)
-            }
-            Err(error) => {
-                self.trace.error = Some(error.0);
-                None
-            }
-        };
+    /// Hand each asking capability its own answers, IDs restored.
+    fn decide(
+        &mut self,
+        signal: &Signal,
+        asks: &[(usize, Vec<Question>)],
+        answers: Option<&[Answer]>,
+    ) -> Vec<Effect> {
         let mut effects = Vec::new();
 
-        for (index, _) in &asks {
+        for (index, _) in asks {
             let prefix = self.prefix(*index);
             let local: Option<Vec<Answer>> = answers.as_ref().map(|answers| {
                 answers
@@ -452,5 +527,40 @@ mod tests {
         failing.ingest(&signal()).unwrap();
         assert_eq!(failing.trace().error.as_deref(), Some("down"));
         assert!(failing.trace().answers.is_empty());
+    }
+
+    #[test]
+    fn a_hosted_engine_asks_its_host_then_finishes_with_the_answers() {
+        let capabilities: Vec<Box<dyn Capability>> = vec![Box::new(Probe {
+            id: "one",
+            interested: true,
+        })];
+        let mut engine = Engine::hosted(capabilities).unwrap();
+
+        let Step::Ask { state, questions } = engine.begin(&signal()).unwrap() else {
+            panic!("expected questions")
+        };
+        assert!(state.contains("Recent agent activity"));
+        assert_eq!(questions.len(), 2);
+
+        let answers = questions
+            .iter()
+            .map(|question| Answer {
+                id: question.id.clone(),
+                value: AnswerValue::Noul(0.9),
+                confidence: None,
+            })
+            .collect();
+        let effects = engine.finish(Ok(answers), 42);
+
+        assert_eq!(
+            effects,
+            vec![Effect::KeepModel {
+                agent_id: "one:a,b".into()
+            }]
+        );
+        assert_eq!(engine.trace().elapsed_ms, 42);
+        // Nothing is pending once finished.
+        assert!(engine.finish(Err("late".into()), 0).is_empty());
     }
 }

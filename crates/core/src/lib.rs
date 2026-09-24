@@ -4,6 +4,7 @@
 
 pub mod backstop;
 pub mod capability;
+#[cfg(feature = "client")]
 pub mod client;
 pub mod config;
 pub mod effect;
@@ -20,10 +21,11 @@ pub mod trace;
 
 pub use backstop::{Backstop, BackstopConfig};
 pub use capability::{Capability, Plan};
+#[cfg(feature = "client")]
 pub use client::{DEFAULT_DAEMON_URL, DaemonClient};
 pub use config::{load_config, read_json_files};
 pub use effect::{Effect, PermissionDecision};
-pub use engine::Engine;
+pub use engine::{Engine, Step};
 pub use plugin::{Plugin, compose};
 pub use protocol::*;
 pub use provider::{Provider, Tier};

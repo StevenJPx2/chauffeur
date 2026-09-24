@@ -28,7 +28,7 @@ rust-version = "1.85"
 repository = "https://github.com/StevenJPx2/chauffeur"
 
 [workspace.dependencies]
-chauffeur-core = { path = "crates/core" }
+chauffeur-core = { path = "crates/core", default-features = false }
 chauffeur-daemon = { path = "crates/daemon" }
 chauffeur-mcp = { path = "crates/mcp" }
 chauffeur-plugin-github = { path = "plugins/github" }

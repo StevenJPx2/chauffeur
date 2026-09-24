@@ -12,7 +12,7 @@ name = "chauffeur"
 path = "src/main.rs"
 
 [dependencies]
-chauffeur-core = { workspace = true }
+chauffeur-core = { workspace = true, features = ["client"] }
 chauffeur-capability-permission = { workspace = true }
 chauffeur-capability-tool-misuse = { workspace = true }
 chauffeur-daemon = { workspace = true }

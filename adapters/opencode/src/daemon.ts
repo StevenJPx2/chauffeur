@@ -83,7 +83,7 @@ function decodeRpc<T>(value: unknown): RpcResponse<T> {
 
 function isEffect(value: unknown): value is Effect {
   if (!isRecord(value) || typeof value.agent_id !== "string") return false
-  if (value.type === "keep_model") return true
+  if (value.type === "keep_model" || value.type === "withhold_event") return true
   if (value.type === "attach_skills") return isStringArray(value.skills)
   if (value.type === "hide_tools" || value.type === "reveal_tools") return isStringArray(value.tools)
   if (value.type === "surface_tools") return isStringArray(value.namespaces)

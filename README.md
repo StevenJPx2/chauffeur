@@ -151,18 +151,13 @@ router switches the session back to the model it left.
 
 ## sourcefed events
 
-To let Chauffeur filter your sourcefed monitors, and follow through on them
-(for example: PR merged, so remind the agent to transition the Jira ticket),
-start sourcefed's daemon with:
-
-```sh
-SOURCEFED_GATE_URL=http://127.0.0.1:18790/integrations/sourcefed
-```
-
-sourcefed then asks Chauffeur before delivering each event, and only events the
-agent needs to act on reach the session; bot comments, approvals, and status
-churn are withheld. If Chauffeur is down, sourcefed delivers as before.
-sourcefed's messages in the session are not treated as yours.
+With both plugins installed, nothing needs configuring: sourcefed asks
+Chauffeur before delivering each monitor event, and only events the agent needs
+to act on reach the session; bot comments, approvals, and status churn are
+withheld. Chauffeur also follows through on them (for example: PR merged, so
+remind the agent to transition the Jira ticket). If Chauffeur is not loaded or
+fails, sourcefed delivers as before. sourcefed's messages in the session are
+not treated as yours.
 
 ## Configuration
 

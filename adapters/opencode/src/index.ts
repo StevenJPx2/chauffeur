@@ -1,11 +1,14 @@
 import { Plugin } from "@opencode/plugin"
 import { DaemonBridge } from "./daemon.js"
 import { installExposure } from "./exposure.js"
+import { installGate } from "./gate.js"
 import { installIdle } from "./idle.js"
 import { installModelRouter } from "./model-router.js"
 import { installPermission } from "./permission.js"
 import { claimSkillLoading } from "./skills.js"
 import { installToolResults } from "./tool-results.js"
+
+export { ChauffeurRpc } from "./gate.js"
 
 export default Plugin.define({
   id: "chauffeur",
@@ -24,10 +27,12 @@ export default Plugin.define({
     const disposeExposure = await installExposure(ctx, daemon)
     const disposePermission = await installPermission(ctx, daemon)
     const disposeToolResults = await installToolResults(ctx, daemon)
+    const disposeGate = await installGate(ctx, daemon)
     const disposeIdle = installIdle(ctx, daemon)
 
     return async () => {
       disposeIdle()
+      await disposeGate()
       await disposeSkillLoading()
       await disposePermission()
       await disposeToolResults()

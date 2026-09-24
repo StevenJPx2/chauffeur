@@ -64,20 +64,18 @@ pub struct ToolExposureConfig {
 
 impl ToolExposureConfig {
     pub fn load(path: &Path) -> Result<Self, String> {
-        let config: Self = load_config(path)?;
+        load_config::<Self>(path)?
+            .checked()
+            .map_err(|error| format!("{}: {error}", path.display()))
+    }
 
-        if config
-            .base
-            .as_ref()
-            .is_some_and(|base| base.len() > MAX_BASE)
-        {
-            return Err(format!(
-                "{}: more than {MAX_BASE} base tools",
-                path.display()
-            ));
+    /// The config, if within bounds.
+    pub fn checked(self) -> Result<Self, String> {
+        if self.base.as_ref().is_some_and(|base| base.len() > MAX_BASE) {
+            return Err(format!("more than {MAX_BASE} base tools"));
         }
 
-        Ok(config)
+        Ok(self)
     }
 }
 
