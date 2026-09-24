@@ -1,14 +1,10 @@
-import type { Plugin } from "@opencode/plugin"
-import type { CodeModeNamespace } from "./protocol.js"
+import type { HostTool } from "./host.js"
+import { catalogEntry, TEXT_CODE_POINTS, type CodeModeNamespace } from "./protocol.js"
 import { clip } from "./text.js"
 
 const MAX_NAMESPACES = 64
-const MAX_MATCHES = 8
-const TEXT_CODE_POINTS = 512
-// 100 code points stays within the engine's 400-byte description bound.
-const DESCRIPTION_CODE_POINTS = 100
 
-type HostTool = Awaited<ReturnType<Plugin.Context["tool"]["list"]>>[number]
+const MAX_MATCHES = 8
 
 /**
  * The host's Code Mode namespaces: tools the model reaches through `execute`
@@ -35,11 +31,7 @@ export function codeModeNamespaces(tools: ReadonlyArray<HostTool>, inRequests: R
   return [...byNamespace].map(([name, members]) => ({
     name: clip(name, TEXT_CODE_POINTS),
     size: members.length,
-    tools: rank(members, request).slice(0, MAX_MATCHES).map((tool) => ({
-      id: clip(tool.id, TEXT_CODE_POINTS),
-      description: clip(tool.description, DESCRIPTION_CODE_POINTS),
-      bytes: 0,
-    })),
+    tools: rank(members, request).slice(0, MAX_MATCHES).map((tool) => catalogEntry(tool.id, tool.description, "")),
   }))
 }
 
@@ -53,6 +45,7 @@ function namespace(tool: HostTool): string {
 /** Tools sharing the most words with the request first, host order otherwise. */
 function rank(tools: HostTool[], request: string): HostTool[] {
   const words = new Set(request.toLowerCase().match(/[a-z0-9]{3,}/g) ?? [])
+
   const score = (tool: HostTool): number =>
     [...new Set(`${tool.id} ${tool.description}`.toLowerCase().match(/[a-z0-9]{3,}/g) ?? [])].filter((word) => words.has(word)).length
 

@@ -178,5 +178,10 @@ not treated as yours.
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 cargo test --workspace --all-targets --all-features --locked
-cd adapters/opencode && npm run typecheck
+cd adapters/opencode && npm run check
 ```
+
+`npm run check` typechecks the adapter and its tests, lints them with Oxlint and
+the vendored [anti-slop](https://github.com/dmmulroy/anti-slop) rules (generic
+and Effect; see `tools/oxlint/anti-slop/UPSTREAM.md`), runs the Bun tests, and
+gates the change with `fallow audit`.

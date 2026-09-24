@@ -1,120 +1,124 @@
 import { spawn } from "node:child_process"
-import type { Effect, RpcResponse, Signal } from "./protocol.js"
+import { Context, type Duration, Effect, Schema } from "effect"
+import { RpcReply, SignalReply, type HostEffect, type Signal } from "./protocol.js"
 
 const DEFAULT_URL = "http://127.0.0.1:18790"
-const RPC_TIMEOUT_MS = 30_000
+
+const RPC_TIMEOUT: Duration.Input = "30 seconds"
+
 // Give the engine's 15s reply deadline time to return its own timeout first.
-const SIGNAL_TIMEOUT_MS = 20_000
-const PERMISSION_DECISIONS = ["allow", "deny", "ask"] as const
-const DELIVERIES = ["prompt", "steer", "resume", "wait"] as const
+const SIGNAL_TIMEOUT: Duration.Input = "20 seconds"
 
-export class DaemonBridge {
-  readonly url = (process.env.CHAUFFEUR_DAEMON_URL ?? DEFAULT_URL).replace(/\/$/, "")
-  private readonly token = process.env.CHAUFFEUR_DAEMON_TOKEN
+const START_ATTEMPTS = 40
 
-  async start(): Promise<void> {
-    if (await this.healthy()) return
-    if (process.env.CHAUFFEUR_DAEMON_URL) throw new Error(`chauffeur daemon unavailable at ${this.url}`)
+export class DaemonError extends Schema.TaggedError<DaemonError>()("DaemonError", { message: Schema.String }) {}
 
-    const child = spawn(process.env.CHAUFFEUR_BIN ?? "chauffeur", ["daemon"], {
-      detached: true,
-      stdio: "ignore",
-      env: process.env,
-    })
-    child.unref()
-
-    for (let attempt = 0; attempt < 40; attempt += 1) {
-      await delay(250)
-
-      if (await this.healthy()) return
-    }
-
-    throw new Error("chauffeur daemon did not become healthy within 10 seconds")
-  }
-
-  async signal(signal: Signal, timeoutMs = SIGNAL_TIMEOUT_MS): Promise<Effect[]> {
-    const result = await this.rpc<unknown>("signal", { signal }, timeoutMs)
-
-    if (!isRecord(result) || !Array.isArray(result.effects) || !result.effects.every(isEffect)) {
-      throw new Error("chauffeur returned invalid effects")
-    }
-
-    return result.effects
-  }
-
-  private async healthy(): Promise<boolean> {
-    try {
-      await this.rpc("health", {})
-      return true
-    } catch {
-      return false
-    }
-  }
-
-  private async rpc<T>(method: string, params: unknown, timeoutMs = RPC_TIMEOUT_MS): Promise<T> {
-    const response = await fetch(`${this.url}/rpc`, {
-      method: "POST",
-      headers: { "content-type": "application/json", ...this.headers() },
-      body: JSON.stringify({ id: 1, method, params }),
-      signal: AbortSignal.timeout(timeoutMs),
-    })
-    const envelope = decodeRpc<T>(await response.json())
-
-    if (envelope.error) throw new Error(envelope.error)
-    if (!response.ok) throw new Error(`chauffeur daemon returned ${response.status}`)
-    if (envelope.result === undefined) throw new Error("chauffeur daemon response has no result")
-
-    return envelope.result
-  }
-
-  private headers(): Record<string, string> {
-    return this.token ? { authorization: `Bearer ${this.token}` } : {}
-  }
+export type DaemonClient = {
+  readonly signal: (signal: Signal, timeout?: Duration.Input) => Effect.Effect<ReadonlyArray<HostEffect>, DaemonError>
 }
 
-function decodeRpc<T>(value: unknown): RpcResponse<T> {
-  if (!isRecord(value)) throw new Error("invalid chauffeur RPC response")
+type Endpoint = { readonly url: string; readonly headers: Headers }
+
+type RpcParams = { readonly signal?: Signal }
+
+/**
+ * Connect to the configured daemon, or start a local one when none answers.
+ * Never fails: while the daemon is down, each capability applies its own
+ * failure posture to the errors its signals return.
+ */
+const connect = Effect.gen(function* () {
+  const configured = process.env.CHAUFFEUR_DAEMON_URL
+  const headers = new Headers({ "content-type": "application/json" })
+  const token = process.env.CHAUFFEUR_DAEMON_TOKEN
+
+  if (token) headers.set("authorization", `Bearer ${token}`)
+
+  const endpoint: Endpoint = { url: (configured ?? DEFAULT_URL).replace(/\/$/, ""), headers }
+
+  const healthy = request(endpoint, "health", {}, Schema.Unknown, RPC_TIMEOUT).pipe(
+    Effect.as(true),
+    Effect.orElseSucceed(() => false),
+  )
+
+  if (!(yield* healthy)) {
+    if (configured) {
+      yield* Effect.logError(`chauffeur: daemon unavailable at ${endpoint.url}`)
+    } else if (!(yield* start(healthy))) {
+      yield* Effect.logError("chauffeur: daemon did not become healthy within 10 seconds")
+    }
+  }
 
   return {
-    ...(typeof value.id === "number" ? { id: value.id } : {}),
-    ...(typeof value.error === "string" ? { error: value.error } : {}),
-    ...(value.result !== undefined ? { result: value.result as T } : {}),
-  }
+    signal: (value, timeout = SIGNAL_TIMEOUT) =>
+      request(endpoint, "signal", { signal: value }, SignalReply, timeout).pipe(Effect.map((reply) => reply.effects)),
+  } satisfies DaemonClient
+})
+
+export class Daemon extends Context.Service<Daemon, DaemonClient>()("chauffeur/Daemon") {
+  static readonly connect: Effect.Effect<DaemonClient> = connect
 }
 
-function isEffect(value: unknown): value is Effect {
-  if (!isRecord(value) || typeof value.agent_id !== "string") return false
-  if (value.type === "gate") return typeof value.deliver === "boolean"
-  if (value.type === "tools") return isStringArray(value.hide) && isStringArray(value.reveal)
-  if (value.type === "context") {
-    return isOneOf(value.delivery, DELIVERIES)
-      && typeof value.label === "string"
-      && isStringArray(value.skills)
-      && (value.text === null || typeof value.text === "string")
-  }
-  if (value.type === "permission") {
-    return isOneOf(value.decision, PERMISSION_DECISIONS) && (value.message === null || typeof value.message === "string")
-  }
+function start(healthy: Effect.Effect<boolean>): Effect.Effect<boolean> {
+  return Effect.gen(function* () {
+    yield* Effect.sync(() => {
+      const child = spawn(process.env.CHAUFFEUR_BIN ?? "chauffeur", ["daemon"], {
+        detached: true,
+        stdio: "ignore",
+        env: process.env,
+      })
 
-  return value.type === "model"
-    && (value.model === null || (isRecord(value.model) && typeof value.model.provider === "string" && typeof value.model.model === "string"))
+      // A missing binary is reported by the health checks below.
+      child.once("error", () => undefined)
+      child.unref()
+    })
+
+    for (let attempt = 0; attempt < START_ATTEMPTS; attempt += 1) {
+      yield* Effect.sleep("250 millis")
+
+      if (yield* healthy) return true
+    }
+
+    return false
+  })
 }
 
-function isStringArray(value: unknown): value is string[] {
-  return Array.isArray(value) && value.every((item) => typeof item === "string")
-}
+function request<S extends Schema.Top>(
+  endpoint: Endpoint,
+  method: string,
+  params: RpcParams,
+  result: S,
+  timeout: Duration.Input,
+): Effect.Effect<S["Type"], DaemonError, S["DecodingServices"]> {
+  return Effect.gen(function* () {
+    const response = yield* Effect.tryPromise({
+      try: (abort) => fetch(`${endpoint.url}/rpc`, {
+        method: "POST",
+        headers: endpoint.headers,
+        body: JSON.stringify({ id: 1, method, params }),
+        signal: abort,
+      }),
+      catch: (cause) => new DaemonError({ message: `chauffeur daemon unreachable: ${String(cause)}` }),
+    })
 
-function isOneOf<const Values extends readonly string[]>(
-  value: unknown,
-  values: Values,
-): value is Values[number] {
-  return typeof value === "string" && values.some((candidate) => candidate === value)
-}
+    const envelope = yield* Effect.tryPromise({
+      try: () => response.json(),
+      catch: () => new DaemonError({ message: "invalid chauffeur RPC response" }),
+    }).pipe(
+      Effect.flatMap(Schema.decodeUnknownEffect(RpcReply)),
+      Effect.mapError(() => new DaemonError({ message: "invalid chauffeur RPC response" })),
+    )
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
-}
+    if (envelope.error !== undefined) return yield* new DaemonError({ message: envelope.error })
 
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms))
+    if (!response.ok) return yield* new DaemonError({ message: `chauffeur daemon returned ${response.status}` })
+
+    if (envelope.result === undefined) return yield* new DaemonError({ message: "chauffeur daemon response has no result" })
+
+    return yield* Schema.decodeUnknownEffect(result)(envelope.result).pipe(
+      Effect.mapError(() => new DaemonError({ message: `chauffeur returned an invalid ${method} result` })),
+    )
+  }).pipe(
+    Effect.timeout(timeout),
+    Effect.catchTag("TimeoutError", () => new DaemonError({ message: `chauffeur ${method} timed out` })),
+  )
 }

@@ -1,10 +1,9 @@
-import type { Plugin } from "@opencode/plugin"
+import { Effect } from "effect"
+import { Host, type SessionID } from "./host.js"
 import type { ContextEffect } from "./protocol.js"
 
 /** Synthetic messages carrying skills record their IDs here. */
 export const SKILLS_METADATA_KEY = "chauffeur.skills"
-
-type SessionID = Parameters<Plugin.Context["session"]["synthetic"]>[0]["sessionID"]
 
 /**
  * Deliver context outside the prompt hook as one synthetic message: the text,
@@ -12,22 +11,26 @@ type SessionID = Parameters<Plugin.Context["session"]["synthetic"]>[0]["sessionI
  * the running turn, `resume` wakes an idle agent, and `wait` stays for the
  * next turn.
  */
-export async function deliverContext(ctx: Plugin.Context, sessionID: SessionID, effect: ContextEffect): Promise<void> {
-  const catalog = (await ctx.skill.list()).data
-  const skills = effect.skills.flatMap((id) => catalog.filter((candidate) => candidate.id === id))
-  const parts = [
-    ...(effect.text ? [effect.text] : []),
-    ...skills.map((skill) => `<skill_content name="${skill.id}">\n# Skill: ${skill.id}\n\n${skill.content}\n</skill_content>`),
-  ]
+export function deliverContext(sessionID: SessionID, effect: ContextEffect): Effect.Effect<void, unknown, Host> {
+  return Effect.gen(function* () {
+    const host = yield* Host
+    const catalog = (yield* host.skill.list()).data
+    const skills = effect.skills.flatMap((id) => catalog.filter((candidate) => candidate.id === id))
 
-  if (parts.length === 0) return
+    const parts = [
+      ...(effect.text ? [effect.text] : []),
+      ...skills.map((skill) => `<skill_content name="${skill.id}">\n# Skill: ${skill.id}\n\n${skill.content}\n</skill_content>`),
+    ]
 
-  await ctx.session.synthetic({
-    sessionID,
-    text: parts.join("\n\n"),
-    description: `Chauffeur ${effect.label}`,
-    metadata: { [SKILLS_METADATA_KEY]: skills.map((skill) => skill.id) },
-    ...(effect.delivery === "steer" ? { delivery: "steer" as const } : { resume: effect.delivery === "resume" }),
+    if (parts.length === 0) return
+
+    yield* host.session.synthetic({
+      sessionID,
+      text: parts.join("\n\n"),
+      description: `Chauffeur ${effect.label}`,
+      metadata: { [SKILLS_METADATA_KEY]: skills.map((skill) => skill.id) },
+      ...(effect.delivery === "steer" ? { delivery: "steer" as const } : { resume: effect.delivery === "resume" }),
+    })
   })
 }
 
@@ -37,14 +40,14 @@ export async function deliverContext(ctx: Plugin.Context, sessionID: SessionID, 
  * request; skills Chauffeur attaches to prompts still resolve. The rule lives
  * only in this plugin, so disabling Chauffeur restores both.
  */
-export async function claimSkillLoading(ctx: Plugin.Context): Promise<() => Promise<void>> {
-  const registration = await ctx.agent.transform((agents) => {
+export const claimSkillLoading = Effect.gen(function* () {
+  const host = yield* Host
+
+  yield* host.agent.transform((agents) => {
     for (const agent of agents.list()) {
       agents.update(String(agent.id), (info) => {
         info.permissions.push({ action: "skill", resource: "*", effect: "deny" })
       })
     }
   })
-
-  return () => registration.dispose()
-}
+})

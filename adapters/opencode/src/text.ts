@@ -12,6 +12,6 @@ export function clip(value: string, codePoints: number): string {
  * `metadata.sourcefed`. They reach Chauffeur as integration events, so they are
  * never the user's words.
  */
-export function isIntegrationMessage(metadata: Record<string, unknown> | undefined): boolean {
+export function isIntegrationMessage(metadata: { readonly sourcefed?: unknown } | undefined): boolean {
   return metadata?.sourcefed !== undefined
 }

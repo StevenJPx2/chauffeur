@@ -1,56 +1,64 @@
 import { expect, test } from "bun:test"
-import type { Plugin } from "@opencode/plugin"
-import type { DaemonBridge } from "../src/daemon.js"
+import { Effect } from "effect"
 import { installExposure } from "../src/exposure.js"
+import { fakeHost, Hooks, install, noDaemon, sessionID as session } from "./support.js"
+
+const browser = { id: "browser_open", description: "Open a browser tab" }
 
 test("a recorded mid-turn reveal survives adapter restart and reaches the next tool snapshot", async () => {
   const sessionID = "ses_recovery"
-  const hooks = new Map<string, (event: any) => Promise<void> | void>()
-  const stored = new Map<string, unknown>([[`hidden/${sessionID}`, ["browser_open"]]])
-  const messages: unknown[] = []
-  const ctx = {
+  const hooks = new Hooks()
+  const stored = new Map<string, ReadonlyArray<string>>([[`hidden/${sessionID}`, ["browser_open"]]])
+  const markers: Array<{ readonly metadata?: { readonly [key: string]: ReadonlyArray<string> }; readonly resume?: boolean }> = []
+
+  const host = fakeHost({
     session: {
-      hook: async (name: string, callback: (event: any) => Promise<void> | void) => {
-        hooks.set(name, callback)
-        return { dispose: async () => {} }
-      },
-      context: async () => [],
-      synthetic: async (value: unknown) => { messages.push(value) },
+      hook: hooks.register,
+      context: () => Effect.succeed([]),
+      synthetic: (message: (typeof markers)[number]) => Effect.sync(() => { markers.push(message) }),
     },
     storage: {
-      get: async (key: string) => stored.get(key),
-      set: async (key: string, value: unknown) => { stored.set(key, value) },
+      get: (key: string) => Effect.succeed(stored.get(key)),
+      set: (key: string, value: ReadonlyArray<string>) => Effect.sync(() => { stored.set(key, value) }),
     },
-    tool: { list: async () => [{ id: "browser_open", description: "Open a browser tab" }] },
-  } as unknown as Plugin.Context
-  const daemon = {} as DaemonBridge
-  const first = await installExposure(ctx, daemon)
+    tool: { list: () => Effect.succeed([browser]) },
+  })
 
-  expect(await first.candidates(sessionID)).toEqual([{ id: "browser_open", description: "Open a browser tab", bytes: 0 }])
-  expect(await first.reveal(sessionID, ["browser_open"])).toBe(true)
-  expect(messages).toEqual([expect.objectContaining({ metadata: { "chauffeur.hidden": [] }, resume: false })])
+  const first = await install(installExposure, host, noDaemon)
+
+  expect(await Effect.runPromise(first.value.candidates(session(sessionID)))).toEqual([{ ...browser, bytes: 0 }])
+  expect(await Effect.runPromise(first.value.reveal(session(sessionID), ["browser_open"]))).toBe(true)
+  expect(markers).toEqual([expect.objectContaining({ metadata: { "chauffeur.hidden": [] }, resume: false })])
   expect(stored.get(`hidden/${sessionID}`)).toEqual([])
-  await first.dispose()
 
-  const restarted = await installExposure(ctx, daemon)
-  const request = { sessionID, tools: { browser_open: { description: "Open a browser tab" } } }
-  await hooks.get("context")?.(request)
+  await first.close()
+
+  const restarted = await install(installExposure, host, noDaemon)
+  const request = { sessionID, tools: { browser_open: { description: browser.description } } }
+
+  await hooks.emit("context", request)
+
   expect(request.tools.browser_open).toBeDefined()
-  expect(await restarted.candidates(sessionID)).toEqual([])
-  await restarted.dispose()
+  expect(await Effect.runPromise(restarted.value.candidates(session(sessionID)))).toEqual([])
+
+  await restarted.close()
 })
 
 test("a missing registration cannot be revealed", async () => {
   const sessionID = "ses_missing"
-  const stored = new Map<string, unknown>([[`hidden/${sessionID}`, ["browser_open"]]])
-  const ctx = {
-    session: { hook: async () => ({ dispose: async () => {} }), context: async () => [], synthetic: async () => { throw Error("unexpected marker") } },
-    storage: { get: async (key: string) => stored.get(key), set: async () => { throw Error("unexpected write") } },
-    tool: { list: async () => [] },
-  } as unknown as Plugin.Context
-  const exposure = await installExposure(ctx, {} as DaemonBridge)
+  const hooks = new Hooks()
+  const stored = new Map<string, ReadonlyArray<string>>([[`hidden/${sessionID}`, ["browser_open"]]])
 
-  expect(await exposure.reveal(sessionID, ["browser_open"])).toBe(false)
+  const host = fakeHost({
+    session: { hook: hooks.register, context: () => Effect.succeed([]), synthetic: () => Effect.die("unexpected marker") },
+    storage: { get: (key: string) => Effect.succeed(stored.get(key)), set: () => Effect.die("unexpected write") },
+    tool: { list: () => Effect.succeed([]) },
+  })
+
+  const exposure = await install(installExposure, host, noDaemon)
+
+  expect(await Effect.runPromise(exposure.value.reveal(session(sessionID), ["browser_open"]))).toBe(false)
   expect(stored.get(`hidden/${sessionID}`)).toEqual(["browser_open"])
-  await exposure.dispose()
+
+  await exposure.close()
 })

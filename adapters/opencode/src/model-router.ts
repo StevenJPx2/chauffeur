@@ -1,176 +1,193 @@
-import type { Plugin } from "@opencode/plugin"
-import type { SessionRetry } from "@opencode/plugin/promise/session"
-import type { DaemonBridge } from "./daemon.js"
-import type { ModelRef, Signal, SignalKind } from "./protocol.js"
+import { Model, type Plugin, Provider } from "@opencode/plugin/effect"
+import type { SessionRetry } from "@opencode/plugin/effect/session"
+import { Effect, Stream } from "effect"
+import { Daemon } from "./daemon.js"
+import { Host } from "./host.js"
+import { signal, TEXT_CODE_POINTS, type ModelRef } from "./protocol.js"
 import { clip } from "./text.js"
 
 const MAX_SESSIONS = 256
-const MAX_MODELS = 256
-const TEXT_CODE_POINTS = 512
 
-type HostModel = { providerID: string; id: string }
+const MAX_MODELS = 256
+
+type HostModel = { readonly providerID: string; readonly id: string; readonly variant?: string | undefined }
+
+type HostModelRef = Parameters<Plugin.Context["session"]["switchModel"]>[0]["model"]
+
+/** Per-session execution state the router needs to judge a retry safely. */
+class Sessions {
+  private readonly toolRan = new Map<string, boolean>()
+  private readonly generations = new Map<string, number>()
+  private readonly active = new Set<string>()
+  readonly requested = new Map<string, ModelRef>()
+
+  advance(sessionID: string, running: boolean): void {
+    if (!this.generations.has(sessionID) && this.generations.size >= MAX_SESSIONS) this.generations.clear()
+
+    this.generations.set(sessionID, (this.generations.get(sessionID) ?? 0) + 1)
+
+    if (running && !this.active.has(sessionID) && this.active.size >= MAX_SESSIONS) this.active.clear()
+
+    if (running) this.active.add(sessionID)
+    else this.active.delete(sessionID)
+  }
+
+  markTool(sessionID: string, ran: boolean): void {
+    if (!this.toolRan.has(sessionID) && this.toolRan.size >= MAX_SESSIONS) this.toolRan.clear()
+
+    this.toolRan.set(sessionID, ran)
+  }
+
+  request(sessionID: string, model: ModelRef): void {
+    if (!this.requested.has(sessionID) && this.requested.size >= MAX_SESSIONS) this.requested.clear()
+
+    this.requested.set(sessionID, model)
+  }
+
+  toolExecuted(sessionID: string): boolean {
+    return this.toolRan.get(sessionID) ?? false
+  }
+
+  /** True while the execution that was current when this is called is still running. */
+  current(sessionID: string): () => boolean {
+    const generation = this.generations.get(sessionID)
+
+    return () => this.active.has(sessionID) && this.generations.get(sessionID) === generation
+  }
+}
 
 /**
  * Senses model errors, successes, and tool runs, and applies the engine's
  * model effects. All failover policy lives in the Chauffeur engine.
  */
-export async function installModelRouter(
-  ctx: Plugin.Context,
-  daemon: DaemonBridge,
-): Promise<() => Promise<void>> {
-  const toolRan = new Map<string, boolean>()
-  const requested = new Map<string, ModelRef>()
-  const generations = new Map<string, number>()
-  const active = new Set<string>()
-  const controller = new AbortController()
-  const advance = (sessionID: string, running: boolean): void => {
-    if (!generations.has(sessionID) && generations.size >= MAX_SESSIONS) generations.clear()
-    generations.set(sessionID, (generations.get(sessionID) ?? 0) + 1)
-    if (running) active.add(sessionID)
-    else active.delete(sessionID)
-  }
-  const markTool = (sessionID: string, ran: boolean): void => {
-    if (!toolRan.has(sessionID) && toolRan.size >= MAX_SESSIONS) toolRan.clear()
+export const installModelRouter = Effect.gen(function* () {
+  const host = yield* Host
+  const daemon = yield* Daemon
+  const sessions = new Sessions()
 
-    toolRan.set(sessionID, ran)
-  }
+  yield* host.session.hook("retry", (event) =>
+    route(event, sessions.toolExecuted(String(event.sessionID)), sessions.current(String(event.sessionID))).pipe(
+      Effect.provideService(Host, host),
+      Effect.provideService(Daemon, daemon),
+    ))
 
-  const retry = await ctx.session.hook("retry", (event) => {
-    const id = String(event.sessionID)
-    const generation = generations.get(id)
-
-    return route(ctx, daemon, event, toolRan.get(id) ?? false, () =>
-      active.has(id) && generations.get(id) === generation)
-  })
   // A tool in an earlier model request is already settled. Only tools run
   // during this request can make retrying its failed step unsafe.
-  const request = await ctx.session.hook("model.request", (event) => {
+  yield* host.session.hook("model.request", (event) => Effect.sync(() => {
     if (event.kind !== "primary") return
 
-    markTool(String(event.sessionID), false)
-    if (!requested.has(String(event.sessionID)) && requested.size >= MAX_SESSIONS) requested.clear()
-    requested.set(String(event.sessionID), ref(event.model))
-  })
-  const tool = await ctx.tool.hook("execute.after", (event) => {
-    markTool(String(event.sessionID), true)
-  })
+    sessions.markTool(String(event.sessionID), false)
+    sessions.request(String(event.sessionID), ref(event.model))
+  }))
 
-  void watchEvents(ctx, daemon, controller, requested, markTool, advance)
+  yield* host.tool.hook("execute.after", (event) => Effect.sync(() => sessions.markTool(String(event.sessionID), true)))
 
-  return async () => {
-    controller.abort()
-    await retry.dispose()
-    await request.dispose()
-    await tool.dispose()
-    toolRan.clear()
-    requested.clear()
-    generations.clear()
-    active.clear()
-  }
-}
-
-async function watchEvents(
-  ctx: Plugin.Context,
-  daemon: DaemonBridge,
-  controller: AbortController,
-  requested: Map<string, ModelRef>,
-  markTool: (id: string, ran: boolean) => void,
-  advance: (id: string, running: boolean) => void,
-): Promise<void> {
-  try {
-    for await (const event of ctx.event.subscribe({ signal: controller.signal })) {
-      const id = (event.data as Record<string, unknown>).sessionID
-
-      if (typeof id !== "string") continue
+  yield* host.event.subscribe().pipe(
+    Stream.runForEach((event) => {
       if (event.type === "session.execution.started") {
-        advance(id, true)
-        markTool(id, false)
+        return Effect.sync(() => {
+          sessions.advance(event.data.sessionID, true)
+          sessions.markTool(event.data.sessionID, false)
+        })
       }
-      if (event.type === "session.execution.interrupted" || event.type === "session.execution.failed" || event.type === "session.execution.succeeded") {
-        advance(id, false)
-        requested.delete(id)
-      }
-      if (event.type === "session.step.ended") {
-        const model = requested.get(id)
 
-        if (model) send(daemon, signal(id, { type: "model_succeeded", model }))
+      if (event.type === "session.execution.interrupted" || event.type === "session.execution.failed" || event.type === "session.execution.succeeded") {
+        return Effect.sync(() => {
+          sessions.advance(event.data.sessionID, false)
+          sessions.requested.delete(event.data.sessionID)
+        })
       }
-    }
-  } catch (error) {
-    if (!controller.signal.aborted) console.error(`[chauffeur] model routing events ended: ${String(error)}`)
-  }
-}
+
+      const model = event.type === "session.step.ended" ? sessions.requested.get(event.data.sessionID) : undefined
+
+      if (event.type !== "session.step.ended" || !model) return Effect.void
+
+      return daemon.signal(signal(event.data.sessionID, { type: "model_succeeded", model })).pipe(
+        Effect.catch((error) => Effect.logError("chauffeur: signal dropped", error)),
+        Effect.forkScoped,
+        Effect.asVoid,
+      )
+    }),
+    Effect.catch((error) => Effect.logError("chauffeur: model routing events ended", error)),
+    Effect.forkScoped,
+  )
+})
 
 /** Report a failed model request and apply the engine's model decision. */
-async function route(ctx: Plugin.Context, daemon: DaemonBridge, event: SessionRetry, toolExecuted: boolean, valid: () => boolean): Promise<void> {
+function route(event: SessionRetry, toolExecuted: boolean, valid: () => boolean): Effect.Effect<void, never, Host | Daemon> {
   const sessionID = String(event.sessionID)
 
-  try {
-    const models = (await ctx.model.list()).data
+  return Effect.gen(function* () {
+    const host = yield* Host
+    const daemon = yield* Daemon
+    const models = (yield* host.model.list()).data
+
     if (!valid()) return
-    const effects = await daemon.signal(signal(sessionID, {
+
+    const effects = yield* daemon.signal(signal(sessionID, {
       type: "model_error",
       model: ref(event.model),
       error_type: clip(event.error.type, TEXT_CODE_POINTS),
-      status: typeof event.error.status === "number" ? event.error.status : null,
+      status: event.error.status ?? null,
       message: clip(event.error.message, TEXT_CODE_POINTS),
       tool_executed: toolExecuted,
-      // Usable models first; the engine accepts at most MAX_MODELS.
-      available: models
-        .map((model) => ({ model: ref(model), usable: model.enabled && model.status === "active" }))
-        .sort((a, b) => Number(b.usable) - Number(a.usable))
-        .slice(0, MAX_MODELS),
+      available: available(models),
     }))
+
+    // Keeping the model (`model: null`) leaves the host's own retry decision in place.
+    const [next] = effects.flatMap((effect) => (effect.agent_id === sessionID && effect.type === "model" && effect.model ? [effect.model] : []))
+
+    if (next) yield* failover(host, event, next, valid)
+  }).pipe(
+    // The host's own retry decision stands when the engine is unavailable.
+    Effect.catch((error) => Effect.logError("chauffeur: model routing unavailable", error)),
+  )
+}
+
+/** Usable models first; the engine accepts at most MAX_MODELS. */
+function available(models: ReadonlyArray<HostModel & { readonly enabled: boolean; readonly status: string }>) {
+  return models
+    .map((model) => ({ model: ref(model), usable: model.enabled && model.status === "active" }))
+    .toSorted((a, b) => Number(b.usable) - Number(a.usable))
+    .slice(0, MAX_MODELS)
+}
+
+/** Switch to `next` and retry now, unless the execution ended or the selection moved on. */
+function failover(host: Plugin.Context, event: SessionRetry, next: ModelRef, valid: () => boolean): Effect.Effect<void, unknown> {
+  return Effect.gen(function* () {
     if (!valid()) return
 
-    for (const effect of effects) {
-      if (effect.agent_id !== sessionID) continue
+    const current = (yield* host.session.get({ sessionID: event.sessionID })).model
 
-      // Keeping the model (`model: null`) leaves the host's own retry decision in place.
-      if (effect.type === "model" && effect.model) {
-        if (!valid()) return
-        const current = (await ctx.session.get({ sessionID: event.sessionID })).model
+    // A user or another hook already changed the selection while Jev
+    // answered. Do not overwrite their newer choice with a stale effect.
+    // No selection means the session runs on the default, the model that failed.
+    if (!valid() || (current && !sameModel(ref(current), ref(event.model)))) return
 
-        // A user or another hook already changed the selection while Jev
-        // answered. Do not overwrite their newer choice with a stale effect.
-        if (!valid() || !current || !sameModel(ref(current), ref(event.model))) return
-        await ctx.session.switchModel({ sessionID: event.sessionID, model: hostModel(effect.model) })
-        if (valid()) event.decision = { retry: true, delay: 0 }
-      }
-    }
-  } catch (error) {
-    // The host's own retry decision stands when the engine is unavailable.
-    console.error(`[chauffeur] model routing unavailable: ${String(error)}`)
-  }
+    yield* host.session.switchModel({ sessionID: event.sessionID, model: hostModel(next) })
+
+    if (valid()) event.decision = { retry: true, delay: 0 }
+  })
 }
 
 export function sameModel(left: ModelRef, right: ModelRef): boolean {
   return left.provider === right.provider && left.model === right.model && left.variant === right.variant
 }
 
-export function signal(agentID: string, kind: SignalKind): Signal {
-  return { agent_id: agentID, at: Math.floor(Date.now() / 1_000), kind }
-}
-
-function send(daemon: DaemonBridge, value: Signal): void {
-  daemon.signal(value).catch((error: unknown) => {
-    console.error(`[chauffeur] signal dropped: ${String(error)}`)
-  })
-}
-
 /** The host's model as Chauffeur's reference; OpenCode's `default` variant is no variant. */
-export function ref(model: HostModel & { variant?: string | undefined }): ModelRef {
-  const variant = model.variant && model.variant !== "default" ? model.variant : undefined
-
-  return { provider: model.providerID, model: model.id, ...(variant ? { variant } : {}) }
+export function ref(model: HostModel): ModelRef {
+  return {
+    provider: model.providerID,
+    model: model.id,
+    variant: model.variant === "default" ? undefined : model.variant || undefined,
+  }
 }
-
-type HostModelRef = Parameters<Plugin.Context["session"]["switchModel"]>[0]["model"]
 
 /** Chauffeur's reference as the host's, carrying its thinking variant. */
 export function hostModel(model: ModelRef): HostModelRef {
-  // Safe: variants come from the engine's tier tables, named as OpenCode names them.
-  const variant = model.variant as HostModelRef["variant"]
-
-  return { providerID: model.provider, id: model.model, ...(variant ? { variant } : {}) }
+  return {
+    providerID: Provider.ID.make(model.provider),
+    id: Model.ID.make(model.model),
+    variant: model.variant === undefined ? undefined : Model.VariantID.make(model.variant),
+  }
 }

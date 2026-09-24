@@ -8,14 +8,23 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@opencode/plugin": "2.0.14"
+    "@opencode/plugin": "2.0.14",
+    "effect": "4.0.0-rc.112"
   },
   "private": true,
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "lint": "oxlint src tests",
+    "audit": "fallow audit",
+    "test": "bun test tests",
+    "check": "npm run typecheck && npm run lint && npm test && npm run audit"
   },
   "devDependencies": {
+    "@oxlint/plugins": "1.78.0",
+    "@types/bun": "1.4.2",
     "@types/node": "^24.0.0",
+    "fallow": "3.28.0",
+    "oxlint": "1.78.0",
     "typescript": "5.9.2"
   }
 }

@@ -1,42 +1,55 @@
-import type { Plugin } from "@opencode/plugin"
-import type { DaemonBridge } from "./daemon.js"
-import { signal } from "./model-router.js"
+import { Effect, Stream } from "effect"
+import { Daemon } from "./daemon.js"
+import { Host, type SessionID } from "./host.js"
+import { signal, TEXT_CODE_POINTS } from "./protocol.js"
 import { deliverContext } from "./skills.js"
+import { clip, isIntegrationMessage } from "./text.js"
 
 /**
  * Reports finished turns and delivers any context the engine returns, which
  * either wakes the idle agent or waits for its next turn.
  */
-export function installIdle(ctx: Plugin.Context, daemon: DaemonBridge): () => void {
-  const controller = new AbortController()
+export const installIdle = Effect.gen(function* () {
+  const host = yield* Host
 
-  void (async () => {
-    try {
-      for await (const event of ctx.event.subscribe({ signal: controller.signal })) {
-        // A finished turn; an interrupted one means the user stopped the agent.
-        if (event.type !== "session.execution.succeeded" && event.type !== "session.execution.failed") continue
+  yield* host.event.subscribe().pipe(
+    // A finished turn; an interrupted one means the user stopped the agent.
+    Stream.runForEach((event) =>
+      event.type === "session.execution.succeeded" || event.type === "session.execution.failed"
+        ? reportTurnEnd(event.data.sessionID)
+        : Effect.void),
+    Effect.catch((error) => Effect.logError("chauffeur: idle events ended", error)),
+    Effect.forkScoped,
+  )
+})
 
-        await reportTurnEnd(ctx, daemon, event.data.sessionID)
-      }
-    } catch (error) {
-      if (!controller.signal.aborted) console.error(`[chauffeur] idle events ended: ${String(error)}`)
-    }
-  })()
+function reportTurnEnd(sessionID: SessionID): Effect.Effect<void, never, Host | Daemon> {
+  return Effect.gen(function* () {
+    const host = yield* Host
+    const daemon = yield* Daemon
 
-  return () => controller.abort()
-}
+    // Unreadable session state still reports the turn, with empty fields.
+    const [session, context] = yield* Effect.all([
+      host.session.get({ sessionID }).pipe(Effect.orElseSucceed(() => undefined)),
+      host.session.context({ sessionID }).pipe(Effect.orElseSucceed(() => [])),
+    ], { concurrency: "unbounded" })
 
-async function reportTurnEnd(ctx: Plugin.Context, daemon: DaemonBridge, sessionID: Parameters<Plugin.Context["session"]["synthetic"]>[0]["sessionID"]): Promise<void> {
-  try {
-    const effects = await daemon.signal(signal(String(sessionID), { type: "turn_end" }))
+    const user = context.findLast((message) => message.type === "user" && !isIntegrationMessage(message.metadata))
 
-    for (const effect of effects) {
-      if (effect.agent_id !== String(sessionID) || effect.type !== "context" || effect.delivery === "prompt") continue
+    const effects = yield* daemon.signal(signal(String(sessionID), {
+      type: "turn_end",
+      workspace: session ? clip(String(session.location.directory), TEXT_CODE_POINTS) : "",
+      user_request: user?.type === "user" ? clip(user.text, TEXT_CODE_POINTS) : "",
+    }))
 
-      await deliverContext(ctx, sessionID, effect)
-    }
-  } catch (error) {
+    const deliveries = effects.flatMap((effect) =>
+      effect.type === "context" && effect.agent_id === String(sessionID) && (effect.delivery === "resume" || effect.delivery === "wait")
+        ? [effect]
+        : [])
+
+    yield* Effect.forEach(deliveries, (effect) => deliverContext(sessionID, effect), { discard: true })
+  }).pipe(
     // Fails open: nothing is delivered.
-    console.error(`[chauffeur] turn end not reported: ${String(error)}`)
-  }
+    Effect.catch((error) => Effect.logError("chauffeur: turn end not reported", error)),
+  )
 }

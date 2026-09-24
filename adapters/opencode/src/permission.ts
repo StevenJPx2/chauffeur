@@ -1,17 +1,19 @@
 import { existsSync, realpathSync } from "node:fs"
 import { basename, dirname, resolve } from "node:path"
-import type { Plugin } from "@opencode/plugin"
-import type { PermissionEvaluation } from "@opencode/plugin/promise/permission"
-import type { DaemonBridge } from "./daemon.js"
-import { signal } from "./model-router.js"
-import type { Resource } from "./protocol.js"
+import type { PermissionEvaluation } from "@opencode/plugin/effect/permission"
+import { Effect } from "effect"
+import { Daemon } from "./daemon.js"
+import { Host } from "./host.js"
+import { signal, TEXT_CODE_POINTS, type Resource, type SignalKind } from "./protocol.js"
 import { clip, isIntegrationMessage } from "./text.js"
 
 // Permission is synchronous for the host; past this the request asks.
-const PERMISSION_TIMEOUT_MS = 600
+const PERMISSION_TIMEOUT = "600 millis"
+
 const MAX_RESOURCES = 32
+
 const MAX_USER_REQUESTS = 5
-const TEXT_CODE_POINTS = 512
+
 // Actions whose resources are file paths; others (shell) carry command text.
 const FILE_ACTIONS = new Set(["read", "edit", "write", "patch"])
 
@@ -20,16 +22,20 @@ const FILE_ACTIONS = new Set(["read", "edit", "write", "patch"])
  * and applies the engine's decision. A host denial always stands; any
  * failure asks.
  */
-export async function installPermission(ctx: Plugin.Context, daemon: DaemonBridge): Promise<() => Promise<void>> {
-  const hook = await ctx.permission.hook("evaluate", async (event) => {
-    if (event.effect === "deny") return
+export const installPermission = Effect.gen(function* () {
+  const host = yield* Host
+  const daemon = yield* Daemon
+
+  yield* host.permission.hook("evaluate", (event) => {
+    if (event.effect === "deny") return Effect.void
 
     const sessionID = String(event.sessionID)
 
-    try {
-      if (event.resources.length > MAX_RESOURCES) throw new Error(`more than ${MAX_RESOURCES} resources`)
+    return Effect.gen(function* () {
+      if (event.resources.length > MAX_RESOURCES) return yield* Effect.fail(`more than ${MAX_RESOURCES} resources`)
 
-      const effects = await daemon.signal(signal(sessionID, await request(ctx, event)), PERMISSION_TIMEOUT_MS)
+      const kind = yield* request(event).pipe(Effect.provideService(Host, host))
+      const effects = yield* daemon.signal(signal(sessionID, kind), PERMISSION_TIMEOUT)
 
       for (const effect of effects) {
         if (effect.type !== "permission" || effect.agent_id !== sessionID) continue
@@ -38,32 +44,34 @@ export async function installPermission(ctx: Plugin.Context, daemon: DaemonBridg
 
         if (effect.message !== null) event.message = effect.message
       }
-    } catch (error) {
+    }).pipe(Effect.catch((error) => Effect.sync(() => {
       event.effect = "ask"
       event.message = clip(`Chauffeur could not evaluate this request: ${String(error)}`, TEXT_CODE_POINTS)
-    }
+    })))
   })
+})
 
-  return () => hook.dispose()
-}
+function request(event: PermissionEvaluation): Effect.Effect<SignalKind, unknown, Host> {
+  return Effect.gen(function* () {
+    const host = yield* Host
+    const workspace = realOrSelf(host.location.project.canonical)
+    const history = yield* host.session.context({ sessionID: event.sessionID })
 
-async function request(ctx: Plugin.Context, event: PermissionEvaluation) {
-  const workspace = realOrSelf(ctx.location.project.canonical)
-  const history = await ctx.session.context({ sessionID: event.sessionID })
-  const userRequests = history
-    .flatMap((message) => (message.type === "user" && !isIntegrationMessage(message.metadata) ? [clip(message.text, TEXT_CODE_POINTS)] : []))
-    .slice(-MAX_USER_REQUESTS)
+    const userRequests = history
+      .flatMap((message) => (message.type === "user" && !isIntegrationMessage(message.metadata) ? [clip(message.text, TEXT_CODE_POINTS)] : []))
+      .slice(-MAX_USER_REQUESTS)
 
-  return {
-    type: "permission_request" as const,
-    action: clip(event.action, TEXT_CODE_POINTS),
-    resources: event.resources.map((requested) => FILE_ACTIONS.has(event.action)
-      ? resolveResource(workspace, requested)
-      : { requested: clip(requested, TEXT_CODE_POINTS), resolved: clip(requested, TEXT_CODE_POINTS) }),
-    request: clip(event.message ?? "", TEXT_CODE_POINTS),
-    workspace,
-    user_requests: userRequests,
-  }
+    return {
+      type: "permission_request",
+      action: clip(event.action, TEXT_CODE_POINTS),
+      resources: event.resources.map((requested) => FILE_ACTIONS.has(event.action)
+        ? resolveResource(workspace, requested)
+        : { requested: clip(requested, TEXT_CODE_POINTS), resolved: clip(requested, TEXT_CODE_POINTS) }),
+      request: clip(event.message ?? "", TEXT_CODE_POINTS),
+      workspace,
+      user_requests: userRequests,
+    } satisfies SignalKind
+  })
 }
 
 /** Absolute, with symlinks resolved for the path or its parent when they exist. */
