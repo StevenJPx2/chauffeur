@@ -1,14 +1,24 @@
-//! OpenAI provider plugin: static equivalence tiers.
+//! OpenAI provider plugin: static equivalence tiers, by model and thinking
+//! variant.
 
-use chauffeur_core::{Provider, Tier};
+use chauffeur_core::{Provider, Tier, TierEntry};
 
-const TIERS: &[(&str, Tier)] = &[
-    ("gpt-6-sol", Tier::Frontier),
-    ("gpt-6-luna", Tier::Frontier),
-    ("gpt-6-astra", Tier::Frontier),
-    ("gpt-5.6-terra", Tier::Balanced),
-    ("gpt-5.5", Tier::Balanced),
-    ("gpt-5.3-codex-spark", Tier::Fast),
+const TIERS: &[TierEntry] = &[
+    TierEntry {
+        model: "gpt-6-sol",
+        variant: None,
+        tier: Tier::Frontier,
+    },
+    TierEntry {
+        model: "gpt-6-luna",
+        variant: Some("max"),
+        tier: Tier::Balanced,
+    },
+    TierEntry {
+        model: "gpt-6-luna",
+        variant: None,
+        tier: Tier::Fast,
+    },
 ];
 
 pub struct OpenAiProvider;
@@ -18,10 +28,29 @@ impl Provider for OpenAiProvider {
         "openai"
     }
 
-    fn tier(&self, model: &str) -> Option<Tier> {
+    fn tiers(&self) -> &[TierEntry] {
         TIERS
-            .iter()
-            .find(|(id, _)| *id == model)
-            .map(|(_, tier)| *tier)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn luna_at_max_thinking_is_balanced_and_otherwise_fast() {
+        let provider = OpenAiProvider;
+
+        assert_eq!(
+            provider.tier("gpt-6-sol", Some("high")),
+            Some(Tier::Frontier)
+        );
+        assert_eq!(
+            provider.tier("gpt-6-luna", Some("max")),
+            Some(Tier::Balanced)
+        );
+        assert_eq!(provider.tier("gpt-6-luna", Some("low")), Some(Tier::Fast));
+        assert_eq!(provider.tier("gpt-6-luna", None), Some(Tier::Fast));
+        assert_eq!(provider.variants("gpt-6-luna"), vec![Some("max"), None]);
     }
 }

@@ -9,7 +9,7 @@ rejected, and `chauffeur skill validate PATH` checks one.
 |---|---|
 | `permission/` | Permission contracts: which edits and shell commands Jev may allow, and what asks. |
 | `misuse/` | Misuse contracts: tool calls Jev checks after they run, with the steer message and an optional skill to hand over. |
-| `handoff/` | Skills Chauffeur hands over, in OpenCode's `SKILL.md` format. Link them into a skills directory OpenCode reads, such as `~/.agents/skills`. |
+| `handoff/` | Skills Chauffeur hands over, in OpenCode's `SKILL.md` format: `slack-cli`, `jira-cli`, and `twitter-cli`. Link them into a skills directory OpenCode reads, such as `~/.agents/skills`. |
 
 ## Misuse contracts
 

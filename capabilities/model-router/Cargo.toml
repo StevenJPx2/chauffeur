@@ -12,5 +12,9 @@ chauffeur-core = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 
+[dev-dependencies]
+chauffeur-plugin-anthropic = { workspace = true }
+chauffeur-plugin-openai = { workspace = true }
+
 [lints]
 workspace = true

@@ -30,18 +30,25 @@ pub struct CatalogEntry {
     pub bytes: u32,
 }
 
-/// A model reference as `provider/model`.
+/// A model reference as `provider/model`, optionally at a thinking variant
+/// (`provider/model#variant`), such as `anthropic/claude-opus-5-5#high`.
 #[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq, Hash)]
 #[serde(deny_unknown_fields)]
 pub struct ModelRef {
     pub provider: String,
     pub model: String,
+    /// The host's thinking variant; `None` is the model's default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub variant: Option<String>,
 }
 
 impl ModelRef {
     #[must_use]
     pub fn key(&self) -> String {
-        format!("{}/{}", self.provider, self.model)
+        match &self.variant {
+            Some(variant) => format!("{}/{}#{variant}", self.provider, self.model),
+            None => format!("{}/{}", self.provider, self.model),
+        }
     }
 }
 

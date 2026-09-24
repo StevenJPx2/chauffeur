@@ -138,6 +138,8 @@ name = "chauffeur-capability-model-router"
 version = "0.1.0"
 dependencies = [
  "chauffeur-core",
+ "chauffeur-plugin-anthropic",
+ "chauffeur-plugin-openai",
  "serde",
  "serde_json",
 ]

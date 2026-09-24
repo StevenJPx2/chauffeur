@@ -6,34 +6,49 @@ use chauffeur_capability_model_router::{
 };
 use chauffeur_core::{
     Answer, AnswerValue, AvailableModel, Capability, Effect, ModelRef, Plan, Provider,
-    QuestionKind, Signal, SignalKind, Situation, Tier,
+    QuestionKind, Signal, SignalKind, Situation, Tier, TierEntry,
 };
 
-struct Table(&'static str, &'static [(&'static str, Tier)]);
+struct Table(&'static str, Vec<TierEntry>);
 
 impl Provider for Table {
     fn id(&self) -> &str {
         self.0
     }
 
-    fn tier(&self, model: &str) -> Option<Tier> {
-        self.1
-            .iter()
-            .find(|(id, _)| *id == model)
-            .map(|(_, tier)| *tier)
+    fn tiers(&self) -> &[TierEntry] {
+        &self.1
     }
+}
+
+/// Rows as `(model, tier)` for every variant.
+fn rows(entries: &[(&'static str, Tier)]) -> Vec<TierEntry> {
+    entries
+        .iter()
+        .map(|(model, tier)| TierEntry {
+            model,
+            variant: None,
+            tier: *tier,
+        })
+        .collect()
 }
 
 fn model_ref(key: &str) -> ModelRef {
     model(key)
 }
 
+/// `provider/model` or `provider/model#variant`.
 fn model(key: &str) -> ModelRef {
-    let (provider, id) = key.split_once('/').expect("provider/model");
+    let (provider, rest) = key.split_once('/').expect("provider/model");
+    let (id, variant) = match rest.split_once('#') {
+        Some((id, variant)) => (id, Some(variant.to_string())),
+        None => (rest, None),
+    };
 
     ModelRef {
         provider: provider.into(),
         model: id.into(),
+        variant,
     }
 }
 
@@ -41,15 +56,15 @@ fn router(pins: &[&str]) -> ModelRouter {
     let providers: Vec<Arc<dyn Provider>> = vec![
         Arc::new(Table(
             "anthropic",
-            &[("opus", Tier::Frontier), ("haiku", Tier::Fast)],
+            rows(&[("opus", Tier::Frontier), ("haiku", Tier::Fast)]),
         )),
         Arc::new(Table(
             "openai",
-            &[
+            rows(&[
                 ("sol", Tier::Frontier),
                 ("luna", Tier::Frontier),
                 ("spark", Tier::Fast),
-            ],
+            ]),
         )),
     ];
     let config = ModelRouterConfig {
@@ -443,4 +458,84 @@ fn the_model_left_behind_survives_a_restart() {
             .instructions
             .contains("model anthropic/opus failed")
     );
+}
+
+/// The shipped tables, with the host's models listed without variants.
+fn shipped_router() -> ModelRouter {
+    let providers: Vec<Arc<dyn Provider>> = vec![
+        Arc::new(chauffeur_plugin_anthropic::AnthropicProvider),
+        Arc::new(chauffeur_plugin_openai::OpenAiProvider),
+    ];
+
+    ModelRouter::new(providers, ModelRouterConfig::default())
+}
+
+fn limit_on(current: &str) -> Signal {
+    let mut signal = limit(false);
+
+    if let SignalKind::ModelError {
+        model: failed,
+        available,
+        ..
+    } = &mut signal.kind
+    {
+        *failed = model(current);
+        *available = [
+            "anthropic/claude-opus-5-5",
+            "anthropic/claude-sonnet-4-6",
+            "openai/gpt-6-sol",
+            "openai/gpt-6-luna",
+        ]
+        .into_iter()
+        .map(|key| AvailableModel {
+            model: model(key),
+            usable: true,
+        })
+        .collect();
+    }
+
+    signal
+}
+
+#[test]
+fn tiers_follow_thinking_variants_and_never_offer_the_same_model() {
+    let mut router = shipped_router();
+
+    // Opus at high thinking is frontier: only gpt-6-sol matches.
+    assert_eq!(
+        options(&router.plan(
+            &Situation::default(),
+            &limit_on("anthropic/claude-opus-5-5#high")
+        )),
+        vec!["openai/gpt-6-sol", STAY]
+    );
+    // Opus at low thinking is balanced: gpt-6-luna at max thinking.
+    assert_eq!(
+        options(&shipped_router().plan(
+            &Situation::default(),
+            &limit_on("anthropic/claude-opus-5-5#low")
+        )),
+        vec!["openai/gpt-6-luna#max", STAY]
+    );
+    // Fast: sonnet 4.6 and gpt-6-luna at its default thinking.
+    assert_eq!(
+        options(&shipped_router().plan(
+            &Situation::default(),
+            &limit_on("anthropic/claude-sonnet-4-6")
+        )),
+        vec!["openai/gpt-6-luna", STAY]
+    );
+
+    // A switch carries the variant.
+    let signal = limit_on("anthropic/claude-opus-5-5#low");
+    router.plan(&Situation::default(), &signal);
+    let pick = Answer {
+        id: "choice".into(),
+        value: AnswerValue::Choice("openai/gpt-6-luna#max".into()),
+        confidence: Some(0.9),
+    };
+    assert!(matches!(
+        router.decide(&signal, Some(&[pick])).as_slice(),
+        [Effect::SwitchModel { model, .. }] if model.variant.as_deref() == Some("max") && model.model == "gpt-6-luna"
+    ));
 }

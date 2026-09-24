@@ -166,10 +166,33 @@ impl ModelRouter {
     }
 
     fn tier(&self, model: &ModelRef) -> Option<Tier> {
-        self.providers
+        self.provider(&model.provider)
+            .and_then(|provider| provider.tier(&model.model, model.variant.as_deref()))
+    }
+
+    fn provider(&self, id: &str) -> Option<&Arc<dyn Provider>> {
+        self.providers.iter().find(|provider| provider.id() == id)
+    }
+
+    /// Each usable host model at every variant its tier table names; a model
+    /// without a table row keeps its default variant.
+    fn expanded(&self, available: &[chauffeur_core::AvailableModel]) -> Vec<ModelRef> {
+        available
             .iter()
-            .find(|provider| provider.id() == model.provider)
-            .and_then(|provider| provider.tier(&model.model))
+            .filter(|entry| entry.usable)
+            .flat_map(|entry| {
+                let variants = self
+                    .provider(&entry.model.provider)
+                    .map(|provider| provider.variants(&entry.model.model))
+                    .filter(|variants| !variants.is_empty())
+                    .unwrap_or_else(|| vec![None]);
+
+                variants.into_iter().map(|variant| ModelRef {
+                    variant: variant.map(str::to_string),
+                    ..entry.model.clone()
+                })
+            })
+            .collect()
     }
 
     fn mark_attempted(&mut self, agent_id: &str, model: &ModelRef) {
@@ -183,8 +206,10 @@ impl ModelRouter {
             .insert(model.key());
     }
 
-    /// Usable same-tier models not yet tried, ordered pins first, then other
-    /// providers, then host order, at most [`MAX_CANDIDATES`].
+    /// Usable same-tier models (at a thinking variant) not yet tried, ordered
+    /// pins first, then other providers, then host order, at most
+    /// [`MAX_CANDIDATES`]. Another variant of the current model is never a
+    /// candidate: a usage limit applies to the whole model.
     fn candidates(
         &self,
         agent_id: &str,
@@ -193,17 +218,15 @@ impl ModelRouter {
     ) -> Vec<ModelRef> {
         let tried = self.attempted.get(agent_id);
         let tier = self.tier(current);
-        let mut candidates: Vec<ModelRef> = available
-            .iter()
-            .filter(|entry| entry.usable && entry.model != *current)
-            .filter(|entry| tried.is_none_or(|tried| !tried.contains(&entry.model.key())))
+        let mut candidates: Vec<ModelRef> = self
+            .expanded(available)
+            .into_iter()
+            .filter(|model| !(model.provider == current.provider && model.model == current.model))
+            .filter(|model| tried.is_none_or(|tried| !tried.contains(&model.key())))
             // A pinned model is a declared fallback, so tiers do not constrain it.
-            .filter(|entry| {
-                tier.is_none()
-                    || self.tier(&entry.model) == tier
-                    || self.pins.contains(&entry.model.key())
+            .filter(|model| {
+                tier.is_none() || self.tier(model) == tier || self.pins.contains(&model.key())
             })
-            .map(|entry| entry.model.clone())
             .collect();
 
         candidates.sort_by_key(|model| {

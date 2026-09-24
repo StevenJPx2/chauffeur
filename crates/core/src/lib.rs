@@ -28,7 +28,7 @@ pub use effect::{Effect, PermissionDecision};
 pub use engine::{Engine, Step};
 pub use plugin::{Plugin, compose};
 pub use protocol::*;
-pub use provider::{Provider, Tier};
+pub use provider::{Provider, Tier, TierEntry};
 pub use redact::redact_secrets;
 pub use rule::{Gate, IdleFacts, Rule, Threshold, load_rules};
 pub use signal::{

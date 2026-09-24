@@ -83,10 +83,7 @@ async function route(ctx: Plugin.Context, daemon: DaemonBridge, event: SessionRe
 
       // keep_model leaves the host's own retry decision in place.
       if (effect.type === "switch_model") {
-        await ctx.session.switchModel({
-          sessionID: event.sessionID,
-          model: { providerID: effect.model.provider, id: effect.model.model },
-        })
+        await ctx.session.switchModel({ sessionID: event.sessionID, model: hostModel(effect.model) })
         event.decision = { retry: true, delay: 0 }
       }
     }
@@ -106,7 +103,20 @@ function send(daemon: DaemonBridge, value: Signal): void {
   })
 }
 
-function ref(model: HostModel): ModelRef {
-  return { provider: model.providerID, model: model.id }
+/** The host's model as Chauffeur's reference; OpenCode's `default` variant is no variant. */
+export function ref(model: HostModel & { variant?: string | undefined }): ModelRef {
+  const variant = model.variant && model.variant !== "default" ? model.variant : undefined
+
+  return { provider: model.providerID, model: model.id, ...(variant ? { variant } : {}) }
+}
+
+type HostModelRef = Parameters<Plugin.Context["session"]["switchModel"]>[0]["model"]
+
+/** Chauffeur's reference as the host's, carrying its thinking variant. */
+export function hostModel(model: ModelRef): HostModelRef {
+  // Safe: variants come from the engine's tier tables, named as OpenCode names them.
+  const variant = model.variant as HostModelRef["variant"]
+
+  return { providerID: model.provider, id: model.model, ...(variant ? { variant } : {}) }
 }
 

@@ -1,7 +1,7 @@
 import type { Plugin, Skill } from "@opencode/plugin"
 import type { SessionPrompt } from "@opencode/plugin/promise/session"
 import type { DaemonBridge } from "./daemon.js"
-import { signal } from "./model-router.js"
+import { hostModel, ref, signal } from "./model-router.js"
 import type { CatalogEntry, Effect } from "./protocol.js"
 import { type CodeModeCatalog, codeModeCatalog, surface, surfacedIn } from "./code-mode.js"
 import { SKILL_METADATA_KEY } from "./skills.js"
@@ -79,7 +79,7 @@ export async function installExposure(ctx: Plugin.Context, daemon: DaemonBridge)
         first_in_context: firstInContext,
         skills: skills.map((skill) => entry(skill.id, skill.description ?? skill.name, skill.content)),
         tools: tools.map((tool) => entry(tool.id, tool.description, "")),
-        model: model ? { provider: model.providerID, model: model.id } : null,
+        model: model ? ref(model) : null,
         code_mode: codeMode.entries,
       }), EXPOSURE_TIMEOUT_MS)
 
@@ -106,7 +106,7 @@ async function apply(ctx: Plugin.Context, event: SessionPrompt, effects: Effect[
 
     if (effect.type === "switch_model") {
       // Switching back to the model the agent left on a usage limit.
-      await ctx.session.switchModel({ sessionID: event.sessionID, model: { providerID: effect.model.provider, id: effect.model.model } })
+      await ctx.session.switchModel({ sessionID: event.sessionID, model: hostModel(effect.model) })
     } else if (effect.type === "surface_tools") {
       surface(event, effect.namespaces, applying.codeMode)
     } else {

@@ -4,7 +4,8 @@ export type RpcResponse<T> = {
   error?: string
 }
 
-export type ModelRef = { provider: string; model: string }
+/** `variant` is the host's thinking variant, omitted for the model's default. */
+export type ModelRef = { provider: string; model: string; variant?: string }
 
 export type CatalogEntry = { id: string; description: string; bytes: number }
 

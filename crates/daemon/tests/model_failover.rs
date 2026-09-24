@@ -22,13 +22,14 @@ fn answer(request: &Value) -> Value {
             .contains("Ran tool edit.")
     );
 
-    json!({"model-router/choice": {"type": "choice", "confidence": 0.8, "choice": "openai/gpt-6-luna"}})
+    json!({"model-router/choice": {"type": "choice", "confidence": 0.8, "choice": "openai/gpt-6-sol"}})
 }
 
 fn model(provider: &str, id: &str) -> ModelRef {
     ModelRef {
         provider: provider.into(),
         model: id.into(),
+        variant: None,
     }
 }
 
@@ -70,10 +71,9 @@ async fn usage_limit_switches_to_the_judged_same_tier_model() {
 
     let available = [
         model("anthropic", "claude-opus-5-5"),
-        model("anthropic", "claude-haiku-4-5-20251001"),
+        model("anthropic", "claude-sonnet-4-6"),
         model("openai", "gpt-6-sol"),
         model("openai", "gpt-6-luna"),
-        model("openai", "gpt-5.5"),
     ]
     .into_iter()
     .map(|model| AvailableModel {
@@ -84,7 +84,11 @@ async fn usage_limit_switches_to_the_judged_same_tier_model() {
     let limit = signal(
         2,
         SignalKind::ModelError {
-            model: model("anthropic", "claude-opus-5-5"),
+            // Opus at high thinking is frontier.
+            model: ModelRef {
+                variant: Some("high".into()),
+                ..model("anthropic", "claude-opus-5-5")
+            },
             error_type: "rate_limit_error".into(),
             status: Some(429),
             message: "usage limit".into(),
@@ -98,7 +102,7 @@ async fn usage_limit_switches_to_the_judged_same_tier_model() {
         effects,
         vec![Effect::SwitchModel {
             agent_id: "ses_test".into(),
-            model: model("openai", "gpt-6-luna")
+            model: model("openai", "gpt-6-sol")
         }]
     );
 

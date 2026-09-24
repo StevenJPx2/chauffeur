@@ -143,7 +143,7 @@ switches the session and retries. Pin preferred fallbacks in
 `~/.config/chauffeur/model-router.json`:
 
 ```json
-{ "pins": ["openai/gpt-6-sol", "openai/gpt-6-luna"] }
+{ "pins": ["openai/gpt-6-sol", "anthropic/claude-opus-5-5#low"] }
 ```
 
 Once the limit has likely cleared (judged no sooner than 5 minutes later), the

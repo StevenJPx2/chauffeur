@@ -188,7 +188,7 @@ Contracts and Chauffeur-owned skills live apart from the code, in the
 top-level `skills/` folder, loaded from `CHAUFFEUR_SKILLS_DIR` (default
 `~/.config/chauffeur/skills`, usually a symlink to that folder):
 `permission/` and `misuse/` hold strict JSON contracts, and `handoff/` holds
-skills that contracts hand over (`slack-cli`, `jira-cli`), linked into a
+skills that contracts hand over (`slack-cli`, `jira-cli`, `twitter-cli`), linked into a
 directory OpenCode reads. A missing directory means no contracts of that
 kind.
 
@@ -287,31 +287,44 @@ false nudges and one near miss.
 
 ### Model router
 
-On a usage-limit error the router acts. A limit is HTTP 402, 429, or 529; a
-limit error type (OpenCode's `provider.quota`, `rate_limit`, `overloaded`, and
-similar); or billing wording in the message ("credit balance", "insufficient
-funds", "quota", "rate limit", "billing"), which catches providers that report
-an empty balance as an invalid request. The router:
+On a usage-limit error the router acts. A limit is HTTP 402, 429, 503, or 529;
+a limit error type (OpenCode's `provider.quota`, `rate_limit`, `overloaded`,
+and similar); or wording in the message ("credit balance", "insufficient
+funds", "quota", "rate limit", "billing", "high demand", "capacity"), which
+catches providers that report an empty balance as an invalid request. A model
+the router switched to that cannot serve the agent (401, 403, 404, or an auth,
+permission, or not-found error) is a failed switch: the router moves on to the
+next candidate. The same error on a model the user chose is left to the host.
 
-A model the router switched to that cannot serve the agent (401, 403, 404,
-or an auth, permission, or not-found error) is a failed switch: the router
-moves on to the next candidate. The same error on a model the user chose is
-left to the host. The router:
+**Tiers depend on thinking.** A model reference carries the host's thinking
+variant (`anthropic/claude-opus-5-5#high`), and provider plugins' tier tables
+map a model, at one variant or at any, to a tier:
+
+| Tier | Anthropic | OpenAI |
+|---|---|---|
+| Frontier | `claude-opus-5-5#high` | `gpt-6-sol` |
+| Balanced | `claude-opus-5-5#low` | `gpt-6-luna#max` |
+| Fast | `claude-sonnet-4-6` | `gpt-6-luna` (other variants) |
+
+The router:
 
 1. declines to switch if a tool already ran in the failed step;
-2. computes candidates: usable, untried models in the current model's tier
-   (any tier when the current model is unknown), plus every pinned model
-   regardless of tier, ordered by pins, then other providers, then host
-   order, at most 8;
+2. computes candidates: each usable host model at every variant its table
+   names, untried, in the current model's tier (any tier when the current
+   model is unknown), plus every pinned model regardless of tier, ordered by
+   pins, then other providers, then host order, at most 8. Another variant of
+   the current model is never a candidate, because a usage limit applies to
+   the whole model;
 3. asks one choice question over the candidates plus `stay`, stating the error
    and that an exhausted quota or balance does not clear by waiting;
 4. switches to the chosen model, or keeps the current one. On System One
    failure or confidence below 0.2 it switches to the first candidate, keeping
    the agent unblocked.
 
-A successful response clears the session's tried set. Tiers come from provider
-plugins' static tables; `$CHAUFFEUR_CONFIG_DIR/model-router.json` pins
-preferred fallbacks: `{"pins": ["openai/gpt-6-sol"]}`.
+A successful response clears the session's tried set. A switch sets the
+model's thinking variant too. `$CHAUFFEUR_CONFIG_DIR/model-router.json` pins
+preferred fallbacks, with a variant where it matters:
+`{"pins": ["openai/gpt-6-sol", "anthropic/claude-opus-5-5#low"]}`.
 
 **Switch back.** The router remembers the model the agent left (the first in a
 chain of switches). On a user message at least 5 minutes later, while the

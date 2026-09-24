@@ -1,12 +1,24 @@
-//! Anthropic provider plugin: static equivalence tiers.
+//! Anthropic provider plugin: static equivalence tiers, by model and
+//! thinking variant.
 
-use chauffeur_core::{Provider, Tier};
+use chauffeur_core::{Provider, Tier, TierEntry};
 
-const TIERS: &[(&str, Tier)] = &[
-    ("claude-fable-5-1", Tier::Frontier),
-    ("claude-opus-5-5", Tier::Frontier),
-    ("claude-sonnet-5", Tier::Balanced),
-    ("claude-haiku-4-5-20251001", Tier::Fast),
+const TIERS: &[TierEntry] = &[
+    TierEntry {
+        model: "claude-opus-5-5",
+        variant: Some("high"),
+        tier: Tier::Frontier,
+    },
+    TierEntry {
+        model: "claude-opus-5-5",
+        variant: Some("low"),
+        tier: Tier::Balanced,
+    },
+    TierEntry {
+        model: "claude-sonnet-4-6",
+        variant: None,
+        tier: Tier::Fast,
+    },
 ];
 
 pub struct AnthropicProvider;
@@ -16,10 +28,35 @@ impl Provider for AnthropicProvider {
         "anthropic"
     }
 
-    fn tier(&self, model: &str) -> Option<Tier> {
+    fn tiers(&self) -> &[TierEntry] {
         TIERS
-            .iter()
-            .find(|(id, _)| *id == model)
-            .map(|(_, tier)| *tier)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn opus_tiers_follow_its_thinking_variant() {
+        let provider = AnthropicProvider;
+
+        assert_eq!(
+            provider.tier("claude-opus-5-5", Some("high")),
+            Some(Tier::Frontier)
+        );
+        assert_eq!(
+            provider.tier("claude-opus-5-5", Some("low")),
+            Some(Tier::Balanced)
+        );
+        assert_eq!(provider.tier("claude-opus-5-5", Some("max")), None);
+        assert_eq!(
+            provider.tier("claude-sonnet-4-6", Some("high")),
+            Some(Tier::Fast)
+        );
+        assert_eq!(
+            provider.variants("claude-opus-5-5"),
+            vec![Some("high"), Some("low")]
+        );
     }
 }
