@@ -214,16 +214,20 @@ host (deny, then ask, then allow; prompt and remind ask with their reminder). A
 host denial always stands; the adapter asks when the engine fails or misses
 the 600 ms budget. No matching contract leaves the host's decision.
 
-Two contracts ship, neither with a cooldown, so every request reaches System
-One:
+Two contracts ship, neither with a cooldown. Both ask a yes/no question and
+ask the user only on a **confident no**, so ordinary work in real sessions runs
+without prompts; a failed judgment still asks:
 
-- `workspace-edit-gate`: an edit to a named workspace file within the user's
-  task is allowed (confidence ≥ 0.82); outside the task, uncertain, or on
-  failure it asks with the reason.
-- `workspace-shell-gate`: a command that serves the task and is safe is allowed
-  (confidence ≥ 0.6); one that is unrelated, destructive, or works around an
-  action refused earlier (tool results carry their error text, so a host denial
-  is visible) asks. This closes writing a denied file through `echo > file`.
+- `workspace-edit-gate`: any edit inside the workspace goes to System One
+  ("is this edit part of the user's task?"), whether or not the user named the
+  file; P ≤ 0.29 asks. An edit outside the workspace asks without a call. On 6
+  labelled edits, legitimate ones scored ≥ 0.86 and unrelated ones ≤ 0.28.
+- `workspace-shell-gate`: "does this command serve the task and is it safe?";
+  P ≤ 0.14 asks. That catches unrelated, destructive, and workaround commands
+  (tool results carry their error text, so a host denial is visible, which
+  closes writing a denied file through `echo > file`): on 8 labelled commands
+  those scored ≤ 0.06, while ordinary ones, including multi-part commands,
+  scored ≥ 0.18.
 
 ### Idle reminder
 
