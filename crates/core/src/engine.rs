@@ -203,6 +203,19 @@ impl Engine {
             }]));
         }
 
+        // A request you chose to confirm yourself asks, whatever a contract says.
+        if let Some(pattern) = self.backstop.confirm(signal) {
+            self.trace.veto = Some(pattern.to_string());
+
+            return Ok(Step::Done(vec![Effect::Permission {
+                agent_id: signal.agent_id.clone(),
+                decision: PermissionDecision::Ask,
+                message: Some(format!(
+                    "Chauffeur asks you to confirm this (matched \"{pattern}\")."
+                )),
+            }]));
+        }
+
         let situation = self
             .situations
             .get(&signal.agent_id)
@@ -792,7 +805,7 @@ mod tests {
     #[test]
     fn an_irreversible_shell_command_is_denied_and_learned_for_the_next_request() {
         let mut engine = Engine::hosted(Vec::new()).unwrap();
-        let command = "git push --force origin main";
+        let command = "psql -c 'drop database production'";
         let request = Signal {
             agent_id: "agent".into(),
             at: 1,

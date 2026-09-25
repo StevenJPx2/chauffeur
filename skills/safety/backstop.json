@@ -9,5 +9,21 @@
     ":(){ :|:& };:",
     "chmod -r 777 /",
     "private key-----"
+  ],
+  "confirm": [
+    "push --force origin main",
+    "push --force origin master",
+    "push -f origin main",
+    "push -f origin master",
+    "push --force-with-lease origin main",
+    "push --force-with-lease origin master",
+    "origin main --force",
+    "origin master --force",
+    "origin main -f",
+    "origin master -f",
+    "origin main --force-with-lease",
+    "origin master --force-with-lease",
+    "origin +main",
+    "origin +master"
   ]
 }

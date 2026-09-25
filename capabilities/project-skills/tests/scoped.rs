@@ -1,4 +1,5 @@
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use chauffeur_capability_project_skills::{ProjectSkills, load};
 use chauffeur_core::{Answer, AnswerValue, Delivery, Effect, Engine, Signal, SignalKind, Step};
@@ -20,6 +21,9 @@ const ONE_STEP: &str = r#"{
   "effect":{"label":"Changelog","delivery":"wait","text":"Add a changelog entry."}
 }"#;
 
+/// Tests run in parallel threads; each workspace gets its own directory.
+static NEXT_WORKSPACE: AtomicUsize = AtomicUsize::new(0);
+
 struct Workspace(PathBuf);
 
 impl Workspace {
@@ -27,11 +31,11 @@ impl Workspace {
         let path = std::env::temp_dir().join(format!(
             "chauffeur-project-skills-{}-{}",
             std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
+            NEXT_WORKSPACE.fetch_add(1, Ordering::Relaxed)
         ));
+
+        // A directory left by an earlier run with the same process ID.
+        let _ = std::fs::remove_dir_all(&path);
 
         std::fs::create_dir_all(path.join("project/.git")).unwrap();
         std::fs::create_dir_all(path.join("project/.chauffeur/skills")).unwrap();

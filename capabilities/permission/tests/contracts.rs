@@ -244,6 +244,17 @@ fn unmatched_actions_leave_the_host_decision() {
 }
 
 #[test]
+fn a_force_push_to_main_asks_the_user_even_when_jev_would_approve() {
+    let (mut engine, calls) = engine(Some(0.95), SHELL_JSON);
+    let push = "git push --force-with-lease origin main";
+    let (decided, message) = decision(&engine.ingest(&request(1, "shell", push, push)).unwrap());
+
+    assert_eq!(decided, PermissionDecision::Ask);
+    assert!(message.unwrap().contains("confirm"));
+    assert_eq!(*calls.lock().unwrap(), 0);
+}
+
+#[test]
 fn a_request_the_host_allows_is_left_to_the_host() {
     let (mut engine, calls) = engine(Some(0.1), EDIT_JSON);
     let mut allowed = edit(1);

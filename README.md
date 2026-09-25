@@ -14,7 +14,8 @@ Jev), and routes the judgment to capabilities:
   Chauffeur loads skills itself.
 - **Permission** lets Jev approve the edits, shell commands, and outside
   directories OpenCode would ask you about, when they clearly serve your task,
-  and vetoes irreversible harm in what OpenCode allows.
+  and vetoes irreversible harm in what OpenCode allows. A force-push to `main`
+  or `master` always asks you; one to a rebased feature branch does not.
 - **Model router** switches to an equivalent model on a usage limit, and back
   once the limit has likely cleared.
 - **Idle reminders** (optional) nudge an idle agent with plugin rules, including

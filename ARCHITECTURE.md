@@ -73,6 +73,13 @@ A match denies before any capability or model call, whatever a contract would
 decide. Patterns that name a root match only the root itself, so `rm -rf
 /tmp/build` is not vetoed. The backstop vetoes; it never routes.
 
+The same file's `confirm` patterns hand a request to the user: a match asks,
+before any model call, whether the host would allow it or a contract approve
+it. Each must end at a word boundary. The shipped ones cover force-pushes to
+`main` or `master` (`--force`, `-f`, `--force-with-lease`, `+main`), which
+rewrite history others have pulled; force-pushing a rebased feature branch
+matches none.
+
 ## System One
 
 `SystemOne` is the single inference interface: typed questions (choice, score,
