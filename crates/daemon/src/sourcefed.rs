@@ -10,6 +10,8 @@ use serde::Deserialize;
 #[derive(Debug, Deserialize)]
 pub struct ForwardedEvent {
     target: Target,
+    #[serde(rename = "monitorID", default)]
+    monitor_id: String,
     source: Source,
     event: Event,
 }
@@ -47,6 +49,7 @@ impl ForwardedEvent {
                 summary: clip(&self.event.summary),
                 body: clip(self.event.body.as_deref().unwrap_or_default()),
                 actionable: self.event.actionable,
+                monitor: clip(&self.monitor_id),
             },
         }
     }
@@ -89,6 +92,7 @@ mod tests {
                 summary: "PR #42 merged".into(),
                 body: String::new(),
                 actionable: true,
+                monitor: "mon_1".into(),
             }
         );
     }

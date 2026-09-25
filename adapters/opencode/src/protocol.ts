@@ -64,7 +64,7 @@ export type SignalKind =
     available: Array<{ model: ModelRef; usable: boolean }>
   }
   | { type: "model_succeeded"; model: ModelRef }
-  | { type: "integration_event"; source: string; kind: string; summary: string; body: string; actionable: boolean }
+  | { type: "integration_event"; source: string; kind: string; summary: string; body: string; actionable: boolean; monitor: string }
 
 export type Signal = { agent_id: string; at: number; kind: SignalKind }
 

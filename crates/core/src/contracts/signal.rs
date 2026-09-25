@@ -183,6 +183,10 @@ pub enum SignalKind {
         body: String,
         /// Whether the integration expects the agent to act on it.
         actionable: bool,
+        /// The integration's ID for the monitor that produced the event, when
+        /// it has one, such as a sourcefed monitor ID.
+        #[serde(default)]
+        monitor: String,
     },
 }
 
@@ -248,13 +252,7 @@ impl SignalKind {
                 ..
             } => validate_model_error(model, error_type, message, available),
             SignalKind::ModelSucceeded { model } => validate_model(model),
-            SignalKind::IntegrationEvent {
-                source,
-                kind,
-                summary,
-                body,
-                ..
-            } => validate_integration_event(source, kind, summary, body),
+            SignalKind::IntegrationEvent { .. } => validate_integration_event(self),
             SignalKind::PermissionRequest {
                 action,
                 resources,
@@ -304,12 +302,19 @@ fn validate_agent_request(
     validate_catalog(tools, "tools")
 }
 
-fn validate_integration_event(
-    source: &str,
-    kind: &str,
-    summary: &str,
-    body: &str,
-) -> Result<(), String> {
+fn validate_integration_event(event: &SignalKind) -> Result<(), String> {
+    let SignalKind::IntegrationEvent {
+        source,
+        kind,
+        summary,
+        body,
+        monitor,
+        ..
+    } = event
+    else {
+        return Ok(());
+    };
+
     if source.is_empty() || kind.is_empty() {
         return Err("integration event source and kind must be non-empty".into());
     }
@@ -317,6 +322,7 @@ fn validate_integration_event(
     bounded(source, "source")?;
     bounded(kind, "kind")?;
     bounded(summary, "summary")?;
+    bounded(monitor, "monitor")?;
     bounded(body, "body")
 }
 

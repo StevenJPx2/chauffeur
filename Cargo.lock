@@ -121,6 +121,7 @@ dependencies = [
 name = "chauffeur-capability-event-gate"
 version = "0.1.0"
 dependencies = [
+ "chauffeur-capability-monitors",
  "chauffeur-core",
 ]
 
@@ -131,6 +132,15 @@ dependencies = [
  "chauffeur-core",
  "chauffeur-plugin-anthropic",
  "chauffeur-plugin-openai",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "chauffeur-capability-monitors"
+version = "0.1.0"
+dependencies = [
+ "chauffeur-core",
  "serde",
  "serde_json",
 ]
@@ -200,6 +210,7 @@ dependencies = [
  "axum",
  "chauffeur-capability-event-gate",
  "chauffeur-capability-model-router",
+ "chauffeur-capability-monitors",
  "chauffeur-capability-permission",
  "chauffeur-capability-rules",
  "chauffeur-capability-skill-exposure",
@@ -208,6 +219,7 @@ dependencies = [
  "chauffeur-judge-jev",
  "chauffeur-plugin-anthropic",
  "chauffeur-plugin-openai",
+ "chauffeur-plugin-sourcefed",
  "serde",
  "serde_json",
  "tokio",
@@ -245,6 +257,16 @@ name = "chauffeur-plugin-openai"
 version = "0.1.0"
 dependencies = [
  "chauffeur-capability-model-router",
+]
+
+[[package]]
+name = "chauffeur-plugin-sourcefed"
+version = "0.1.0"
+dependencies = [
+ "chauffeur-capability-monitors",
+ "reqwest",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

@@ -212,7 +212,8 @@ come first in that prefix.
 | Skill exposure | which one skill helps most, or none? is the agent using a generic approach where a skill fits? which skill serves the agent's request? | user message; tool result and turn end; `ask_chauffeur` | persistent | built |
 | Tool exposure | will the task need this tool group? does the latest request need a hidden group now? which hidden group or Code Mode namespace serves the agent's request? | first user message of a context; later user messages; `ask_chauffeur` | tool set; Code Mode note | built |
 | Rules | each admitted rule's step, one or two rounds | tool result for a watched tool; turn end | persistent (steer, resume, or wait; skill hand-over) | built |
-| Event gate | does this integration event need the agent to act now? | integration event | decision | built |
+| Event gate | does this integration event need the agent to act now? (told what the event's monitor watches) | integration event | decision | built |
+| Monitors | is this PR, Jira issue, or Slack thread the session's own work to follow? | tool result naming one | sourcefed monitor; steer | built |
 
 Classification passes run on user message, tool result, turn end, permission
 request, model error, integration event, and agent request.
@@ -358,6 +359,30 @@ that needed action.
 sourcefed tags what it delivers with `metadata.sourcefed`, and the adapter
 never reports those messages as the user's.
 
+### sourcefed monitors
+
+`plugins/sourcefed` reaches sourcefed's daemon (`SOURCEFED_DAEMON_URL`,
+default `http://127.0.0.1:18787`, and `SOURCEFED_DAEMON_TOKEN`) over its JSON
+RPC. Each agent is a sourcefed target, `{kind: "opencode-session", id: <agent
+ID>}` (`CHAUFFEUR_SOURCEFED_TARGET_KIND` changes the kind), so Chauffeur sees
+the same monitors the session's own sourcefed tools do. It implements the
+`Monitors` trait from `capabilities/monitors`, which the daemon hands to two
+capabilities; `CHAUFFEUR_SOURCEFED=off` leaves both out.
+
+- **Filtering with context.** sourcefed's gate call carries the event's
+  `monitorID` (the forwarded path's too), and the event gate's question adds
+  what that monitor watches: "It comes from this session's monitor on GitHub
+  pull request acme/app#42."
+- **Following the agent's own work.** After a tool result, exact facts name
+  candidates: a PR link in the output of the call that created it (`gh pr
+  create`, `*create_pr`, `*open_pr`), a Jira key in a Jira call, or a Slack
+  thread link. A candidate a monitor already watches is dropped. Jev judges
+  each of the rest, "is this the session's own work to keep following?", and
+  a confident yes (P ≥ 0.7, confidence ≥ 0.4) creates the monitor and steers
+  the agent: sourcefed now watches it, so it should not create another. Each
+  candidate is judged once per agent; an unreachable sourcefed or a failed
+  judgment creates nothing.
+
 ### Model router
 
 On a usage-limit error the router acts. A limit is HTTP 402, 429, 503, or 529;
@@ -468,7 +493,9 @@ The adapter sends **Signals** and applies **Effects**; it holds no policy.
 | `capabilities/permission` | permission capability and the skill-contract format |
 | `capabilities/rules` | rules capability, the rule format, and shipped and project rule loading |
 | `capabilities/event-gate` | event-gate capability |
+| `capabilities/monitors` | the `Monitors` trait and following the agent's own PRs, issues, and threads |
 | `plugins/anthropic`, `plugins/openai` | provider tier tables |
+| `plugins/sourcefed` | sourcefed's monitors, through its daemon |
 | `judges/jev` | Jev System One provider |
 | `adapters/opencode` | signals in, effects out; an Effect plugin whose hooks share the plugin scope |
 

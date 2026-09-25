@@ -7,6 +7,7 @@ use std::time::Duration;
 
 use chauffeur_capability_event_gate::EventGate;
 use chauffeur_capability_model_router::{ModelRouter, ModelRouterConfig, Provider};
+use chauffeur_capability_monitors::{FollowWork, Monitors};
 use chauffeur_capability_permission::{Permission, load_skills};
 use chauffeur_capability_rules::{Rules, Trigger, load_dir};
 use chauffeur_capability_skill_exposure::SkillExposure;
@@ -17,6 +18,7 @@ use chauffeur_core::{
 use chauffeur_judge_jev::{JevClient, JevConfig};
 use chauffeur_plugin_anthropic::AnthropicProvider;
 use chauffeur_plugin_openai::OpenAiProvider;
+use chauffeur_plugin_sourcefed::{Sourcefed, SourcefedConfig};
 use tokio::sync::{mpsc, oneshot};
 
 const QUEUE_DEPTH: usize = 64;
@@ -41,6 +43,9 @@ pub struct EngineOptions {
     /// Shipped turn-end rules (idle reminders) are opt-in; tool-result and
     /// project rules always apply.
     pub idle_reminders: bool,
+    /// sourcefed's daemon, for following the agent's own work and giving the
+    /// event gate each event's monitor; `None` leaves both out.
+    pub sourcefed: Option<SourcefedConfig>,
     /// Where per-agent memory is kept across restarts; `None` keeps it in
     /// memory only.
     pub state_file: Option<PathBuf>,
@@ -205,14 +210,23 @@ fn build_engine(options: EngineOptions) -> Result<Engine, String> {
         rules.retain(|rule| rule.on != Trigger::TurnEnd);
     }
 
-    let capabilities: Vec<Box<dyn Capability>> = vec![
+    let mut capabilities: Vec<Box<dyn Capability>> = vec![
         Box::new(router),
         Box::new(SkillExposure::default()),
         Box::new(tools),
         Box::new(permission),
         Box::new(Rules::new(rules)),
-        Box::new(EventGate),
     ];
+
+    match options.sourcefed {
+        Some(config) => {
+            let monitors: Arc<dyn Monitors> = Arc::new(Sourcefed::new(config)?);
+
+            capabilities.push(Box::new(EventGate::with_monitors(Arc::clone(&monitors))));
+            capabilities.push(Box::new(FollowWork::new(monitors)));
+        }
+        None => capabilities.push(Box::new(EventGate::default())),
+    }
 
     let backstop = Backstop::load(&options.config_dir.join("backstop.json"))?;
     let (learned_backstop, learned_shapes) = options

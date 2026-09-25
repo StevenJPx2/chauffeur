@@ -19,6 +19,7 @@ use chauffeur_core::{
     DaemonRequest, DaemonResponse, Effect, METHOD_HEALTH, METHOD_SIGNAL, SignalParams, SignalResult,
 };
 use chauffeur_judge_jev::JevConfig;
+pub use chauffeur_plugin_sourcefed::SourcefedConfig;
 use serde_json::json;
 
 pub const DEFAULT_PORT: u16 = 18_790;
@@ -35,6 +36,8 @@ pub struct DaemonOptions {
     pub config_dir: PathBuf,
     pub skills_dir: PathBuf,
     pub idle_reminders: bool,
+    /// sourcefed's daemon, unless `CHAUFFEUR_SOURCEFED=off`.
+    pub sourcefed: Option<SourcefedConfig>,
     pub state_file: Option<PathBuf>,
     pub audit_file: Option<PathBuf>,
 }
@@ -58,6 +61,9 @@ impl DaemonOptions {
             skills_dir,
             idle_reminders: std::env::var("CHAUFFEUR_IDLE_STEERING")
                 .is_ok_and(|value| value == "true"),
+            sourcefed: std::env::var("CHAUFFEUR_SOURCEFED")
+                .map_or(true, |value| value != "off")
+                .then(SourcefedConfig::from_env),
             state_file: Some(state.join("state.json")),
             audit_file: Some(state.join("audit.jsonl")),
         })
@@ -74,6 +80,7 @@ pub async fn serve(options: DaemonOptions) -> Result<(), String> {
         skills_dir: options.skills_dir,
         jev,
         idle_reminders: options.idle_reminders,
+        sourcefed: options.sourcefed,
         state_file: options.state_file,
         audit_file: options.audit_file,
     })

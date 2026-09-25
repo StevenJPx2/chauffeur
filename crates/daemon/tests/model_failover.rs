@@ -51,6 +51,7 @@ async fn usage_limit_switches_to_the_judged_same_tier_model() {
         config_dir,
         jev,
         idle_reminders: false,
+        sourcefed: None,
         state_file: None,
         audit_file: None,
     })

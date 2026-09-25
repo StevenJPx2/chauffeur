@@ -2,7 +2,7 @@ import { expect, test } from "bun:test"
 import { Effect } from "effect"
 import { type DaemonClient, DaemonError } from "../src/daemon.js"
 import { installGate } from "../src/gate.js"
-import type { HostEffect } from "../src/protocol.js"
+import type { HostEffect, Signal } from "../src/protocol.js"
 import { fakeHost, install } from "./support.js"
 
 type Gate = (input: Readonly<Record<string, string | boolean>>) => Effect.Effect<{ readonly deliver: boolean }>
@@ -38,6 +38,24 @@ function answering(effects: ReadonlyArray<HostEffect>): DaemonClient {
 test("only a gate effect that withholds keeps an event out", async () => {
   expect(await gate(answering([{ type: "gate", agent_id: "ses_gate", deliver: false }]), event)).toBe(false)
   expect(await gate(answering([]), event)).toBe(true)
+})
+
+test("the event's monitor reaches the engine, and older callers send none", async () => {
+  const sent: Signal[] = []
+
+  const recording: DaemonClient = { signal: (value) => Effect.sync(() => {
+    sent.push(value)
+
+    return []
+  }) }
+
+  await gate(recording, { ...event, monitorID: "mon_42" })
+  await gate(recording, event)
+
+  expect(sent.map((value) => value.kind)).toEqual([
+    expect.objectContaining({ type: "integration_event", monitor: "mon_42" }),
+    expect.objectContaining({ type: "integration_event", monitor: "" }),
+  ])
 })
 
 test("an invalid request or an unavailable engine delivers", async () => {

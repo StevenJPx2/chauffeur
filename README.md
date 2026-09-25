@@ -25,7 +25,9 @@ Jev), and routes the judgment to capabilities:
   browser for Slack, handing over the right skill; remind an idle agent of
   follow-through (optional); and run a project's own `.chauffeur/rules/`.
 - **Event gate** decides which sourcefed events reach the agent, so only ones
-  it needs to act on arrive.
+  it needs to act on arrive, knowing what each event's monitor watches.
+- **Monitors** set up a sourcefed monitor when the agent opens a PR or works on
+  a Jira issue or Slack thread, once Jev confirms it is the session's own work.
 
 See [`ARCHITECTURE.md`](./ARCHITECTURE.md) for the design, what is built, and
 its limits.
@@ -165,6 +167,12 @@ remind the agent to transition the Jira ticket). If Chauffeur is not loaded or
 fails, sourcefed delivers as before. sourcefed's messages in the session are
 not treated as yours.
 
+Chauffeur also talks to sourcefed's daemon directly. It reads each session's
+monitors, so the gate knows what an event's monitor watches, and it creates a
+monitor when the agent opens a PR, or works on a Jira issue or Slack thread,
+that Jev confirms is the session's own work, skipping any already watched. Set
+`CHAUFFEUR_SOURCEFED=off` to leave sourcefed alone.
+
 ## Configuration
 
 | Variable | Default |
@@ -177,6 +185,9 @@ not treated as yours.
 | `CHAUFFEUR_DAEMON_TOKEN` | unset |
 | `CHAUFFEUR_BIN` | `chauffeur` for the OpenCode adapter |
 | `CHAUFFEUR_IDLE_STEERING` | `false`; set to `true` on the daemon to enable idle reminders |
+| `CHAUFFEUR_SOURCEFED` | on; `off` leaves sourcefed's monitors alone |
+| `SOURCEFED_DAEMON_URL`, `SOURCEFED_DAEMON_TOKEN` | `http://127.0.0.1:18787`, unset, as sourcefed reads them |
+| `CHAUFFEUR_SOURCEFED_TARGET_KIND` | `opencode-session` |
 
 ## Development checks
 

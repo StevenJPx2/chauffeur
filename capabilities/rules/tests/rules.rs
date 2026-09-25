@@ -111,6 +111,7 @@ fn integration(at: u64, source: &str, kind: &str) -> Signal {
             summary: format!("{source} {kind}"),
             body: String::new(),
             actionable: true,
+            monitor: String::new(),
         },
     )
 }

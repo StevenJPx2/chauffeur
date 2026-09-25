@@ -17,6 +17,8 @@ chauffeur-capability-skill-exposure = { workspace = true }
 chauffeur-capability-tool-exposure = { workspace = true }
 chauffeur-capability-permission = { workspace = true }
 chauffeur-capability-rules = { workspace = true }
+chauffeur-capability-monitors = { workspace = true }
+chauffeur-plugin-sourcefed = { workspace = true }
 chauffeur-capability-event-gate = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

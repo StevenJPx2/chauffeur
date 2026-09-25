@@ -21,6 +21,8 @@ export const ChauffeurRpc = Rpc.define({
         type: "object",
         properties: {
           sessionID: { type: "string" },
+          // The caller's monitor that produced the event, such as a sourcefed monitor ID.
+          monitorID: { type: "string" },
           source: { type: "string" },
           kind: { type: "string" },
           summary: { type: "string" },
@@ -41,6 +43,7 @@ export const ChauffeurRpc = Rpc.define({
 
 const GateInput = Schema.Struct({
   sessionID: Schema.String,
+  monitorID: Schema.optional(Schema.String),
   source: Schema.String,
   kind: Schema.String,
   summary: Schema.String,
@@ -63,6 +66,7 @@ export const installGate = Effect.gen(function* () {
           summary: clip(event.summary, TEXT_CODE_POINTS),
           body: clip(event.body ?? "", TEXT_CODE_POINTS),
           actionable: event.actionable,
+          monitor: clip(event.monitorID ?? "", TEXT_CODE_POINTS),
         }), GATE_TIMEOUT)),
         Effect.map((effects) => ({ deliver: !effects.some((effect) => effect.type === "gate" && !effect.deliver) })),
         // A failed gate delivers, as sourcefed does without Chauffeur.

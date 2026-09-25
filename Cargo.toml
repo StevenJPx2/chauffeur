@@ -6,12 +6,14 @@ members = [
   "crates/mcp",
   "crates/cli",
   "plugins/anthropic",
+  "plugins/sourcefed",
   "plugins/openai",
   "capabilities/model-router",
   "capabilities/skill-exposure",
   "capabilities/tool-exposure",
   "capabilities/permission",
   "capabilities/rules",
+  "capabilities/monitors",
   "capabilities/event-gate",
   "judges/jev",
 ]
@@ -35,6 +37,8 @@ chauffeur-capability-skill-exposure = { path = "capabilities/skill-exposure" }
 chauffeur-capability-tool-exposure = { path = "capabilities/tool-exposure" }
 chauffeur-capability-permission = { path = "capabilities/permission" }
 chauffeur-capability-rules = { path = "capabilities/rules" }
+chauffeur-capability-monitors = { path = "capabilities/monitors" }
+chauffeur-plugin-sourcefed = { path = "plugins/sourcefed" }
 chauffeur-capability-event-gate = { path = "capabilities/event-gate" }
 
 serde = { version = "1", features = ["derive"] }

@@ -1,6 +1,6 @@
 [package]
-name = "chauffeur-capability-event-gate"
-description = "Chauffeur capability: decide which integration events reach the agent"
+name = "chauffeur-capability-monitors"
+description = "Chauffeur monitors: follow the agent's own PRs, issues, and threads through an integration"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -9,7 +9,8 @@ repository.workspace = true
 
 [dependencies]
 chauffeur-core = { workspace = true }
-chauffeur-capability-monitors = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
 
 [lints]
 workspace = true
