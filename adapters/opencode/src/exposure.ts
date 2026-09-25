@@ -11,6 +11,8 @@ import { clip, isIntegrationMessage } from "./text.js"
 
 const MAX_SESSIONS = 256
 
+const MAX_AGENTS = 64
+
 const MAX_CATALOG = 128
 
 // Admission waits for exposure; past this the prompt proceeds unenhanced.
@@ -32,11 +34,47 @@ export type ExposureControl = {
   readonly reveal: (sessionID: SessionID, names: ReadonlyArray<string>) => Effect.Effect<boolean, unknown>
 }
 
-/** Each session's hidden tools, cached from storage or session history, and the tools requests carry. */
+/**
+ * The tool names each agent's model requests carry, seen before anything is
+ * removed. A session's first prompt precedes its first request, so tools are
+ * kept per agent. The host names no default agent: a prompt shows whether its
+ * session runs on the default, and that session's next request names it.
+ */
+class RequestTools {
+  private readonly byAgent = new Map<string, ReadonlySet<string>>()
+  private readonly onDefault = new Set<string>()
+  private defaultTools: ReadonlySet<string> | null = null
+
+  /** A prompt's session runs `agent`, or the host's default when it has none. */
+  admit(sessionID: string, agent: string | undefined): void {
+    if (agent !== undefined) {
+      this.onDefault.delete(sessionID)
+
+      return
+    }
+
+    if (this.onDefault.size >= MAX_SESSIONS) this.onDefault.clear()
+
+    this.onDefault.add(sessionID)
+  }
+
+  record(sessionID: string, agent: string, tools: ReadonlySet<string>): void {
+    if (!this.byAgent.has(agent) && this.byAgent.size >= MAX_AGENTS) this.byAgent.clear()
+
+    this.byAgent.set(agent, tools)
+
+    if (this.onDefault.has(sessionID)) this.defaultTools = tools
+  }
+
+  forAgent(agent: string | undefined): ReadonlySet<string> | null {
+    return agent === undefined ? this.defaultTools : this.byAgent.get(agent) ?? null
+  }
+}
+
+/** Each session's hidden tools, cached from storage or session history. */
 class HiddenTools {
   private readonly sessions = new Map<string, Hidden>()
-  /** Tool names the host puts in model requests, seen before anything is removed. */
-  requestTools: ReadonlySet<string> | null = null
+  readonly requests = new RequestTools()
 
   constructor(private readonly host: Plugin.Context) {}
 
@@ -71,7 +109,7 @@ export const installExposure: Effect.Effect<ExposureControl, never, Host | Daemo
   const hidden = new HiddenTools(host)
 
   yield* host.session.hook("context", (event) => Effect.gen(function* () {
-    hidden.requestTools = new Set(Object.keys(event.tools))
+    hidden.requests.record(String(event.sessionID), String(event.agent), new Set(Object.keys(event.tools)))
 
     const set = yield* hidden.current(event.sessionID)
 
@@ -88,7 +126,10 @@ export const installExposure: Effect.Effect<ExposureControl, never, Host | Daemo
     const sessionID = String(event.sessionID)
 
     return Effect.gen(function* () {
-      const { firstInContext, skills, model } = yield* admission(host, event, (set) => hidden.remember(sessionID, set))
+      const { firstInContext, skills, model, agent } = yield* admission(host, event, (set) => hidden.remember(sessionID, set))
+      const requestTools = hidden.requests.forAgent(agent)
+
+      hidden.requests.admit(sessionID, agent)
 
       // A new context hides nothing until the engine decides; a later message
       // offers the hidden tools, which the engine may bring back.
@@ -98,8 +139,8 @@ export const installExposure: Effect.Effect<ExposureControl, never, Host | Daemo
       }
 
       const current = firstInContext ? null : yield* hidden.current(event.sessionID)
-      const tools = yield* toolsToJudge(host, firstInContext, current, hidden.requestTools)
-      const codeMode = codeModeNamespaces(yield* host.tool.list(), hidden.requestTools, event.prompt.text)
+      const tools = yield* toolsToJudge(host, firstInContext, current, requestTools)
+      const codeMode = codeModeNamespaces(yield* host.tool.list(), requestTools, event.prompt.text)
 
       const effects = yield* daemon.signal(signal(sessionID, {
         type: "user_message",
@@ -220,6 +261,7 @@ function admission(host: Plugin.Context, event: SessionPrompt, remember: (set: H
       firstInContext: fresh && !session.parentID,
       skills: yield* skillsToJudge(host, context, event),
       model: session.model,
+      agent: session.agent,
     }
   })
 }

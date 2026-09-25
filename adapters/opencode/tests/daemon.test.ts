@@ -19,13 +19,15 @@ afterEach(() => {
 })
 
 /** A daemon that answers health checks and replies to signals with `reply`. */
-function daemon(reply: Reply): void {
+function daemon(reply: Reply | Response): void {
   const server = Bun.serve({
     port: 0,
     fetch: async (request) => {
       const { method } = await request.json()
 
-      return Response.json(method === "health" ? { result: { ok: true } } : reply)
+      if (method === "health") return Response.json({ result: { ok: true } })
+
+      return reply instanceof Response ? reply : Response.json(reply)
     },
   })
 
@@ -53,4 +55,12 @@ test("an engine error or an invalid effect fails the signal", async () => {
 
   daemon({ result: { effects: [{ type: "permission" }] } })
   expect(Exit.isFailure(await send())).toBe(true)
+})
+
+test("a non-JSON error reply reports its HTTP status", async () => {
+  daemon(new Response("Bad Gateway", { status: 502 }))
+
+  const exit = await send()
+
+  expect(Exit.isFailure(exit) && String(exit.cause)).toContain("chauffeur daemon returned 502")
 })

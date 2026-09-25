@@ -100,17 +100,19 @@ function request<S extends Schema.Top>(
       catch: (cause) => new DaemonError({ message: `chauffeur daemon unreachable: ${String(cause)}` }),
     })
 
+    const status = new DaemonError({ message: `chauffeur daemon returned ${response.status}` })
+
     const envelope = yield* Effect.tryPromise({
       try: () => response.json(),
       catch: () => new DaemonError({ message: "invalid chauffeur RPC response" }),
     }).pipe(
       Effect.flatMap(Schema.decodeUnknownEffect(RpcReply)),
-      Effect.mapError(() => new DaemonError({ message: "invalid chauffeur RPC response" })),
+      Effect.mapError(() => response.ok ? new DaemonError({ message: "invalid chauffeur RPC response" }) : status),
     )
 
     if (envelope.error !== undefined) return yield* new DaemonError({ message: envelope.error })
 
-    if (!response.ok) return yield* new DaemonError({ message: `chauffeur daemon returned ${response.status}` })
+    if (!response.ok) return yield* status
 
     if (envelope.result === undefined) return yield* new DaemonError({ message: "chauffeur daemon response has no result" })
 

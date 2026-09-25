@@ -61,6 +61,19 @@ test("a missing-tool result sends only registered hidden matches and applies the
   await plugin.close()
 })
 
+test("an unserializable output is labelled as output, not input", async () => {
+  const hooks = new Hooks()
+  const sent: Signal[] = []
+  const exposure: ExposureControl = { candidates: () => Effect.succeed([]), reveal: () => Effect.succeed(false) }
+  const plugin = await install(installToolResults(exposure), toolHost(hooks, []), daemon(sent, []))
+
+  await hooks.emit("execute.after", { sessionID, tool: "count", status: "completed", input: { path: "a" }, result: { content: 1n } })
+
+  expect(sent[0]?.kind).toEqual(expect.objectContaining({ input: "{\"path\":\"a\"}", evidence: "unserializable output" }))
+
+  await plugin.close()
+})
+
 test("a steer after a tool result reaches the running turn; prompt context does not", async () => {
   const hooks = new Hooks()
   const delivered: string[] = []

@@ -73,9 +73,9 @@ const NO_RECOVERY: Recovery = { userRequest: "", candidates: [] }
 
 /** The call's input, its error, and the bounded evidence both leave. */
 function observe(event: ToolResult): Observed {
-  const input = summarize(() => JSON.stringify(event.input))
+  const input = summarize("input", () => JSON.stringify(event.input))
   const error = event.status === "error" ? clip(event.error.message, ERROR_CODE_POINTS) : ""
-  const output = event.status === "completed" ? summarize(() => JSON.stringify(event.result.content ?? event.result.output)) : ""
+  const output = event.status === "completed" ? summarize("output", () => JSON.stringify(event.result.content ?? event.result.output)) : ""
 
   return { input, error, evidence: clip(`${error} ${output}`.trim(), TEXT_CODE_POINTS) }
 }
@@ -123,10 +123,10 @@ function matching(catalog: ReadonlyArray<CatalogEntry>, text: string): CatalogEn
   }).slice(0, MAX_CANDIDATES)
 }
 
-function summarize(encode: () => string | undefined): string {
+function summarize(part: "input" | "output", encode: () => string | undefined): string {
   try {
     return clip(encode() ?? "", TEXT_CODE_POINTS)
   } catch {
-    return "unserializable input"
+    return `unserializable ${part}`
   }
 }
