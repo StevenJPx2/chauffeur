@@ -134,7 +134,12 @@ impl Capability for Permission {
     }
 
     fn plan(&mut self, _: &Situation, signal: &Signal) -> Plan {
-        let SignalKind::PermissionRequest { action, .. } = &signal.kind else {
+        let SignalKind::PermissionRequest {
+            action,
+            host_decision: PermissionDecision::Ask,
+            ..
+        } = &signal.kind
+        else {
             return Plan::Skip;
         };
         let evidence = evidence::collect(&signal.kind);

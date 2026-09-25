@@ -18,9 +18,10 @@ const MAX_USER_REQUESTS = 5
 const FILE_ACTIONS = new Set(["read", "edit", "write", "patch"])
 
 /**
- * Reports permission requests with resolved paths and recent user requests,
- * and applies the engine's decision. A host denial always stands; any
- * failure asks.
+ * Reports permission requests with the host's own decision, resolved paths,
+ * and recent user requests, and applies the engine's decision. The engine
+ * judges what the host would ask about and vetoes irreversible harm in what
+ * it would allow. A host denial always stands; any failure asks.
  */
 export const installPermission = Effect.gen(function* () {
   const host = yield* Host
@@ -30,11 +31,12 @@ export const installPermission = Effect.gen(function* () {
     if (event.effect === "deny") return Effect.void
 
     const sessionID = String(event.sessionID)
+    const hostDecision = event.effect
 
     return Effect.gen(function* () {
       if (event.resources.length > MAX_RESOURCES) return yield* Effect.fail(`more than ${MAX_RESOURCES} resources`)
 
-      const kind = yield* request(event).pipe(Effect.provideService(Host, host))
+      const kind = yield* request(event, hostDecision).pipe(Effect.provideService(Host, host))
       const effects = yield* daemon.signal(signal(sessionID, kind), PERMISSION_TIMEOUT)
 
       for (const effect of effects) {
@@ -51,7 +53,7 @@ export const installPermission = Effect.gen(function* () {
   })
 })
 
-function request(event: PermissionEvaluation): Effect.Effect<SignalKind, unknown, Host> {
+function request(event: PermissionEvaluation, hostDecision: "allow" | "ask"): Effect.Effect<SignalKind, unknown, Host> {
   return Effect.gen(function* () {
     const host = yield* Host
     const workspace = realOrSelf(host.location.project.canonical)
@@ -70,6 +72,7 @@ function request(event: PermissionEvaluation): Effect.Effect<SignalKind, unknown
       request: clip(event.message ?? "", TEXT_CODE_POINTS),
       workspace,
       user_requests: userRequests,
+      host_decision: hostDecision,
     } satisfies SignalKind
   })
 }

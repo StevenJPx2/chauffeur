@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "identity": {
+    "id": "external-directory-gate",
+    "name": "Outside-directory approval",
+    "version": "1.0.0"
+  },
+  "match": {
+    "events": ["permission.evaluate"],
+    "actions": ["external_directory"]
+  },
+  "predicates": {
+    "required_evidence": ["resource_present"],
+    "forbidden_evidence": []
+  },
+  "decision": {
+    "id": "directory_serves_the_task",
+    "type": "noul",
+    "instructions": "OpenCode would ask the user before the agent reaches this directory outside the current project. Does the user's stated task clearly need this directory, such as a sibling repository, package, or reference the task names or depends on? Answer no for credential or secret stores such as ~/.ssh, ~/.aws, or keychains, for system directories, and for directories unrelated to the task.",
+    "minimum_confidence": 0.4,
+    "positive_at_or_above": 0.7,
+    "negative_at_or_below": 0.3
+  },
+  "outcomes": {
+    "positive": {
+      "effect": "allow",
+      "message": "Chauffeur approved this directory: your stated task needs it."
+    },
+    "negative": {
+      "effect": "ask",
+      "message": "Chauffeur did not approve this directory; it looks unrelated to your task or sensitive."
+    },
+    "uncertain": {
+      "effect": "ask",
+      "message": "Chauffeur is unsure your task needs this directory; approve it if you intended it."
+    },
+    "missing_evidence": {
+      "effect": "ask",
+      "message": "The request names no directory."
+    },
+    "judge_failure": {
+      "effect": "ask",
+      "message": "Chauffeur could not judge this directory; approve it if you intended it."
+    },
+    "cooldown": {
+      "effect": "ask",
+      "message": "Unused: this contract has no cooldown."
+    }
+  },
+  "cooldown_seconds": 0
+}

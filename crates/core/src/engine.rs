@@ -805,6 +805,7 @@ mod tests {
                 request: command.into(),
                 workspace: String::new(),
                 user_requests: Vec::new(),
+                host_decision: crate::effect::PermissionDecision::Allow,
             },
         };
 

@@ -156,6 +156,7 @@ mod tests {
                 request: "update install".into(),
                 workspace: "/w".into(),
                 user_requests: vec!["old".into(), "please update README.md".into()],
+                host_decision: crate::effect::PermissionDecision::Ask,
             },
         });
 

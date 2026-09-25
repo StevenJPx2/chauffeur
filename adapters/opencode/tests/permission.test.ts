@@ -53,25 +53,43 @@ test("the engine's decision answers the request, with resolved paths and only th
     type: "permission_request",
     resources: [{ requested: "src/index.ts", resolved: "/projects/chauffeur/src/index.ts" }],
     user_requests: ["Fix the failing test"],
+    host_decision: "ask",
   })
 })
 
 test("a host denial stands without asking the engine", async () => {
   const sent: Signal[] = []
-  const event = await evaluate(replying(sent, []), { sessionID, action: "shell", resources: ["rm -rf /"], effect: "deny" })
+  const denied = await evaluate(replying(sent, []), { sessionID, action: "shell", resources: ["rm -rf /"], effect: "deny" })
 
-  expect(event.effect).toBe("deny")
+  expect(denied.effect).toBe("deny")
   expect(sent).toHaveLength(0)
 })
 
-test("an engine failure or an oversized request asks", async () => {
+test("a host allow is reported as one, and stands unless the engine vetoes it", async () => {
+  const sent: Signal[] = []
+  const kept = await evaluate(replying(sent, []), { sessionID, action: "edit", resources: ["src/index.ts"], effect: "allow" })
+
+  const vetoed = await evaluate(
+    replying(sent, [{ type: "permission", agent_id: sessionID, decision: "deny", message: "Irreversible." }]),
+    { sessionID, action: "shell", resources: ["git push --force origin main"], effect: "allow" },
+  )
+
+  expect(kept).toEqual({ sessionID, action: "edit", resources: ["src/index.ts"], effect: "allow" })
+  expect(vetoed).toMatchObject({ effect: "deny", message: "Irreversible." })
+  expect(sent.map((value) => value.kind)).toEqual([
+    expect.objectContaining({ host_decision: "allow" }),
+    expect.objectContaining({ host_decision: "allow" }),
+  ])
+})
+
+test("an engine failure or an oversized request keeps asking", async () => {
   const failed = await evaluate(
     { signal: () => Effect.fail(new DaemonError({ message: "daemon down" })) },
-    { sessionID, action: "shell", resources: ["ls"], effect: "allow" },
+    { sessionID, action: "shell", resources: ["ls"], effect: "ask" },
   )
 
   const oversized = await evaluate(replying([], []), {
-    sessionID, action: "edit", resources: Array.from({ length: 33 }, (_, index) => `file-${index}.ts`), effect: "allow",
+    sessionID, action: "edit", resources: Array.from({ length: 33 }, (_, index) => `file-${index}.ts`), effect: "ask",
   })
 
   expect(failed).toMatchObject({ effect: "ask", message: expect.stringContaining("daemon down") })

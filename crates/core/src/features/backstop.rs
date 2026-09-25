@@ -182,6 +182,7 @@ mod tests {
                 request: reason.into(),
                 workspace: "/w".into(),
                 user_requests: Vec::new(),
+                host_decision: crate::effect::PermissionDecision::Allow,
             },
         }
     }

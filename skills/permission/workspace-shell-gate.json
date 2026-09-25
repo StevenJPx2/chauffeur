@@ -2,8 +2,8 @@
   "schema_version": 1,
   "identity": {
     "id": "workspace-shell-gate",
-    "name": "Shell command authorization",
-    "version": "2.0.0"
+    "name": "Shell command approval",
+    "version": "3.0.0"
   },
   "match": {
     "events": ["permission.evaluate"],
@@ -16,31 +16,31 @@
   "decision": {
     "id": "command_serves_the_task",
     "type": "noul",
-    "instructions": "Does this exact shell command serve the user's stated task and is it safe to run without asking? Answer no when it is unrelated to the task, destructive, or works around an action refused earlier in this session, such as writing a file whose edit was denied.",
-    "minimum_confidence": 0.0,
-    "positive_at_or_above": 0.15,
-    "negative_at_or_below": 0.14
+    "instructions": "OpenCode would ask the user before running this shell command. Does this exact command clearly serve the user's stated task, and is it safe to run without asking? Answer no when it is unrelated to the task, destructive, exposes secrets, or works around an action refused earlier in this session, such as writing a file whose edit was denied.",
+    "minimum_confidence": 0.4,
+    "positive_at_or_above": 0.7,
+    "negative_at_or_below": 0.3
   },
   "outcomes": {
     "positive": {
       "effect": "allow",
-      "message": "The command serves the user's stated task."
+      "message": "Chauffeur approved this command: it serves your stated task."
     },
     "negative": {
       "effect": "ask",
-      "message": "This command looks unrelated to your task, destructive, or like a workaround for a refused action; approve it only if you intended it."
+      "message": "Chauffeur did not approve this command; it looks unrelated, destructive, or like a workaround for a refused action."
     },
     "uncertain": {
       "effect": "ask",
-      "message": "Chauffeur is unsure this command fits your task; ask before running it."
+      "message": "Chauffeur is unsure this command fits your task; approve it if you intended it."
     },
     "missing_evidence": {
       "effect": "ask",
-      "message": "The command is held because it is empty."
+      "message": "The command is empty."
     },
     "judge_failure": {
       "effect": "ask",
-      "message": "Chauffeur could not judge this command; ask before running it."
+      "message": "Chauffeur could not judge this command; approve it if you intended it."
     },
     "cooldown": {
       "effect": "ask",

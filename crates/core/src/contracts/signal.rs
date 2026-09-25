@@ -2,6 +2,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::effect::PermissionDecision;
+
 pub const MAX_AGENT_ID_BYTES: usize = 128;
 pub const MAX_TEXT_BYTES: usize = 2_048;
 pub const MAX_AVAILABLE_MODELS: usize = 256;
@@ -106,6 +108,10 @@ pub enum SignalKind {
         workspace: String,
         /// Recent user messages in this context, oldest first.
         user_requests: Vec<String>,
+        /// What the host would decide on its own. Contracts judge only what
+        /// it would ask about; the backstop sees every request.
+        #[serde(default = "host_asks")]
+        host_decision: PermissionDecision,
     },
     ToolResult {
         tool: String,
@@ -235,6 +241,7 @@ impl SignalKind {
                 request,
                 workspace,
                 user_requests,
+                ..
             } => {
                 bounded(action, "action")?;
                 bounded(request, "request")?;
@@ -251,6 +258,12 @@ impl SignalKind {
             } => validate_user_message(text, skills, tools, model.as_ref(), code_mode),
         }
     }
+}
+
+/// Hosts that predate `host_decision` sent only requests they would ask about
+/// or allow; judging both as asks keeps their contracts working.
+fn host_asks() -> PermissionDecision {
+    PermissionDecision::Ask
 }
 
 fn validate_integration_event(

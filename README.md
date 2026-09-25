@@ -12,8 +12,9 @@ Jev), and routes the judgment to capabilities:
   Code Mode tools a request needs, which Code Mode's catalog shows only in
   part, and it removes OpenCode's own skill list (about 4k tokens), since
   Chauffeur loads skills itself.
-- **Permission** enforces JSON skill contracts on the agent's edits and shell
-  commands.
+- **Permission** lets Jev approve the edits, shell commands, and outside
+  directories OpenCode would ask you about, when they clearly serve your task,
+  and vetoes irreversible harm in what OpenCode allows.
 - **Model router** switches to an equivalent model on a usage limit, and back
   once the limit has likely cleared.
 - **Idle reminders** (optional) nudge an idle agent with plugin rules, including
@@ -89,12 +90,15 @@ for example a permission request:
     "resources": [{ "requested": "README.md", "resolved": "/work/app/README.md" }],
     "request": "Update the install section",
     "workspace": "/work/app",
-    "user_requests": ["please update README.md"]
+    "user_requests": ["please update README.md"],
+    "host_decision": "ask"
   }
 }
 ```
 
-The permission capability computes each contract's evidence
+Contracts judge only requests whose `host_decision` is `ask` (the default);
+an `allow` reaches only the safety backstop. The permission capability
+computes each contract's evidence
 (`resource_present`, `resource_within_workspace`, `resource_named_by_user`)
 before any model call. Missing evidence returns the contract's fixed
 `missing_evidence` outcome; low confidence selects `uncertain`; a System One

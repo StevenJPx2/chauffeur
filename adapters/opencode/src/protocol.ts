@@ -40,6 +40,7 @@ export type SignalKind =
     request: string
     workspace: string
     user_requests: string[]
+    host_decision: "allow" | "ask"
   }
   | {
     type: "user_message"

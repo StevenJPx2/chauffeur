@@ -2,46 +2,45 @@
   "schema_version": 1,
   "identity": {
     "id": "workspace-edit-gate",
-    "name": "Workspace edit authorization",
-    "version": "2.0.0"
+    "name": "Edit approval",
+    "version": "3.0.0"
   },
   "match": {
     "events": ["permission.evaluate"],
     "actions": ["edit"]
   },
   "predicates": {
-    "required_evidence": ["resource_present", "resource_within_workspace"],
+    "required_evidence": ["resource_present"],
     "forbidden_evidence": []
   },
   "decision": {
     "id": "edit_serves_the_task",
     "type": "noul",
-    "instructions": "Is this edit part of carrying out the user's stated task? The user need not have named the file; answer no only when the edit is clearly unrelated to the task.",
-    "minimum_confidence": 0.0,
-    "positive_at_or_above": 0.3,
-    "negative_at_or_below": 0.29
+    "instructions": "OpenCode would ask the user before this edit. Is changing this exact file clearly part of carrying out the user's stated task? Answer no for files the task does not need, credentials or secrets, and configuration the user did not ask to change.",
+    "minimum_confidence": 0.4,
+    "positive_at_or_above": 0.7,
+    "negative_at_or_below": 0.3
   },
   "outcomes": {
     "positive": {
       "effect": "allow",
-      "message": "The edit serves the user's stated task."
+      "message": "Chauffeur approved this edit: it serves your stated task."
     },
     "negative": {
       "effect": "ask",
-      "message": "This edit appears unrelated to your stated task; approve it only if you intended it."
+      "message": "Chauffeur did not approve this edit; it looks outside your stated task."
     },
     "uncertain": {
       "effect": "ask",
-      "message": "The edit scope is uncertain; ask before proceeding."
+      "message": "Chauffeur is unsure this edit serves your task; approve it if you intended it."
     },
     "missing_evidence": {
       "effect": "ask",
-      "message": "The edit is held because its target is missing or outside the workspace.",
-      "reminder": "Keep edits inside the current workspace."
+      "message": "The edit names no file."
     },
     "judge_failure": {
       "effect": "ask",
-      "message": "Chauffeur could not judge this edit; ask before proceeding."
+      "message": "Chauffeur could not judge this edit; approve it if you intended it."
     },
     "cooldown": {
       "effect": "ask",
