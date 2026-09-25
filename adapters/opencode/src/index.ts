@@ -1,5 +1,6 @@
 import { Plugin } from "@opencode/plugin/effect"
 import { Effect } from "effect"
+import { installAskTool } from "./ask-tool.js"
 import { Daemon } from "./daemon.js"
 import { installExposure } from "./exposure.js"
 import { installGate } from "./gate.js"
@@ -21,6 +22,7 @@ const capabilities = Effect.gen(function* () {
 
   yield* installPermission
   yield* installToolResults(exposure)
+  yield* installAskTool(exposure)
   yield* installGate
   yield* installIdle
 })

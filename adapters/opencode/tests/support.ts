@@ -1,6 +1,7 @@
 import type { Plugin } from "@opencode/plugin/effect"
 import { Effect, Exit, Queue, Scope, Stream } from "effect"
 import { Daemon, type DaemonClient } from "../src/daemon.js"
+import type { ExposureControl } from "../src/exposure.js"
 import { Host, type SessionID } from "../src/host.js"
 
 type Callback = (event: never) => Effect.Effect<void>
@@ -71,6 +72,16 @@ export function settle(): Promise<void> {
 }
 
 export const noDaemon: DaemonClient = { signal: () => Effect.die("unexpected daemon signal") }
+
+/** Exposure with nothing hidden and no Code Mode; a test overrides what it reads. */
+export function fakeExposure(overrides: Partial<ExposureControl> = {}): ExposureControl {
+  return {
+    candidates: () => Effect.succeed([]),
+    reveal: () => Effect.succeed(false),
+    codeMode: () => Effect.succeed([]),
+    ...overrides,
+  }
+}
 
 /** A host session ID for a session the test names. */
 export function sessionID(value: string): SessionID {

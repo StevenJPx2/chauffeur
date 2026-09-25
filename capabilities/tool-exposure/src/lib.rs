@@ -7,16 +7,18 @@
 //! effects name tools, so a tool the engine never judged is never removed.
 //! Code Mode tools reach the model through `execute`, whose catalog shows each
 //! namespace only in part; a namespace the request needs is surfaced by an
-//! appended note instead.
+//! appended note instead. When the agent asks for a tool itself, System One
+//! picks the hidden group or namespace that serves it, or none.
 
 mod code_mode;
+mod request;
 
 use std::collections::HashSet;
 use std::path::Path;
 
 use chauffeur_core::{
-    Answer, AnswerValue, Capability, CatalogEntry, ChoiceOption, Effect, PipeStep, Plan, Question,
-    QuestionKind, Signal, SignalKind, Situation, load_config,
+    Answer, AnswerValue, Capability, CatalogEntry, ChoiceOption, Delivery, Effect, PipeStep, Plan,
+    Question, QuestionKind, Signal, SignalKind, Situation, load_config,
 };
 
 use code_mode::Surfaced;
@@ -182,6 +184,44 @@ impl ToolExposure {
             .collect()
     }
 
+    /// After a missing-tool result: which hidden direct tool fits, or none.
+    fn recovery_question(&self, signal: &Signal) -> Option<Question> {
+        let SignalKind::ToolResult {
+            user_request,
+            evidence,
+            ..
+        } = &signal.kind
+        else {
+            return None;
+        };
+        let candidates = self.recovery_candidates(signal);
+
+        if candidates.is_empty() {
+            return None;
+        }
+
+        let mut options: Vec<ChoiceOption> = candidates
+            .iter()
+            .map(|tool| ChoiceOption {
+                value: tool.id.clone(),
+                description: tool.description.clone(),
+            })
+            .collect();
+
+        options.push(ChoiceOption {
+            value: "none".into(),
+            description: "No hidden tool fits".into(),
+        });
+
+        Some(Question {
+            id: "recover/choose".into(),
+            instructions: format!(
+                "Which registered, hidden direct tool fits the user's request and the tool result? Request: {user_request}. Evidence: {evidence}. Choose none if no offered tool fits."
+            ),
+            kind: QuestionKind::Choice { options },
+        })
+    }
+
     fn recover(&self, signal: &Signal, answers: Option<&[Answer]>, round: usize) -> PipeStep {
         let SignalKind::ToolResult {
             user_request,
@@ -235,6 +275,67 @@ impl ToolExposure {
             PipeStep::Done(Vec::new())
         }
     }
+
+    /// The question for an agent's request, over its hidden groups and the
+    /// host's Code Mode namespaces.
+    fn request_question(&self, signal: &Signal) -> Option<Question> {
+        let SignalKind::AgentRequest {
+            need,
+            user_request,
+            tools,
+            code_mode,
+        } = &signal.kind
+        else {
+            return None;
+        };
+        let groups: Vec<(String, String)> = self
+            .groups(tools)
+            .iter()
+            .map(|group| (group.name.to_string(), listing(group)))
+            .collect();
+
+        request::question(&groups, code_mode, need, user_request)
+    }
+
+    /// Reveal the chosen hidden group, or bring the chosen namespace's
+    /// matches into the running turn. A failed or unsure pick grants nothing.
+    fn requested(&mut self, signal: &Signal, answers: Option<&[Answer]>) -> Vec<Effect> {
+        let SignalKind::AgentRequest {
+            tools, code_mode, ..
+        } = &signal.kind
+        else {
+            return Vec::new();
+        };
+        let Some(answer) = answers
+            .and_then(|answers| answers.iter().find(|answer| answer.id == request::ID))
+            .filter(|answer| answer.effective_confidence() >= MIN_CONFIDENCE)
+        else {
+            return Vec::new();
+        };
+        let AnswerValue::Choice(choice) = &answer.value else {
+            return Vec::new();
+        };
+
+        match request::pick(choice) {
+            Some(request::Pick::Group(name)) => effect(
+                &signal.agent_id,
+                self.revealed(tools, |group| group == name),
+                true,
+            ),
+            Some(request::Pick::Namespace(name)) => {
+                let chosen: Vec<_> = code_mode
+                    .iter()
+                    .filter(|namespace| namespace.name == name)
+                    .collect();
+
+                self.surfaced
+                    .surface(&signal.agent_id, &chosen, Delivery::Steer)
+                    .into_iter()
+                    .collect()
+            }
+            None => Vec::new(),
+        }
+    }
 }
 
 fn effect(agent_id: &str, tools: Vec<String>, reveal: bool) -> Vec<Effect> {
@@ -269,34 +370,16 @@ impl Capability for ToolExposure {
     }
 
     fn plan(&mut self, _: &Situation, signal: &Signal) -> Plan {
-        if let SignalKind::ToolResult {
-            user_request,
-            evidence,
-            ..
-        } = &signal.kind
-        {
-            let candidates = self.recovery_candidates(signal);
-            if candidates.is_empty() {
-                return Plan::Skip;
-            }
-            let mut options: Vec<ChoiceOption> = candidates
-                .iter()
-                .map(|tool| ChoiceOption {
-                    value: tool.id.clone(),
-                    description: tool.description.clone(),
-                })
-                .collect();
-            options.push(ChoiceOption {
-                value: "none".into(),
-                description: "No hidden tool fits".into(),
-            });
-            return Plan::Ask(vec![Question {
-                id: "recover/choose".into(),
-                instructions: format!(
-                    "Which registered, hidden direct tool fits the user's request and the tool result? Request: {user_request}. Evidence: {evidence}. Choose none if no offered tool fits."
-                ),
-                kind: QuestionKind::Choice { options },
-            }]);
+        if matches!(signal.kind, SignalKind::AgentRequest { .. }) {
+            return self
+                .request_question(signal)
+                .map_or(Plan::Skip, |question| Plan::Ask(vec![question]));
+        }
+
+        if matches!(signal.kind, SignalKind::ToolResult { .. }) {
+            return self
+                .recovery_question(signal)
+                .map_or(Plan::Skip, |question| Plan::Ask(vec![question]));
         }
 
         let SignalKind::UserMessage {
@@ -387,15 +470,18 @@ impl Capability for ToolExposure {
             })
             .collect();
 
-        effects.extend(self.surfaced.surface(&signal.agent_id, &chosen));
+        effects.extend(
+            self.surfaced
+                .surface(&signal.agent_id, &chosen, Delivery::Prompt),
+        );
         effects
     }
 
     fn advance(&mut self, signal: &Signal, answers: Option<&[Answer]>, round: usize) -> PipeStep {
-        if matches!(signal.kind, SignalKind::ToolResult { .. }) {
-            self.recover(signal, answers, round)
-        } else {
-            PipeStep::Done(self.decide(signal, answers))
+        match signal.kind {
+            SignalKind::ToolResult { .. } => self.recover(signal, answers, round),
+            SignalKind::AgentRequest { .. } => PipeStep::Done(self.requested(signal, answers)),
+            _ => PipeStep::Done(self.decide(signal, answers)),
         }
     }
 }

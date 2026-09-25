@@ -134,6 +134,21 @@ pub enum SignalKind {
         #[serde(default)]
         candidates: Vec<CatalogEntry>,
     },
+    /// The agent asked, in its own words, for a tool or skill it lacks.
+    AgentRequest {
+        /// What the agent says it needs.
+        need: String,
+        /// The user's latest request.
+        #[serde(default)]
+        user_request: String,
+        /// Direct tools currently hidden from the agent.
+        #[serde(default)]
+        tools: Vec<CatalogEntry>,
+        /// The host's Code Mode namespaces, with each one's best matches for
+        /// the need.
+        #[serde(default)]
+        code_mode: Vec<CodeModeNamespace>,
+    },
     /// The agent finished its turn and is idle. The host supplies its current
     /// workspace and latest user request for scoped follow-through contracts.
     TurnEnd {
@@ -205,21 +220,26 @@ impl SignalKind {
                 candidates,
                 ..
             } => {
-                bounded(tool, "tool")?;
-                bounded(workspace, "workspace")?;
-                bounded(input, "tool input")?;
-                bounded(error, "tool error")?;
-                bounded(user_request, "user request")?;
-                bounded(evidence, "tool evidence")?;
+                all_bounded(&[
+                    (tool, "tool"),
+                    (workspace, "workspace"),
+                    (input, "tool input"),
+                    (error, "tool error"),
+                    (user_request, "user request"),
+                    (evidence, "tool evidence"),
+                ])?;
                 validate_catalog(candidates, "tool candidates")
             }
             SignalKind::TurnEnd {
                 workspace,
                 user_request,
-            } => {
-                bounded(workspace, "workspace")?;
-                bounded(user_request, "user request")
-            }
+            } => all_bounded(&[(workspace, "workspace"), (user_request, "user request")]),
+            SignalKind::AgentRequest {
+                need,
+                user_request,
+                tools,
+                code_mode,
+            } => validate_agent_request(need, user_request, tools, code_mode),
             SignalKind::ModelError {
                 model,
                 error_type,
@@ -243,9 +263,11 @@ impl SignalKind {
                 user_requests,
                 ..
             } => {
-                bounded(action, "action")?;
-                bounded(request, "request")?;
-                bounded(workspace, "workspace")?;
+                all_bounded(&[
+                    (action, "action"),
+                    (request, "request"),
+                    (workspace, "workspace"),
+                ])?;
                 validate_permission_lists(resources, user_requests)
             }
             SignalKind::UserMessage {
@@ -264,6 +286,22 @@ impl SignalKind {
 /// or allow; judging both as asks keeps their contracts working.
 fn host_asks() -> PermissionDecision {
     PermissionDecision::Ask
+}
+
+fn validate_agent_request(
+    need: &str,
+    user_request: &str,
+    tools: &[CatalogEntry],
+    code_mode: &[CodeModeNamespace],
+) -> Result<(), String> {
+    if need.trim().is_empty() {
+        return Err("an agent request must say what it needs".into());
+    }
+
+    bounded(need, "need")?;
+    bounded(user_request, "user request")?;
+    validate_code_mode(code_mode)?;
+    validate_catalog(tools, "tools")
 }
 
 fn validate_integration_event(
@@ -390,6 +428,13 @@ fn validate_model(model: &ModelRef) -> Result<(), String> {
 
     bounded(&model.provider, "model provider")?;
     bounded(&model.model, "model id")
+}
+
+/// Each `(value, field)` within the text bound.
+fn all_bounded(fields: &[(&String, &str)]) -> Result<(), String> {
+    fields
+        .iter()
+        .try_for_each(|(value, field)| bounded(value, field))
 }
 
 fn bounded(value: &str, field: &str) -> Result<(), String> {

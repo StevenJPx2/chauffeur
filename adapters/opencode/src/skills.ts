@@ -14,6 +14,24 @@ export const SKILLS_METADATA_KEY = "chauffeur.skills"
 export function deliverContext(sessionID: SessionID, effect: ContextEffect): Effect.Effect<void, unknown, Host> {
   return Effect.gen(function* () {
     const host = yield* Host
+    const { text, skills } = yield* renderContext(effect)
+
+    if (text === "") return
+
+    yield* host.session.synthetic({
+      sessionID,
+      text,
+      description: `Chauffeur ${effect.label}`,
+      metadata: { [SKILLS_METADATA_KEY]: skills },
+      ...(effect.delivery === "steer" ? { delivery: "steer" as const } : { resume: effect.delivery === "resume" }),
+    })
+  })
+}
+
+/** A context effect's text, then each skill's body in OpenCode's own skill-message form. */
+export function renderContext(effect: ContextEffect): Effect.Effect<{ text: string; skills: string[] }, unknown, Host> {
+  return Effect.gen(function* () {
+    const host = yield* Host
     const catalog = (yield* host.skill.list()).data
     const skills = effect.skills.flatMap((id) => catalog.filter((candidate) => candidate.id === id))
 
@@ -22,15 +40,7 @@ export function deliverContext(sessionID: SessionID, effect: ContextEffect): Eff
       ...skills.map((skill) => `<skill_content name="${skill.id}">\n# Skill: ${skill.id}\n\n${skill.content}\n</skill_content>`),
     ]
 
-    if (parts.length === 0) return
-
-    yield* host.session.synthetic({
-      sessionID,
-      text: parts.join("\n\n"),
-      description: `Chauffeur ${effect.label}`,
-      metadata: { [SKILLS_METADATA_KEY]: skills.map((skill) => skill.id) },
-      ...(effect.delivery === "steer" ? { delivery: "steer" as const } : { resume: effect.delivery === "resume" }),
-    })
+    return { text: parts.join("\n\n"), skills: skills.map((skill) => skill.id) }
   })
 }
 

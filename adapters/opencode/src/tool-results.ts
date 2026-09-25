@@ -1,6 +1,7 @@
 import type { Plugin } from "@opencode/plugin/effect"
 import type { ToolHooks } from "@opencode/plugin/effect/tool"
 import { Effect, type Scope } from "effect"
+import { ASK_TOOL } from "./ask-tool.js"
 import { Daemon } from "./daemon.js"
 import type { ExposureControl } from "./exposure.js"
 import { Host } from "./host.js"
@@ -29,7 +30,8 @@ export function installToolResults(exposure: ExposureControl): Effect.Effect<voi
     const host = yield* Host
     const daemon = yield* Daemon
 
-    yield* host.tool.hook("execute.after", (event) =>
+    // Chauffeur's own tool already told the engine what the agent needs.
+    yield* host.tool.hook("execute.after", (event) => event.tool === ASK_TOOL ? Effect.void :
       report(event, exposure).pipe(
         Effect.provideService(Host, host),
         Effect.provideService(Daemon, daemon),

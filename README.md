@@ -18,6 +18,8 @@ Jev), and routes the judgment to capabilities:
   or `master` always asks you; one to a rebased feature branch does not.
 - **Model router** switches to an equivalent model on a usage limit, and back
   once the limit has likely cleared.
+- **`ask_chauffeur`** lets the agent ask for a tool or skill it lacks, in plain
+  words; Jev picks the hidden tools, Code Mode tools, or skill that serve it.
 - **Rules** deliver context when exact facts and Jev agree: they steer the
   agent after a tool call such as a hand-rolled Python patch script or the
   browser for Slack, handing over the right skill; remind an idle agent of

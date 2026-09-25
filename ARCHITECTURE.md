@@ -209,13 +209,29 @@ come first in that prefix.
 |---|---|---|---|---|
 | Model router | switch, and to which same-tier model, or stay? has the limit on the model left behind cleared? | model usage-limit error; user message after a switch | decision | built |
 | Permission / skill contract | each matching contract's typed question | permission request | decision | built |
-| Skill exposure | which one skill helps most, or none? is the agent using a generic approach where a skill fits? | user message; tool result and turn end | persistent | built |
-| Tool exposure | will the task need this tool group? does the latest request need a hidden group now? | first user message of a context; later user messages | tool set | built |
+| Skill exposure | which one skill helps most, or none? is the agent using a generic approach where a skill fits? which skill serves the agent's request? | user message; tool result and turn end; `ask_chauffeur` | persistent | built |
+| Tool exposure | will the task need this tool group? does the latest request need a hidden group now? which hidden group or Code Mode namespace serves the agent's request? | first user message of a context; later user messages; `ask_chauffeur` | tool set; Code Mode note | built |
 | Rules | each admitted rule's step, one or two rounds | tool result for a watched tool; turn end | persistent (steer, resume, or wait; skill hand-over) | built |
 | Event gate | does this integration event need the agent to act now? | integration event | decision | built |
 
 Classification passes run on user message, tool result, turn end, permission
-request, model error, and integration event.
+request, model error, integration event, and agent request.
+
+### Asking Chauffeur
+
+Everything above guesses what the agent needs; `ask_chauffeur` lets it say.
+The adapter registers the tool (never hidden, never in Code Mode) with one
+input, `need`: what the agent has to do, in plain words. A call sends an
+`agent_request` signal with the need, the user's latest request, the tools
+hidden in this context, and the host's Code Mode namespaces ranked against
+the need. Both exposure capabilities answer in the same Jev call: tool
+exposure picks one hidden group or namespace, or none; skill exposure picks
+one skill the agent was not yet given, or none. Each needs confidence ≥ 0.4.
+A chosen group is revealed from the agent's next step; a namespace's best
+matches and a skill's body come back in the tool's reply, which also says
+what was revealed. Nothing chosen, or a failed judgment, replies that
+nothing fits, so the agent carries on. The call itself is not reported as a
+tool result, so no rule judges it.
 
 ## Skills
 

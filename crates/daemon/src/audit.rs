@@ -90,6 +90,7 @@ fn kind_name(kind: &SignalKind) -> String {
 fn detail(kind: &SignalKind) -> String {
     match kind {
         SignalKind::UserMessage { text, .. } => text.clone(),
+        SignalKind::AgentRequest { need, .. } => need.clone(),
         SignalKind::ToolResult { tool, input, .. } => format!("{tool} {input}"),
         SignalKind::PermissionRequest {
             action, resources, ..

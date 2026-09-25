@@ -1,10 +1,9 @@
 import { expect, test } from "bun:test"
 import { Effect } from "effect"
 import type { DaemonClient } from "../src/daemon.js"
-import type { ExposureControl } from "../src/exposure.js"
 import type { HostEffect, Signal } from "../src/protocol.js"
 import { installToolResults } from "../src/tool-results.js"
-import { fakeHost, Hooks, install } from "./support.js"
+import { fakeExposure, fakeHost, Hooks, install } from "./support.js"
 
 const sessionID = "ses_recovery"
 
@@ -33,7 +32,7 @@ test("a missing-tool result sends only registered hidden matches and applies the
   const sent: Signal[] = []
   const revealed: Array<ReadonlyArray<string>> = []
 
-  const exposure: ExposureControl = {
+  const exposure = fakeExposure({
     candidates: () => Effect.succeed([
       { id: "browser_open", description: "Open a browser tab", bytes: 0 },
       { id: "github_merge", description: "Merge a pull request", bytes: 0 },
@@ -43,7 +42,7 @@ test("a missing-tool result sends only registered hidden matches and applies the
 
       return true
     }),
-  }
+  })
 
   const plugin = await install(
     installToolResults(exposure),
@@ -64,7 +63,7 @@ test("a missing-tool result sends only registered hidden matches and applies the
 test("an unserializable output is labelled as output, not input", async () => {
   const hooks = new Hooks()
   const sent: Signal[] = []
-  const exposure: ExposureControl = { candidates: () => Effect.succeed([]), reveal: () => Effect.succeed(false) }
+  const exposure = fakeExposure()
   const plugin = await install(installToolResults(exposure), toolHost(hooks, []), daemon(sent, []))
 
   await hooks.emit("execute.after", { sessionID, tool: "count", status: "completed", input: { path: "a" }, result: { content: 1n } })
@@ -77,7 +76,7 @@ test("an unserializable output is labelled as output, not input", async () => {
 test("a steer after a tool result reaches the running turn; prompt context does not", async () => {
   const hooks = new Hooks()
   const delivered: string[] = []
-  const exposure: ExposureControl = { candidates: () => Effect.succeed([]), reveal: () => Effect.succeed(false) }
+  const exposure = fakeExposure()
 
   const plugin = await install(installToolResults(exposure), toolHost(hooks, delivered), daemon([], [
     { type: "context", agent_id: sessionID, delivery: "steer", label: "misuse", skills: [], text: "Use gh for GitHub." },

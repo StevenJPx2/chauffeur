@@ -5,7 +5,8 @@ import { codeModeNamespaces } from "./code-mode.js"
 import { Daemon } from "./daemon.js"
 import { type HistoryMessage, Host, type HostTool, type SessionID } from "./host.js"
 import { hostModel, ref, sameModel } from "./model-router.js"
-import { catalogEntry, signal, TEXT_CODE_POINTS, type CatalogEntry, type ContextEffect, type HostEffect, type ModelRef } from "./protocol.js"
+import { ASK_TOOL } from "./ask-tool.js"
+import { catalogEntry, signal, TEXT_CODE_POINTS, type CatalogEntry, type CodeModeNamespace, type ContextEffect, type HostEffect, type ModelRef } from "./protocol.js"
 import { SKILLS_METADATA_KEY } from "./skills.js"
 import { clip, isIntegrationMessage } from "./text.js"
 
@@ -32,6 +33,8 @@ type ToolsEffect = Extract<HostEffect, { readonly type: "tools" }>
 export type ExposureControl = {
   readonly candidates: (sessionID: SessionID) => Effect.Effect<CatalogEntry[]>
   readonly reveal: (sessionID: SessionID, names: ReadonlyArray<string>) => Effect.Effect<boolean, unknown>
+  /** `agent`'s Code Mode namespaces, each with its best matches for `text`. */
+  readonly codeMode: (agent: string, text: string) => Effect.Effect<CodeModeNamespace[]>
 }
 
 /**
@@ -179,6 +182,7 @@ function control(host: Plugin.Context, hidden: HiddenTools): ExposureControl {
         .slice(0, MAX_CATALOG)
         .map((tool) => catalogEntry(tool.id, tool.description, ""))
     }),
+    codeMode: (agent, text) => host.tool.list().pipe(Effect.map((tools) => codeModeNamespaces(tools, hidden.requests.forAgent(agent), text))),
     reveal: (sessionID, names) => Effect.gen(function* () {
       const set = yield* hidden.current(sessionID)
 
@@ -369,10 +373,12 @@ function toolsToJudge(host: Plugin.Context, firstInContext: boolean, hidden: Hid
  * hidden), then the other tools the host sends in model requests. Code Mode
  * tools reach the model through `execute`, not the request's tool record, so
  * hiding them would change nothing. Before any request is seen, only tools
- * flagged as Code Mode are left out.
+ * flagged as Code Mode are left out. Chauffeur's own tool is never judged, so
+ * the agent can always ask for what it lacks.
  */
 function catalog(tools: ReadonlyArray<HostTool>, inRequests: ReadonlySet<string> | null): HostTool[] {
   return tools
+    .filter((tool) => tool.id !== ASK_TOOL)
     .filter((tool) => (inRequests ? inRequests.has(tool.id) : tool.options?.codemode !== true))
     .toSorted((a, b) => Number(b.id === "skill") - Number(a.id === "skill"))
     .slice(0, MAX_CATALOG)

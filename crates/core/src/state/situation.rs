@@ -57,6 +57,7 @@ impl Situation {
 fn describe(kind: &SignalKind) -> Option<String> {
     match kind {
         SignalKind::UserMessage { text, .. } => Some(format!("User: {text}")),
+        SignalKind::AgentRequest { need, .. } => Some(format!("Agent asks Chauffeur for: {need}")),
         SignalKind::PermissionRequest {
             action,
             resources,

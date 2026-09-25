@@ -1,7 +1,7 @@
 //! Code Mode surfacing. Tools in a Code Mode namespace reach the model through
 //! `execute`, whose catalog shows each namespace only in part. When a request
 //! needs a namespace, a note naming its best-matching tools joins the user's
-//! message, once per context.
+//! message, once per context, or answers the agent's own request.
 
 use std::collections::{HashMap, HashSet};
 
@@ -57,8 +57,13 @@ impl Surfaced {
         }
     }
 
-    /// The note for the chosen namespaces, recorded as surfaced.
-    pub fn surface(&mut self, agent_id: &str, chosen: &[&CodeModeNamespace]) -> Option<Effect> {
+    /// The note for the chosen namespaces at `delivery`, recorded as surfaced.
+    pub fn surface(
+        &mut self,
+        agent_id: &str,
+        chosen: &[&CodeModeNamespace],
+        delivery: Delivery,
+    ) -> Option<Effect> {
         if chosen.is_empty() {
             return None;
         }
@@ -70,7 +75,7 @@ impl Surfaced {
 
         Some(Effect::Context {
             agent_id: agent_id.to_string(),
-            delivery: Delivery::Prompt,
+            delivery,
             label: "Code Mode tools".into(),
             skills: Vec::new(),
             text: Some(note(chosen)),

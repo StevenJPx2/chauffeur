@@ -1,7 +1,7 @@
 //! Skill exposure: System One picks the one skill, or none, that best helps.
-//! It asks on each user message, and again after tool results and at turn end
-//! in case the agent lost track, such as driving a browser where a dedicated
-//! skill exists.
+//! It asks on each user message, when the agent asks for help itself, and
+//! again after tool results and at turn end in case the agent lost track,
+//! such as driving a browser where a dedicated skill exists.
 
 use std::collections::{HashMap, HashSet};
 
@@ -28,6 +28,7 @@ pub const DRIFT_COOLDOWN_SECS: u64 = 60;
 const MAX_AGENTS: usize = 256;
 const PICK: &str = "pick";
 const DRIFT: &str = "drift";
+const ASK: &str = "ask";
 const BROWSER_HARNESS: &str = "browser-harness";
 
 /// What one agent can still be offered, from its latest user message.
@@ -147,6 +148,7 @@ impl Capability for SkillExposure {
 
                 (DRIFT, DRIFT_INSTRUCTIONS)
             }
+            SignalKind::AgentRequest { .. } => (ASK, ASK_INSTRUCTIONS),
             _ => return Plan::Skip,
         };
         let Some(agent) = self.agents.get(&signal.agent_id) else {
@@ -162,13 +164,18 @@ impl Capability for SkillExposure {
             return Plan::Skip;
         }
 
-        let instructions = if id == DRIFT {
-            format!(
+        let instructions = match &signal.kind {
+            _ if id == DRIFT => format!(
                 "{instructions} Latest tool action: {}",
                 agent.last_tool.as_deref().unwrap_or("unknown")
-            )
-        } else {
-            instructions.to_string()
+            ),
+            SignalKind::AgentRequest {
+                need, user_request, ..
+            } => format!(
+                "{instructions} The agent asked for: \"{need}\". The user's latest request: \
+                 {user_request}."
+            ),
+            _ => instructions.to_string(),
         };
 
         Plan::Ask(vec![question(id, &instructions, &offerable)])
@@ -179,7 +186,7 @@ impl Capability for SkillExposure {
         let Some(answer) = answers.and_then(|answers| {
             answers
                 .iter()
-                .find(|answer| answer.id == PICK || answer.id == DRIFT)
+                .find(|answer| [PICK, DRIFT, ASK].contains(&answer.id.as_str()))
         }) else {
             return Vec::new();
         };
@@ -218,11 +225,13 @@ impl Capability for SkillExposure {
     }
 }
 
-/// A picked skill joins the user's message; a drift hand-over reaches the
-/// running turn, or waits for the next one once the turn has ended.
+/// A picked skill joins the user's message; a skill the agent asked for
+/// answers it in the running turn; a drift hand-over reaches the running
+/// turn, or waits for the next one once the turn has ended.
 fn context(signal: &Signal, skill: &str) -> Effect {
     let (delivery, text) = match signal.kind {
         SignalKind::UserMessage { .. } => (Delivery::Prompt, None),
+        SignalKind::AgentRequest { .. } => (Delivery::Steer, None),
         SignalKind::TurnEnd { .. } => (Delivery::Wait, Some(drift_text(skill))),
         _ => (Delivery::Steer, Some(drift_text(skill))),
     };
@@ -242,6 +251,9 @@ fn drift_text(skill: &str) -> String {
 
 const PICK_INSTRUCTIONS: &str = "Which one skill would most help the coding agent act on the \
     user's latest request? Choose none unless a skill clearly helps.";
+
+const ASK_INSTRUCTIONS: &str = "Which one offered skill serves what the coding agent asked \
+    for? Choose none unless a skill clearly does.";
 
 const DRIFT_INSTRUCTIONS: &str = "Which offered skill, if any, directly improves the exact \
     action in the agent's recent tool result? Choose none if the approach already works. \
