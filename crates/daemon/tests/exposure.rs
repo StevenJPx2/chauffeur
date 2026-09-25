@@ -53,7 +53,7 @@ async fn first_user_message_attaches_skills_and_hides_unneeded_tools() {
     let (jev, server) = common::serve_jev(answer);
     let config_dir = std::env::temp_dir().join("chauffeur-exposure-test-config-absent");
     let engine = EngineHandle::spawn(EngineOptions {
-        // No skills folder: no permission or misuse contracts.
+        // No skills folder: no permission contracts or rules.
         skills_dir: std::env::temp_dir().join("chauffeur-no-skills-repo"),
         config_dir,
         jev,

@@ -1,0 +1,20 @@
+{
+  "schema_version": 2,
+  "id": "hand-rolled-patch",
+  "name": "Hand-rolled patch scripts",
+  "on": "tool_result",
+  "when": { "tools": ["shell"] },
+  "steps": [
+    {
+      "id": "misuse",
+      "question": "Does this call modify source files with a Python, sed, awk, or perl script, or with a shell heredoc or redirect, instead of the edit, write, or patch tools?",
+      "yes_at_or_above": 0.7,
+      "minimum_confidence": 0.4
+    }
+  ],
+  "then": {
+    "delivery": "steer",
+    "text": "Chauffeur: Change files with the edit, write, or patch tools, not scripts, heredocs, or redirects. They show the change and keep permission checks working."
+  },
+  "cooldown_seconds": 120
+}

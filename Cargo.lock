@@ -125,15 +125,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "chauffeur-capability-idle-reminder"
-version = "0.1.0"
-dependencies = [
- "chauffeur-core",
- "serde",
- "serde_json",
-]
-
-[[package]]
 name = "chauffeur-capability-model-router"
 version = "0.1.0"
 dependencies = [
@@ -154,7 +145,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "chauffeur-capability-project-skills"
+name = "chauffeur-capability-rules"
 version = "0.1.0"
 dependencies = [
  "chauffeur-core",
@@ -181,21 +172,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "chauffeur-capability-tool-misuse"
-version = "0.1.0"
-dependencies = [
- "chauffeur-core",
- "serde",
- "serde_json",
-]
-
-[[package]]
 name = "chauffeur-cli"
 version = "0.1.0"
 dependencies = [
  "chauffeur-capability-permission",
- "chauffeur-capability-project-skills",
- "chauffeur-capability-tool-misuse",
+ "chauffeur-capability-rules",
  "chauffeur-core",
  "chauffeur-daemon",
  "chauffeur-mcp",
@@ -218,18 +199,14 @@ version = "0.1.0"
 dependencies = [
  "axum",
  "chauffeur-capability-event-gate",
- "chauffeur-capability-idle-reminder",
  "chauffeur-capability-model-router",
  "chauffeur-capability-permission",
- "chauffeur-capability-project-skills",
+ "chauffeur-capability-rules",
  "chauffeur-capability-skill-exposure",
  "chauffeur-capability-tool-exposure",
- "chauffeur-capability-tool-misuse",
  "chauffeur-core",
  "chauffeur-judge-jev",
  "chauffeur-plugin-anthropic",
- "chauffeur-plugin-git",
- "chauffeur-plugin-jira",
  "chauffeur-plugin-openai",
  "serde",
  "serde_json",
@@ -261,20 +238,6 @@ name = "chauffeur-plugin-anthropic"
 version = "0.1.0"
 dependencies = [
  "chauffeur-capability-model-router",
-]
-
-[[package]]
-name = "chauffeur-plugin-git"
-version = "0.1.0"
-dependencies = [
- "chauffeur-capability-idle-reminder",
-]
-
-[[package]]
-name = "chauffeur-plugin-jira"
-version = "0.1.0"
-dependencies = [
- "chauffeur-capability-idle-reminder",
 ]
 
 [[package]]

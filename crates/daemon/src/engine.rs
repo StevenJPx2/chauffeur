@@ -6,20 +6,16 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use chauffeur_capability_event_gate::EventGate;
-use chauffeur_capability_idle_reminder::{IdleReminder, Plugin, compose};
 use chauffeur_capability_model_router::{ModelRouter, ModelRouterConfig, Provider};
 use chauffeur_capability_permission::{Permission, load_skills};
-use chauffeur_capability_project_skills::ProjectSkills;
+use chauffeur_capability_rules::{Rules, Trigger, load_dir};
 use chauffeur_capability_skill_exposure::SkillExposure;
 use chauffeur_capability_tool_exposure::{ToolExposure, ToolExposureConfig};
-use chauffeur_capability_tool_misuse::{ToolMisuse, load_contracts};
 use chauffeur_core::{
     Backstop, Capability, Effect, Engine, RedactionConfig, Redactor, Signal, load_config,
 };
 use chauffeur_judge_jev::{JevClient, JevConfig};
 use chauffeur_plugin_anthropic::AnthropicProvider;
-use chauffeur_plugin_git::GitPlugin;
-use chauffeur_plugin_jira::JiraPlugin;
 use chauffeur_plugin_openai::OpenAiProvider;
 use tokio::sync::{mpsc, oneshot};
 
@@ -38,12 +34,12 @@ pub struct EngineHandle {
 
 pub struct EngineOptions {
     pub config_dir: PathBuf,
-    /// The skills folder, holding `permission/` and `misuse/`
-    /// contracts.
+    /// The skills folder, holding `permission/` contracts and `rules/`.
     pub skills_dir: PathBuf,
     /// Jev is the System One provider.
     pub jev: JevConfig,
-    /// Idle reminders are opt-in; turn ends still reach skill exposure.
+    /// Shipped turn-end rules (idle reminders) are opt-in; tool-result and
+    /// project rules always apply.
     pub idle_reminders: bool,
     /// Where per-agent memory is kept across restarts; `None` keeps it in
     /// memory only.
@@ -196,32 +192,27 @@ fn build_engine(options: EngineOptions) -> Result<Engine, String> {
     let tools = ToolExposure::new(ToolExposureConfig::load(
         &options.config_dir.join("tool-exposure.json"),
     )?);
-    // The skills folder: `permission/` and `misuse/` contracts.
+    // The skills folder: `permission/` contracts and `rules/`.
     let permission_dir = options.skills_dir.join("permission");
     let permission = Permission::new(if permission_dir.is_dir() {
         load_skills(&permission_dir)?
     } else {
         Vec::new()
     });
-    let plugins: Vec<Box<dyn Plugin>> = vec![Box::new(JiraPlugin), Box::new(GitPlugin)];
-    let idle = options
-        .idle_reminders
-        .then(|| compose(&plugins).map(IdleReminder::new))
-        .transpose()?;
-    let misuse = ToolMisuse::new(load_contracts(&options.skills_dir.join("misuse"))?);
-    let mut capabilities: Vec<Box<dyn Capability>> = vec![
+    let mut rules = load_dir(&options.skills_dir.join("rules"))?;
+
+    if !options.idle_reminders {
+        rules.retain(|rule| rule.on != Trigger::TurnEnd);
+    }
+
+    let capabilities: Vec<Box<dyn Capability>> = vec![
         Box::new(router),
         Box::new(SkillExposure::default()),
         Box::new(tools),
         Box::new(permission),
-        Box::new(misuse),
+        Box::new(Rules::new(rules)),
         Box::new(EventGate),
-        Box::new(ProjectSkills::default()),
     ];
-
-    if let Some(idle) = idle {
-        capabilities.push(Box::new(idle));
-    }
 
     let backstop = Backstop::load(&options.config_dir.join("backstop.json"))?;
     let (learned_backstop, learned_shapes) = options

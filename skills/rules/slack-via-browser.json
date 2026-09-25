@@ -1,0 +1,21 @@
+{
+  "schema_version": 2,
+  "id": "slack-via-browser",
+  "name": "Slack through a browser",
+  "on": "tool_result",
+  "when": { "tools": ["shell", "webfetch", "execute"] },
+  "steps": [
+    {
+      "id": "misuse",
+      "question": "Does this call use a browser, browser-harness, or raw web requests to read or send Slack messages, where the slackcli command line does it directly?",
+      "yes_at_or_above": 0.7,
+      "minimum_confidence": 0.4
+    }
+  ],
+  "then": {
+    "delivery": "steer",
+    "text": "Chauffeur: Use slackcli for Slack instead of the browser; the skill below shows how.",
+    "skill": "slack-cli"
+  },
+  "cooldown_seconds": 120
+}

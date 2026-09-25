@@ -18,11 +18,10 @@ Jev), and routes the judgment to capabilities:
   or `master` always asks you; one to a rebased feature branch does not.
 - **Model router** switches to an equivalent model on a usage limit, and back
   once the limit has likely cleared.
-- **Idle reminders** (optional) nudge an idle agent with plugin rules, including
-  follow-through on sourcefed events.
-- **Tool misuse** steers the agent after a tool call that a misuse contract
-  flags, such as a hand-rolled Python patch script instead of the edit tool, or
-  the browser for Slack, and hands over the right skill.
+- **Rules** deliver context when exact facts and Jev agree: they steer the
+  agent after a tool call such as a hand-rolled Python patch script or the
+  browser for Slack, handing over the right skill; remind an idle agent of
+  follow-through (optional); and run a project's own `.chauffeur/rules/`.
 - **Event gate** decides which sourcefed events reach the agent, so only ones
   it needs to act on arrive.
 
@@ -42,11 +41,11 @@ fall back to asking you.
 cargo build --release
 ln -s "$PWD/skills" ~/.config/chauffeur/skills
 ln -s "$PWD"/skills/handoff/* ~/.agents/skills/
-./target/release/chauffeur skill validate skills/misuse/slack-via-browser.json
+./target/release/chauffeur skill validate skills/rules/slack-via-browser.json
 ```
 
 Contracts and Chauffeur's own skills live apart from the code in `skills/`
-(`permission/`, `misuse/`, `handoff/`). The daemon loads that folder from
+(`permission/`, `rules/`, `handoff/`). The daemon loads that folder from
 `CHAUFFEUR_SKILLS_DIR`, by default `~/.config/chauffeur/skills`. Link
 `skills/handoff/*` into a directory OpenCode reads, such as
 `~/.agents/skills`, so hand-overs can find them. Validation uses the same strict JSON schema and size

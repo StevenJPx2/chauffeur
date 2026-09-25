@@ -1,0 +1,21 @@
+{
+  "schema_version": 2,
+  "id": "jira-via-browser",
+  "name": "Jira through a browser",
+  "on": "tool_result",
+  "when": { "tools": ["shell", "webfetch", "execute"] },
+  "steps": [
+    {
+      "id": "misuse",
+      "question": "Does this call use a browser, browser-harness, or raw web requests to read or change Jira issues, where the jira command line does it directly?",
+      "yes_at_or_above": 0.7,
+      "minimum_confidence": 0.4
+    }
+  ],
+  "then": {
+    "delivery": "steer",
+    "text": "Chauffeur: Use the jira command line for Jira instead of the browser; the skill below shows how.",
+    "skill": "jira-cli"
+  },
+  "cooldown_seconds": 120
+}

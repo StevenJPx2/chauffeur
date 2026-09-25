@@ -1,0 +1,20 @@
+{
+  "schema_version": 2,
+  "id": "cat-to-read",
+  "name": "Reading files through the shell",
+  "on": "tool_result",
+  "when": { "tools": ["shell"] },
+  "steps": [
+    {
+      "id": "misuse",
+      "question": "Does this call view a file's contents with cat, head, or tail instead of the read tool?",
+      "yes_at_or_above": 0.65,
+      "minimum_confidence": 0.4
+    }
+  ],
+  "then": {
+    "delivery": "steer",
+    "text": "Chauffeur: View files with the read tool, not cat, head, or tail."
+  },
+  "cooldown_seconds": 120
+}

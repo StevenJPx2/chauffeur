@@ -1,0 +1,22 @@
+{
+  "schema_version": 2,
+  "id": "git-conflict-loop",
+  "name": "Git conflict loop detection",
+  "on": "turn_end",
+  "when": { "history": "session", "status": ["implementing"] },
+  "steps": [
+    {
+      "id": "stuck",
+      "question": "The agent is stuck repeating git conflict-resolution commands without making progress.",
+      "yes_at_or_above": 0.8,
+      "minimum_confidence": 0.4
+    }
+  ],
+  "then": {
+    "delivery": "resume",
+    "text": "📋 Reminder (Git conflict loop detection):\n\nYou appear stuck in a merge/rebase conflict loop. Abort the operation and escalate to a human instead of retrying."
+  },
+  "priority": 100,
+  "once": true,
+  "cooldown_seconds": 30
+}

@@ -64,10 +64,8 @@ fn skill(args: &[String]) -> Result<(), String> {
     match (args.first().map(String::as_str), args.get(1)) {
         (Some("validate"), Some(path)) => validate_skill(path),
         (Some("validate-project"), Some(path)) => {
-            let skills = chauffeur_capability_project_skills::load(path)?;
-
-            for skill in skills {
-                println!("{}: {} judgment step(s)", skill.id, skill.steps.len());
+            for rule in chauffeur_capability_rules::load_project(path)? {
+                print_rule(&rule);
             }
 
             Ok(())
@@ -76,21 +74,27 @@ fn skill(args: &[String]) -> Result<(), String> {
     }
 }
 
-/// Validate a permission contract, or a misuse contract (one with
-/// `match.tools`), and print what was accepted.
+fn print_rule(rule: &chauffeur_capability_rules::Rule) {
+    println!(
+        "{}: on {:?}, {} judgment step(s)",
+        rule.id,
+        rule.on,
+        rule.steps.len()
+    );
+}
+
+/// Validate a permission contract, or a rule (one with `on`), and print what
+/// was accepted.
 fn validate_skill(path: &str) -> Result<(), String> {
     let bytes = read_bounded(path, MAX_SIGNAL_BYTES)?;
     let value: serde_json::Value =
         serde_json::from_slice(&bytes).map_err(|error| format!("{path}: {error}"))?;
 
-    if value["match"]["tools"].is_array() {
-        let contract = chauffeur_capability_tool_misuse::MisuseContract::from_json(&bytes)
+    if value.get("on").is_some() {
+        let rule = chauffeur_capability_rules::Rule::from_json(&bytes)
             .map_err(|error| format!("{path}: {error}"))?;
 
-        println!(
-            "valid misuse contract {} watching {:?}",
-            contract.identity.id, contract.matches.tools
-        );
+        print_rule(&rule);
 
         return Ok(());
     }

@@ -47,12 +47,15 @@ pub struct Answer {
 
 impl Answer {
     /// Confidence used for thresholds. For a `Noul` without reported
-    /// confidence, the margin from an even split, `|2p - 1|`.
+    /// confidence, the margin from an even split, `|2p - 1|`, rounded to four
+    /// places so P = 0.7 meets a 0.4 minimum despite `f32` error.
     #[must_use]
     pub fn effective_confidence(&self) -> f32 {
         match (self.confidence, &self.value) {
             (Some(confidence), _) => confidence,
-            (None, AnswerValue::Noul(probability)) => (2.0 * probability - 1.0).abs(),
+            (None, AnswerValue::Noul(probability)) => {
+                ((2.0 * probability - 1.0).abs() * 10_000.0).round() / 10_000.0
+            }
             (None, _) => 0.0,
         }
     }
@@ -167,6 +170,8 @@ mod tests {
     fn noul_confidence_is_the_margin_from_even() {
         assert!((noul(0.9).effective_confidence() - 0.8).abs() < 1e-6);
         assert!((noul(0.5).effective_confidence()).abs() < 1e-6);
+        assert!(noul(0.7).effective_confidence() >= 0.4);
+        assert!(noul(0.3).effective_confidence() >= 0.4);
     }
 
     #[test]

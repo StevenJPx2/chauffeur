@@ -1,0 +1,20 @@
+{
+  "schema_version": 2,
+  "id": "grep-recursive",
+  "name": "Recursive grep",
+  "on": "tool_result",
+  "when": { "tools": ["shell"] },
+  "steps": [
+    {
+      "id": "misuse",
+      "question": "Does this call search file contents with grep -r or grep -R instead of rg?",
+      "yes_at_or_above": 0.7,
+      "minimum_confidence": 0.4
+    }
+  ],
+  "then": {
+    "delivery": "steer",
+    "text": "Chauffeur: Search file contents with rg, not grep -r: it is faster and respects .gitignore."
+  },
+  "cooldown_seconds": 120
+}

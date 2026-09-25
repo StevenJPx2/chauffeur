@@ -1,6 +1,6 @@
 [package]
-name = "chauffeur-capability-tool-misuse"
-description = "Chauffeur capability: steer the agent after a tool call that breaks the tool's best practice"
+name = "chauffeur-capability-rules"
+description = "Chauffeur rules: facts gate, Jev confirms, context is delivered"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

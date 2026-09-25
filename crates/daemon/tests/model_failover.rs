@@ -46,7 +46,7 @@ async fn usage_limit_switches_to_the_judged_same_tier_model() {
     let (jev, server) = common::serve_jev(answer);
     let config_dir = std::env::temp_dir().join("chauffeur-daemon-test-config-absent");
     let engine = EngineHandle::spawn(EngineOptions {
-        // No skills folder: no permission or misuse contracts.
+        // No skills folder: no permission contracts or rules.
         skills_dir: std::env::temp_dir().join("chauffeur-no-skills-repo"),
         config_dir,
         jev,

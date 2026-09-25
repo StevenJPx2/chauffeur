@@ -1,0 +1,27 @@
+{
+  "schema_version": 2,
+  "id": "jira-transition-after-merge",
+  "name": "Transition Jira after PR merge",
+  "on": "turn_end",
+  "when": {
+    "history": "session",
+    "source": ["jira"],
+    "hooks": ["github:merged"],
+    "tools_not_called": ["jira_transition_issue"]
+  },
+  "steps": [
+    {
+      "id": "merged",
+      "question": "The pull request has been merged.",
+      "yes_at_or_above": 0.7,
+      "minimum_confidence": 0.4
+    }
+  ],
+  "then": {
+    "delivery": "resume",
+    "text": "📋 Reminder (Transition Jira after PR merge):\n\nThe PR has been merged. Transition the Jira ticket and assign it to the reporter."
+  },
+  "priority": 20,
+  "once": true,
+  "cooldown_seconds": 30
+}

@@ -16,9 +16,9 @@ are capabilities or plugins that hang off that core.
 |---|---|
 | Sense → Classify → Act engine, System One interface, Jev provider (HTTPS via rustls), secret redaction | built |
 | Model router capability, Anthropic and OpenAI provider plugins, OpenCode signal/effect adapter | built |
-| Skill exposure, tool exposure, permission (skill contract), project-local JSON skills, idle-reminder, and tool-misuse capabilities | built |
+| Skill exposure, tool exposure, permission (skill contract), and rules (tool-result steers, idle reminders, project rules) capabilities | built |
 | Irreversible-harm backstop | built |
-| Integration events and the sourcefed event gate, model switch-back, tool-group reveal, misuse contracts, persistence across restarts | built |
+| Integration events and the sourcefed event gate, model switch-back, tool-group reveal, rules, persistence across restarts | built |
 | Ephemeral enhancements | not yet built |
 | Code Mode tool surfacing, skill-list removal, audit log, child-session inheritance | built |
 
@@ -118,7 +118,7 @@ new effect and no adapter change:
 | `permission` | answers the pending permission request: allow, deny, or ask with a message | permission contracts, the backstop |
 | `model` | switches the model (with its thinking variant) and retries, or keeps it and applies its own retry policy | model router |
 | `tools` | hides or shows named tools in this context | tool exposure |
-| `context` | adds skills (the host resolves their bodies) and text to the conversation, at a `delivery`: `prompt` (with the user message being admitted), `steer` (the running turn), `resume` (wakes an idle agent), or `wait` (for the next turn) | skill exposure, tool exposure (Code Mode notes), tool misuse, project skills, idle reminders |
+| `context` | adds skills (the host resolves their bodies) and text to the conversation, at a `delivery`: `prompt` (with the user message being admitted), `steer` (the running turn), `resume` (wakes an idle agent), or `wait` (for the next turn) | skill exposure, tool exposure (Code Mode notes), rules |
 | `gate` | delivers or withholds the integration event being gated | event gate |
 
 Every `context` delivery lands in history at the tail, so the cached prefix
@@ -211,9 +211,8 @@ come first in that prefix.
 | Permission / skill contract | each matching contract's typed question | permission request | decision | built |
 | Skill exposure | which one skill helps most, or none? is the agent using a generic approach where a skill fits? | user message; tool result and turn end | persistent | built |
 | Tool exposure | will the task need this tool group? does the latest request need a hidden group now? | first user message of a context; later user messages | tool set | built |
-| Tool misuse | each watching misuse contract's question about the call | tool result for a watched tool | persistent (steer, skill hand-over) | built |
+| Rules | each admitted rule's step, one or two rounds | tool result for a watched tool; turn end | persistent (steer, resume, or wait; skill hand-over) | built |
 | Event gate | does this integration event need the agent to act now? | integration event | decision | built |
-| Idle reminder | does each gated rule's situation hold? (one per rule) | turn end | persistent | built |
 
 Classification passes run on user message, tool result, turn end, permission
 request, model error, and integration event.
@@ -223,8 +222,8 @@ request, model error, and integration event.
 Contracts and Chauffeur-owned skills live apart from the code, in the
 top-level `skills/` folder, loaded from `CHAUFFEUR_SKILLS_DIR` (default
 `~/.config/chauffeur/skills`, usually a symlink to that folder):
-`permission/` and `misuse/` hold strict JSON contracts, and `handoff/` holds
-skills that contracts hand over (`slack-cli`, `jira-cli`, `twitter-cli`), linked into a
+`permission/` holds strict JSON permission contracts, `rules/` strict JSON
+rules, and `handoff/` skills that rules hand over (`slack-cli`, `jira-cli`, `twitter-cli`), linked into a
 directory OpenCode reads. A missing directory means no contracts of that
 kind.
 
@@ -268,45 +267,59 @@ answer, or a failed judgment leaves the ask to the user:
   sibling repository the task depends on. Credential stores (`~/.ssh`,
   `~/.aws`), system directories, and unrelated directories are a no.
 
-### Idle reminder
+### Rules
 
-Plugins contribute rules: a structural gate (status, source, hooks, tools
-called, any of a set of tools called, or tools not called), a situation, a static reminder, priority, once,
-cooldown, and a probability threshold (default 0.7). The capability tracks the
-tools each agent has run and the integration events it received, as
-`source:kind` hooks (`github:merged`). The agent is `in_review` once it opened
-a PR or any GitHub event arrives, and its source follows its Jira or GitHub
-tools and events. On a turn end every admitted rule asks whether its situation
-holds; the two highest-priority confirmed rules become reminders, delivered as
-persistent `session.synthetic` messages that resume the agent. A failed
-judgment skips the nudge. Reminders run only when the daemon has
-`CHAUFFEUR_IDLE_STEERING=true`; turn ends are always reported.
+One capability, `capabilities/rules`, and one strict JSON format
+(`schema_version: 2`) cover every "facts admit it, Jev confirms it, deliver
+context" behavior: tool-misuse steers, idle reminders, and a project's own
+follow-through. A rule declares:
 
-Rules add follow-through only. sourcefed already delivers CI failures and
-review requests to the session, so the shipped rules are `git:conflict-loop`
-and `jira:transition-after-merge` (after `github:merged` on a Jira-sourced
-agent). PR follow-through is a project-local skill contract.
+- `on`: `tool_result` (after each call; the question sees the call, and a call
+  the user explicitly asked for, exactly as asked, does not count) or
+  `turn_end` (the question sees the latest user request, so an explicit
+  instruction such as "do not create a PR" can end the rule).
+- `when`, exact facts checked before any model call. For a `tool_result`
+  rule, `tools` names the calls it watches: other tools are never judged.
+  `tools_called`, `tools_called_any`, and `tools_not_called` read the agent's
+  history, as far back as `history` reaches: `turn` (the default; since the
+  latest user message, in the current workspace) or `session`. `status`
+  (`implementing`, or `in_review` once a PR was opened or any GitHub event
+  arrived), `source` (`jira` or `github`, from tools and events), and `hooks`
+  (integration events as `source:kind`, such as `github:merged`) read the
+  session.
+- `steps`: one or two yes/no judgments, each with `yes_at_or_above` (0.5-1)
+  and `minimum_confidence`. The second is asked in a later round only after
+  the first holds.
+- `then`: the context delivered, `steer` for a tool result or `resume` or
+  `wait` at a turn end, with its `text`, an optional `label`, and an optional
+  `skill` to hand over.
+- `priority`, `once` (per agent, renewed at the next user message for a
+  `turn` rule, never for a `session` rule), and `cooldown_seconds`.
 
-### Project-local JSON skills
+A signal delivers at most two rules, highest priority first, chosen after
+every round. A failed judgment confirms nothing new; rules an earlier round
+confirmed still deliver.
 
-`capabilities/project-skills` reads `.chauffeur/skills/*.json` in the current
-Git worktree and its ancestor directories up to the Git root. A nested
-directory's contracts apply when the session runs there; another repository's
-contracts cannot enter its questions. Files are strict, bounded JSON. Each
-contract declares a `turn_end` trigger, tool-call facts, one or two ordered
-Noul judgments, confidence thresholds, and a `resume` or `wait` context
-effect. Jev judges each step; a second round runs only when its first judgment
-passes. A failed or uncertain judgment delivers nothing. `once` effects are
-recorded per session and workspace until the next user request. No agent skill
-body is attached.
+Rules come from two places. `skills/rules/` ships nine: seven steers
+(hand-rolled patch scripts, `grep -r`, `cat` to read files, and X, Slack,
+Jira, or GitHub through a browser, handing over `twitter-cli`, `slack-cli`,
+and `jira-cli`; on 13 labelled calls they made no false nudges and one near
+miss) and two session reminders, `git-conflict-loop` and
+`jira-transition-after-merge`. sourcefed already delivers CI failures and
+review requests, so reminders add follow-through only. Shipped `turn_end`
+rules run only when the daemon has `CHAUFFEUR_IDLE_STEERING=true`. Code Mode
+tools are called through `execute`, so browser use there is caught by
+watching `execute`.
 
-The HPDP Overlay worktree can keep verification and PR follow-through
-contracts in its own `.chauffeur/skills/`. The first PR judgment checks the
-latest user instruction, including a request not to create a PR; the second
-checks whether the work is verified and ready. The host supplies the current
-workspace and latest user request on turn end; tool calls are tracked by
-workspace. Use `chauffeur skill validate-project /path/to/worktree` to check
-the active contracts.
+A project keeps its own in `.chauffeur/rules/*.json`, read at each tool result
+and turn end from the Git worktree root down to the session's directory; a
+sibling repository's rules never apply, and a symlinked folder or file is
+rejected. A project rule cannot reuse a shipped rule's ID. The HPDP Overlay
+worktrees keep verification and PR follow-through rules there: the first PR
+judgment checks the latest user instruction; the second, whether the work is
+verified and ready. `chauffeur skill validate PATH` checks one rule, and
+`chauffeur skill validate-project WORKTREE` the rules a session there would
+load.
 
 ### Integration events and the event gate
 
@@ -328,22 +341,6 @@ that needed action.
 
 sourcefed tags what it delivers with `metadata.sourcefed`, and the adapter
 never reports those messages as the user's.
-
-### Tool misuse
-
-Misuse contracts live in `skills/misuse/`. Each names the tools it
-watches, a yes/no question about the call ("Does this call …?"), its bar
-(`nudge_at_or_above`, `minimum_confidence`), a steer message, an optional
-`handoff_skill`, and a cooldown. After a call to a watched tool, every watching
-contract not cooling down asks its question in the first System One request,
-shown the call first and told that a call the user explicitly asked for, exactly
-as asked, does not count. A confirmed misuse steers the running turn and
-delivers its hand-over skill. Tools no contract watches are never judged.
-Code Mode tools are called through `execute`, so browser use there is caught by
-watching `execute`. Seven contracts ship: hand-rolled patch scripts, `grep -r`,
-`cat` to read files, and X, Slack, Jira, or GitHub through a browser, handing over
-`twitter-cli`, `slack-cli`, and `jira-cli`. On 13 labelled calls they made no
-false nudges and one near miss.
 
 ### Model router
 
@@ -446,19 +443,16 @@ The adapter sends **Signals** and applies **Effects**; it holds no policy.
 | Path | Role |
 |---|---|
 | `crates/core/src` | `lib.rs`, engine, RPC protocol, optional client, and config helpers at the root; `contracts/` holds the host/capability interfaces; `state/` holds rolling context and traces; `features/` holds backstop, redaction, and learning. No capability concepts |
-| `crates/daemon` | engine thread, Jev wiring, plugin composition, HTTP RPC, sourcefed surface |
-| `skills` | permission and misuse contracts, hand-over skills |
+| `crates/daemon` | engine thread, Jev wiring, capability composition, HTTP RPC, sourcefed surface |
+| `skills` | permission contracts, shipped rules, the backstop, hand-over skills |
 | `crates/cli`, `crates/mcp` | drive the daemon |
 | `capabilities/model-router` | model-router capability and the provider tier-table contract |
 | `capabilities/skill-exposure` | skill-exposure capability |
 | `capabilities/tool-exposure` | tool-exposure capability |
 | `capabilities/permission` | permission capability and the skill-contract format |
-| `capabilities/idle-reminder` | idle-reminder capability and the rule-plugin contract |
-| `capabilities/project-skills` | project-local scoped JSON contracts and bounded Jev judgment chains |
-| `capabilities/tool-misuse` | tool-misuse capability and the misuse-contract format |
+| `capabilities/rules` | rules capability, the rule format, and shipped and project rule loading |
 | `capabilities/event-gate` | event-gate capability |
 | `plugins/anthropic`, `plugins/openai` | provider tier tables |
-| `plugins/jira`, `plugins/git` | idle-reminder rules |
 | `judges/jev` | Jev System One provider |
 | `adapters/opencode` | signals in, effects out; an Effect plugin whose hooks share the plugin scope |
 
