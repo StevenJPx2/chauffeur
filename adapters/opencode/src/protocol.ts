@@ -1,11 +1,11 @@
 import { Schema } from "effect"
-import { clip } from "./text.js"
+import { clip, clipBytes } from "./text.js"
 
 /** Signal text fields, in code points: 4 bytes each stays within the engine's 2,048-byte text bound. */
 export const TEXT_CODE_POINTS = 512
 
-// 100 code points stays within the engine's 400-byte description bound.
-const DESCRIPTION_CODE_POINTS = 100
+/** The engine's description bound. A skill's "use when…" line often comes late. */
+const DESCRIPTION_BYTES = 400
 
 /** A model as Chauffeur names it; `variant` is the host's thinking variant, absent for the default. */
 const ModelRef = Schema.Struct({
@@ -22,7 +22,7 @@ export type CatalogEntry = { id: string; description: string; bytes: number }
 export function catalogEntry(id: string, description: string, content: string): CatalogEntry {
   return {
     id: clip(id, TEXT_CODE_POINTS),
-    description: clip(description, DESCRIPTION_CODE_POINTS),
+    description: clipBytes(description, DESCRIPTION_BYTES),
     bytes: Buffer.byteLength(content, "utf8"),
   }
 }
@@ -50,6 +50,7 @@ export type SignalKind =
     tools: CatalogEntry[]
     model: ModelRef | null
     code_mode: CodeModeNamespace[]
+    workspace: string
   }
   | { type: "tool_result"; tool: string; ok: boolean; workspace: string; input: string; error: string; user_request: string; evidence: string; candidates: CatalogEntry[] }
   | { type: "turn_end"; workspace: string; user_request: string }

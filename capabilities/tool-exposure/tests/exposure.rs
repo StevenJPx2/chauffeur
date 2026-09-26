@@ -23,6 +23,7 @@ fn message(first_in_context: bool, tools: &[&str]) -> Signal {
             tools: tools.iter().copied().map(tool).collect(),
             model: None,
             code_mode: Vec::new(),
+            workspace: String::new(),
         },
     }
 }

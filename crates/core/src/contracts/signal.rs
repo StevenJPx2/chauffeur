@@ -97,6 +97,10 @@ pub enum SignalKind {
         /// this message.
         #[serde(default)]
         code_mode: Vec<CodeModeNamespace>,
+        /// The session's working directory, so a judgment can match skills
+        /// and tools to the project the request is about.
+        #[serde(default)]
+        workspace: String,
     },
     /// The agent asked to perform an action that needs permission.
     PermissionRequest {
@@ -268,14 +272,7 @@ impl SignalKind {
                 ])?;
                 validate_permission_lists(resources, user_requests)
             }
-            SignalKind::UserMessage {
-                text,
-                skills,
-                tools,
-                model,
-                code_mode,
-                ..
-            } => validate_user_message(text, skills, tools, model.as_ref(), code_mode),
+            SignalKind::UserMessage { .. } => validate_user_message(self),
         }
     }
 }
@@ -326,14 +323,21 @@ fn validate_integration_event(event: &SignalKind) -> Result<(), String> {
     bounded(body, "body")
 }
 
-fn validate_user_message(
-    text: &str,
-    skills: &[CatalogEntry],
-    tools: &[CatalogEntry],
-    model: Option<&ModelRef>,
-    code_mode: &[CodeModeNamespace],
-) -> Result<(), String> {
-    bounded(text, "text")?;
+fn validate_user_message(message: &SignalKind) -> Result<(), String> {
+    let SignalKind::UserMessage {
+        text,
+        skills,
+        tools,
+        model,
+        code_mode,
+        workspace,
+        ..
+    } = message
+    else {
+        return Ok(());
+    };
+
+    all_bounded(&[(text, "text"), (workspace, "workspace")])?;
     validate_code_mode(code_mode)?;
 
     if let Some(model) = model {

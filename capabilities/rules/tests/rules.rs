@@ -98,6 +98,7 @@ fn user_message(at: u64) -> Signal {
             tools: vec![],
             model: None,
             code_mode: vec![],
+            workspace: String::new(),
         },
     )
 }

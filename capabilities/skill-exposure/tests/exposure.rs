@@ -1,5 +1,5 @@
 use chauffeur_capability_skill_exposure::{
-    DRIFT_COOLDOWN_SECS, MAX_ATTACH_BYTES, NONE, SkillExposure,
+    DRIFT_COOLDOWN_SECS, MAX_SIGNAL_BYTES, NONE, SkillExposure,
 };
 use chauffeur_core::{
     Answer, AnswerValue, Capability, CatalogEntry, Delivery, Effect, Plan, QuestionKind, Signal,
@@ -32,6 +32,7 @@ fn message(skills: Vec<CatalogEntry>) -> Signal {
             tools: Vec::new(),
             model: None,
             code_mode: Vec::new(),
+            workspace: String::new(),
         },
     )
 }
@@ -130,16 +131,17 @@ fn a_user_message_asks_one_choice_over_unique_skills_plus_none() {
         &Situation::default(),
         &message(vec![
             skill("slack", 10),
-            skill("twitter", 10),
+            skill("jira", 10),
             skill("slack", 10),
         ]),
     );
 
+    // Neither is named in the request, so both are in the one choice.
     assert_eq!(
         offered(&plan),
         (
             "pick".into(),
-            vec!["slack".into(), "twitter".into(), NONE.into()]
+            vec!["slack".into(), "jira".into(), NONE.into()]
         )
     );
 }
@@ -149,7 +151,7 @@ fn attaches_the_confident_choice_only() {
     let mut exposure = SkillExposure::default();
     let signal = message(vec![
         skill("twitter", 10),
-        skill("huge", MAX_ATTACH_BYTES + 1),
+        skill("huge", MAX_SIGNAL_BYTES + 1),
     ]);
 
     exposure.plan(&Situation::default(), &signal);

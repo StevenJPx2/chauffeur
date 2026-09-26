@@ -82,6 +82,7 @@ async fn first_user_message_attaches_skills_and_hides_unneeded_tools() {
             ],
             model: None,
             code_mode: Vec::new(),
+            workspace: String::new(),
         },
     };
     let mut effects = engine.ingest(signal).await.expect("user message");

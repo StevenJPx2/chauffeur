@@ -129,7 +129,7 @@ export const installExposure: Effect.Effect<ExposureControl, never, Host | Daemo
     const sessionID = String(event.sessionID)
 
     return Effect.gen(function* () {
-      const { firstInContext, skills, model, agent } = yield* admission(host, event, (set) => hidden.remember(sessionID, set))
+      const { firstInContext, skills, model, agent, workspace } = yield* admission(host, event, (set) => hidden.remember(sessionID, set))
       const requestTools = hidden.requests.forAgent(agent)
 
       hidden.requests.admit(sessionID, agent)
@@ -153,6 +153,7 @@ export const installExposure: Effect.Effect<ExposureControl, never, Host | Daemo
         tools: tools.map((tool) => catalogEntry(tool.id, tool.description, "")),
         model: model ? ref(model) : null,
         code_mode: codeMode,
+        workspace,
       }), EXPOSURE_TIMEOUT)
 
       yield* apply(host, event, effects, {
@@ -266,6 +267,7 @@ function admission(host: Plugin.Context, event: SessionPrompt, remember: (set: H
       skills: yield* skillsToJudge(host, context, event),
       model: session.model,
       agent: session.agent,
+      workspace: clip(String(session.location.directory), TEXT_CODE_POINTS),
     }
   })
 }

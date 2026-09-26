@@ -22,7 +22,7 @@ test("another agent's requests do not change the tools a default-agent session j
     session: {
       hook: hooks.register,
       context: () => Effect.succeed([]),
-      get: (input: { readonly sessionID: string }) => Effect.succeed({ agent: agents.get(input.sessionID) }),
+      get: (input: { readonly sessionID: string }) => Effect.succeed({ agent: agents.get(input.sessionID), location: { directory: "/projects/notes" } }),
     },
     storage: {
       get: (key: string) => Effect.succeed(stored.get(key)),
@@ -53,6 +53,7 @@ test("another agent's requests do not change the tools a default-agent session j
   const judged = sent.at(-1)?.kind
 
   expect(judged?.type === "user_message" ? judged.tools.map((tool) => tool.id) : []).toEqual(["read", "write"])
+  expect(judged).toMatchObject({ workspace: "/projects/notes" })
 
   await plugin.close()
 })

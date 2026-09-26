@@ -345,6 +345,7 @@ fn user_message(at: u64, current: &str) -> Signal {
             tools: Vec::new(),
             model: Some(model(current)),
             code_mode: Vec::new(),
+            workspace: String::new(),
         },
     }
 }

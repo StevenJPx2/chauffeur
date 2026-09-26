@@ -98,9 +98,13 @@ any capability sees them.
 - **Egress:** shipped token prefixes in `skills/safety/redaction.json` (compiled
   in) and private-key blocks are redacted locally. Optional
   `$CHAUFFEUR_CONFIG_DIR/redaction.json` prefixes add or replace (`"replace":
-  true`) the shipped list. Unknown credential-like strings are masked locally
-  before state and question text reach Jev; Jev judges their shapes, never
-  their values. Secret and context-bound safe shapes are saved immediately in
+  true`) the shipped list. Unknown credential-like strings (24+ characters
+  mixing upper case, lower case, and digits, or 32+ hex digits after a key
+  or an authorization scheme) are masked locally before state and question
+  text reach Jev; Jev judges their shapes, never their values. A bare hex
+  string is a hash and passes. Paths and URLs are judged one segment at a
+  time, so `/Users/me/hpdp-overlay/ADEPT-45130` and a Slack thread link reach
+  Jev whole while a token inside either is still caught. Secret and context-bound safe shapes are saved immediately in
   `$CHAUFFEUR_STATE_DIR/learned-redaction.json`. Audit fields use the same
   redactor. Both learned files are separate from config so they can be reviewed.
 - **No training on Jev output.** TypeSafe's customer agreement (§2.3(b))
@@ -133,8 +137,19 @@ hidden tools hidden, so the engine judges only what the subagent adds.
 What a context has already received is rebuilt from its own history: attached
 skills are read from user messages and from synthetic messages carrying
 `chauffeur.skills` since the last compaction, and
-the hidden tools from the latest `chauffeur.hidden` metadata. A skill larger
-than 16 KiB is never attached. Everything else the engine remembers per agent
+the hidden tools from the latest `chauffeur.hidden` metadata. A request can
+get two skills, such as a Slack thread's `slack-cli` and the project's own
+skill. Exact facts about the prompt give a skill its own yes/no question
+alongside the pick: a skill named after a directory the session works in
+(`hpdp-overlay` for `…/hpdp-overlay/ADEPT-45130`) is asked "does this request
+involve this project's work?" and attached unless Jev confidently says no
+(P ≤ 0.3), since work in a repo is usually that repo's; a skill whose leading
+word the request says (`slack` in `adeptmind.slack.com` for `slack-cli`) is
+asked whether the agent needs it and attached at P ≥ 0.7. When the first
+round attaches one skill, one more round asks which other offered skill the
+request also needs. Each question says where the session works. One
+signal attaches at most 64 KiB of skills, which bounds what a wrong pick
+costs without refusing any single skill up front. Everything else the engine remembers per agent
 is persisted by the daemon (see Failure and bounds).
 
 ## Cache discipline

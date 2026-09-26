@@ -31,6 +31,7 @@ fn message() -> Signal {
         tools: Vec::new(),
         model: None,
         code_mode: Vec::new(),
+        workspace: String::new(),
     })
 }
 
