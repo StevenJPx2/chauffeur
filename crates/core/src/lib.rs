@@ -26,7 +26,7 @@ pub use client::{DEFAULT_DAEMON_URL, DaemonClient};
 pub use config::{load_config, read_json_files};
 pub use effect::{Delivery, Effect, PermissionDecision};
 pub use engine::{Engine, Step};
-pub use judge::{Judge, Pick, Rule};
+pub use judge::{Judge, Judged, Judging, Pick, Rule};
 pub use protocol::*;
 pub use redact::{LearnedShapes, Prefix, RedactionConfig, Redactor, Shape, redact_secrets};
 pub use signal::{

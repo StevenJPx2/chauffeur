@@ -137,6 +137,24 @@ fn judges_run_together_cannot_share_a_question_id() {
 }
 
 #[test]
+fn zip_runs_judges_of_different_values_side_by_side() {
+    let count = strategy::single(noul_question("group"), YES).map(usize::from);
+    let name = Judge::ask(choice_question("pick", &["safari", NONE]), |answer| {
+        Rule::pick(0.4).chosen(answer)
+    });
+    let ((count, name), asked) = run(
+        count.zip(name),
+        vec![Some(vec![
+            noul("group", 0.9),
+            picked("pick", "safari", 0.9),
+        ])],
+    );
+
+    assert_eq!((count, name.as_deref()), (1, Some("safari")));
+    assert_eq!(asked, [vec!["group", "pick"]]);
+}
+
+#[test]
 fn a_judge_still_asking_when_rounds_run_out_settles_as_failed() {
     let judge = strategy::single(noul_question("first"), YES)
         .then(|_| strategy::single(noul_question("second"), YES));
@@ -151,7 +169,11 @@ fn a_judge_still_asking_when_rounds_run_out_settles_as_failed() {
 #[test]
 fn rules_read_yes_unless_no_and_picks() {
     let unless = Rule::unless_no(0.3, 0.4);
+    let no = Rule::no(0.3, 0.4);
     let pick = Rule::pick(0.4);
+
+    assert!(no.holds(Some(&noul("a", 0.1))) && !no.holds(Some(&noul("a", 0.5))));
+    assert!(!no.holds(None), "a failed call is not a confident no");
 
     assert!(YES.holds(Some(&noul("a", 0.7))) && !YES.holds(Some(&noul("a", 0.6))));
     assert!(unless.holds(Some(&noul("a", 0.55))) && unless.holds(Some(&noul("a", 0.35))));

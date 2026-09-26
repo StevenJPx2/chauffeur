@@ -13,7 +13,8 @@ use crate::system_one::{Answer, Question, QuestionKind, SystemOne, validate_answ
 use crate::trace::{Trace, TracedAnswer, TracedQuestion};
 
 pub const MAX_AGENTS: usize = 256;
-const MAX_ROUNDS: usize = 2;
+/// System One rounds per signal, at most.
+pub const MAX_ROUNDS: usize = 2;
 /// Bumped when the saved state's shape changes; older state is ignored.
 const STATE_VERSION: u32 = 1;
 

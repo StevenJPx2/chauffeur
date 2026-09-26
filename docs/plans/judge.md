@@ -33,12 +33,14 @@ Four primitives build every judge:
 | `judge.then(f)` | when `judge` finishes with `v`, continue as `f(v)` | sum |
 | `Judge::all(judges)` | run judges side by side, questions in the same rounds; finishes with all their values | max |
 
-`map` follows from `then`. Question IDs within a round must be unique; `all` checks this.
+`map` follows from `then`, and `a.zip(b)` is `all` for two judges of different value
+types. Question IDs within a round must be unique; `all` and `zip` check this.
 
 Answers are read through **rules**, the one place thresholds live:
 
 ```rust
 Rule::yes(0.7, 0.4).holds(answer)        // P ≥ 0.7, confident
+Rule::no(0.3, 0.4).holds(answer)         // P ≤ 0.3, confident
 Rule::unless_no(0.3, 0.4).holds(answer)  // not a confident P ≤ 0.3
 Rule::pick(0.4).chosen(answer)           // Some(option) other than `none`, confident
 ```
@@ -95,7 +97,9 @@ let skills = Judging::new(SkillExposure::default());   // a Capability, composed
 ```
 
 The engine's contract is unchanged: capabilities still ask through `plan` and `advance`,
-and one System One call per round carries every capability's questions.
+and one System One call per round carries every capability's questions. `Judging` asks
+again only after a successful call with rounds remaining; otherwise it settles the judge,
+so a verdict is always acted on.
 
 ## Migration
 
@@ -108,7 +112,7 @@ and one System One call per round carries every capability's questions.
 | tool exposure — missing-tool recovery | pick, `then` confirm |
 | rules | `chain` over admitted rules |
 | monitors | `fan_out` over candidates |
-| event gate | `single` with `Rule::unless_no` |
+| event gate | `single` with `Rule::no`: withhold on a confident no |
 | model router | `single` with `Rule::pick` |
 | permission | stays on its contracts, which map answers to allow, ask, or deny |
 

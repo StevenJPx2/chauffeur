@@ -4,9 +4,11 @@
 //! every judge: [`Judge::done`], [`Judge::ask`], [`Judge::then`], and
 //! [`Judge::all`]. Judging strategies ([`strategy`]) are compositions of them.
 
+mod judged;
 mod rule;
 pub mod strategy;
 
+pub use judged::{Judged, Judging};
 pub use rule::{NONE, Pick, Rule};
 
 use std::collections::HashSet;
@@ -67,6 +69,36 @@ impl<T: Send + 'static> Judge<T> {
                 questions,
                 next: Box::new(move |answers| next(answers).then(f)),
             },
+        }
+    }
+
+    /// This judge and `other` side by side, in the same rounds; finishes
+    /// with both values once both have.
+    #[must_use]
+    pub fn zip<U: Send + 'static>(self, other: Judge<U>) -> Judge<(T, U)> {
+        match (self, other) {
+            (Self::Done(left), Judge::Done(right)) => Judge::Done((left, right)),
+            (left, right) => {
+                let questions: Vec<Question> = left
+                    .questions()
+                    .iter()
+                    .chain(right.questions())
+                    .cloned()
+                    .collect();
+                let mut ids = HashSet::new();
+
+                debug_assert!(
+                    questions
+                        .iter()
+                        .all(|question| ids.insert(question.id.clone())),
+                    "judges run together must ask distinct question IDs"
+                );
+
+                Judge::Asking {
+                    questions,
+                    next: Box::new(move |answers| left.step(answers).zip(right.step(answers))),
+                }
+            }
         }
     }
 

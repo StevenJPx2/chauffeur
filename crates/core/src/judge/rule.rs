@@ -18,6 +18,8 @@ pub struct Rule {
 enum Kind {
     /// A confident yes: P ≥ `at`.
     Yes,
+    /// A confident no: P ≤ `at`.
+    No,
     /// Anything but a confident no: not P ≤ `at`.
     UnlessNo,
 }
@@ -30,6 +32,17 @@ impl Rule {
             at,
             confidence,
             kind: Kind::Yes,
+        }
+    }
+
+    /// Holds on P(yes) ≤ `at` with at least `confidence`: a confident no,
+    /// such as a tool group the task will not need.
+    #[must_use]
+    pub const fn no(at: f32, confidence: f32) -> Self {
+        Self {
+            at,
+            confidence,
+            kind: Kind::No,
         }
     }
 
@@ -62,6 +75,7 @@ impl Rule {
 
         match self.kind {
             Kind::Yes => p >= self.at && confident,
+            Kind::No => p <= self.at && confident,
             Kind::UnlessNo => !(p <= self.at && confident),
         }
     }
