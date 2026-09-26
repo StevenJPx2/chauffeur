@@ -20,6 +20,9 @@ const MIN_MIXED_LEN: usize = 24;
 /// …or at least this long in hex.
 const MIN_HEX_LEN: usize = 32;
 const MAX_PREFIX_LEN: usize = 10;
+const HEX: &str = "hex";
+/// Authorization schemes whose value follows a space, not `=` or `:`.
+const SCHEMES: [&str; 2] = ["bearer", "basic"];
 
 /// A known credential format: a fixed prefix and a minimum body.
 #[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
@@ -143,6 +146,14 @@ impl Redactor {
     /// Redact `text`, collecting unknown credential-like shapes in `masking`.
     pub fn redact(&self, text: &str, masking: &mut Masking) -> String {
         walk(text, |word, before| {
+            if url_path(word, before) {
+                return word
+                    .split('/')
+                    .map(|segment| self.replace_word(segment, before, masking))
+                    .collect::<Vec<_>>()
+                    .join("/");
+            }
+
             self.replace_word(word, before, masking)
         })
     }
@@ -160,6 +171,13 @@ impl Redactor {
         if self.secret.contains(&shape) {
             return REDACTED.into();
         }
+
+        // A bare hex string is a commit or content hash; after a key it may
+        // be a credential, and is judged.
+        if shape.class == HEX && key_before(before).is_empty() {
+            return word.into();
+        }
+
         shape.context = key_before(before).chars().take(32).collect();
         if self.safe.contains(&shape) {
             return word.into();
@@ -224,7 +242,7 @@ fn shape(word: &str) -> Option<Shape> {
     }
 
     let class = if hex {
-        "hex"
+        HEX
     } else if word.contains(['+', '/']) {
         "base64"
     } else {
@@ -243,9 +261,36 @@ fn shape(word: &str) -> Option<Shape> {
     })
 }
 
-/// The key a value follows, such as `api_key=` in `api_key=abc…`.
+/// Whether `word` is a path: an absolute or home path such as
+/// `/Users/me/hpdp-overlay/ADEPT-45130`, or a URL's path such as
+/// `com/archives/C08/p1790…` after `https://acme.slack.`. Its segments are
+/// judged one by one, so the path survives while a token in it is still
+/// caught. A value after `key=` or `key:` stays whole, as base64 with `/`
+/// would.
+fn url_path(word: &str, before: &str) -> bool {
+    let in_url = before
+        .rsplit(char::is_whitespace)
+        .next()
+        .is_some_and(|token| token.contains("://"));
+    let absolute = word.starts_with('/') || before.ends_with('~');
+
+    word.contains('/') && key_before(before).is_empty() && (in_url || absolute)
+}
+
+/// The key a value follows, such as `api_key=` in `api_key=abc…`, or an
+/// authorization scheme such as `Bearer` in `Bearer abc…`.
 fn key_before(before: &str) -> &str {
     let trimmed = before.trim_end_matches(['"', '\'', ' ']);
+    let scheme = SCHEMES.iter().find_map(|scheme| {
+        let start = trimmed.len().checked_sub(scheme.len())?;
+        let tail = trimmed.get(start..)?;
+
+        tail.eq_ignore_ascii_case(scheme).then_some(tail)
+    });
+
+    if let Some(scheme) = scheme {
+        return scheme;
+    }
 
     if !trimmed.ends_with(['=', ':']) {
         return "";
@@ -363,6 +408,50 @@ mod tests {
         let text = "key AKIAABCDEFGHIJKLMNOP and ghp_abcdefghijklmnopqrstuvwxyz0123 done";
 
         assert_eq!(redact_secrets(text), "key [REDACTED] and [REDACTED] done");
+    }
+
+    #[test]
+    fn a_url_path_survives_while_tokens_in_urls_are_still_caught() {
+        let redactor = redactor();
+        let mut masking = Masking::default();
+        let slack =
+            "https://adeptmind.slack.com/archives/C08ABCDEF12/p1790340000123456 Can you fix this?";
+        let github = "https://github.com/StevenJPx2/chauffeur/pull/42";
+        let token = "https://x.com/api/ghp_abcdefghijklmnopqrstuvwxyz0123/repos";
+        let query = "https://x.com/cb?sig=Zx9kQ2mP7vL4/nR8sT1wY6uB3cD5fG0hJ+aa";
+
+        let path = "cd /Users/stevenjohn/Documents/Adeptmind/Projects/hpdp-overlay/ADEPT-45130 && ls ~/Projects/ADEPT-45130/src";
+
+        assert_eq!(redactor.redact(path, &mut masking), path);
+
+        // A bare hash passes; a hex value after a key or scheme is judged.
+        let sha = "3f786850e387550fdab836ed7e6dc881de23001b";
+
+        assert_eq!(
+            redactor.redact(&format!("git show {sha}"), &mut masking),
+            format!("git show {sha}")
+        );
+        assert!(
+            !redactor
+                .redact(&format!("Authorization: Bearer {sha}"), &mut masking)
+                .contains(sha)
+        );
+        assert!(
+            !redactor
+                .redact(&format!("X-Api-Key: {sha}"), &mut masking)
+                .contains(sha)
+        );
+        assert_eq!(redactor.redact(slack, &mut masking), slack);
+        assert_eq!(redactor.redact(github, &mut masking), github);
+        assert_eq!(
+            redactor.redact(token, &mut masking),
+            "https://x.com/api/[REDACTED]/repos"
+        );
+        assert!(
+            redactor
+                .redact(query, &mut masking)
+                .contains("sig=[string ")
+        );
     }
 
     #[test]
