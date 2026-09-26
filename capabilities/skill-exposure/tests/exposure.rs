@@ -2,8 +2,8 @@ use chauffeur_capability_skill_exposure::{
     DRIFT_COOLDOWN_SECS, MAX_SIGNAL_BYTES, NONE, SkillExposure,
 };
 use chauffeur_core::{
-    Answer, AnswerValue, Capability, CatalogEntry, Delivery, Effect, Plan, QuestionKind, Signal,
-    SignalKind, Situation,
+    Answer, AnswerValue, Capability, CatalogEntry, Delivery, Effect, Judging, Plan, QuestionKind,
+    Signal, SignalKind, Situation,
 };
 
 fn skill(id: &str, bytes: u64) -> CatalogEntry {
@@ -124,58 +124,70 @@ fn offered(plan: &Plan) -> (String, Vec<String>) {
     )
 }
 
+fn noul(id: &str, p: f32) -> Answer {
+    Answer {
+        id: id.into(),
+        value: AnswerValue::Noul(p),
+        confidence: None,
+    }
+}
+
 #[test]
-fn a_user_message_asks_one_choice_over_unique_skills_plus_none() {
-    let mut exposure = SkillExposure::default();
-    let plan = exposure.plan(
+fn a_user_message_asks_one_yes_no_per_unique_skill() {
+    let mut exposure = Judging::new(SkillExposure::default());
+    let Plan::Ask(questions) = exposure.plan(
         &Situation::default(),
         &message(vec![
             skill("slack", 10),
             skill("jira", 10),
             skill("slack", 10),
         ]),
-    );
+    ) else {
+        panic!("expected questions")
+    };
+    let ids: Vec<&str> = questions
+        .iter()
+        .map(|question| question.id.as_str())
+        .collect();
 
-    // Neither is named in the request, so both are in the one choice.
-    assert_eq!(
-        offered(&plan),
-        (
-            "pick".into(),
-            vec!["slack".into(), "jira".into(), NONE.into()]
-        )
+    assert_eq!(ids, ["skill:slack", "skill:jira"]);
+    assert!(
+        questions
+            .iter()
+            .all(|question| question.kind == QuestionKind::Noul)
     );
 }
 
 #[test]
-fn attaches_the_confident_choice_only() {
-    let mut exposure = SkillExposure::default();
+fn every_confidently_needed_skill_attaches_within_the_budget() {
+    let mut exposure = Judging::new(SkillExposure::default());
     let signal = message(vec![
-        skill("twitter", 10),
+        skill("slack", 10),
+        skill("jira", 10),
+        skill("rust", 10),
         skill("huge", MAX_SIGNAL_BYTES + 1),
     ]);
 
     exposure.plan(&Situation::default(), &signal);
 
-    assert_eq!(
-        exposure.decide(&signal, Some(&[choice("pick", "twitter", 0.9)])),
-        attached("twitter")
+    let effects = exposure.decide(
+        &signal,
+        Some(&[
+            noul("skill:slack", 0.8),
+            noul("skill:jira", 0.95),
+            noul("skill:rust", 0.6),
+            noul("skill:huge", 0.99),
+        ]),
     );
-    assert!(
-        exposure
-            .decide(&signal, Some(&[choice("pick", NONE, 0.9)]))
-            .is_empty()
-    );
-    assert!(
-        exposure
-            .decide(&signal, Some(&[choice("pick", "huge", 0.9)]))
-            .is_empty()
-    );
+
+    // Most likely first; unsure and oversized skills stay out.
+    assert_eq!(effects, [attached("jira"), attached("slack")].concat());
     assert!(exposure.decide(&signal, None).is_empty());
 }
 
 #[test]
 fn a_tool_result_checks_for_drift_with_a_cooldown_and_never_reoffers() {
-    let mut exposure = SkillExposure::default();
+    let mut exposure = Judging::new(SkillExposure::default());
 
     exposure.plan(
         &Situation::default(),
@@ -216,7 +228,7 @@ fn a_tool_result_checks_for_drift_with_a_cooldown_and_never_reoffers() {
 
 #[test]
 fn a_weak_browser_hand_over_after_effective_gh_use_stays_silent() {
-    let mut exposure = SkillExposure::default();
+    let mut exposure = Judging::new(SkillExposure::default());
     let tool = gh_call(10);
 
     exposure.plan(
@@ -238,7 +250,7 @@ fn a_weak_browser_hand_over_after_effective_gh_use_stays_silent() {
 
 #[test]
 fn browser_handoff_requires_actual_browser_use_during_drift() {
-    let mut exposure = SkillExposure::default();
+    let mut exposure = Judging::new(SkillExposure::default());
 
     exposure.plan(
         &Situation::default(),
@@ -259,7 +271,7 @@ fn browser_handoff_requires_actual_browser_use_during_drift() {
 
 #[test]
 fn skips_without_a_known_catalog() {
-    let mut exposure = SkillExposure::default();
+    let mut exposure = Judging::new(SkillExposure::default());
 
     assert_eq!(
         exposure.plan(&Situation::default(), &tool_result(1)),

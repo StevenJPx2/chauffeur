@@ -15,17 +15,13 @@ fn answer(request: &Value) -> Value {
     assert_eq!(
         ids,
         vec![
-            "skill-exposure/pick",
+            "skill-exposure/skill:hpdp-overlay",
+            "skill-exposure/skill:slidev",
             "tool-exposure/browser",
             "tool-exposure/github"
         ]
     );
-
-    let skills = questions["skill-exposure/pick"]["criteria"]
-        .as_object()
-        .expect("skill options");
-
-    assert!(skills.contains_key("hpdp-overlay") && skills.contains_key("none"));
+    assert_eq!(questions["skill-exposure/skill:slidev"]["type"], "noul");
     assert!(
         request["state"]
             .as_str()
@@ -34,7 +30,8 @@ fn answer(request: &Value) -> Value {
     );
 
     json!({
-        "skill-exposure/pick": {"type": "choice", "confidence": 0.9, "choice": "hpdp-overlay"},
+        "skill-exposure/skill:hpdp-overlay": {"type": "noul", "noul": 0.9},
+        "skill-exposure/skill:slidev": {"type": "noul", "noul": 0.05},
         "tool-exposure/browser": {"type": "noul", "confidence": 0.8, "noul": 0.9},
         "tool-exposure/github": {"type": "noul", "confidence": 0.8, "noul": 0.1},
     })

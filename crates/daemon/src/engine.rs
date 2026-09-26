@@ -13,7 +13,7 @@ use chauffeur_capability_rules::{Rules, Trigger, load_dir};
 use chauffeur_capability_skill_exposure::SkillExposure;
 use chauffeur_capability_tool_exposure::{ToolExposure, ToolExposureConfig};
 use chauffeur_core::{
-    Backstop, Capability, Effect, Engine, RedactionConfig, Redactor, Signal, load_config,
+    Backstop, Capability, Effect, Engine, Judging, RedactionConfig, Redactor, Signal, load_config,
 };
 use chauffeur_judge_jev::{JevClient, JevConfig};
 use chauffeur_plugin_anthropic::AnthropicProvider;
@@ -212,7 +212,7 @@ fn build_engine(options: EngineOptions) -> Result<Engine, String> {
 
     let mut capabilities: Vec<Box<dyn Capability>> = vec![
         Box::new(router),
-        Box::new(SkillExposure::default()),
+        Box::new(Judging::new(SkillExposure::default())),
         Box::new(tools),
         Box::new(permission),
         Box::new(Rules::new(rules)),

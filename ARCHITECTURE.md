@@ -150,19 +150,22 @@ hidden tools hidden, so the engine judges only what the subagent adds.
 What a context has already received is rebuilt from its own history: attached
 skills are read from user messages and from synthetic messages carrying
 `chauffeur.skills` since the last compaction, and
-the hidden tools from the latest `chauffeur.hidden` metadata. A request can
-get two skills, such as a Slack thread's `slack-cli` and the project's own
-skill. Exact facts about the prompt give a skill its own yes/no question
-alongside the pick: a skill named after a directory the session works in
+the hidden tools from the latest `chauffeur.hidden` metadata.
+
+A prompt, or the agent's `ask_chauffeur` request, fans out: one yes/no
+question per offered skill in a single call, and every skill the request
+needs is attached, most likely first. Exact facts choose a skill's wording
+and rule. A skill named after a directory the session works in
 (`hpdp-overlay` for `…/hpdp-overlay/ADEPT-45130`) is asked "does this request
 involve this project's work?" and attached unless Jev confidently says no
-(P ≤ 0.3), since work in a repo is usually that repo's; a skill whose leading
+(P ≤ 0.3), since work in a repo is usually that repo's. A skill whose leading
 word the request says (`slack` in `adeptmind.slack.com` for `slack-cli`) is
-asked whether the agent needs it and attached at P ≥ 0.7. When the first
-round attaches one skill, one more round asks which other offered skill the
-request also needs. Each question says where the session works. One
-signal attaches at most 64 KiB of skills, which bounds what a wrong pick
-costs without refusing any single skill up front. Everything else the engine remembers per agent
+asked whether the agent needs it; every other skill whether the request needs
+it; both attach at P ≥ 0.7. Each question says where the session works. One
+signal attaches at most four skills and 64 KiB, which bounds what a wrong pick
+costs without refusing any single skill up front; a skill over what is left
+is skipped for a smaller one. The drift hand-over after a tool result stays a
+single pick. Everything else the engine remembers per agent
 is persisted by the daemon (see Failure and bounds).
 
 ## Cache discipline
@@ -237,7 +240,7 @@ come first in that prefix.
 |---|---|---|---|---|
 | Model router | switch, and to which same-tier model, or stay? has the limit on the model left behind cleared? | model usage-limit error; user message after a switch | decision | built |
 | Permission / skill contract | each matching contract's typed question | permission request | decision | built |
-| Skill exposure | which one skill helps most, or none? is the agent using a generic approach where a skill fits? which skill serves the agent's request? | user message; tool result and turn end; `ask_chauffeur` | persistent | built |
+| Skill exposure | does the request need each offered skill? (fan-out) is the agent using a generic approach where a skill fits? | user message; tool result and turn end; `ask_chauffeur` | persistent | built |
 | Tool exposure | will the task need this tool group? does the latest request need a hidden group now? which hidden group or Code Mode namespace serves the agent's request? | first user message of a context; later user messages; `ask_chauffeur` | tool set; Code Mode note | built |
 | Rules | each admitted rule's step, one or two rounds | tool result for a watched tool; turn end | persistent (steer, resume, or wait; skill hand-over) | built |
 | Event gate | does this integration event need the agent to act now? (told what the event's monitor watches) | integration event | decision | built |
