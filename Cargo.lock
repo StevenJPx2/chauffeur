@@ -123,6 +123,8 @@ version = "0.1.0"
 dependencies = [
  "chauffeur-capability-monitors",
  "chauffeur-core",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

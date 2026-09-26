@@ -1,0 +1,5 @@
+{
+  "irreversible": { "at": 0.9, "confidence": 0.6 },
+  "secret": { "at": 0.7, "confidence": 0.6 },
+  "safe": { "at": 0.3, "confidence": 0.6 }
+}

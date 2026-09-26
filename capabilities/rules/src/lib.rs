@@ -2,31 +2,81 @@
 //! agent's exact facts asks Jev its first step; a rule whose steps all hold
 //! delivers its context, highest priority first. One format serves shipped
 //! rules (`skills/rules/`) and a project's own (`.chauffeur/rules/`). Run it
-//! as `Judging::new(Rules::new(rules))`.
+//! as `Judging::new(Rules::new(rules))`, with your limits as
+//! `Rules::new(rules).with_config(RulesConfig::load(path)?)`.
 
 mod history;
 mod rule;
 mod source;
 
 use std::collections::HashMap;
+use std::path::Path;
 
 use chauffeur_core::judge::{
     self,
     strategy::{self, Chained},
 };
 use chauffeur_core::{
-    Effect, Judge, Judged, Question, QuestionKind, Signal, SignalKind, Situation,
+    Effect, Judge, Judged, Question, QuestionKind, Signal, SignalKind, Situation, load_layered,
 };
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 
 use history::Histories;
 pub use rule::{Gate, History, Rule, SCHEMA_VERSION, Step, Then, Trigger};
 pub use source::{load_dir, load_project};
 
 pub const ID: &str = "rules";
-/// Contexts one signal delivers, at most.
-pub const MAX_DELIVERIES: usize = 2;
+/// The most contexts any config lets one signal deliver.
+pub const MAX_DELIVERIES_CAP: usize = 8;
 const MAX_FIRED: usize = 4_096;
+/// The shipped limits (`skills/config/rules.json`), compiled in.
+const SHIPPED: &str = include_str!("../../../skills/config/rules.json");
+
+/// How much the rules deliver.
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct RulesConfig {
+    /// Contexts one signal delivers, at most; from 1 to
+    /// [`MAX_DELIVERIES_CAP`].
+    #[serde(deserialize_with = "deliveries")]
+    max_deliveries: usize,
+}
+
+impl RulesConfig {
+    /// The shipped limits overlaid by your `rules.json` at `path`.
+    ///
+    /// # Errors
+    ///
+    /// When your file is unreadable, invalid, or `max_deliveries` is outside
+    /// `1..=`[`MAX_DELIVERIES_CAP`].
+    pub fn load(path: &Path) -> Result<Self, String> {
+        load_layered(SHIPPED, path)
+    }
+
+    /// Contexts one signal delivers, at most.
+    #[must_use]
+    pub const fn max_deliveries(&self) -> usize {
+        self.max_deliveries
+    }
+}
+
+impl Default for RulesConfig {
+    fn default() -> Self {
+        serde_json::from_str(SHIPPED).expect("shipped rules limits are valid")
+    }
+}
+
+fn deliveries<'de, D: Deserializer<'de>>(deserializer: D) -> Result<usize, D::Error> {
+    let count = usize::deserialize(deserializer)?;
+
+    if !(1..=MAX_DELIVERIES_CAP).contains(&count) {
+        return Err(serde::de::Error::custom(format!(
+            "max_deliveries {count} is outside 1..={MAX_DELIVERIES_CAP}"
+        )));
+    }
+
+    Ok(count)
+}
 
 /// When a rule last delivered to an agent, and whether `once` is spent.
 #[derive(Clone, Copy, Deserialize, Serialize)]
@@ -39,6 +89,7 @@ struct Fired {
 
 pub struct Rules {
     shipped: Vec<Rule>,
+    config: RulesConfig,
     histories: Histories,
     fired: HashMap<(String, String), Fired>,
     /// The latest project-rule error, logged once until it changes.
@@ -60,14 +111,23 @@ struct SavedRef<'a> {
 
 impl Rules {
     /// `shipped` rules apply everywhere; project rules load per workspace.
+    /// The shipped limits apply.
     #[must_use]
     pub fn new(shipped: Vec<Rule>) -> Self {
         Self {
             shipped,
+            config: RulesConfig::default(),
             histories: Histories::default(),
             fired: HashMap::new(),
             project_error: None,
         }
+    }
+
+    /// These rules within `config`'s limits.
+    #[must_use]
+    pub fn with_config(mut self, config: RulesConfig) -> Self {
+        self.config = config;
+        self
     }
 
     /// Shipped rules, then the workspace's own. A project rule that reuses a
@@ -222,11 +282,11 @@ impl Judged for Rules {
     }
 
     /// The confirmed rules' contexts, highest priority first, within
-    /// [`MAX_DELIVERIES`]. Among equal priorities, a rule confirmed in an
-    /// earlier round, having fewer steps, comes first.
+    /// [`RulesConfig::max_deliveries`]. Among equal priorities, a rule
+    /// confirmed in an earlier round, having fewer steps, comes first.
     fn act(&mut self, signal: &Signal, mut confirmed: Vec<Rule>) -> Vec<Effect> {
         confirmed.sort_by_key(|rule| (std::cmp::Reverse(rule.priority), rule.steps.len()));
-        confirmed.truncate(MAX_DELIVERIES);
+        confirmed.truncate(self.config.max_deliveries());
 
         confirmed
             .into_iter()

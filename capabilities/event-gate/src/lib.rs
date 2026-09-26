@@ -2,36 +2,73 @@
 //! agent. System One judges whether the event needs the agent to act; only a
 //! confident "no" withholds it, so a failed or unsure judgment delivers. With
 //! the integration's monitors, the question also says what the event's
-//! monitor follows. Run it as `Judging::new(EventGate::default())`.
+//! monitor follows. Run it as `Judging::new(EventGate::default())`, with
+//! your bar as `EventGate::default().with_config(EventGateConfig::load(path)?)`.
 
+use std::path::Path;
 use std::sync::Arc;
 
 use chauffeur_capability_monitors::Monitors;
 use chauffeur_core::judge::strategy;
 use chauffeur_core::{
-    Effect, Judge, Judged, Question, QuestionKind, Rule, Signal, SignalKind, Situation,
+    Effect, Judge, Judged, Question, QuestionKind, Signal, SignalKind, Situation, Threshold,
+    load_layered,
 };
+use serde::Deserialize;
 
 pub const ID: &str = "event-gate";
-/// Withhold only when P(show) is at most this…
-pub const WITHHOLD_AT_OR_BELOW: f32 = 0.3;
-/// …and the answer is at least this confident.
-pub const MIN_CONFIDENCE: f32 = 0.4;
 const QUESTION: &str = "show";
 const MAX_BODY_CHARS: usize = 600;
+/// The shipped bar (`skills/config/event-gate.json`), compiled in.
+const SHIPPED: &str = include_str!("../../../skills/config/event-gate.json");
+
+/// When an event is withheld.
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct EventGateConfig {
+    /// A confident no at or below this bar withholds the event; anything
+    /// else delivers it.
+    pub withhold: Threshold,
+}
+
+impl EventGateConfig {
+    /// The shipped bar overlaid by your `event-gate.json` at `path`.
+    ///
+    /// # Errors
+    ///
+    /// When your file is unreadable, invalid, or a bar is outside `[0, 1]`.
+    pub fn load(path: &Path) -> Result<Self, String> {
+        load_layered(SHIPPED, path)
+    }
+}
+
+impl Default for EventGateConfig {
+    fn default() -> Self {
+        serde_json::from_str(SHIPPED).expect("shipped event-gate bar is valid")
+    }
+}
 
 #[derive(Default)]
 pub struct EventGate {
     monitors: Option<Arc<dyn Monitors>>,
+    config: EventGateConfig,
 }
 
 impl EventGate {
-    /// A gate that looks up the monitor behind each event.
+    /// A gate that looks up the monitor behind each event, at the shipped bar.
     #[must_use]
     pub fn with_monitors(monitors: Arc<dyn Monitors>) -> Self {
         Self {
             monitors: Some(monitors),
+            config: EventGateConfig::default(),
         }
+    }
+
+    /// This gate at `config`'s bar.
+    #[must_use]
+    pub const fn with_config(mut self, config: EventGateConfig) -> Self {
+        self.config = config;
+        self
     }
 
     /// What the event's monitor follows, as a sentence; empty when unknown.
@@ -100,10 +137,7 @@ impl Judged for EventGate {
             kind: QuestionKind::Noul,
         };
 
-        Some(strategy::single(
-            question,
-            Rule::no(WITHHOLD_AT_OR_BELOW, MIN_CONFIDENCE),
-        ))
+        Some(strategy::single(question, self.config.withhold.no()))
     }
 
     fn act(&mut self, signal: &Signal, withhold: bool) -> Vec<Effect> {

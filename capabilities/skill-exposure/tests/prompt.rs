@@ -1,7 +1,7 @@
 //! A prompt, or the agent's own request, judges every offered skill in one
 //! call; every skill it needs is attached, most likely first, within budget.
 
-use chauffeur_capability_skill_exposure::{MAX_SIGNAL_BYTES, SkillExposure};
+use chauffeur_capability_skill_exposure::{SkillExposure, SkillExposureConfig};
 use chauffeur_core::{
     Answer, AnswerValue, CatalogEntry, Delivery, Effect, Engine, Judging, Signal, SignalKind, Step,
 };
@@ -165,7 +165,7 @@ fn the_project_skill_needs_only_the_absence_of_a_confident_no() {
 #[test]
 fn skills_attach_within_the_prompt_budget() {
     let mut engine = engine();
-    let large = u32::try_from(MAX_SIGNAL_BYTES - 1_000).unwrap();
+    let large = u32::try_from(SkillExposureConfig::default().budget.bytes - 1_000).unwrap();
 
     engine
         .begin(&prompt(

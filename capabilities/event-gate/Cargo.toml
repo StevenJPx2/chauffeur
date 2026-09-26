@@ -10,6 +10,8 @@ repository.workspace = true
 [dependencies]
 chauffeur-core = { workspace = true }
 chauffeur-capability-monitors = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
 
 [lints]
 workspace = true

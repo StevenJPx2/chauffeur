@@ -5,7 +5,7 @@ use std::collections::{HashMap, HashSet};
 use crate::backstop::Backstop;
 use crate::capability::{Capability, PipeStep, Plan};
 use crate::effect::{Effect, PermissionDecision};
-use crate::learning::{self, Probe};
+use crate::learning::{self, LearningConfig, Probe};
 use crate::redact::{LearnedShapes, Masking, RedactionConfig, Redactor};
 use crate::signal::Signal;
 use crate::situation::Situation;
@@ -25,6 +25,7 @@ pub struct Engine {
     backstop: Backstop,
     redactor: Redactor,
     /// The backstop or redactor learned something since the host last asked.
+    learning: LearningConfig,
     learned_changed: bool,
     trace: Trace,
     pending: Option<Pending>,
@@ -83,9 +84,17 @@ impl Engine {
             trace: Trace::default(),
             backstop: Backstop::new(Vec::new()),
             redactor: Redactor::new(RedactionConfig::default(), LearnedShapes::default())?,
+            learning: LearningConfig::default(),
             learned_changed: false,
             pending: None,
         })
+    }
+
+    /// Replace the shipped learning bars, for example with your `learning.json`.
+    #[must_use]
+    pub fn with_learning(mut self, learning: LearningConfig) -> Self {
+        self.learning = learning;
+        self
     }
 
     /// Replace the default backstop, for example with project patterns.
@@ -365,7 +374,12 @@ impl Engine {
     /// Grow the safety lists from the core answers; `true` when the command
     /// was judged irreversible.
     fn learn(&mut self, probe: &Probe, answers: &[Answer]) -> bool {
-        let (learned, irreversible) = probe.learn(answers, &mut self.backstop, &mut self.redactor);
+        let (learned, irreversible) = probe.learn(
+            &self.learning,
+            answers,
+            &mut self.backstop,
+            &mut self.redactor,
+        );
 
         self.learned_changed |= !learned.is_empty();
         self.trace.learned = learned;

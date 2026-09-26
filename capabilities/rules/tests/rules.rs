@@ -4,7 +4,9 @@
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use chauffeur_capability_rules::{MAX_DELIVERIES, Rule, Rules, load_dir, load_project};
+use chauffeur_capability_rules::{
+    MAX_DELIVERIES_CAP, Rule, Rules, RulesConfig, load_dir, load_project,
+};
 use chauffeur_core::{
     Answer, AnswerValue, Delivery, Effect, Engine, Judging, Signal, SignalKind, Step,
 };
@@ -281,7 +283,78 @@ fn confirmed_rules_deliver_by_priority_up_to_the_limit() {
     let step = engine.finish(Ok(answers), 1);
 
     assert_eq!(labels(&step), ["HIGH", "MID"]);
-    assert_eq!(labels(&step).len(), MAX_DELIVERIES);
+    assert_eq!(labels(&step).len(), RulesConfig::default().max_deliveries());
+}
+
+fn yours(name: &str, json: &str) -> PathBuf {
+    let path = std::env::temp_dir().join(format!(
+        "chauffeur-rules-config-{}-{name}.json",
+        std::process::id()
+    ));
+
+    std::fs::write(&path, json).unwrap();
+    path
+}
+
+#[test]
+fn the_shipped_limits_deliver_two_and_an_empty_file_keeps_them() {
+    let shipped = RulesConfig::load(Path::new("/nonexistent/rules.json")).unwrap();
+    let empty = yours("empty", "{}");
+
+    assert_eq!(shipped, RulesConfig::default());
+    assert_eq!(shipped.max_deliveries(), 2);
+    assert_eq!(RulesConfig::load(&empty).unwrap(), shipped);
+    std::fs::remove_file(empty).unwrap();
+}
+
+#[test]
+fn a_misspelled_field_or_an_out_of_range_count_is_an_error() {
+    let typo = yours("typo", r#"{ "max_delivery": 1 }"#);
+    let zero = yours("zero", r#"{ "max_deliveries": 0 }"#);
+    let many = yours(
+        "many",
+        &format!(r#"{{ "max_deliveries": {} }}"#, MAX_DELIVERIES_CAP + 1),
+    );
+
+    assert!(
+        RulesConfig::load(&typo)
+            .unwrap_err()
+            .contains("max_delivery")
+    );
+    assert!(
+        RulesConfig::load(&zero)
+            .unwrap_err()
+            .contains("outside 1..=")
+    );
+    assert!(
+        RulesConfig::load(&many)
+            .unwrap_err()
+            .contains("outside 1..=")
+    );
+
+    for path in [typo, zero, many] {
+        std::fs::remove_file(path).unwrap();
+    }
+}
+
+#[test]
+fn a_limit_of_one_delivers_only_the_highest_priority_rule() {
+    let path = yours("one", r#"{ "max_deliveries": 1 }"#);
+    let config = RulesConfig::load(&path).unwrap();
+    let rules = [("low", 1), ("high", 9)]
+        .into_iter()
+        .map(|(id, priority)| {
+            parsed(&with(reminder(id, json!({})), "priority", json!(priority))).unwrap()
+        })
+        .collect();
+    let mut engine = Engine::hosted(vec![Box::new(Judging::new(
+        Rules::new(rules).with_config(config),
+    ))])
+    .unwrap();
+    let ids = asked(&mut engine, &turn_end(1, "", ""));
+
+    assert_eq!(labels(&answer_all(&mut engine, &ids, 0.9)), ["HIGH"]);
+    std::fs::remove_file(path).unwrap();
 }
 
 #[test]

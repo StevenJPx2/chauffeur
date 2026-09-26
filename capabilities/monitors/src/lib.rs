@@ -4,43 +4,81 @@
 //! integration (sourcefed), unless one already watches it, and the agent is
 //! told, so it does not set one up itself. An unreachable integration or a
 //! failed judgment creates nothing. Run it as
-//! `Judging::new(FollowWork::new(monitors))`.
+//! `Judging::new(FollowWork::new(monitors))`, with your bar as
+//! `FollowWork::new(monitors).with_config(MonitorsConfig::load(path)?)`.
 
 mod detect;
 mod watch;
 
 use std::collections::{HashMap, HashSet};
+use std::path::Path;
 use std::sync::Arc;
 
 use chauffeur_core::judge::strategy::{self, Candidate};
 use chauffeur_core::{
-    Delivery, Effect, Judge, Judged, Question, QuestionKind, Rule, Signal, SignalKind, Situation,
+    Delivery, Effect, Judge, Judged, Question, QuestionKind, Signal, SignalKind, Situation,
+    Threshold, load_layered,
 };
+use serde::Deserialize;
 
 pub use detect::candidates;
 pub use watch::{Monitor, Monitors, Watch};
 
 pub const ID: &str = "monitors";
-/// Follow when P(own work) is at least this…
-pub const FOLLOW_AT_OR_ABOVE: f32 = 0.7;
-/// …and the answer is at least this confident.
-pub const MIN_CONFIDENCE: f32 = 0.4;
 const MAX_AGENTS: usize = 256;
 const MAX_JUDGED: usize = 64;
+/// The shipped bar (`skills/config/monitors.json`), compiled in.
+const SHIPPED: &str = include_str!("../../../skills/config/monitors.json");
+
+/// When a candidate is followed.
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct MonitorsConfig {
+    /// A confident yes at or above this bar that the work is the session's
+    /// own gets a monitor.
+    pub follow: Threshold,
+}
+
+impl MonitorsConfig {
+    /// The shipped bar overlaid by your `monitors.json` at `path`.
+    ///
+    /// # Errors
+    ///
+    /// When your file is unreadable, invalid, or a bar is outside `[0, 1]`.
+    pub fn load(path: &Path) -> Result<Self, String> {
+        load_layered(SHIPPED, path)
+    }
+}
+
+impl Default for MonitorsConfig {
+    fn default() -> Self {
+        serde_json::from_str(SHIPPED).expect("shipped monitors bar is valid")
+    }
+}
 
 pub struct FollowWork {
     monitors: Arc<dyn Monitors>,
+    config: MonitorsConfig,
     /// Watches already judged per agent, so a call is asked about once.
     judged: HashMap<String, HashSet<Watch>>,
 }
 
 impl FollowWork {
+    /// Follow work through `monitors` at the shipped bar.
     #[must_use]
     pub fn new(monitors: Arc<dyn Monitors>) -> Self {
         Self {
             monitors,
+            config: MonitorsConfig::default(),
             judged: HashMap::new(),
         }
+    }
+
+    /// This capability at `config`'s bar.
+    #[must_use]
+    pub fn with_config(mut self, config: MonitorsConfig) -> Self {
+        self.config = config;
+        self
     }
 
     fn judged(&self, agent: &str, watch: &Watch) -> bool {
@@ -154,7 +192,7 @@ impl Judged for FollowWork {
             .map(|(index, watch)| Candidate {
                 key: index,
                 question: question(index, watch, tool, input),
-                rule: Rule::yes(FOLLOW_AT_OR_ABOVE, MIN_CONFIDENCE),
+                rule: self.config.follow.yes(),
             })
             .collect();
 

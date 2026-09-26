@@ -1,6 +1,4 @@
-use chauffeur_capability_skill_exposure::{
-    DRIFT_COOLDOWN_SECS, MAX_SIGNAL_BYTES, NONE, SkillExposure,
-};
+use chauffeur_capability_skill_exposure::{NONE, SkillExposure, SkillExposureConfig};
 use chauffeur_core::{
     Answer, AnswerValue, Capability, CatalogEntry, Delivery, Effect, Judging, Plan, QuestionKind,
     Signal, SignalKind, Situation,
@@ -165,7 +163,7 @@ fn every_confidently_needed_skill_attaches_within_the_budget() {
         skill("slack", 10),
         skill("jira", 10),
         skill("rust", 10),
-        skill("huge", MAX_SIGNAL_BYTES + 1),
+        skill("huge", SkillExposureConfig::default().budget.bytes + 1),
     ]);
 
     exposure.plan(&Situation::default(), &signal);
@@ -183,6 +181,29 @@ fn every_confidently_needed_skill_attaches_within_the_budget() {
     // Most likely first; unsure and oversized skills stay out.
     assert_eq!(effects, [attached("jira"), attached("slack")].concat());
     assert!(exposure.decide(&signal, None).is_empty());
+}
+
+#[test]
+fn a_stricter_needed_bar_refuses_a_skill_the_shipped_bar_attaches() {
+    let path = std::env::temp_dir().join(format!(
+        "chauffeur-skill-exposure-strict-{}.json",
+        std::process::id()
+    ));
+    std::fs::write(&path, r#"{ "needed": { "at": 0.8, "confidence": 0.4 } }"#).unwrap();
+    let strict = SkillExposureConfig::load(&path).unwrap();
+    std::fs::remove_file(&path).unwrap();
+    let signal = message(vec![skill("slack", 10)]);
+    let answers = [noul("skill:slack", 0.75)];
+
+    for (config, expected) in [
+        (SkillExposureConfig::default(), attached("slack")),
+        (strict, Vec::new()),
+    ] {
+        let mut exposure = Judging::new(SkillExposure::new(config));
+
+        exposure.plan(&Situation::default(), &signal);
+        assert_eq!(exposure.decide(&signal, Some(&answers)), expected);
+    }
 }
 
 #[test]
@@ -219,7 +240,7 @@ fn a_tool_result_checks_for_drift_with_a_cooldown_and_never_reoffers() {
         Plan::Skip
     );
 
-    let later = tool_result(21 + DRIFT_COOLDOWN_SECS);
+    let later = tool_result(21 + SkillExposureConfig::default().drift.cooldown_seconds);
     assert_eq!(
         offered(&exposure.plan(&Situation::default(), &later)).0,
         "drift"

@@ -3,8 +3,10 @@
 //! request needs is attached. After tool results and at turn end it picks at
 //! most one hand-over, in case the agent lost track, such as driving a
 //! browser where a dedicated skill exists. Run it as
+//! `Judging::new(SkillExposure::new(config))`, or with the shipped config as
 //! `Judging::new(SkillExposure::default())`.
 
+mod config;
 mod fanout;
 
 use std::collections::{HashMap, HashSet};
@@ -13,30 +15,21 @@ use serde::{Deserialize, Serialize};
 
 use chauffeur_core::judge::strategy;
 use chauffeur_core::{
-    CatalogEntry, ChoiceOption, Delivery, Effect, Judge, Judged, Question, QuestionKind, Rule,
-    Signal, SignalKind, Situation,
+    CatalogEntry, ChoiceOption, Delivery, Effect, Judge, Judged, Question, QuestionKind, Signal,
+    SignalKind, Situation,
 };
 
-pub use fanout::{IN_PROJECT, NEEDED};
+pub use config::{Budget, Drift, SkillExposureConfig};
 
 pub const ID: &str = "skill-exposure";
 /// The drift option that hands over nothing.
 pub const NONE: &str = chauffeur_core::judge::NONE;
-/// Mid-turn hand-overs need stronger evidence than prompt admission.
-pub const DRIFT_MIN_CONFIDENCE: f32 = 0.7;
-/// Skill bytes one signal may attach, about 16k tokens: the skills a prompt
-/// needs fit, and no pick can flood the context. Jev decides whether a skill
-/// helps; this only bounds what attaching costs.
-pub const MAX_SIGNAL_BYTES: u64 = 65_536;
-/// Skills one signal attaches, at most, most likely first.
-pub const MAX_ATTACHED: usize = 4;
 /// Skills judged per signal; the catalog is truncated in host order.
 pub const MAX_OPTIONS: usize = 64;
-/// Tool results between drift checks are skipped for this long, per agent.
-pub const DRIFT_COOLDOWN_SECS: u64 = 60;
 const MAX_AGENTS: usize = 256;
 const DRIFT: &str = "drift";
-const BROWSER_HARNESS: &str = "browser-harness";
+/// A shell command naming this CLI drives a browser.
+const BROWSER_CLI: &str = "browser-harness";
 
 /// What one agent can still be offered, from its latest user message.
 #[derive(Clone, Default, Deserialize, Serialize)]
@@ -69,9 +62,9 @@ impl Agent {
             .collect()
     }
 
-    fn drift_due(&self, at: u64) -> bool {
+    fn drift_due(&self, at: u64, cooldown_seconds: u64) -> bool {
         self.last_drift_at
-            .is_none_or(|last| at.saturating_sub(last) >= DRIFT_COOLDOWN_SECS)
+            .is_none_or(|last| at.saturating_sub(last) >= cooldown_seconds)
     }
 
     /// Remember the latest tool action and whether it drove a browser, so a
@@ -81,16 +74,26 @@ impl Agent {
         self.last_tool = Some(format!("tool: {tool}; succeeded: {ok}; input: {input}"));
         self.browser_tool = tool.starts_with("browser")
             || (matches!(tool, "shell" | "execute")
-                && (input.contains(BROWSER_HARNESS) || input.contains("tools.browser.")));
+                && (input.contains(BROWSER_CLI) || input.contains("tools.browser.")));
     }
 }
 
+/// `default()` uses the shipped config.
 #[derive(Default)]
 pub struct SkillExposure {
+    config: SkillExposureConfig,
     agents: HashMap<String, Agent>,
 }
 
 impl SkillExposure {
+    #[must_use]
+    pub fn new(config: SkillExposureConfig) -> Self {
+        Self {
+            config,
+            agents: HashMap::new(),
+        }
+    }
+
     fn agent(&mut self, agent_id: &str) -> &mut Agent {
         if !self.agents.contains_key(agent_id) && self.agents.len() >= MAX_AGENTS {
             self.agents.clear();
@@ -102,7 +105,7 @@ impl SkillExposure {
     /// Every offered skill, judged in one round.
     fn fan_out(&self, signal: &Signal) -> Option<Judge<Vec<String>>> {
         let agent = self.agents.get(&signal.agent_id)?;
-        let candidates = fanout::candidates(signal, &agent.offerable());
+        let candidates = fanout::candidates(signal, &agent.offerable(), &self.config);
 
         (!candidates.is_empty()).then(|| strategy::fan_out(candidates))
     }
@@ -110,6 +113,7 @@ impl SkillExposure {
     /// At a tool result or turn end, whether a drift check is due; records
     /// the tool either way.
     fn drift_due(&mut self, signal: &Signal) -> bool {
+        let cooldown_seconds = self.config.drift.cooldown_seconds;
         let Some(agent) = self.agents.get_mut(&signal.agent_id) else {
             return false;
         };
@@ -123,7 +127,9 @@ impl SkillExposure {
 
         let turn_end = matches!(signal.kind, SignalKind::TurnEnd { .. });
 
-        if agent.tools_seen == agent.drift_seen || (!turn_end && !agent.drift_due(signal.at)) {
+        if agent.tools_seen == agent.drift_seen
+            || (!turn_end && !agent.drift_due(signal.at, cooldown_seconds))
+        {
             return false;
         }
 
@@ -133,14 +139,16 @@ impl SkillExposure {
         true
     }
 
-    /// At most one hand-over; a browser one only after actual browser use.
+    /// At most one hand-over; a browser-only one after actual browser use.
     fn drift(&self, signal: &Signal) -> Option<Judge<Vec<String>>> {
         let agent = self.agents.get(&signal.agent_id)?;
+        let drift = &self.config.drift;
         let offerable: Vec<_> = agent
             .offerable()
             .into_iter()
-            .filter(|skill| skill.id != BROWSER_HARNESS || agent.browser_tool)
+            .filter(|skill| agent.browser_tool || !drift.browser_only.contains(&skill.id))
             .collect();
+        let pick = drift.confidence.pick();
 
         if offerable.is_empty() {
             return None;
@@ -152,8 +160,8 @@ impl SkillExposure {
         );
 
         Some(
-            Judge::ask(choice(DRIFT, &instructions, &offerable), |answer| {
-                Rule::pick(DRIFT_MIN_CONFIDENCE).chosen(answer)
+            Judge::ask(choice(DRIFT, &instructions, &offerable), move |answer| {
+                pick.chosen(answer)
             })
             .map(|skill| skill.into_iter().collect()),
         )
@@ -201,6 +209,7 @@ impl Judged for SkillExposure {
     /// Attach the admitted skills in order while they fit the signal's byte
     /// budget and count; one that does not fit is skipped for a smaller one.
     fn act(&mut self, signal: &Signal, skills: Vec<String>) -> Vec<Effect> {
+        let budget = self.config.budget;
         let agent = self.agent(&signal.agent_id);
         let mut spent: u64 = 0;
         let mut chosen = Vec::new();
@@ -215,7 +224,7 @@ impl Judged for SkillExposure {
                 continue;
             };
 
-            if chosen.len() == MAX_ATTACHED || spent.saturating_add(bytes) > MAX_SIGNAL_BYTES {
+            if chosen.len() >= budget.skills || spent.saturating_add(bytes) > budget.bytes {
                 continue;
             }
 

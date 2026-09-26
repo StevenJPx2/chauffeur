@@ -1,6 +1,8 @@
 //! Rules read one answer; they are the only place thresholds live. Every rule
 //! refuses a failed call.
 
+use serde::{Deserialize, Serialize};
+
 use crate::system_one::{Answer, AnswerValue};
 
 /// The choice option that picks nothing.
@@ -78,6 +80,102 @@ impl Rule {
             Kind::No => p <= self.at && confident,
             Kind::UnlessNo => !(p <= self.at && confident),
         }
+    }
+}
+
+/// A configured bar: P(yes) `at`, with at least `confidence`. Both are in
+/// `[0, 1]`, checked when read; a capability chooses which rule it builds.
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(try_from = "RawThreshold", into = "RawThreshold")]
+pub struct Threshold {
+    at: f32,
+    confidence: f32,
+}
+
+#[derive(Clone, Copy, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct RawThreshold {
+    at: f32,
+    confidence: f32,
+}
+
+impl TryFrom<RawThreshold> for Threshold {
+    type Error = String;
+
+    fn try_from(raw: RawThreshold) -> Result<Self, String> {
+        Ok(Self {
+            at: unit("at", raw.at)?,
+            confidence: unit("confidence", raw.confidence)?,
+        })
+    }
+}
+
+impl From<Threshold> for RawThreshold {
+    fn from(threshold: Threshold) -> Self {
+        Self {
+            at: threshold.at,
+            confidence: threshold.confidence,
+        }
+    }
+}
+
+impl Threshold {
+    /// [`Rule::yes`] at this bar.
+    #[must_use]
+    pub const fn yes(self) -> Rule {
+        Rule::yes(self.at, self.confidence)
+    }
+
+    /// [`Rule::no`] at this bar.
+    #[must_use]
+    pub const fn no(self) -> Rule {
+        Rule::no(self.at, self.confidence)
+    }
+
+    /// [`Rule::unless_no`] at this bar.
+    #[must_use]
+    pub const fn unless_no(self) -> Rule {
+        Rule::unless_no(self.at, self.confidence)
+    }
+}
+
+/// A configured confidence in `[0, 1]`, checked when read.
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(try_from = "f32", into = "f32")]
+pub struct Confidence(f32);
+
+impl TryFrom<f32> for Confidence {
+    type Error = String;
+
+    fn try_from(value: f32) -> Result<Self, String> {
+        unit("confidence", value).map(Self)
+    }
+}
+
+impl From<Confidence> for f32 {
+    fn from(confidence: Confidence) -> Self {
+        confidence.0
+    }
+}
+
+impl Confidence {
+    /// [`Rule::pick`] at this confidence.
+    #[must_use]
+    pub const fn pick(self) -> Pick {
+        Rule::pick(self.0)
+    }
+
+    #[must_use]
+    pub const fn value(self) -> f32 {
+        self.0
+    }
+}
+
+fn unit(field: &str, value: f32) -> Result<f32, String> {
+    if value.is_finite() && (0.0..=1.0).contains(&value) {
+        Ok(value)
+    } else {
+        Err(format!("{field} {value} is outside [0, 1]"))
     }
 }
 

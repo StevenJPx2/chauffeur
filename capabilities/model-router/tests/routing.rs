@@ -1,9 +1,6 @@
 use std::sync::Arc;
 
-use chauffeur_capability_model_router::{
-    MAX_CANDIDATES, ModelRouter, ModelRouterConfig, STAY, SWITCH_BACK_AFTER_SECS, is_limit_error,
-    is_unusable_error,
-};
+use chauffeur_capability_model_router::{ModelRouter, ModelRouterConfig, STAY};
 use chauffeur_capability_model_router::{Provider, Tier, TierEntry};
 use chauffeur_core::{
     Answer, AnswerValue, AvailableModel, Capability, Effect, Judging, ModelRef, Plan, QuestionKind,
@@ -27,7 +24,7 @@ fn rows(entries: &[(&'static str, Tier)]) -> Vec<TierEntry> {
     entries
         .iter()
         .map(|(model, tier)| TierEntry {
-            model,
+            model: (*model).to_string(),
             variant: None,
             tier: *tier,
         })
@@ -53,7 +50,22 @@ fn model(key: &str) -> ModelRef {
     }
 }
 
+fn defaults() -> ModelRouterConfig {
+    ModelRouterConfig::default()
+}
+
+fn switch_back_after() -> u64 {
+    defaults().switch_back.after_seconds
+}
+
 fn router(pins: &[&str]) -> Judging<ModelRouter> {
+    router_with(ModelRouterConfig {
+        pins: pins.iter().map(|pin| (*pin).to_string()).collect(),
+        ..defaults()
+    })
+}
+
+fn router_with(config: ModelRouterConfig) -> Judging<ModelRouter> {
     let providers: Vec<Arc<dyn Provider>> = vec![
         Arc::new(Table(
             "anthropic",
@@ -68,9 +80,6 @@ fn router(pins: &[&str]) -> Judging<ModelRouter> {
             ]),
         )),
     ];
-    let config = ModelRouterConfig {
-        pins: pins.iter().map(|pin| (*pin).to_string()).collect(),
-    };
 
     Judging::new(ModelRouter::new(providers, config))
 }
@@ -234,24 +243,20 @@ fn success_resets_attempts_and_non_limit_errors_are_ignored() {
         options(&router.plan(&Situation::default(), &signal)),
         vec!["openai/sol", "openai/luna", STAY]
     );
-    assert!(!is_limit_error("invalid_request", Some(400), "bad schema"));
-    assert!(is_limit_error("Rate Limit", None, ""));
+    assert!(!defaults().is_limit_error("invalid_request", Some(400), "bad schema"));
+    assert!(defaults().is_limit_error("Rate Limit", None, ""));
     // OpenCode's own classification of an exhausted provider balance.
-    assert!(is_limit_error("provider.quota", None, ""));
-    assert!(is_limit_error("provider.invalid-request", Some(402), ""));
+    assert!(defaults().is_limit_error("provider.quota", None, ""));
+    assert!(defaults().is_limit_error("provider.invalid-request", Some(402), ""));
     // A provider out of capacity.
-    assert!(is_limit_error(
+    assert!(defaults().is_limit_error(
         "provider.internal",
         Some(503),
         "This model is currently experiencing high demand."
     ));
-    assert!(!is_limit_error(
-        "provider.invalid-request",
-        Some(400),
-        "unknown field"
-    ));
+    assert!(!defaults().is_limit_error("provider.invalid-request", Some(400), "unknown field"));
     // Anthropic reports an empty balance as an invalid request.
-    assert!(is_limit_error(
+    assert!(defaults().is_limit_error(
         "provider.invalid-request",
         Some(400),
         "Your credit balance is too low to access the Anthropic API."
@@ -325,7 +330,7 @@ fn an_unknown_tier_offers_a_bounded_pinned_first_choice() {
 
     let offered = options(&router.plan(&Situation::default(), &signal));
 
-    assert_eq!(offered.len(), MAX_CANDIDATES + 1);
+    assert_eq!(offered.len(), defaults().max_candidates + 1);
     assert_eq!(offered[0], "google/pinned");
     assert_eq!(offered.last().map(String::as_str), Some(STAY));
 }
@@ -366,7 +371,11 @@ fn switch_back(p: f32) -> Answer {
 
 /// Fail over from anthropic/opus to openai/sol at t=1.
 fn switched_router() -> Judging<ModelRouter> {
-    let mut router = router(&[]);
+    switched_router_with(defaults())
+}
+
+fn switched_router_with(config: ModelRouterConfig) -> Judging<ModelRouter> {
+    let mut router = router_with(config);
     let signal = limit(false);
     let chosen = Answer {
         id: "choice".into(),
@@ -386,7 +395,7 @@ fn switched_router() -> Judging<ModelRouter> {
 #[test]
 fn switching_back_is_judged_only_after_the_wait_and_on_the_switched_model() {
     let mut router = switched_router();
-    let after = 1 + SWITCH_BACK_AFTER_SECS;
+    let after = 1 + switch_back_after();
 
     assert_eq!(
         router.plan(&Situation::default(), &user_message(60, "openai/sol")),
@@ -427,7 +436,7 @@ fn switching_back_is_judged_only_after_the_wait_and_on_the_switched_model() {
 #[test]
 fn an_unconvinced_judgment_stays_and_a_manual_model_change_forgets_the_origin() {
     let mut router = switched_router();
-    let after = 1 + SWITCH_BACK_AFTER_SECS;
+    let after = 1 + switch_back_after();
 
     assert!(matches!(
         router.plan(&Situation::default(), &user_message(after, "openai/sol")),
@@ -465,6 +474,53 @@ fn an_unconvinced_judgment_stays_and_a_manual_model_change_forgets_the_origin() 
     );
 }
 
+#[test]
+fn a_lower_switch_back_bar_returns_on_a_less_sure_answer() {
+    let mut config = defaults();
+    config.switch_back.bar =
+        serde_json::from_str(r#"{ "at": 0.5, "confidence": 0.2 }"#).expect("a valid bar");
+    let mut router = switched_router_with(config);
+    let message = user_message(1 + switch_back_after(), "openai/sol");
+
+    router.plan(&Situation::default(), &message);
+
+    // P = 0.6 (confidence 0.2) stays at the shipped bar and returns at this one.
+    assert_eq!(
+        router.decide(&message, Some(&[switch_back(0.6)])),
+        vec![Effect::Model {
+            agent_id: "session".into(),
+            model: Some(model("anthropic/opus"))
+        }]
+    );
+}
+
+#[test]
+fn a_configured_limit_phrase_makes_an_error_a_limit() {
+    let mut signal = limit(false);
+
+    if let SignalKind::ModelError {
+        error_type,
+        status,
+        message,
+        ..
+    } = &mut signal.kind
+    {
+        *error_type = "provider.internal".into();
+        *status = Some(500);
+        *message = "Too busy, come back tomorrow".into();
+    }
+
+    assert_eq!(router(&[]).plan(&Situation::default(), &signal), Plan::Skip);
+
+    let mut config = defaults();
+    config.limit.messages.push("too busy".into());
+
+    assert_eq!(
+        options(&router_with(config).plan(&Situation::default(), &signal)),
+        vec!["openai/sol", "openai/luna", STAY]
+    );
+}
+
 fn auth_error(on: &str) -> Signal {
     let mut signal = limit(false);
 
@@ -499,12 +555,8 @@ fn a_switch_to_an_unusable_model_moves_on_to_the_next_candidate() {
         router.plan(&Situation::default(), &auth_error("anthropic/opus")),
         Plan::Skip
     );
-    assert!(is_unusable_error("provider.auth", None, ""));
-    assert!(!is_unusable_error(
-        "provider.quota",
-        Some(402),
-        "insufficient funds"
-    ));
+    assert!(defaults().is_unusable_error("provider.auth", None, ""));
+    assert!(!defaults().is_unusable_error("provider.quota", Some(402), "insufficient funds"));
 }
 
 #[test]
@@ -516,7 +568,7 @@ fn the_model_left_behind_survives_a_restart() {
 
     let Plan::Ask(questions) = after.plan(
         &Situation::default(),
-        &user_message(1 + SWITCH_BACK_AFTER_SECS, "openai/sol"),
+        &user_message(1 + switch_back_after(), "openai/sol"),
     ) else {
         panic!("expected a switch-back question after the restart")
     };
@@ -542,7 +594,7 @@ fn a_second_fallback_does_not_restart_the_original_limits_clock() {
     assert!(matches!(
         router.plan(
             &Situation::default(),
-            &user_message(1 + SWITCH_BACK_AFTER_SECS, "openai/luna")
+            &user_message(1 + switch_back_after(), "openai/luna")
         ),
         Plan::Ask(_)
     ));
@@ -551,8 +603,8 @@ fn a_second_fallback_does_not_restart_the_original_limits_clock() {
 /// The shipped tables, with the host's models listed without variants.
 fn shipped_router() -> Judging<ModelRouter> {
     let providers: Vec<Arc<dyn Provider>> = vec![
-        Arc::new(chauffeur_plugin_anthropic::AnthropicProvider),
-        Arc::new(chauffeur_plugin_openai::OpenAiProvider),
+        Arc::new(chauffeur_plugin_anthropic::AnthropicProvider::default()),
+        Arc::new(chauffeur_plugin_openai::OpenAiProvider::default()),
     ];
 
     Judging::new(ModelRouter::new(providers, ModelRouterConfig::default()))

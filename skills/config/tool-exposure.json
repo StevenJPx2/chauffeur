@@ -1,0 +1,21 @@
+{
+  "base": [
+    "read",
+    "edit",
+    "patch",
+    "write",
+    "shell",
+    "grep",
+    "glob",
+    "question",
+    "subagent",
+    "webfetch",
+    "websearch"
+  ],
+  "never_exposed": ["skill"],
+  "hide": { "at": 0.3, "confidence": 0.4 },
+  "reveal": { "at": 0.7, "confidence": 0.4 },
+  "pick_confidence": 0.4,
+  "listed_tools": 6,
+  "recovery_candidates": 4
+}

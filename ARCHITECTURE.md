@@ -428,8 +428,10 @@ permission, or not-found error) is a failed switch: the router moves on to the
 next candidate. The same error on a model the user chose is left to the host.
 
 **Tiers depend on thinking.** A model reference carries the host's thinking
-variant (`anthropic/claude-opus-5-5#high`), and provider plugins' tier tables
-map a model, at one variant or at any, to a tier:
+variant (`anthropic/claude-opus-5-5#high`), and each provider plugin's tier
+table (`skills/config/providers/<provider>.json`; your
+`$CHAUFFEUR_CONFIG_DIR/providers/<provider>.json` replaces its `tiers`) maps a
+model, at one variant or at any, to a tier:
 
 | Tier | Anthropic | OpenAI |
 |---|---|---|
@@ -457,7 +459,10 @@ not. A cancelled execution invalidates pending model effects, and an
 abandoned daemon reply restores the router's prior state. A switch sets the
 model's thinking variant too. `$CHAUFFEUR_CONFIG_DIR/model-router.json` pins
 preferred fallbacks, with a variant where it matters:
-`{"pins": ["openai/gpt-6-sol", "anthropic/claude-opus-5-5#low"]}`.
+`{"pins": ["openai/gpt-6-sol", "anthropic/claude-opus-5-5#low"]}`. The same
+file tunes the pick confidence, the switch-back wait and bar, the candidate
+count, and the limit and unusable phrases and error types, all shipped in
+`skills/config/model-router.json`.
 
 **Switch back.** The router remembers the model the agent left (the first in a
 chain of switches). On a user message at least 5 minutes later, while the
@@ -527,7 +532,7 @@ The adapter sends **Signals** and applies **Effects**; it holds no policy.
 | `capabilities/rules` | rules capability, the rule format, and shipped and project rule loading |
 | `capabilities/event-gate` | event-gate capability |
 | `capabilities/monitors` | the `Monitors` trait and following the agent's own PRs, issues, and threads |
-| `plugins/anthropic`, `plugins/openai` | provider tier tables |
+| `plugins/anthropic`, `plugins/openai` | providers for the model router, their tier tables in `skills/config/providers/` |
 | `plugins/sourcefed` | sourcefed's monitors, through its daemon |
 | `judges/jev` | Jev System One provider |
 | `adapters/opencode` | signals in, effects out; an Effect plugin whose hooks share the plugin scope |
@@ -556,6 +561,17 @@ The adapter sends **Signals** and applies **Effects**; it holds no policy.
   the last N decisions, one line each.
 
 ## Configuration
+
+Tunable defaults are data, not code. Each capability's judgment bars
+(`Threshold`: `at` and `confidence`, checked in `[0, 1]`), budgets, timing,
+and word lists ship in `skills/config/<capability>.json`, and core's learning
+bars in `skills/safety/learning.json`, compiled into the daemon. A file of the
+same name in `$CHAUFFEUR_CONFIG_DIR` overlays them through
+`chauffeur_core::load_layered`: objects merge field by field, lists and values
+replace whole, and an unknown field or an out-of-range value stops the daemon
+with an error naming it. Structural bounds (per-agent maps, text and file
+sizes, rounds), protocol names (capability and question IDs, schema versions),
+HTTP status codes, and question wording stay in code.
 
 | Variable | Default |
 |---|---|

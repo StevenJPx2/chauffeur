@@ -16,6 +16,7 @@ pub mod protocol;
 
 pub use contracts::{capability, effect, signal, system_one};
 pub(crate) use features::learning;
+pub use features::learning::LearningConfig;
 pub use features::{backstop, redact};
 pub use state::{situation, trace};
 
@@ -23,10 +24,10 @@ pub use backstop::{Backstop, BackstopConfig};
 pub use capability::{Capability, PipeStep, Plan};
 #[cfg(feature = "client")]
 pub use client::{DEFAULT_DAEMON_URL, DaemonClient};
-pub use config::{load_config, read_json_files};
+pub use config::{load_config, load_layered, read_json_files};
 pub use effect::{Delivery, Effect, PermissionDecision};
 pub use engine::{Engine, Step};
-pub use judge::{Judge, Judged, Judging, Pick, Rule};
+pub use judge::{Confidence, Judge, Judged, Judging, Pick, Rule, Threshold};
 pub use protocol::*;
 pub use redact::{LearnedShapes, Prefix, RedactionConfig, Redactor, Shape, redact_secrets};
 pub use signal::{

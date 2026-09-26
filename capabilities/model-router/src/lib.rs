@@ -3,18 +3,19 @@
 //! the agent back to the model it left once the limit has likely cleared.
 //! Run it as `Judging::new(ModelRouter::new(providers, config))`.
 
+mod config;
 mod provider;
 
 use std::collections::{HashMap, HashSet};
-use std::path::Path;
 use std::sync::Arc;
 
-pub use provider::{Provider, Tier, TierEntry};
+pub use config::{ErrorWords, MAX_CANDIDATES, ModelRouterConfig, SwitchBack};
+pub use provider::{MAX_TIER_ROWS, Provider, Tier, TierEntry, TierTable};
 
 use chauffeur_core::judge::strategy;
 use chauffeur_core::{
-    ChoiceOption, Effect, Judge, Judged, ModelRef, Question, QuestionKind, Rule, Signal,
-    SignalKind, Situation, load_config,
+    ChoiceOption, Effect, Judge, Judged, ModelRef, Question, QuestionKind, Signal, SignalKind,
+    Situation,
 };
 use serde::{Deserialize, Serialize};
 
@@ -22,131 +23,12 @@ pub const ID: &str = "model-router";
 pub const STAY: &str = "stay";
 const QUESTION: &str = "choice";
 const SWITCH_BACK: &str = "switch_back";
-/// A switch back is judged no sooner than this after leaving a model.
-pub const SWITCH_BACK_AFTER_SECS: u64 = 300;
-/// Switch back only when P(better) is at least this, at the usual confidence.
-const SWITCH_BACK_AT_OR_ABOVE: f32 = 0.7;
-const SWITCH_BACK_MIN_CONFIDENCE: f32 = 0.4;
-/// Below this, the judgment is treated as unavailable and the posture applies.
-const MIN_CONFIDENCE: f32 = 0.2;
 const MAX_TRACKED_AGENTS: usize = 256;
-const MAX_PINS: usize = 64;
-/// Options offered to System One, after ordering; keeps the choice small.
-pub const MAX_CANDIDATES: usize = 8;
 const MAX_ERROR_CHARS: usize = 200;
-
-const LIMIT_MESSAGES: &[&str] = &[
-    "credit balance",
-    "insufficient funds",
-    "insufficient account funds",
-    "insufficient_quota",
-    "quota",
-    "rate limit",
-    "billing",
-    "high demand",
-    "overloaded",
-    "capacity",
-];
-
-const LIMIT_TYPES: &[&str] = &[
-    "capacity_exhausted",
-    "insufficient_quota",
-    "overloaded",
-    "overloaded_error",
-    "quota",
-    "quota_exceeded",
-    "rate_limit",
-    "rate_limit_error",
-    "resource_exhausted",
-    "too_many_requests",
-    "usage_limit",
-];
-
-/// Strict JSON config. `pins` orders preferred fallbacks as `provider/model`.
-#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
-#[serde(deny_unknown_fields)]
-pub struct ModelRouterConfig {
-    #[serde(default)]
-    pub pins: Vec<String>,
-}
-
-impl ModelRouterConfig {
-    /// Load `path`, or the default config when the file does not exist.
-    pub fn load(path: &Path) -> Result<Self, String> {
-        load_config::<Self>(path)?
-            .checked()
-            .map_err(|error| format!("{}: {error}", path.display()))
-    }
-
-    /// The config, if within bounds.
-    pub fn checked(self) -> Result<Self, String> {
-        if self.pins.len() > MAX_PINS {
-            return Err(format!("more than {MAX_PINS} pins"));
-        }
-
-        Ok(self)
-    }
-}
-
-#[must_use]
-pub fn is_limit_error(error_type: &str, status: Option<u16>, message: &str) -> bool {
-    // 503 is a provider out of capacity ("high demand"), which another model avoids.
-    if matches!(status, Some(402 | 429 | 503 | 529)) {
-        return true;
-    }
-
-    let normalized = error_type.trim().to_lowercase().replace([' ', '-'], "_");
-    // OpenCode namespaces provider errors, e.g. `provider.quota`.
-    let kind = normalized.strip_prefix("provider.").unwrap_or(&normalized);
-    // Some providers report an exhausted balance as a plain invalid request.
-    let message = message.to_lowercase();
-
-    LIMIT_TYPES.contains(&kind) || LIMIT_MESSAGES.iter().any(|phrase| message.contains(phrase))
-}
-
-/// Errors that mean a model cannot serve the agent at all (no access, unknown
-/// model), as opposed to a limit that may clear.
-const UNUSABLE_TYPES: &[&str] = &[
-    "auth",
-    "authentication",
-    "authentication_error",
-    "unauthorized",
-    "forbidden",
-    "permission",
-    "permission_error",
-    "not_found",
-    "not_found_error",
-    "model_not_found",
-];
-
-const UNUSABLE_MESSAGES: &[&str] = &[
-    "api key",
-    "unauthorized",
-    "authentication",
-    "not authorized",
-    "model not found",
-    "does not exist",
-];
-
-#[must_use]
-pub fn is_unusable_error(error_type: &str, status: Option<u16>, message: &str) -> bool {
-    if matches!(status, Some(401 | 403 | 404)) {
-        return true;
-    }
-
-    let normalized = error_type.trim().to_lowercase().replace([' ', '-'], "_");
-    let kind = normalized.strip_prefix("provider.").unwrap_or(&normalized);
-    let message = message.to_lowercase();
-
-    UNUSABLE_TYPES.contains(&kind)
-        || UNUSABLE_MESSAGES
-            .iter()
-            .any(|phrase| message.contains(phrase))
-}
 
 pub struct ModelRouter {
     providers: Vec<Arc<dyn Provider>>,
-    pins: Vec<String>,
+    config: ModelRouterConfig,
     attempted: HashMap<String, HashSet<String>>,
     origins: HashMap<String, Origin>,
 }
@@ -165,7 +47,7 @@ impl ModelRouter {
     pub fn new(providers: Vec<Arc<dyn Provider>>, config: ModelRouterConfig) -> Self {
         Self {
             providers,
-            pins: config.pins,
+            config,
             attempted: HashMap::new(),
             origins: HashMap::new(),
         }
@@ -213,9 +95,9 @@ impl ModelRouter {
     }
 
     /// Usable same-tier models (at a thinking variant) not yet tried, ordered
-    /// pins first, then other providers, then host order, at most
-    /// [`MAX_CANDIDATES`]. Another variant of the current model is never a
-    /// candidate: a usage limit applies to the whole model.
+    /// pins first, then other providers, then host order, at most the
+    /// configured `max_candidates`. Another variant of the current model is
+    /// never a candidate: a usage limit applies to the whole model.
     fn candidates(
         &self,
         agent_id: &str,
@@ -231,12 +113,15 @@ impl ModelRouter {
             .filter(|model| tried.is_none_or(|tried| !tried.contains(&model.key())))
             // A pinned model is a declared fallback, so tiers do not constrain it.
             .filter(|model| {
-                tier.is_none() || self.tier(model) == tier || self.pins.contains(&model.key())
+                tier.is_none()
+                    || self.tier(model) == tier
+                    || self.config.pins.contains(&model.key())
             })
             .collect();
 
         candidates.sort_by_key(|model| {
             let pin = self
+                .config
                 .pins
                 .iter()
                 .position(|pin| *pin == model.key())
@@ -244,7 +129,7 @@ impl ModelRouter {
 
             (pin, model.provider == current.provider)
         });
-        candidates.truncate(MAX_CANDIDATES);
+        candidates.truncate(self.config.max_candidates);
 
         candidates
     }
@@ -287,7 +172,9 @@ impl ModelRouter {
 
         let minutes = signal.at.saturating_sub(origin.since) / 60;
 
-        if current.is_none() || signal.at.saturating_sub(origin.since) < SWITCH_BACK_AFTER_SECS {
+        if current.is_none()
+            || signal.at.saturating_sub(origin.since) < self.config.switch_back.after_seconds
+        {
             return None;
         }
 
@@ -306,13 +193,9 @@ impl ModelRouter {
             kind: QuestionKind::Noul,
         };
 
-        Some(
-            strategy::single(
-                question,
-                Rule::yes(SWITCH_BACK_AT_OR_ABOVE, SWITCH_BACK_MIN_CONFIDENCE),
-            )
-            .map(Verdict::SwitchBack),
-        )
+        let bar = self.config.switch_back.bar.yes();
+
+        Some(strategy::single(question, bar).map(Verdict::SwitchBack))
     }
 
     /// Return to the model left behind, forgetting the failover.
@@ -361,9 +244,9 @@ impl ModelRouter {
             .origins
             .get(&signal.agent_id)
             .is_some_and(|origin| origin.current == *model)
-            && is_unusable_error(error_type, *status, message);
+            && self.config.is_unusable_error(error_type, *status, message);
 
-        if !failed_switch && !is_limit_error(error_type, *status, message) {
+        if !failed_switch && !self.config.is_limit_error(error_type, *status, message) {
             return None;
         }
 
@@ -382,14 +265,10 @@ impl ModelRouter {
         let error = format!("{error_type}: {}", clip(message, MAX_ERROR_CHARS));
         let question = self.question(model, &error, &candidates);
         let from = model.clone();
+        let rule = self.config.pick_confidence.pick();
 
         Some(Judge::ask(question, move |answer| {
-            pick(
-                Rule::pick(MIN_CONFIDENCE).chosen(answer),
-                candidates,
-                from,
-                error,
-            )
+            pick(rule.chosen(answer), candidates, from, error)
         }))
     }
 

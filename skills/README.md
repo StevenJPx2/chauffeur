@@ -9,8 +9,23 @@ rejected, and `chauffeur skill validate PATH` checks one.
 |---|---|
 | `permission/` | Permission contracts: which edits, shell commands, and outside directories OpenCode would ask about that Jev may approve. |
 | `rules/` | Rules: steers after a tool call, with an optional skill to hand over, and idle reminders at a turn end. |
-| `safety/` | The backstop's deny and confirm patterns, and redaction shapes. |
+| `safety/` | The backstop's deny and confirm patterns, redaction shapes, and the bars for learning from them. |
+| `config/` | Each capability's tunable defaults: judgment bars, budgets, timing, and word lists, plus `providers/` model tier tables. |
 | `handoff/` | Skills Chauffeur hands over, in OpenCode's `SKILL.md` format: `slack-cli`, `jira-cli`, and `twitter-cli`. Link them into a skills directory OpenCode reads, such as `~/.agents/skills`. |
+
+The files in `safety/` and `config/` are compiled into the daemon as its
+defaults. To change one, put a file with the same name in
+`CHAUFFEUR_CONFIG_DIR` (default `~/.config/chauffeur`), such as
+`~/.config/chauffeur/skill-exposure.json` or
+`~/.config/chauffeur/providers/anthropic.json`, holding only what you change:
+objects merge field by field, and a list or value replaces the shipped one
+whole. `backstop.json` and `redaction.json` add their lists to the shipped
+ones instead, unless they set `"replace": true`. A misspelled field, or a bar outside `[0, 1]`, stops the daemon with
+an error naming it. For example, to attach a skill only on a surer yes:
+
+```json
+{ "needed": { "at": 0.8 } }
+```
 
 A project keeps its own rules, in the same format, under each Git worktree's
 `.chauffeur/rules/`, with optional deeper `.chauffeur/rules/` directories for

@@ -1,0 +1,7 @@
+{
+  "tiers": [
+    { "model": "gpt-6-sol", "variant": null, "tier": "frontier" },
+    { "model": "gpt-6-luna", "variant": "max", "tier": "balanced" },
+    { "model": "gpt-6-luna", "variant": null, "tier": "fast" }
+  ]
+}

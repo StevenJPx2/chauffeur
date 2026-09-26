@@ -5,21 +5,23 @@
 //! the namespaces' best matches reach the running turn.
 
 use chauffeur_core::judge::strategy::Candidate;
-use chauffeur_core::{CodeModeNamespace, Question, QuestionKind};
+use chauffeur_core::{CodeModeNamespace, Question, QuestionKind, Rule};
 
-use crate::{Grant, NEEDED, code_mode};
+use crate::{Grant, code_mode};
 
 /// Candidates judged, in host order: hidden groups first, then namespaces.
 const MAX_CANDIDATES: usize = 64;
 
 /// One candidate per hidden group, given as `(name, listing)`, and per
-/// namespace; none when nothing could serve the request.
+/// namespace, each granted when `needed` holds; none when nothing could
+/// serve the request.
 #[must_use]
 pub fn candidates(
     groups: &[(String, String)],
     namespaces: &[CodeModeNamespace],
     need: &str,
     user_request: &str,
+    needed: Rule,
 ) -> Vec<Candidate<Grant>> {
     let asked = format!(
         "The coding agent asked for a tool it lacks: \"{need}\". The user's latest request: \
@@ -36,7 +38,7 @@ pub fn candidates(
             ),
             kind: QuestionKind::Noul,
         },
-        rule: NEEDED,
+        rule: needed,
     });
     let namespaces = namespaces.iter().map(|namespace| Candidate {
         key: Grant::Namespace(namespace.name.clone()),
@@ -53,7 +55,7 @@ pub fn candidates(
             ),
             kind: QuestionKind::Noul,
         },
-        rule: NEEDED,
+        rule: needed,
     });
 
     groups.chain(namespaces).take(MAX_CANDIDATES).collect()

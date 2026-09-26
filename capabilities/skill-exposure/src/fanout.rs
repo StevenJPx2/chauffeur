@@ -5,11 +5,7 @@
 use chauffeur_core::judge::strategy::Candidate;
 use chauffeur_core::{CatalogEntry, Question, QuestionKind, Rule, Signal, SignalKind};
 
-/// A skill attaches on P(needed) ≥ 0.7 with confidence ≥ 0.4.
-pub const NEEDED: Rule = Rule::yes(0.7, 0.4);
-/// A project's skill applies in its project unless Jev confidently says the
-/// request is about something else.
-pub const IN_PROJECT: Rule = Rule::unless_no(0.3, 0.4);
+use crate::SkillExposureConfig;
 
 /// Why a skill is asked about the way it is.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -33,17 +29,23 @@ impl Basis {
         }
     }
 
-    fn rule(self) -> Rule {
+    /// A project's skill applies in its project unless Jev confidently says
+    /// the request is about something else; any other skill needs a yes.
+    fn rule(self, config: &SkillExposureConfig) -> Rule {
         match self {
-            Self::Project => IN_PROJECT,
-            Self::Offered | Self::Named => NEEDED,
+            Self::Project => config.in_project.unless_no(),
+            Self::Offered | Self::Named => config.needed.yes(),
         }
     }
 }
 
 /// A candidate for each offerable skill, keyed by skill ID.
 #[must_use]
-pub fn candidates(signal: &Signal, offerable: &[&CatalogEntry]) -> Vec<Candidate<String>> {
+pub fn candidates(
+    signal: &Signal,
+    offerable: &[&CatalogEntry],
+    config: &SkillExposureConfig,
+) -> Vec<Candidate<String>> {
     let facts = Facts::of(signal);
 
     offerable
@@ -58,7 +60,7 @@ pub fn candidates(signal: &Signal, offerable: &[&CatalogEntry]) -> Vec<Candidate
                     instructions: instructions(signal, skill, basis),
                     kind: QuestionKind::Noul,
                 },
-                rule: basis.rule(),
+                rule: basis.rule(config),
             }
         })
         .collect()

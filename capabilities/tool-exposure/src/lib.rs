@@ -12,54 +12,24 @@
 //! granted. Run it as `Judging::new(ToolExposure::new(config))`.
 
 mod code_mode;
+mod config;
 mod request;
 
 use std::collections::HashSet;
-use std::path::Path;
 
 use chauffeur_core::judge::strategy::{self, Candidate};
 use chauffeur_core::{
-    CatalogEntry, ChoiceOption, Delivery, Effect, Judge, Judged, Pick, Question, QuestionKind,
-    Rule, Signal, SignalKind, Situation, load_config,
+    CatalogEntry, ChoiceOption, Delivery, Effect, Judge, Judged, Question, QuestionKind, Rule,
+    Signal, SignalKind, Situation,
 };
 
 use code_mode::Surfaced;
-use serde::Deserialize;
+
+pub use config::ToolExposureConfig;
 
 pub const ID: &str = "tool-exposure";
-/// OpenCode's built-in tools, never hidden.
-pub const DEFAULT_BASE: &[&str] = &[
-    "read",
-    "edit",
-    "patch",
-    "write",
-    "shell",
-    "grep",
-    "glob",
-    "question",
-    "subagent",
-    "webfetch",
-    "websearch",
-];
-/// Chauffeur owns skill loading, so the host's skill loader is never exposed.
-pub const NEVER_EXPOSED: &[&str] = &["skill"];
-/// Hide a group only when P(needed) is at most this…
-pub const HIDE_AT_OR_BELOW: f32 = 0.3;
-/// …bring a hidden group back only when P(needed) is at least this…
-pub const REVEAL_AT_OR_ABOVE: f32 = 0.7;
-/// …and in both cases the answer is at least this confident.
-pub const MIN_CONFIDENCE: f32 = 0.4;
 /// Groups judged per message, in host order.
 pub const MAX_GROUPS: usize = 64;
-const MAX_BASE: usize = 64;
-const MAX_LISTED_TOOLS: usize = 6;
-const MAX_RECOVERY_CANDIDATES: usize = 4;
-/// A group the task confidently will not need.
-const UNNEEDED: Rule = Rule::no(HIDE_AT_OR_BELOW, MIN_CONFIDENCE);
-/// A hidden group or namespace clearly needed.
-pub(crate) const NEEDED: Rule = Rule::yes(REVEAL_AT_OR_ABOVE, MIN_CONFIDENCE);
-/// A confident choice in missing-tool recovery.
-const CHOSEN: Pick = Rule::pick(MIN_CONFIDENCE);
 /// The recovery confirmation that reveals the chosen tool.
 const REVEAL_NEEDED: &str = "reveal_needed";
 
@@ -69,31 +39,6 @@ pub fn group(tool_id: &str) -> &str {
     tool_id
         .split_once('_')
         .map_or(tool_id, |(prefix, _)| prefix)
-}
-
-/// Strict JSON config. `base` replaces [`DEFAULT_BASE`].
-#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
-#[serde(deny_unknown_fields)]
-pub struct ToolExposureConfig {
-    #[serde(default)]
-    pub base: Option<Vec<String>>,
-}
-
-impl ToolExposureConfig {
-    pub fn load(path: &Path) -> Result<Self, String> {
-        load_config::<Self>(path)?
-            .checked()
-            .map_err(|error| format!("{}: {error}", path.display()))
-    }
-
-    /// The config, if within bounds.
-    pub fn checked(self) -> Result<Self, String> {
-        if self.base.as_ref().is_some_and(|base| base.len() > MAX_BASE) {
-            return Err(format!("more than {MAX_BASE} base tools"));
-        }
-
-        Ok(self)
-    }
 }
 
 /// What a finished judge found, by signal kind.
@@ -121,6 +66,7 @@ pub enum Grant {
 }
 
 pub struct ToolExposure {
+    config: ToolExposureConfig,
     base: HashSet<String>,
     surfaced: Surfaced,
 }
@@ -134,21 +80,19 @@ struct Group<'a> {
 impl ToolExposure {
     #[must_use]
     pub fn new(config: ToolExposureConfig) -> Self {
-        let base = config.base.unwrap_or_else(|| {
-            DEFAULT_BASE
-                .iter()
-                .map(|tool| (*tool).to_string())
-                .collect()
-        });
-
         Self {
-            base: base.into_iter().collect(),
+            base: config.base.iter().cloned().collect(),
+            config,
             surfaced: Surfaced::default(),
         }
     }
 
+    fn never_exposed(&self, tool: &CatalogEntry) -> bool {
+        self.config.never_exposed.contains(&tool.id)
+    }
+
     fn judgeable(&self, tool: &CatalogEntry) -> bool {
-        !self.base.contains(&tool.id) && !NEVER_EXPOSED.contains(&tool.id.as_str())
+        !self.base.contains(&tool.id) && !self.never_exposed(tool)
     }
 
     /// Judgeable tools grouped by prefix, groups in first-seen order.
@@ -188,9 +132,7 @@ impl ToolExposure {
 
         tools
             .iter()
-            .filter(|tool| {
-                NEVER_EXPOSED.contains(&tool.id.as_str()) || chosen.contains(tool.id.as_str())
-            })
+            .filter(|tool| self.never_exposed(tool) || chosen.contains(tool.id.as_str()))
             .filter(|tool| seen.insert(tool.id.clone()))
             .map(|tool| tool.id.clone())
             .collect()
@@ -224,17 +166,20 @@ impl ToolExposure {
             self.surfaced.reset(&signal.agent_id);
         }
 
-        let (ask, rule): (fn(&Group<'_>) -> Question, Rule) = if first {
-            (hide_question, UNNEEDED)
+        // A group the task confidently will not need is hidden; a hidden
+        // group or namespace clearly needed is brought in.
+        let needed = self.config.reveal.yes();
+        let (ask, rule): (fn(&Group<'_>, usize) -> Question, Rule) = if first {
+            (hide_question, self.config.hide.no())
         } else {
-            (reveal_question, NEEDED)
+            (reveal_question, needed)
         };
         let groups: Vec<Candidate<String>> = self
             .groups(tools)
             .iter()
             .map(|group| Candidate {
                 key: group.name.to_string(),
-                question: ask(group),
+                question: ask(group, self.config.listed_tools),
                 rule,
             })
             .collect();
@@ -246,7 +191,7 @@ impl ToolExposure {
             .map(|namespace| Candidate {
                 key: namespace.name.clone(),
                 question: code_mode::question(namespace),
-                rule: NEEDED,
+                rule: needed,
             })
             .collect();
 
@@ -287,7 +232,7 @@ impl ToolExposure {
         candidates
             .iter()
             .filter(|tool| self.judgeable(tool) && seen.insert(tool.id.as_str()))
-            .take(MAX_RECOVERY_CANDIDATES)
+            .take(self.config.recovery_candidates)
             .collect()
     }
 
@@ -314,9 +259,10 @@ impl ToolExposure {
 
         let choose = choose_question(&candidates, user_request, evidence);
         let (user_request, evidence) = (user_request.clone(), evidence.clone());
+        let pick = self.config.pick_confidence.pick();
 
         Some(
-            Judge::ask(choose, |answer| CHOSEN.chosen(answer)).then(move |chosen| {
+            Judge::ask(choose, move |answer| pick.chosen(answer)).then(move |chosen| {
                 let Some((tool, description)) =
                     chosen.and_then(|chosen| candidates.into_iter().find(|(id, _)| *id == chosen))
                 else {
@@ -326,7 +272,7 @@ impl ToolExposure {
 
                 Judge::ask(confirm, move |answer| {
                     Verdict::Recover(
-                        (CHOSEN.chosen(answer).as_deref() == Some(REVEAL_NEEDED)).then_some(tool),
+                        (pick.chosen(answer).as_deref() == Some(REVEAL_NEEDED)).then_some(tool),
                     )
                 })
             }),
@@ -348,9 +294,20 @@ impl ToolExposure {
         let groups: Vec<(String, String)> = self
             .groups(tools)
             .iter()
-            .map(|group| (group.name.to_string(), listing(group)))
+            .map(|group| {
+                (
+                    group.name.to_string(),
+                    listing(group, self.config.listed_tools),
+                )
+            })
             .collect();
-        let candidates = request::candidates(&groups, code_mode, need, user_request);
+        let candidates = request::candidates(
+            &groups,
+            code_mode,
+            need,
+            user_request,
+            self.config.reveal.yes(),
+        );
 
         (!candidates.is_empty()).then(|| strategy::fan_out(candidates).map(Verdict::Request))
     }
@@ -482,35 +439,36 @@ fn effect(agent_id: &str, tools: Vec<String>, reveal: bool) -> Vec<Effect> {
     }]
 }
 
-fn listing(group: &Group<'_>) -> String {
+/// The group's first `max` tools, and how many more it has.
+fn listing(group: &Group<'_>, max: usize) -> String {
     let mut listed: Vec<String> = group
         .tools
         .iter()
-        .take(MAX_LISTED_TOOLS)
+        .take(max)
         .map(|tool| format!("{} ({})", tool.id, tool.description))
         .collect();
 
-    if group.tools.len() > MAX_LISTED_TOOLS {
-        listed.push(format!("and {} more", group.tools.len() - MAX_LISTED_TOOLS));
+    if group.tools.len() > max {
+        listed.push(format!("and {} more", group.tools.len() - max));
     }
 
     listed.join("; ")
 }
 
-fn hide_question(group: &Group<'_>) -> Question {
+fn hide_question(group: &Group<'_>, listed: usize) -> Question {
     Question {
         id: group.name.to_string(),
         instructions: format!(
             "Will the coding agent need any of the \"{}\" tools to carry out the user's task? \
              Tools: {}",
             group.name,
-            listing(group)
+            listing(group, listed)
         ),
         kind: QuestionKind::Noul,
     }
 }
 
-fn reveal_question(group: &Group<'_>) -> Question {
+fn reveal_question(group: &Group<'_>, listed: usize) -> Question {
     Question {
         id: group.name.to_string(),
         instructions: format!(
@@ -518,7 +476,7 @@ fn reveal_question(group: &Group<'_>) -> Question {
              Does the user's latest request need them now? Showing them again re-reads the whole \
              conversation once, so answer yes only when they are clearly needed. Tools: {}",
             group.name,
-            listing(group)
+            listing(group, listed)
         ),
         kind: QuestionKind::Noul,
     }

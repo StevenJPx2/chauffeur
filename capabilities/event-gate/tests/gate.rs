@@ -1,9 +1,10 @@
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use chauffeur_capability_event_gate::EventGate;
+use chauffeur_capability_event_gate::{EventGate, EventGateConfig};
 use chauffeur_capability_monitors::{Monitor, Monitors, Watch};
 use chauffeur_core::{
-    Answer, AnswerValue, Capability, Effect, Judging, Plan, Signal, SignalKind, Situation,
+    Answer, AnswerValue, Capability, Effect, Judging, Plan, Rule, Signal, SignalKind, Situation,
 };
 
 fn event(summary: &str, monitor: &str) -> Signal {
@@ -128,4 +129,77 @@ fn only_a_confident_no_withholds() {
     assert!(judged(&mut gate, &signal, Some(&[show(0.4)])).is_empty());
     assert!(judged(&mut gate, &signal, Some(&[show(0.9)])).is_empty());
     assert!(judged(&mut gate, &signal, None).is_empty());
+}
+
+fn yours(name: &str, json: &str) -> PathBuf {
+    let path = std::env::temp_dir().join(format!(
+        "chauffeur-event-gate-{}-{name}.json",
+        std::process::id()
+    ));
+
+    std::fs::write(&path, json).unwrap();
+    path
+}
+
+#[test]
+fn the_shipped_bar_withholds_a_confident_no_at_or_below_0_3() {
+    let shipped = EventGateConfig::load(Path::new("/nonexistent/event-gate.json")).unwrap();
+
+    assert_eq!(shipped, EventGateConfig::default());
+    assert_eq!(shipped.withhold.no(), Rule::no(0.3, 0.4));
+}
+
+#[test]
+fn your_bar_overrides_one_field_and_keeps_the_rest() {
+    let path = yours("at", r#"{ "withhold": { "at": 0.2 } }"#);
+
+    assert_eq!(
+        EventGateConfig::load(&path).unwrap().withhold.no(),
+        Rule::no(0.2, 0.4)
+    );
+    std::fs::remove_file(path).unwrap();
+}
+
+#[test]
+fn a_misspelled_field_or_an_out_of_range_bar_is_an_error() {
+    let typo = yours("typo", r#"{ "withold": { "at": 0.2 } }"#);
+    let range = yours("range", r#"{ "withhold": { "confidence": 1.5 } }"#);
+
+    assert!(
+        EventGateConfig::load(&typo)
+            .unwrap_err()
+            .contains("withold")
+    );
+    assert!(
+        EventGateConfig::load(&range)
+            .unwrap_err()
+            .contains("outside [0, 1]")
+    );
+    std::fs::remove_file(typo).unwrap();
+    std::fs::remove_file(range).unwrap();
+}
+
+#[test]
+fn a_stricter_bar_delivers_what_the_shipped_one_withholds() {
+    let path = yours("strict", r#"{ "withhold": { "at": 0.2 } }"#);
+    let config = EventGateConfig::load(&path).unwrap();
+    let signal = event("codecov[bot] commented on #42", "");
+
+    assert!(
+        !judged(
+            &mut Judging::new(EventGate::default()),
+            &signal,
+            Some(&[show(0.25)])
+        )
+        .is_empty()
+    );
+    assert!(
+        judged(
+            &mut Judging::new(EventGate::default().with_config(config)),
+            &signal,
+            Some(&[show(0.25)])
+        )
+        .is_empty()
+    );
+    std::fs::remove_file(path).unwrap();
 }

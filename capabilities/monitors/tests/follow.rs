@@ -1,11 +1,13 @@
 //! Following the agent's own work: facts name a candidate, Jev confirms it,
 //! and the integration creates a monitor unless one already watches it.
 
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
-use chauffeur_capability_monitors::{FollowWork, Monitor, Monitors, Watch};
+use chauffeur_capability_monitors::{FollowWork, Monitor, Monitors, MonitorsConfig, Watch};
 use chauffeur_core::{
-    Answer, AnswerValue, Capability, Delivery, Effect, Judging, Plan, Signal, SignalKind, Situation,
+    Answer, AnswerValue, Capability, Delivery, Effect, Judging, Plan, Rule, Signal, SignalKind,
+    Situation,
 };
 
 /// An integration holding monitors in memory, or down.
@@ -180,4 +182,81 @@ fn a_jira_issue_the_agent_works_on_is_a_candidate() {
     };
 
     assert!(questions[0].instructions.contains("Jira issue ADEPT-45130"));
+}
+
+fn yours(name: &str, json: &str) -> PathBuf {
+    let path = std::env::temp_dir().join(format!(
+        "chauffeur-monitors-{}-{name}.json",
+        std::process::id()
+    ));
+
+    std::fs::write(&path, json).unwrap();
+    path
+}
+
+#[test]
+fn the_shipped_bar_follows_a_confident_yes_at_or_above_0_7() {
+    let shipped = MonitorsConfig::load(Path::new("/nonexistent/monitors.json")).unwrap();
+
+    assert_eq!(shipped, MonitorsConfig::default());
+    assert_eq!(shipped.follow.yes(), Rule::yes(0.7, 0.4));
+}
+
+#[test]
+fn your_bar_overrides_one_field_and_keeps_the_rest() {
+    let path = yours("at", r#"{ "follow": { "at": 0.5 } }"#);
+
+    assert_eq!(
+        MonitorsConfig::load(&path).unwrap().follow.yes(),
+        Rule::yes(0.5, 0.4)
+    );
+    std::fs::remove_file(path).unwrap();
+}
+
+#[test]
+fn a_misspelled_field_or_an_out_of_range_bar_is_an_error() {
+    let typo = yours("typo", r#"{ "folow": { "at": 0.5 } }"#);
+    let range = yours("range", r#"{ "follow": { "at": -0.1 } }"#);
+
+    assert!(MonitorsConfig::load(&typo).unwrap_err().contains("folow"));
+    assert!(
+        MonitorsConfig::load(&range)
+            .unwrap_err()
+            .contains("outside [0, 1]")
+    );
+    std::fs::remove_file(typo).unwrap();
+    std::fs::remove_file(range).unwrap();
+}
+
+#[test]
+fn a_looser_bar_follows_what_the_shipped_one_does_not() {
+    let path = yours("loose", r#"{ "follow": { "at": 0.5 } }"#);
+    let config = MonitorsConfig::load(&path).unwrap();
+    let shipped = Arc::new(Fake::default());
+    let loose = Arc::new(Fake::default());
+    let mut follow = follow_work(shipped.clone());
+    let mut loosened = Judging::new(FollowWork::new(loose.clone()).with_config(config));
+
+    let sure = Answer {
+        confidence: Some(0.9),
+        ..yes("follow/0", 0.6)
+    };
+
+    asked(&mut follow, &pr_created());
+    asked(&mut loosened, &pr_created());
+
+    assert!(
+        follow
+            .decide(&pr_created(), Some(std::slice::from_ref(&sure)))
+            .is_empty()
+    );
+    assert_eq!(
+        loosened
+            .decide(&pr_created(), Some(std::slice::from_ref(&sure)))
+            .len(),
+        1
+    );
+    assert!(shipped.monitors.lock().unwrap().is_empty());
+    assert_eq!(loose.monitors.lock().unwrap().len(), 1);
+    std::fs::remove_file(path).unwrap();
 }

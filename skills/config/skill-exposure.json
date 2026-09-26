@@ -1,0 +1,10 @@
+{
+  "needed": { "at": 0.7, "confidence": 0.4 },
+  "in_project": { "at": 0.3, "confidence": 0.4 },
+  "drift": {
+    "confidence": 0.7,
+    "cooldown_seconds": 60,
+    "browser_only": ["browser-harness"]
+  },
+  "budget": { "bytes": 65536, "skills": 4 }
+}

@@ -4,20 +4,53 @@
 //! shape found while redacting is asked about, never its value; the answer
 //! is learned by the redactor.
 
+use std::path::Path;
+
+use serde::Deserialize;
+
 use crate::backstop::Backstop;
+use crate::config::load_layered;
+use crate::judge::Threshold;
 use crate::redact::{Masking, Redactor, Shape, describe};
 use crate::signal::{Signal, SignalKind};
-use crate::system_one::{Answer, AnswerValue, Question, QuestionKind};
+use crate::system_one::{Answer, Question, QuestionKind};
 
 const HARM: &str = "core/irreversible";
 const SECRET: &str = "core/secret-";
 /// Shapes asked about per signal, at most.
 const MAX_SHAPES: usize = 4;
-/// Learning changes safety lists, so it needs a clearer answer than acting.
-const HARM_AT_OR_ABOVE: f32 = 0.9;
-const SECRET_AT_OR_ABOVE: f32 = 0.7;
-const SAFE_AT_OR_BELOW: f32 = 0.3;
-const MIN_CONFIDENCE: f32 = 0.6;
+/// The shipped bars (`skills/safety/learning.json`), compiled in.
+const SHIPPED: &str = include_str!("../../../../skills/safety/learning.json");
+
+/// When an answer changes a safety list. Learning outlives the signal, so
+/// its bars are stricter than acting's.
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct LearningConfig {
+    /// A command this surely irreversible is denied and joins the backstop.
+    pub irreversible: Threshold,
+    /// A shape this surely a secret is always redacted from then on.
+    pub secret: Threshold,
+    /// A shape this surely not a secret passes where it appeared.
+    pub safe: Threshold,
+}
+
+impl LearningConfig {
+    /// The shipped bars overlaid by your `learning.json` at `path`.
+    ///
+    /// # Errors
+    ///
+    /// When your file is unreadable, invalid, or a bar is outside `[0, 1]`.
+    pub fn load(path: &Path) -> Result<Self, String> {
+        load_layered(SHIPPED, path)
+    }
+}
+
+impl Default for LearningConfig {
+    fn default() -> Self {
+        serde_json::from_str(SHIPPED).expect("shipped learning bars are valid")
+    }
+}
 
 /// What one signal asked the core, to learn from its answers.
 #[derive(Debug, Default)]
@@ -100,15 +133,14 @@ impl Probe {
     /// log, and whether the command was judged irreversible.
     pub fn learn(
         &self,
+        config: &LearningConfig,
         answers: &[Answer],
         backstop: &mut Backstop,
         redactor: &mut Redactor,
     ) -> (Vec<String>, bool) {
+        let answer = |id: &str| answers.iter().find(|answer| answer.id == id);
         let mut learned = Vec::new();
-        let irreversible = self
-            .command
-            .as_ref()
-            .is_some_and(|_| confident(answers, HARM, |p| p >= HARM_AT_OR_ABOVE));
+        let irreversible = self.command.is_some() && config.irreversible.yes().holds(answer(HARM));
 
         if let Some(command) = self.command.as_ref().filter(|_| irreversible) {
             if backstop.learn(command) {
@@ -118,8 +150,8 @@ impl Probe {
 
         for (index, shape) in self.shapes.iter().enumerate() {
             let id = format!("{SECRET}{}", index + 1);
-            let secret = confident(answers, &id, |p| p >= SECRET_AT_OR_ABOVE);
-            let safe = confident(answers, &id, |p| p <= SAFE_AT_OR_BELOW);
+            let secret = config.secret.yes().holds(answer(&id));
+            let safe = config.safe.no().holds(answer(&id));
             let label = describe(index + 1, shape, "");
 
             if (secret || safe) && redactor.learn(shape.clone(), secret) {
@@ -132,13 +164,4 @@ impl Probe {
 
         (learned, irreversible)
     }
-}
-
-/// Whether the core question `id` is a confident noul that `accept` takes.
-fn confident(answers: &[Answer], id: &str, accept: impl Fn(f32) -> bool) -> bool {
-    answers.iter().any(|answer| {
-        answer.id == id
-            && matches!(answer.value, AnswerValue::Noul(p) if accept(p))
-            && answer.effective_confidence() >= MIN_CONFIDENCE
-    })
 }

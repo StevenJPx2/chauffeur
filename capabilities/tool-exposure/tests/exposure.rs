@@ -218,6 +218,28 @@ fn hides_every_tool_of_a_confidently_unneeded_group_and_the_skill_tool() {
 }
 
 #[test]
+fn a_stricter_hide_bar_keeps_a_group_the_shipped_bar_hides() {
+    let path = std::env::temp_dir().join(format!(
+        "chauffeur-tool-exposure-strict-{}.json",
+        std::process::id()
+    ));
+    std::fs::write(&path, r#"{ "hide": { "at": 0.05, "confidence": 0.4 } }"#).unwrap();
+    let strict = ToolExposureConfig::load(&path).unwrap();
+    std::fs::remove_file(&path).unwrap();
+    let signal = message(true, CATALOG);
+    let answers = [noul("github", 0.9), noul("browser", 0.1), noul("jira", 0.4)];
+    let mut exposure = Judging::new(ToolExposure::new(strict));
+
+    exposure.plan(&Situation::default(), &signal);
+
+    assert_eq!(
+        decided(&signal, Some(&answers)),
+        hidden(&["skill", "browser_open"])
+    );
+    assert_eq!(exposure.decide(&signal, Some(&answers)), hidden(&["skill"]));
+}
+
+#[test]
 fn classifier_failure_changes_nothing() {
     assert!(decided(&message(true, CATALOG), None).is_empty());
     assert!(decided(&message(false, &["browser_open"]), None).is_empty());

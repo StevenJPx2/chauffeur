@@ -1,0 +1,58 @@
+{
+  "pins": [],
+  "pick_confidence": 0.2,
+  "switch_back": {
+    "after_seconds": 300,
+    "bar": { "at": 0.7, "confidence": 0.4 }
+  },
+  "max_candidates": 8,
+  "limit": {
+    "messages": [
+      "credit balance",
+      "insufficient funds",
+      "insufficient account funds",
+      "insufficient_quota",
+      "quota",
+      "rate limit",
+      "billing",
+      "high demand",
+      "overloaded",
+      "capacity"
+    ],
+    "types": [
+      "capacity_exhausted",
+      "insufficient_quota",
+      "overloaded",
+      "overloaded_error",
+      "quota",
+      "quota_exceeded",
+      "rate_limit",
+      "rate_limit_error",
+      "resource_exhausted",
+      "too_many_requests",
+      "usage_limit"
+    ]
+  },
+  "unusable": {
+    "messages": [
+      "api key",
+      "unauthorized",
+      "authentication",
+      "not authorized",
+      "model not found",
+      "does not exist"
+    ],
+    "types": [
+      "auth",
+      "authentication",
+      "authentication_error",
+      "unauthorized",
+      "forbidden",
+      "permission",
+      "permission_error",
+      "not_found",
+      "not_found_error",
+      "model_not_found"
+    ]
+  }
+}

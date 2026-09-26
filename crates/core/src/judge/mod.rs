@@ -9,7 +9,7 @@ mod rule;
 pub mod strategy;
 
 pub use judged::{Judged, Judging};
-pub use rule::{NONE, Pick, Rule};
+pub use rule::{Confidence, NONE, Pick, Rule, Threshold};
 
 use std::collections::HashSet;
 
