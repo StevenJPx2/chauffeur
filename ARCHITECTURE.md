@@ -86,6 +86,16 @@ matches none.
 noul) in one call, typed answers out, validated against the questions before
 any capability sees them.
 
+A judgment is a state machine, `chauffeur_core::judge::Judge<T>`: finished
+with a value, or asking questions whose answers (or `None` for a failed call)
+choose its next state. Four primitives build every judge: `done`, `ask`,
+`then` (continue in the next round), and `all` (side by side in one round).
+Rules (`Rule::yes`, `Rule::unless_no`, `Rule::pick`) hold every threshold and
+refuse a failed call. `judge::strategy` composes the common strategies,
+`single`, `fan_out`, and `chain`; a capability composes others where it needs
+them. A judge still asking when the engine's rounds run out settles as if the
+call failed. The design and migration are in `docs/plans/judge.md`.
+
 - **Jev** (TypeSafe AI, hosted) is the only provider, and the daemon requires
   `TYPESAFE_API_KEY` to start. When Jev fails, each capability applies its
   failure posture: nothing is hidden or attached, permission falls to ask, and

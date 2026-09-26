@@ -11,6 +11,7 @@ mod state;
 pub mod client;
 pub mod config;
 pub mod engine;
+pub mod judge;
 pub mod protocol;
 
 pub use contracts::{capability, effect, signal, system_one};
@@ -25,6 +26,7 @@ pub use client::{DEFAULT_DAEMON_URL, DaemonClient};
 pub use config::{load_config, read_json_files};
 pub use effect::{Delivery, Effect, PermissionDecision};
 pub use engine::{Engine, Step};
+pub use judge::{Judge, Pick, Rule};
 pub use protocol::*;
 pub use redact::{LearnedShapes, Prefix, RedactionConfig, Redactor, Shape, redact_secrets};
 pub use signal::{
