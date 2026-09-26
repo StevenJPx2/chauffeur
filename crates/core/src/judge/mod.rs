@@ -102,6 +102,23 @@ impl<T: Send + 'static> Judge<T> {
         }
     }
 
+    /// This judge's value, or `None` when a round's call failed, or rounds
+    /// ran out, before it finished: a judge whose rules all refused can be
+    /// told apart from one that was never answered.
+    #[must_use]
+    pub fn unless_failed(self) -> Judge<Option<T>> {
+        match self {
+            Self::Done(value) => Judge::Done(Some(value)),
+            Self::Asking { questions, next } => Judge::Asking {
+                questions,
+                next: Box::new(move |answers| match answers {
+                    Some(_) => next(answers).unless_failed(),
+                    None => next(None).map(|_| None),
+                }),
+            },
+        }
+    }
+
     /// This judge's value, transformed by `f`.
     #[must_use]
     pub fn map<U: Send + 'static>(self, f: impl FnOnce(T) -> U + Send + 'static) -> Judge<U> {

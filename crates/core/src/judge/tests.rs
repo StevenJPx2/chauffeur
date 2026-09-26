@@ -155,6 +155,18 @@ fn zip_runs_judges_of_different_values_side_by_side() {
 }
 
 #[test]
+fn unless_failed_tells_a_failed_call_from_rules_that_refused() {
+    let judge = || strategy::fan_out([candidate("slack", YES)]).unless_failed();
+
+    assert_eq!(
+        run(judge(), vec![Some(vec![noul("slack", 0.1)])]).0,
+        Some(Vec::new())
+    );
+    assert_eq!(run(judge(), vec![None]).0, None);
+    assert_eq!(run(Judge::done(3).unless_failed(), vec![]).0, Some(3));
+}
+
+#[test]
 fn a_judge_still_asking_when_rounds_run_out_settles_as_failed() {
     let judge = strategy::single(noul_question("first"), YES)
         .then(|_| strategy::single(noul_question("second"), YES));
