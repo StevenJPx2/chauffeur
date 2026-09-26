@@ -88,13 +88,18 @@ pub fn question_id(namespace: &str) -> String {
     format!("code-mode:{namespace}")
 }
 
-pub fn question(namespace: &CodeModeNamespace) -> Question {
+/// The namespace's listed tool IDs, comma-separated.
+pub fn examples(namespace: &CodeModeNamespace) -> String {
     let examples: Vec<&str> = namespace
         .tools
         .iter()
         .map(|tool| tool.id.as_str())
         .collect();
 
+    examples.join(", ")
+}
+
+pub fn question(namespace: &CodeModeNamespace) -> Question {
     Question {
         id: question_id(&namespace.name),
         instructions: format!(
@@ -103,7 +108,7 @@ pub fn question(namespace: &CodeModeNamespace) -> Question {
              tools, such as: {}",
             namespace.name,
             namespace.size,
-            examples.join(", ")
+            examples(namespace)
         ),
         kind: QuestionKind::Noul,
     }

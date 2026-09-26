@@ -5,7 +5,9 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use chauffeur_capability_rules::{MAX_DELIVERIES, Rule, Rules, load_dir, load_project};
-use chauffeur_core::{Answer, AnswerValue, Delivery, Effect, Engine, Signal, SignalKind, Step};
+use chauffeur_core::{
+    Answer, AnswerValue, Delivery, Effect, Engine, Judging, Signal, SignalKind, Step,
+};
 use serde_json::{Value, json};
 
 fn rule(id: &str, on: &str, when: Value, steps: &[&str], delivery: &str) -> Value {
@@ -51,7 +53,7 @@ fn parsed(value: &Value) -> Result<Rule, String> {
 fn engine(rules: &[Value]) -> Engine {
     let rules = rules.iter().map(|rule| parsed(rule).unwrap()).collect();
 
-    Engine::hosted(vec![Box::new(Rules::new(rules))]).unwrap()
+    Engine::hosted(vec![Box::new(Judging::new(Rules::new(rules)))]).unwrap()
 }
 
 fn signal(at: u64, kind: SignalKind) -> Signal {

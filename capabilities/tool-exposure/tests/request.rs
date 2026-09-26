@@ -1,10 +1,10 @@
-//! The agent asks for a tool: System One picks a hidden group or Code Mode
-//! namespace, or none.
+//! The agent asks for a tool: System One judges every hidden group and Code
+//! Mode namespace, and each one that serves the request is granted.
 
 use chauffeur_capability_tool_exposure::{ToolExposure, ToolExposureConfig};
 use chauffeur_core::{
-    Answer, AnswerValue, Capability, CatalogEntry, ChoiceOption, CodeModeNamespace, Delivery,
-    Effect, PipeStep, Plan, QuestionKind, Signal, SignalKind, Situation,
+    Answer, AnswerValue, Capability, CatalogEntry, CodeModeNamespace, Delivery, Effect, Judging,
+    Plan, QuestionKind, Signal, SignalKind, Situation,
 };
 
 fn tool(id: &str) -> CatalogEntry {
@@ -35,53 +35,52 @@ fn request(tools: &[&str], namespaces: &[&str]) -> Signal {
     }
 }
 
-fn choice(value: &str, confidence: f32) -> Answer {
+fn noul(id: &str, probability: f32, confidence: f32) -> Answer {
     Answer {
-        id: "request".into(),
-        value: AnswerValue::Choice(value.into()),
+        id: id.into(),
+        value: AnswerValue::Noul(probability),
         confidence: Some(confidence),
     }
 }
 
-fn exposure() -> ToolExposure {
-    ToolExposure::new(ToolExposureConfig::default())
+fn exposure() -> Judging<ToolExposure> {
+    Judging::new(ToolExposure::new(ToolExposureConfig::default()))
 }
 
-fn options(plan: &Plan) -> Vec<String> {
+/// The yes/no questions asked, by ID; each is worded after the agent's need.
+fn asked(plan: &Plan) -> Vec<String> {
     let Plan::Ask(questions) = plan else {
-        panic!("expected a question, got {plan:?}")
-    };
-    let [question] = questions.as_slice() else {
-        panic!("expected one question")
-    };
-    let QuestionKind::Choice { options } = &question.kind else {
-        panic!("expected a choice")
+        panic!("expected questions, got {plan:?}")
     };
 
-    assert!(question.instructions.contains("open and click"));
-    options
+    questions
         .iter()
-        .map(|ChoiceOption { value, .. }| value.clone())
+        .map(|question| {
+            assert!(matches!(question.kind, QuestionKind::Noul));
+            assert!(question.instructions.contains("open and click"));
+            assert!(question.instructions.contains("landing page"));
+            question.id.clone()
+        })
         .collect()
 }
 
-fn granted(exposure: &mut ToolExposure, signal: &Signal, answer: Answer) -> Vec<Effect> {
-    match exposure.advance(signal, Some(&[answer]), 1) {
-        PipeStep::Done(effects) => effects,
-        PipeStep::Next(_) => panic!("a request is one round"),
-    }
+fn granted(signal: &Signal, answers: Option<&[Answer]>) -> Vec<Effect> {
+    let mut exposure = exposure();
+
+    exposure.plan(&Situation::default(), signal);
+    exposure.decide(signal, answers)
 }
 
 #[test]
-fn hidden_groups_and_namespaces_are_offered_but_base_tools_never() {
+fn each_hidden_group_and_namespace_is_asked_but_base_tools_never() {
     let signal = request(
         &["read", "browser_open", "browser_click", "github_merge"],
         &["safari"],
     );
 
     assert_eq!(
-        options(&exposure().plan(&Situation::default(), &signal)),
-        ["tools:browser", "tools:github", "code-mode:safari", "none"]
+        asked(&exposure().plan(&Situation::default(), &signal)),
+        ["tools:browser", "tools:github", "code-mode:safari"]
     );
     assert_eq!(
         exposure().plan(&Situation::default(), &request(&["read"], &[])),
@@ -90,55 +89,50 @@ fn hidden_groups_and_namespaces_are_offered_but_base_tools_never() {
 }
 
 #[test]
-fn a_confident_group_pick_reveals_the_whole_group() {
-    let signal = request(&["browser_open", "browser_click", "github_merge"], &[]);
-    let mut exposure = exposure();
-
-    exposure.plan(&Situation::default(), &signal);
-
-    assert_eq!(
-        granted(&mut exposure, &signal, choice("tools:browser", 0.9)),
-        vec![Effect::Tools {
-            agent_id: "ses".into(),
-            hide: Vec::new(),
-            reveal: vec!["browser_open".into(), "browser_click".into()],
-        }]
+fn two_groups_and_a_namespace_are_all_granted_together() {
+    let signal = request(
+        &["browser_open", "browser_click", "github_merge", "jira_view"],
+        &["safari", "jina"],
     );
+    let answers = [
+        noul("tools:browser", 0.9, 0.8),
+        noul("tools:github", 0.8, 0.8),
+        noul("tools:jira", 0.2, 0.8),
+        noul("code-mode:safari", 0.9, 0.8),
+        noul("code-mode:jina", 0.1, 0.8),
+    ];
+    let effects = granted(&signal, Some(&answers));
+    let [
+        Effect::Tools { hide, reveal, .. },
+        Effect::Context {
+            delivery: Delivery::Steer,
+            text: Some(text),
+            ..
+        },
+    ] = effects.as_slice()
+    else {
+        panic!("expected a reveal and a steered note, got {effects:?}")
+    };
+
+    assert!(hide.is_empty());
+    assert_eq!(reveal, &["browser_open", "browser_click", "github_merge"]);
+    assert!(text.contains("safari_open") && !text.contains("jina"));
 }
 
 #[test]
-fn a_namespace_pick_steers_its_matches_into_the_turn() {
-    let signal = request(&[], &["safari", "jina"]);
-    let mut exposure = exposure();
+fn no_confident_yes_grants_nothing() {
+    let signal = request(&["browser_open"], &["safari"]);
+    let answers = [
+        noul("tools:browser", 0.5, 0.9),
+        noul("code-mode:safari", 0.9, 0.2),
+    ];
 
-    exposure.plan(&Situation::default(), &signal);
-
-    let effects = granted(&mut exposure, &signal, choice("code-mode:safari", 0.9));
-
-    assert!(matches!(
-        effects.as_slice(),
-        [Effect::Context { delivery: Delivery::Steer, text: Some(text), .. }]
-            if text.contains("safari_open") && !text.contains("jina")
-    ));
+    assert!(granted(&signal, Some(&answers)).is_empty());
 }
 
 #[test]
-fn none_an_unsure_pick_an_unknown_option_or_a_failure_grants_nothing() {
+fn a_failed_call_grants_nothing() {
     let signal = request(&["browser_open"], &["safari"]);
 
-    for answers in [
-        Some(vec![choice("none", 0.9)]),
-        Some(vec![choice("tools:browser", 0.2)]),
-        Some(vec![choice("tools:shell", 0.9)]),
-        None,
-    ] {
-        let mut exposure = exposure();
-
-        exposure.plan(&Situation::default(), &signal);
-
-        assert!(matches!(
-            exposure.advance(&signal, answers.as_deref(), 1),
-            PipeStep::Done(effects) if effects.is_empty()
-        ));
-    }
+    assert!(granted(&signal, None).is_empty());
 }

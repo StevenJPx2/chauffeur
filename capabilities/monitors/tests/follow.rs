@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 
 use chauffeur_capability_monitors::{FollowWork, Monitor, Monitors, Watch};
 use chauffeur_core::{
-    Answer, AnswerValue, Capability, Delivery, Effect, Plan, Signal, SignalKind, Situation,
+    Answer, AnswerValue, Capability, Delivery, Effect, Judging, Plan, Signal, SignalKind, Situation,
 };
 
 /// An integration holding monitors in memory, or down.
@@ -70,7 +70,11 @@ fn yes(id: &str, p: f32) -> Answer {
     }
 }
 
-fn asked(capability: &mut FollowWork, signal: &Signal) -> Vec<String> {
+fn follow_work(monitors: Arc<Fake>) -> Judging<FollowWork> {
+    Judging::new(FollowWork::new(monitors))
+}
+
+fn asked(capability: &mut Judging<FollowWork>, signal: &Signal) -> Vec<String> {
     match capability.plan(&Situation::default(), signal) {
         Plan::Ask(questions) => questions.into_iter().map(|question| question.id).collect(),
         _ => Vec::new(),
@@ -80,7 +84,7 @@ fn asked(capability: &mut FollowWork, signal: &Signal) -> Vec<String> {
 #[test]
 fn a_confirmed_pr_the_agent_opened_gets_a_monitor_and_the_agent_is_told() {
     let fake = Arc::new(Fake::default());
-    let mut follow = FollowWork::new(fake.clone());
+    let mut follow = follow_work(fake.clone());
 
     assert_eq!(asked(&mut follow, &pr_created()), ["follow/0"]);
 
@@ -119,10 +123,10 @@ fn an_existing_monitor_a_no_or_a_failure_creates_nothing() {
             },
         )
         .unwrap();
-    assert!(asked(&mut FollowWork::new(watched), &pr_created()).is_empty());
+    assert!(asked(&mut follow_work(watched), &pr_created()).is_empty());
 
     let fake = Arc::new(Fake::default());
-    let mut follow = FollowWork::new(fake.clone());
+    let mut follow = follow_work(fake.clone());
 
     asked(&mut follow, &pr_created());
     assert!(
@@ -131,7 +135,7 @@ fn an_existing_monitor_a_no_or_a_failure_creates_nothing() {
             .is_empty()
     );
 
-    let mut retried = FollowWork::new(fake.clone());
+    let mut retried = follow_work(fake.clone());
 
     asked(&mut retried, &pr_created());
     assert!(retried.decide(&pr_created(), None).is_empty());
@@ -142,7 +146,7 @@ fn an_existing_monitor_a_no_or_a_failure_creates_nothing() {
 
 #[test]
 fn reading_a_pr_or_an_unreachable_integration_asks_nothing() {
-    let mut follow = FollowWork::new(Arc::new(Fake::default()));
+    let mut follow = follow_work(Arc::new(Fake::default()));
     let viewed = call(
         "shell",
         r#"{"command":"gh pr view 42"}"#,
@@ -152,7 +156,7 @@ fn reading_a_pr_or_an_unreachable_integration_asks_nothing() {
     assert!(asked(&mut follow, &viewed).is_empty());
     assert!(
         asked(
-            &mut FollowWork::new(Arc::new(Fake {
+            &mut follow_work(Arc::new(Fake {
                 down: true,
                 ..Fake::default()
             })),
@@ -164,7 +168,7 @@ fn reading_a_pr_or_an_unreachable_integration_asks_nothing() {
 
 #[test]
 fn a_jira_issue_the_agent_works_on_is_a_candidate() {
-    let mut follow = FollowWork::new(Arc::new(Fake::default()));
+    let mut follow = follow_work(Arc::new(Fake::default()));
     let viewed = call(
         "shell",
         r#"{"command":"jira issue view ADEPT-45130"}"#,

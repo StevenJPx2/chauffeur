@@ -1,7 +1,8 @@
 //! Rules: on a tool result or a turn end, every rule whose gate admits the
 //! agent's exact facts asks Jev its first step; a rule whose steps all hold
 //! delivers its context, highest priority first. One format serves shipped
-//! rules (`skills/rules/`) and a project's own (`.chauffeur/rules/`).
+//! rules (`skills/rules/`) and a project's own (`.chauffeur/rules/`). Run it
+//! as `Judging::new(Rules::new(rules))`.
 
 mod history;
 mod rule;
@@ -9,9 +10,12 @@ mod source;
 
 use std::collections::HashMap;
 
+use chauffeur_core::judge::{
+    self,
+    strategy::{self, Chained},
+};
 use chauffeur_core::{
-    Answer, AnswerValue, Capability, Effect, PipeStep, Plan, Question, QuestionKind, Signal,
-    SignalKind, Situation,
+    Effect, Judge, Judged, Question, QuestionKind, Signal, SignalKind, Situation,
 };
 use serde::{Deserialize, Serialize};
 
@@ -33,19 +37,10 @@ struct Fired {
     history: History,
 }
 
-/// The rules admitted for the signal being judged, those whose first step
-/// held and await their second, and those confirmed so far.
-struct Active {
-    rules: Vec<Rule>,
-    next: Vec<usize>,
-    confirmed: Vec<usize>,
-}
-
 pub struct Rules {
     shipped: Vec<Rule>,
     histories: Histories,
     fired: HashMap<(String, String), Fired>,
-    active: Option<Active>,
     /// The latest project-rule error, logged once until it changes.
     project_error: Option<String>,
 }
@@ -71,7 +66,6 @@ impl Rules {
             shipped,
             histories: Histories::default(),
             fired: HashMap::new(),
-            active: None,
             project_error: None,
         }
     }
@@ -109,14 +103,15 @@ impl Rules {
             })
     }
 
-    /// Ask the first step of every rule `trigger` admits.
+    /// Judge every rule `trigger` admits, each step asked only after the
+    /// previous one held.
     fn start(
         &mut self,
         signal: &Signal,
         trigger: Trigger,
         workspace: &str,
         tool: Option<&str>,
-    ) -> Plan {
+    ) -> Judge<Vec<Rule>> {
         let agent = &signal.agent_id;
         let rules: Vec<Rule> = self
             .rules_for(workspace)
@@ -128,50 +123,21 @@ impl Rules {
             .filter(|rule| self.histories.admits(&rule.when, agent, workspace))
             .filter(|rule| self.may_fire(agent, rule, signal.at))
             .collect();
-        let questions: Vec<Question> = rules
-            .iter()
-            .filter_map(|rule| question(rule, 0, &signal.kind))
-            .collect();
-
-        if questions.is_empty() {
-            return Plan::Skip;
-        }
-
-        self.active = Some(Active {
-            rules,
-            next: Vec::new(),
-            confirmed: Vec::new(),
+        let candidates = rules.into_iter().map(|rule| Chained {
+            steps: rule
+                .steps
+                .iter()
+                .map(|step| {
+                    (
+                        question(&rule, step, &signal.kind),
+                        judge::Rule::yes(step.yes_at_or_above, step.minimum_confidence),
+                    )
+                })
+                .collect(),
+            key: rule,
         });
 
-        Plan::Ask(questions)
-    }
-
-    /// The confirmed rules' contexts, highest priority first, within
-    /// [`MAX_DELIVERIES`].
-    fn deliver(&mut self, signal: &Signal, active: Active) -> Vec<Effect> {
-        let mut confirmed: Vec<Rule> = active
-            .confirmed
-            .into_iter()
-            .filter_map(|index| active.rules.get(index).cloned())
-            .collect();
-
-        confirmed.sort_by_key(|rule| std::cmp::Reverse(rule.priority));
-        confirmed.truncate(MAX_DELIVERIES);
-
-        confirmed
-            .into_iter()
-            .map(|rule| {
-                self.record_fired(&signal.agent_id, &rule, signal.at);
-
-                Effect::Context {
-                    agent_id: signal.agent_id.clone(),
-                    delivery: rule.then.delivery,
-                    label: rule.label().to_string(),
-                    skills: rule.then.skill.into_iter().collect(),
-                    text: Some(rule.then.text),
-                }
-            })
-            .collect()
+        strategy::chain(candidates)
     }
 
     fn record_fired(&mut self, agent: &str, rule: &Rule, at: u64) {
@@ -201,7 +167,9 @@ impl Rules {
     }
 }
 
-impl Capability for Rules {
+impl Judged for Rules {
+    type Verdict = Vec<Rule>;
+
     fn id(&self) -> &str {
         ID
     }
@@ -227,97 +195,54 @@ impl Capability for Rules {
         self.fired = saved.fired.into_iter().take(MAX_FIRED).collect();
     }
 
-    fn plan(&mut self, _: &Situation, signal: &Signal) -> Plan {
-        self.active = None;
-
+    fn judge(&mut self, _: &Situation, signal: &Signal) -> Option<Judge<Vec<Rule>>> {
         let agent = signal.agent_id.as_str();
 
         match &signal.kind {
             SignalKind::UserMessage { .. } => {
                 self.histories.user_message(agent);
                 self.renew(agent);
-                Plan::Skip
+                None
             }
             SignalKind::IntegrationEvent { source, kind, .. } => {
                 self.histories.hook(agent, format!("{source}:{kind}"));
-                Plan::Skip
+                None
             }
             SignalKind::ToolResult {
                 tool, workspace, ..
             } => {
                 self.histories.tool(agent, workspace, tool);
-                self.start(signal, Trigger::ToolResult, workspace, Some(tool))
+                Some(self.start(signal, Trigger::ToolResult, workspace, Some(tool)))
             }
             SignalKind::TurnEnd { workspace, .. } => {
-                self.start(signal, Trigger::TurnEnd, workspace, None)
+                Some(self.start(signal, Trigger::TurnEnd, workspace, None))
             }
-            _ => Plan::Skip,
+            _ => None,
         }
     }
 
-    fn decide(&mut self, _: &Signal, _: Option<&[Answer]>) -> Vec<Effect> {
-        Vec::new()
+    /// The confirmed rules' contexts, highest priority first, within
+    /// [`MAX_DELIVERIES`]. Among equal priorities, a rule confirmed in an
+    /// earlier round, having fewer steps, comes first.
+    fn act(&mut self, signal: &Signal, mut confirmed: Vec<Rule>) -> Vec<Effect> {
+        confirmed.sort_by_key(|rule| (std::cmp::Reverse(rule.priority), rule.steps.len()));
+        confirmed.truncate(MAX_DELIVERIES);
+
+        confirmed
+            .into_iter()
+            .map(|rule| {
+                self.record_fired(&signal.agent_id, &rule, signal.at);
+
+                Effect::Context {
+                    agent_id: signal.agent_id.clone(),
+                    delivery: rule.then.delivery,
+                    label: rule.label().to_string(),
+                    skills: rule.then.skill.into_iter().collect(),
+                    text: Some(rule.then.text),
+                }
+            })
+            .collect()
     }
-
-    /// Round 1 judges every admitted rule's first step; round 2 the second
-    /// step of those that held. A failed judgment confirms nothing new, and
-    /// rules confirmed earlier still deliver.
-    fn advance(&mut self, signal: &Signal, answers: Option<&[Answer]>, round: usize) -> PipeStep {
-        let Some(mut active) = self.active.take() else {
-            return PipeStep::Done(Vec::new());
-        };
-        let step = round.saturating_sub(1);
-        let indices: Vec<usize> = if step == 0 {
-            (0..active.rules.len()).collect()
-        } else {
-            std::mem::take(&mut active.next)
-        };
-        let mut next = Vec::new();
-
-        for index in indices {
-            let Some(rule) = active.rules.get(index) else {
-                continue;
-            };
-
-            if !confirmed(rule, step, answers) {
-                continue;
-            }
-            if step.saturating_add(1) < rule.steps.len() {
-                next.push(index);
-            } else {
-                active.confirmed.push(index);
-            }
-        }
-
-        let questions: Vec<Question> = next
-            .iter()
-            .filter_map(|index| active.rules.get(*index))
-            .filter_map(|rule| question(rule, step.saturating_add(1), &signal.kind))
-            .collect();
-
-        if questions.is_empty() {
-            return PipeStep::Done(self.deliver(signal, active));
-        }
-
-        active.next = next;
-        self.active = Some(active);
-
-        PipeStep::Next(questions)
-    }
-}
-
-/// Whether Jev confirmed `rule`'s step at `index`.
-fn confirmed(rule: &Rule, index: usize, answers: Option<&[Answer]>) -> bool {
-    let (Some(step), Some(answers)) = (rule.steps.get(index), answers) else {
-        return false;
-    };
-    let id = question_id(rule, step);
-
-    answers.iter().any(|answer| {
-        answer.id == id
-            && matches!(answer.value, AnswerValue::Noul(p) if p >= step.yes_at_or_above)
-            && answer.effective_confidence() >= step.minimum_confidence
-    })
 }
 
 fn question_id(rule: &Rule, step: &Step) -> String {
@@ -326,8 +251,7 @@ fn question_id(rule: &Rule, step: &Step) -> String {
 
 /// A step's question with what it is about: the call a tool-result rule
 /// judges, or the user's latest request at a turn end.
-fn question(rule: &Rule, index: usize, kind: &SignalKind) -> Option<Question> {
-    let step = rule.steps.get(index)?;
+fn question(rule: &Rule, step: &Step, kind: &SignalKind) -> Question {
     let instructions = match kind {
         SignalKind::ToolResult {
             tool, ok, input, ..
@@ -348,9 +272,9 @@ fn question(rule: &Rule, index: usize, kind: &SignalKind) -> Option<Question> {
         _ => step.question.clone(),
     };
 
-    Some(Question {
+    Question {
         id: question_id(rule, step),
         instructions,
         kind: QuestionKind::Noul,
-    })
+    }
 }

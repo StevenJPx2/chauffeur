@@ -6,8 +6,8 @@ use chauffeur_capability_model_router::{
 };
 use chauffeur_capability_model_router::{Provider, Tier, TierEntry};
 use chauffeur_core::{
-    Answer, AnswerValue, AvailableModel, Capability, Effect, ModelRef, Plan, QuestionKind, Signal,
-    SignalKind, Situation,
+    Answer, AnswerValue, AvailableModel, Capability, Effect, Judging, ModelRef, Plan, QuestionKind,
+    Signal, SignalKind, Situation,
 };
 
 struct Table(&'static str, Vec<TierEntry>);
@@ -53,7 +53,7 @@ fn model(key: &str) -> ModelRef {
     }
 }
 
-fn router(pins: &[&str]) -> ModelRouter {
+fn router(pins: &[&str]) -> Judging<ModelRouter> {
     let providers: Vec<Arc<dyn Provider>> = vec![
         Arc::new(Table(
             "anthropic",
@@ -72,7 +72,7 @@ fn router(pins: &[&str]) -> ModelRouter {
         pins: pins.iter().map(|pin| (*pin).to_string()).collect(),
     };
 
-    ModelRouter::new(providers, config)
+    Judging::new(ModelRouter::new(providers, config))
 }
 
 fn limit(tool_executed: bool) -> Signal {
@@ -192,7 +192,13 @@ fn classifier_failure_or_low_confidence_switches_to_the_preferred_candidate() {
         router.decide(&signal, Some(&[choice(STAY, 0.05)][..])),
         switch("openai/luna")
     );
-    assert_eq!(router.decide(&signal, None), switch("openai/sol"));
+    // The switch lands on luna, which fails too.
+    let mut failed = limit(false);
+    if let SignalKind::ModelError { model, .. } = &mut failed.kind {
+        *model = model_ref("openai/luna");
+    }
+    router.plan(&Situation::default(), &failed);
+    assert_eq!(router.decide(&failed, None), switch("openai/sol"));
 }
 
 #[test]
@@ -359,7 +365,7 @@ fn switch_back(p: f32) -> Answer {
 }
 
 /// Fail over from anthropic/opus to openai/sol at t=1.
-fn switched_router() -> ModelRouter {
+fn switched_router() -> Judging<ModelRouter> {
     let mut router = router(&[]);
     let signal = limit(false);
     let chosen = Answer {
@@ -423,6 +429,10 @@ fn an_unconvinced_judgment_stays_and_a_manual_model_change_forgets_the_origin() 
     let mut router = switched_router();
     let after = 1 + SWITCH_BACK_AFTER_SECS;
 
+    assert!(matches!(
+        router.plan(&Situation::default(), &user_message(after, "openai/sol")),
+        Plan::Ask(_)
+    ));
     assert!(
         router
             .decide(
@@ -431,6 +441,10 @@ fn an_unconvinced_judgment_stays_and_a_manual_model_change_forgets_the_origin() 
             )
             .is_empty()
     );
+    assert!(matches!(
+        router.plan(&Situation::default(), &user_message(after, "openai/sol")),
+        Plan::Ask(_)
+    ));
     assert!(
         router
             .decide(&user_message(after, "openai/sol"), None)
@@ -535,13 +549,13 @@ fn a_second_fallback_does_not_restart_the_original_limits_clock() {
 }
 
 /// The shipped tables, with the host's models listed without variants.
-fn shipped_router() -> ModelRouter {
+fn shipped_router() -> Judging<ModelRouter> {
     let providers: Vec<Arc<dyn Provider>> = vec![
         Arc::new(chauffeur_plugin_anthropic::AnthropicProvider),
         Arc::new(chauffeur_plugin_openai::OpenAiProvider),
     ];
 
-    ModelRouter::new(providers, ModelRouterConfig::default())
+    Judging::new(ModelRouter::new(providers, ModelRouterConfig::default()))
 }
 
 fn limit_on(current: &str) -> Signal {

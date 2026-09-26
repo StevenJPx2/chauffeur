@@ -3,7 +3,7 @@ use std::sync::Arc;
 use chauffeur_capability_event_gate::EventGate;
 use chauffeur_capability_monitors::{Monitor, Monitors, Watch};
 use chauffeur_core::{
-    Answer, AnswerValue, Capability, Effect, Plan, Signal, SignalKind, Situation,
+    Answer, AnswerValue, Capability, Effect, Judging, Plan, Signal, SignalKind, Situation,
 };
 
 fn event(summary: &str, monitor: &str) -> Signal {
@@ -21,6 +21,20 @@ fn event(summary: &str, monitor: &str) -> Signal {
     }
 }
 
+/// Plan `signal`, then decide it with `answers`.
+fn judged(
+    gate: &mut Judging<EventGate>,
+    signal: &Signal,
+    answers: Option<&[Answer]>,
+) -> Vec<Effect> {
+    assert!(matches!(
+        gate.plan(&Situation::default(), signal),
+        Plan::Ask(_)
+    ));
+
+    gate.decide(signal, answers)
+}
+
 fn show(p: f32) -> Answer {
     Answer {
         id: "show".into(),
@@ -29,7 +43,7 @@ fn show(p: f32) -> Answer {
     }
 }
 
-fn instructions(gate: &mut EventGate, signal: &Signal) -> String {
+fn instructions(gate: &mut Judging<EventGate>, signal: &Signal) -> String {
     let Plan::Ask(questions) = gate.plan(&Situation::default(), signal) else {
         panic!("expected a question")
     };
@@ -64,14 +78,14 @@ impl Monitors for Fake {
 #[test]
 fn asks_whether_an_integration_event_needs_the_agent() {
     let asked = instructions(
-        &mut EventGate::default(),
+        &mut Judging::new(EventGate::default()),
         &event("codecov[bot] commented on #42", ""),
     );
 
     assert!(asked.contains("codecov[bot] commented on #42\nCoverage 81.2%"));
     assert!(asked.contains("sourcefed marks it actionable"));
     assert_eq!(
-        EventGate::default().plan(
+        Judging::new(EventGate::default()).plan(
             &Situation::default(),
             &Signal {
                 kind: SignalKind::TurnEnd {
@@ -87,7 +101,7 @@ fn asks_whether_an_integration_event_needs_the_agent() {
 
 #[test]
 fn the_question_names_what_the_events_monitor_watches() {
-    let mut gate = EventGate::with_monitors(Arc::new(Fake));
+    let mut gate = Judging::new(EventGate::with_monitors(Arc::new(Fake)));
 
     assert!(
         instructions(&mut gate, &event("CI failed", "mon_42"))
@@ -101,17 +115,17 @@ fn the_question_names_what_the_events_monitor_watches() {
 #[test]
 fn only_a_confident_no_withholds() {
     let signal = event("codecov[bot] commented on #42", "");
-    let mut gate = EventGate::default();
+    let mut gate = Judging::new(EventGate::default());
 
     assert_eq!(
-        gate.decide(&signal, Some(&[show(0.1)])),
+        judged(&mut gate, &signal, Some(&[show(0.1)])),
         vec![Effect::Gate {
             agent_id: "ses".into(),
             deliver: false
         }]
     );
     // Unsure, positive, and failed judgments all deliver.
-    assert!(gate.decide(&signal, Some(&[show(0.4)])).is_empty());
-    assert!(gate.decide(&signal, Some(&[show(0.9)])).is_empty());
-    assert!(gate.decide(&signal, None).is_empty());
+    assert!(judged(&mut gate, &signal, Some(&[show(0.4)])).is_empty());
+    assert!(judged(&mut gate, &signal, Some(&[show(0.9)])).is_empty());
+    assert!(judged(&mut gate, &signal, None).is_empty());
 }

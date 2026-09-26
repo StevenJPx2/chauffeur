@@ -8,7 +8,8 @@
 //! Code Mode tools reach the model through `execute`, whose catalog shows each
 //! namespace only in part; a namespace the request needs is surfaced by an
 //! appended note instead. When the agent asks for a tool itself, System One
-//! picks the hidden group or namespace that serves it, or none.
+//! judges every hidden group and namespace, and each that serves it is
+//! granted. Run it as `Judging::new(ToolExposure::new(config))`.
 
 mod code_mode;
 mod request;
@@ -16,9 +17,10 @@ mod request;
 use std::collections::HashSet;
 use std::path::Path;
 
+use chauffeur_core::judge::strategy::{self, Candidate};
 use chauffeur_core::{
-    Answer, AnswerValue, Capability, CatalogEntry, ChoiceOption, Delivery, Effect, PipeStep, Plan,
-    Question, QuestionKind, Signal, SignalKind, Situation, load_config,
+    CatalogEntry, ChoiceOption, Delivery, Effect, Judge, Judged, Pick, Question, QuestionKind,
+    Rule, Signal, SignalKind, Situation, load_config,
 };
 
 use code_mode::Surfaced;
@@ -52,6 +54,14 @@ pub const MAX_GROUPS: usize = 64;
 const MAX_BASE: usize = 64;
 const MAX_LISTED_TOOLS: usize = 6;
 const MAX_RECOVERY_CANDIDATES: usize = 4;
+/// A group the task confidently will not need.
+const UNNEEDED: Rule = Rule::no(HIDE_AT_OR_BELOW, MIN_CONFIDENCE);
+/// A hidden group or namespace clearly needed.
+pub(crate) const NEEDED: Rule = Rule::yes(REVEAL_AT_OR_ABOVE, MIN_CONFIDENCE);
+/// A confident choice in missing-tool recovery.
+const CHOSEN: Pick = Rule::pick(MIN_CONFIDENCE);
+/// The recovery confirmation that reveals the chosen tool.
+const REVEAL_NEEDED: &str = "reveal_needed";
 
 /// A tool's group: its ID up to the first `_`.
 #[must_use]
@@ -84,6 +94,30 @@ impl ToolExposureConfig {
 
         Ok(self)
     }
+}
+
+/// What a finished judge found, by signal kind.
+pub enum Verdict {
+    /// A user message: the groups whose rule held, hidden at the first
+    /// message and revealed later, and the Code Mode namespaces to surface.
+    /// `heard` is false when nothing was answered, so nothing changes.
+    Message {
+        first: bool,
+        heard: bool,
+        groups: Vec<String>,
+        namespaces: Vec<String>,
+    },
+    /// A missing-tool result: the hidden direct tool to reveal, if any.
+    Recover(Option<String>),
+    /// The agent's request: everything that serves it.
+    Request(Vec<Grant>),
+}
+
+/// What the agent's request may be granted.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum Grant {
+    Group(String),
+    Namespace(String),
 }
 
 pub struct ToolExposure {
@@ -171,6 +205,79 @@ impl ToolExposure {
             .collect()
     }
 
+    /// At a user message: every group, hidden on a confident no at the first
+    /// message and revealed on a confident yes later, beside every Code Mode
+    /// namespace not yet surfaced, all in one round.
+    fn message(&mut self, signal: &Signal) -> Option<Judge<Verdict>> {
+        let SignalKind::UserMessage {
+            first_in_context,
+            tools,
+            code_mode,
+            ..
+        } = &signal.kind
+        else {
+            return None;
+        };
+        let first = *first_in_context;
+
+        if first {
+            self.surfaced.reset(&signal.agent_id);
+        }
+
+        let (ask, rule): (fn(&Group<'_>) -> Question, Rule) = if first {
+            (hide_question, UNNEEDED)
+        } else {
+            (reveal_question, NEEDED)
+        };
+        let groups: Vec<Candidate<String>> = self
+            .groups(tools)
+            .iter()
+            .map(|group| Candidate {
+                key: group.name.to_string(),
+                question: ask(group),
+                rule,
+            })
+            .collect();
+        let namespaces: Vec<Candidate<String>> = self
+            .surfaced
+            .pending(&signal.agent_id, code_mode)
+            .into_iter()
+            .take(MAX_GROUPS)
+            .map(|namespace| Candidate {
+                key: namespace.name.clone(),
+                question: code_mode::question(namespace),
+                rule: NEEDED,
+            })
+            .collect();
+
+        if groups.is_empty() && namespaces.is_empty() {
+            return Some(Judge::done(Verdict::Message {
+                first,
+                heard: true,
+                groups: Vec::new(),
+                namespaces: Vec::new(),
+            }));
+        }
+
+        // Groups and namespaces in one round; a failed call changes nothing.
+        Some(
+            strategy::fan_out(groups)
+                .zip(strategy::fan_out(namespaces))
+                .unless_failed()
+                .map(move |judged| {
+                    let heard = judged.is_some();
+                    let (groups, namespaces) = judged.unwrap_or_default();
+
+                    Verdict::Message {
+                        first,
+                        heard,
+                        groups,
+                        namespaces,
+                    }
+                }),
+        )
+    }
+
     fn recovery_candidates<'a>(&self, signal: &'a Signal) -> Vec<&'a CatalogEntry> {
         let SignalKind::ToolResult { candidates, .. } = &signal.kind else {
             return Vec::new();
@@ -184,8 +291,9 @@ impl ToolExposure {
             .collect()
     }
 
-    /// After a missing-tool result: which hidden direct tool fits, or none.
-    fn recovery_question(&self, signal: &Signal) -> Option<Question> {
+    /// After a missing-tool result: which hidden direct tool fits, then,
+    /// a round later, whether the agent clearly needs it.
+    fn recover(&self, signal: &Signal) -> Option<Judge<Verdict>> {
         let SignalKind::ToolResult {
             user_request,
             evidence,
@@ -194,91 +302,40 @@ impl ToolExposure {
         else {
             return None;
         };
-        let candidates = self.recovery_candidates(signal);
+        let candidates: Vec<(String, String)> = self
+            .recovery_candidates(signal)
+            .iter()
+            .map(|tool| (tool.id.clone(), tool.description.clone()))
+            .collect();
 
         if candidates.is_empty() {
             return None;
         }
 
-        let mut options: Vec<ChoiceOption> = candidates
-            .iter()
-            .map(|tool| ChoiceOption {
-                value: tool.id.clone(),
-                description: tool.description.clone(),
-            })
-            .collect();
+        let choose = choose_question(&candidates, user_request, evidence);
+        let (user_request, evidence) = (user_request.clone(), evidence.clone());
 
-        options.push(ChoiceOption {
-            value: "none".into(),
-            description: "No hidden tool fits".into(),
-        });
+        Some(
+            Judge::ask(choose, |answer| CHOSEN.chosen(answer)).then(move |chosen| {
+                let Some((tool, description)) =
+                    chosen.and_then(|chosen| candidates.into_iter().find(|(id, _)| *id == chosen))
+                else {
+                    return Judge::done(Verdict::Recover(None));
+                };
+                let confirm = confirm_question(&tool, &description, &user_request, &evidence);
 
-        Some(Question {
-            id: "recover/choose".into(),
-            instructions: format!(
-                "Which registered, hidden direct tool fits the user's request and the tool result? Request: {user_request}. Evidence: {evidence}. Choose none if no offered tool fits."
-            ),
-            kind: QuestionKind::Choice { options },
-        })
+                Judge::ask(confirm, move |answer| {
+                    Verdict::Recover(
+                        (CHOSEN.chosen(answer).as_deref() == Some(REVEAL_NEEDED)).then_some(tool),
+                    )
+                })
+            }),
+        )
     }
 
-    fn recover(&self, signal: &Signal, answers: Option<&[Answer]>, round: usize) -> PipeStep {
-        let SignalKind::ToolResult {
-            user_request,
-            evidence,
-            ..
-        } = &signal.kind
-        else {
-            return PipeStep::Done(Vec::new());
-        };
-        let Some(answer) = answers.and_then(|answers| answers.first()) else {
-            return PipeStep::Done(Vec::new());
-        };
-        let candidates = self.recovery_candidates(signal);
-
-        if round == 1 {
-            let AnswerValue::Choice(chosen) = &answer.value else {
-                return PipeStep::Done(Vec::new());
-            };
-            let Some(tool) = candidates.iter().find(|tool| tool.id == *chosen) else {
-                return PipeStep::Done(Vec::new());
-            };
-            return PipeStep::Next(vec![Question {
-                id: format!("recover/{}", tool.id),
-                instructions: format!(
-                    "Does the agent need the hidden direct tool {} ({}) to complete the user's request? Request: {}. Tool result evidence: {}. Reveal only if clearly needed.",
-                    tool.id, tool.description, user_request, evidence
-                ),
-                kind: QuestionKind::Choice {
-                    options: ["reveal_needed", "keep_not_needed", "keep_uncertain"]
-                        .into_iter()
-                        .map(|value| ChoiceOption {
-                            value: value.into(),
-                            description: value.replace('_', " "),
-                        })
-                        .collect(),
-                },
-            }]);
-        }
-
-        let Some(tool) = candidates
-            .iter()
-            .find(|tool| answer.id == format!("recover/{}", tool.id))
-        else {
-            return PipeStep::Done(Vec::new());
-        };
-        if matches!(&answer.value, AnswerValue::Choice(value) if value == "reveal_needed")
-            && answer.effective_confidence() >= MIN_CONFIDENCE
-        {
-            PipeStep::Done(effect(&signal.agent_id, vec![tool.id.clone()], true))
-        } else {
-            PipeStep::Done(Vec::new())
-        }
-    }
-
-    /// The question for an agent's request, over its hidden groups and the
-    /// host's Code Mode namespaces.
-    fn request_question(&self, signal: &Signal) -> Option<Question> {
+    /// At an agent's request: every hidden group and Code Mode namespace,
+    /// judged against what it asked for in one round.
+    fn request(&self, signal: &Signal) -> Option<Judge<Verdict>> {
         let SignalKind::AgentRequest {
             need,
             user_request,
@@ -293,47 +350,116 @@ impl ToolExposure {
             .iter()
             .map(|group| (group.name.to_string(), listing(group)))
             .collect();
+        let candidates = request::candidates(&groups, code_mode, need, user_request);
 
-        request::question(&groups, code_mode, need, user_request)
+        (!candidates.is_empty()).then(|| strategy::fan_out(candidates).map(Verdict::Request))
     }
 
-    /// Reveal the chosen hidden group, or bring the chosen namespace's
-    /// matches into the running turn. A failed or unsure pick grants nothing.
-    fn requested(&mut self, signal: &Signal, answers: Option<&[Answer]>) -> Vec<Effect> {
+    /// Hide or reveal the judged groups, and surface the judged namespaces
+    /// on the user's message.
+    fn message_effects(
+        &mut self,
+        signal: &Signal,
+        first: bool,
+        groups: &[String],
+        namespaces: &[String],
+    ) -> Vec<Effect> {
+        let SignalKind::UserMessage {
+            tools, code_mode, ..
+        } = &signal.kind
+        else {
+            return Vec::new();
+        };
+        let judged = |name: &str| groups.iter().any(|group| group == name);
+        let mut effects = if first {
+            effect(&signal.agent_id, self.hidden(tools, judged), false)
+        } else {
+            effect(&signal.agent_id, self.revealed(tools, judged), true)
+        };
+        let chosen: Vec<_> = self
+            .surfaced
+            .pending(&signal.agent_id, code_mode)
+            .into_iter()
+            .filter(|namespace| namespaces.contains(&namespace.name))
+            .collect();
+
+        effects.extend(
+            self.surfaced
+                .surface(&signal.agent_id, &chosen, Delivery::Prompt),
+        );
+
+        effects
+    }
+
+    /// Reveal every granted group in one effect, and bring every granted
+    /// namespace's matches into the running turn in one note.
+    fn granted(&mut self, signal: &Signal, grants: &[Grant]) -> Vec<Effect> {
         let SignalKind::AgentRequest {
             tools, code_mode, ..
         } = &signal.kind
         else {
             return Vec::new();
         };
-        let Some(answer) = answers
-            .and_then(|answers| answers.iter().find(|answer| answer.id == request::ID))
-            .filter(|answer| answer.effective_confidence() >= MIN_CONFIDENCE)
-        else {
-            return Vec::new();
-        };
-        let AnswerValue::Choice(choice) = &answer.value else {
-            return Vec::new();
-        };
-
-        match request::pick(choice) {
-            Some(request::Pick::Group(name)) => effect(
-                &signal.agent_id,
-                self.revealed(tools, |group| group == name),
-                true,
-            ),
-            Some(request::Pick::Namespace(name)) => {
-                let chosen: Vec<_> = code_mode
+        let reveal = self.revealed(tools, |name| {
+            grants
+                .iter()
+                .any(|grant| matches!(grant, Grant::Group(group) if group == name))
+        });
+        let mut effects = effect(&signal.agent_id, reveal, true);
+        let chosen: Vec<_> = code_mode
+            .iter()
+            .filter(|namespace| {
+                grants
                     .iter()
-                    .filter(|namespace| namespace.name == name)
-                    .collect();
+                    .any(|grant| matches!(grant, Grant::Namespace(name) if *name == namespace.name))
+            })
+            .collect();
 
-                self.surfaced
-                    .surface(&signal.agent_id, &chosen, Delivery::Steer)
-                    .into_iter()
-                    .collect()
-            }
-            None => Vec::new(),
+        effects.extend(
+            self.surfaced
+                .surface(&signal.agent_id, &chosen, Delivery::Steer),
+        );
+
+        effects
+    }
+}
+
+impl Judged for ToolExposure {
+    type Verdict = Verdict;
+
+    fn id(&self) -> &str {
+        ID
+    }
+
+    fn save(&self) -> Option<serde_json::Value> {
+        Some(self.surfaced.save())
+    }
+
+    fn load(&mut self, state: serde_json::Value) {
+        self.surfaced.load(state);
+    }
+
+    fn judge(&mut self, _: &Situation, signal: &Signal) -> Option<Judge<Verdict>> {
+        match signal.kind {
+            SignalKind::UserMessage { .. } => self.message(signal),
+            SignalKind::ToolResult { .. } => self.recover(signal),
+            SignalKind::AgentRequest { .. } => self.request(signal),
+            _ => None,
+        }
+    }
+
+    fn act(&mut self, signal: &Signal, verdict: Verdict) -> Vec<Effect> {
+        match verdict {
+            // Fail open: nothing changes, so the host keeps its current tools.
+            Verdict::Message { heard: false, .. } => Vec::new(),
+            Verdict::Message {
+                first,
+                groups,
+                namespaces,
+                ..
+            } => self.message_effects(signal, first, &groups, &namespaces),
+            Verdict::Recover(tool) => effect(&signal.agent_id, tool.into_iter().collect(), true),
+            Verdict::Request(grants) => self.granted(signal, &grants),
         }
     }
 }
@@ -354,136 +480,6 @@ fn effect(agent_id: &str, tools: Vec<String>, reveal: bool) -> Vec<Effect> {
         hide,
         reveal,
     }]
-}
-
-impl Capability for ToolExposure {
-    fn id(&self) -> &str {
-        ID
-    }
-
-    fn save(&self) -> Option<serde_json::Value> {
-        Some(self.surfaced.save())
-    }
-
-    fn load(&mut self, state: serde_json::Value) {
-        self.surfaced.load(state);
-    }
-
-    fn plan(&mut self, _: &Situation, signal: &Signal) -> Plan {
-        if matches!(signal.kind, SignalKind::AgentRequest { .. }) {
-            return self
-                .request_question(signal)
-                .map_or(Plan::Skip, |question| Plan::Ask(vec![question]));
-        }
-
-        if matches!(signal.kind, SignalKind::ToolResult { .. }) {
-            return self
-                .recovery_question(signal)
-                .map_or(Plan::Skip, |question| Plan::Ask(vec![question]));
-        }
-
-        let SignalKind::UserMessage {
-            first_in_context,
-            tools,
-            code_mode,
-            ..
-        } = &signal.kind
-        else {
-            return Plan::Skip;
-        };
-
-        if *first_in_context {
-            self.surfaced.reset(&signal.agent_id);
-        }
-
-        let groups = self.groups(tools);
-        let surface: Vec<Question> = self
-            .surfaced
-            .pending(&signal.agent_id, code_mode)
-            .into_iter()
-            .take(MAX_GROUPS)
-            .map(code_mode::question)
-            .collect();
-
-        if groups.is_empty() && surface.is_empty() {
-            let never = if *first_in_context {
-                self.hidden(tools, |_| false)
-            } else {
-                Vec::new()
-            };
-
-            return match effect(&signal.agent_id, never, false) {
-                effects if effects.is_empty() => Plan::Skip,
-                effects => Plan::Settled(effects),
-            };
-        }
-
-        let ask = if *first_in_context {
-            hide_question
-        } else {
-            reveal_question
-        };
-
-        Plan::Ask(groups.iter().map(ask).chain(surface).collect())
-    }
-
-    fn decide(&mut self, signal: &Signal, answers: Option<&[Answer]>) -> Vec<Effect> {
-        let (
-            SignalKind::UserMessage {
-                first_in_context,
-                tools,
-                code_mode,
-                ..
-            },
-            Some(answers),
-        ) = (&signal.kind, answers)
-        else {
-            // Fail open: nothing changes, so the host keeps its current tools.
-            return Vec::new();
-        };
-        let judged =
-            |name: &str, accept: fn(f32) -> bool| {
-                answers.iter().find(|answer| answer.id == name).is_some_and(|answer| {
-                matches!(answer.value, AnswerValue::Noul(probability) if accept(probability))
-                    && answer.effective_confidence() >= MIN_CONFIDENCE
-            })
-            };
-
-        let mut effects = if *first_in_context {
-            let hide = self.hidden(tools, |name| judged(name, |p| p <= HIDE_AT_OR_BELOW));
-
-            effect(&signal.agent_id, hide, false)
-        } else {
-            let reveal = self.revealed(tools, |name| judged(name, |p| p >= REVEAL_AT_OR_ABOVE));
-
-            effect(&signal.agent_id, reveal, true)
-        };
-        let chosen: Vec<_> = self
-            .surfaced
-            .pending(&signal.agent_id, code_mode)
-            .into_iter()
-            .take(MAX_GROUPS)
-            .filter(|namespace| {
-                judged(&code_mode::question_id(&namespace.name), |p| {
-                    p >= REVEAL_AT_OR_ABOVE
-                })
-            })
-            .collect();
-
-        effects.extend(
-            self.surfaced
-                .surface(&signal.agent_id, &chosen, Delivery::Prompt),
-        );
-        effects
-    }
-
-    fn advance(&mut self, signal: &Signal, answers: Option<&[Answer]>, round: usize) -> PipeStep {
-        match signal.kind {
-            SignalKind::ToolResult { .. } => self.recover(signal, answers, round),
-            SignalKind::AgentRequest { .. } => PipeStep::Done(self.requested(signal, answers)),
-            _ => PipeStep::Done(self.decide(signal, answers)),
-        }
-    }
 }
 
 fn listing(group: &Group<'_>) -> String {
@@ -525,5 +521,52 @@ fn reveal_question(group: &Group<'_>) -> Question {
             listing(group)
         ),
         kind: QuestionKind::Noul,
+    }
+}
+
+/// Which of the candidates, given as `(id, description)`, fits, or none.
+fn choose_question(
+    candidates: &[(String, String)],
+    user_request: &str,
+    evidence: &str,
+) -> Question {
+    let mut options: Vec<ChoiceOption> = candidates
+        .iter()
+        .map(|(id, description)| ChoiceOption {
+            value: id.clone(),
+            description: description.clone(),
+        })
+        .collect();
+
+    options.push(ChoiceOption {
+        value: chauffeur_core::judge::NONE.into(),
+        description: "No hidden tool fits".into(),
+    });
+
+    Question {
+        id: "recover/choose".into(),
+        instructions: format!(
+            "Which registered, hidden direct tool fits the user's request and the tool result? Request: {user_request}. Evidence: {evidence}. Choose none if no offered tool fits."
+        ),
+        kind: QuestionKind::Choice { options },
+    }
+}
+
+/// Whether the agent clearly needs the chosen tool.
+fn confirm_question(tool: &str, description: &str, user_request: &str, evidence: &str) -> Question {
+    Question {
+        id: format!("recover/{tool}"),
+        instructions: format!(
+            "Does the agent need the hidden direct tool {tool} ({description}) to complete the user's request? Request: {user_request}. Tool result evidence: {evidence}. Reveal only if clearly needed."
+        ),
+        kind: QuestionKind::Choice {
+            options: [REVEAL_NEEDED, "keep_not_needed", "keep_uncertain"]
+                .into_iter()
+                .map(|value| ChoiceOption {
+                    value: value.into(),
+                    description: value.replace('_', " "),
+                })
+                .collect(),
+        },
     }
 }

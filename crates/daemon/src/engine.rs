@@ -210,22 +210,25 @@ fn build_engine(options: EngineOptions) -> Result<Engine, String> {
         rules.retain(|rule| rule.on != Trigger::TurnEnd);
     }
 
+    // Permission answers through its contracts; every other capability is judged.
     let mut capabilities: Vec<Box<dyn Capability>> = vec![
-        Box::new(router),
+        Box::new(Judging::new(router)),
         Box::new(Judging::new(SkillExposure::default())),
-        Box::new(tools),
+        Box::new(Judging::new(tools)),
         Box::new(permission),
-        Box::new(Rules::new(rules)),
+        Box::new(Judging::new(Rules::new(rules))),
     ];
 
     match options.sourcefed {
         Some(config) => {
             let monitors: Arc<dyn Monitors> = Arc::new(Sourcefed::new(config)?);
 
-            capabilities.push(Box::new(EventGate::with_monitors(Arc::clone(&monitors))));
-            capabilities.push(Box::new(FollowWork::new(monitors)));
+            capabilities.push(Box::new(Judging::new(EventGate::with_monitors(
+                Arc::clone(&monitors),
+            ))));
+            capabilities.push(Box::new(Judging::new(FollowWork::new(monitors))));
         }
-        None => capabilities.push(Box::new(EventGate::default())),
+        None => capabilities.push(Box::new(Judging::new(EventGate::default()))),
     }
 
     let backstop = Backstop::load(&options.config_dir.join("backstop.json"))?;

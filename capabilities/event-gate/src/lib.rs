@@ -2,14 +2,14 @@
 //! agent. System One judges whether the event needs the agent to act; only a
 //! confident "no" withholds it, so a failed or unsure judgment delivers. With
 //! the integration's monitors, the question also says what the event's
-//! monitor follows.
+//! monitor follows. Run it as `Judging::new(EventGate::default())`.
 
 use std::sync::Arc;
 
 use chauffeur_capability_monitors::Monitors;
+use chauffeur_core::judge::strategy;
 use chauffeur_core::{
-    Answer, AnswerValue, Capability, Effect, Plan, Question, QuestionKind, Signal, SignalKind,
-    Situation,
+    Effect, Judge, Judged, Question, QuestionKind, Rule, Signal, SignalKind, Situation,
 };
 
 pub const ID: &str = "event-gate";
@@ -54,12 +54,15 @@ impl EventGate {
     }
 }
 
-impl Capability for EventGate {
+impl Judged for EventGate {
+    /// Whether to withhold the event.
+    type Verdict = bool;
+
     fn id(&self) -> &str {
         ID
     }
 
-    fn plan(&mut self, _: &Situation, signal: &Signal) -> Plan {
+    fn judge(&mut self, _: &Situation, signal: &Signal) -> Option<Judge<bool>> {
         let SignalKind::IntegrationEvent {
             source,
             kind,
@@ -69,7 +72,7 @@ impl Capability for EventGate {
             monitor,
         } = &signal.kind
         else {
-            return Plan::Skip;
+            return None;
         };
         let origin = self.origin(&signal.agent_id, monitor);
         let body: String = body.chars().take(MAX_BODY_CHARS).collect();
@@ -83,8 +86,7 @@ impl Capability for EventGate {
         } else {
             "informational"
         };
-
-        Plan::Ask(vec![Question {
+        let question = Question {
             id: QUESTION.into(),
             instructions: format!(
                 "A {source} {kind} event arrived for the coding agent's session: {summary}{body}{origin}\n\
@@ -96,17 +98,15 @@ impl Capability for EventGate {
                  handled."
             ),
             kind: QuestionKind::Noul,
-        }])
+        };
+
+        Some(strategy::single(
+            question,
+            Rule::no(WITHHOLD_AT_OR_BELOW, MIN_CONFIDENCE),
+        ))
     }
 
-    fn decide(&mut self, signal: &Signal, answers: Option<&[Answer]>) -> Vec<Effect> {
-        let withhold = answers
-            .and_then(|answers| answers.iter().find(|answer| answer.id == QUESTION))
-            .is_some_and(|answer| {
-                matches!(answer.value, AnswerValue::Noul(p) if p <= WITHHOLD_AT_OR_BELOW)
-                    && answer.effective_confidence() >= MIN_CONFIDENCE
-            });
-
+    fn act(&mut self, signal: &Signal, withhold: bool) -> Vec<Effect> {
         if !withhold {
             return Vec::new();
         }

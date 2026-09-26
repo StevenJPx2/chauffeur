@@ -1,7 +1,7 @@
 use chauffeur_capability_tool_exposure::{ToolExposure, ToolExposureConfig, group};
 use chauffeur_core::{
     Answer, AnswerValue, Capability, CatalogEntry, CodeModeNamespace, Delivery, Effect, Engine,
-    Plan, Signal, SignalKind, Situation, Step,
+    Judging, Plan, Signal, SignalKind, Situation, Step,
 };
 
 fn tool(id: &str) -> CatalogEntry {
@@ -69,8 +69,17 @@ fn asked(plan: &Plan) -> Vec<String> {
         .collect()
 }
 
-fn exposure() -> ToolExposure {
-    ToolExposure::new(ToolExposureConfig::default())
+fn exposure() -> Judging<ToolExposure> {
+    Judging::new(ToolExposure::new(ToolExposureConfig::default()))
+}
+
+/// A fresh capability's effects for `signal` given `answers`, or `None` for
+/// a failed call.
+fn decided(signal: &Signal, answers: Option<&[Answer]>) -> Vec<Effect> {
+    let mut exposure = exposure();
+
+    exposure.plan(&Situation::default(), signal);
+    exposure.decide(signal, answers)
 }
 
 fn recovery(candidates: &[&str]) -> Signal {
@@ -203,19 +212,25 @@ fn hides_every_tool_of_a_confidently_unneeded_group_and_the_skill_tool() {
     ];
 
     assert_eq!(
-        exposure().decide(&message(true, CATALOG), Some(&answers)),
+        decided(&message(true, CATALOG), Some(&answers)),
         hidden(&["skill", "browser_open"])
     );
 }
 
 #[test]
 fn classifier_failure_changes_nothing() {
-    assert!(exposure().decide(&message(true, CATALOG), None).is_empty());
-    assert!(
-        exposure()
-            .decide(&message(false, &["browser_open"]), None)
-            .is_empty()
-    );
+    assert!(decided(&message(true, CATALOG), None).is_empty());
+    assert!(decided(&message(false, &["browser_open"]), None).is_empty());
+}
+
+#[test]
+fn a_failed_call_at_a_first_message_hides_nothing_through_the_engine() {
+    let mut engine = Engine::hosted(vec![Box::new(exposure())]).unwrap();
+    let Step::Ask { .. } = engine.begin(&message(true, CATALOG)).unwrap() else {
+        panic!("expected questions")
+    };
+
+    assert_eq!(engine.finish(Err("down".into()), 1), Step::Done(vec![]));
 }
 
 #[test]
@@ -236,7 +251,7 @@ fn only_judged_tools_can_be_hidden_so_a_truncated_catalog_keeps_the_rest() {
     let answers = [noul("browser", 0.05), noul("jira", 0.05)];
 
     assert_eq!(
-        exposure().decide(&signal, Some(&answers)),
+        decided(&signal, Some(&answers)),
         hidden(&["browser_open", "jira_view"])
     );
 }
@@ -254,7 +269,7 @@ fn a_later_message_may_bring_a_hidden_group_back() {
         vec!["browser", "jira"]
     );
     assert_eq!(
-        exposure().decide(&signal, Some(&[noul("browser", 0.9), noul("jira", 0.5)])),
+        decided(&signal, Some(&[noul("browser", 0.9), noul("jira", 0.5)])),
         vec![Effect::Tools {
             agent_id: "ses".into(),
             hide: Vec::new(),

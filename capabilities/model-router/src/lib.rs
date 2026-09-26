@@ -1,6 +1,7 @@
 //! Model router: when a usage limit is hit, System One picks an equivalent
 //! model from the same tier, or decides to stay. Later, System One may switch
 //! the agent back to the model it left once the limit has likely cleared.
+//! Run it as `Judging::new(ModelRouter::new(providers, config))`.
 
 mod provider;
 
@@ -10,9 +11,10 @@ use std::sync::Arc;
 
 pub use provider::{Provider, Tier, TierEntry};
 
+use chauffeur_core::judge::strategy;
 use chauffeur_core::{
-    Answer, AnswerValue, Capability, ChoiceOption, Effect, ModelRef, Plan, Question, QuestionKind,
-    Signal, SignalKind, Situation, load_config,
+    ChoiceOption, Effect, Judge, Judged, ModelRef, Question, QuestionKind, Rule, Signal,
+    SignalKind, Situation, load_config,
 };
 use serde::{Deserialize, Serialize};
 
@@ -268,25 +270,28 @@ impl ModelRouter {
         origin.current = next.clone();
     }
 
-    /// On a user message, ask whether to return to the model the agent left.
-    fn plan_switch_back(&mut self, signal: &Signal, current: Option<&ModelRef>) -> Plan {
-        let Some(origin) = self.origins.get(&signal.agent_id) else {
-            return Plan::Skip;
-        };
+    /// On a user message, judge whether to return to the model the agent
+    /// left.
+    fn switch_back(
+        &mut self,
+        signal: &Signal,
+        current: Option<&ModelRef>,
+    ) -> Option<Judge<Verdict>> {
+        let origin = self.origins.get(&signal.agent_id)?;
 
         // The user changed the model themselves; their choice stands.
         if current.is_some_and(|current| *current != origin.current) {
             self.origins.remove(&signal.agent_id);
-            return Plan::Skip;
+            return None;
         }
 
         let minutes = signal.at.saturating_sub(origin.since) / 60;
 
         if current.is_none() || signal.at.saturating_sub(origin.since) < SWITCH_BACK_AFTER_SECS {
-            return Plan::Skip;
+            return None;
         }
 
-        Plan::Ask(vec![Question {
+        let question = Question {
             id: SWITCH_BACK.into(),
             // Asked as a fact about the limit: Jev judges that far better than
             // a trade-off against the cache cost.
@@ -299,31 +304,93 @@ impl ModelRouter {
                 origin.error,
             ),
             kind: QuestionKind::Noul,
-        }])
+        };
+
+        Some(
+            strategy::single(
+                question,
+                Rule::yes(SWITCH_BACK_AT_OR_ABOVE, SWITCH_BACK_MIN_CONFIDENCE),
+            )
+            .map(Verdict::SwitchBack),
+        )
     }
 
-    fn decide_switch_back(&mut self, signal: &Signal, answers: Option<&[Answer]>) -> Vec<Effect> {
-        let back = answers
-            .and_then(|answers| answers.iter().find(|answer| answer.id == SWITCH_BACK))
-            .is_some_and(|answer| {
-                matches!(answer.value, AnswerValue::Noul(p) if p >= SWITCH_BACK_AT_OR_ABOVE)
-                    && answer.effective_confidence() >= SWITCH_BACK_MIN_CONFIDENCE
-            });
-
-        if !back {
-            return Vec::new();
-        }
-
-        let Some(origin) = self.origins.remove(&signal.agent_id) else {
+    /// Return to the model left behind, forgetting the failover.
+    fn return_to_origin(&mut self, agent_id: &str) -> Vec<Effect> {
+        let Some(origin) = self.origins.remove(agent_id) else {
             return Vec::new();
         };
 
-        self.attempted.remove(&signal.agent_id);
+        self.attempted.remove(agent_id);
 
         vec![Effect::Model {
-            agent_id: signal.agent_id.clone(),
+            agent_id: agent_id.to_string(),
             model: Some(origin.model),
         }]
+    }
+
+    /// On a model error, the failover judgment, or `None` when the error is
+    /// not the router's to handle.
+    fn failover(&mut self, signal: &Signal) -> Option<Judge<Verdict>> {
+        let SignalKind::ModelError {
+            model,
+            error_type,
+            status,
+            message,
+            tool_executed,
+            available,
+        } = &signal.kind
+        else {
+            return None;
+        };
+
+        // A retry is still running on the origin: a proposed switch
+        // never reached the host (for example, it was cancelled).
+        // Let the next retry choose that fallback again.
+        if self
+            .origins
+            .get(&signal.agent_id)
+            .is_some_and(|origin| origin.model == *model && origin.current != *model)
+        {
+            self.origins.remove(&signal.agent_id);
+            self.attempted.remove(&signal.agent_id);
+        }
+        // A model the router switched to that cannot serve the agent is a
+        // failed switch: move on to the next candidate.
+        let failed_switch = self
+            .origins
+            .get(&signal.agent_id)
+            .is_some_and(|origin| origin.current == *model)
+            && is_unusable_error(error_type, *status, message);
+
+        if !failed_switch && !is_limit_error(error_type, *status, message) {
+            return None;
+        }
+
+        // A tool already ran in the failed step; retrying elsewhere could repeat it.
+        if *tool_executed {
+            return Some(Judge::done(Verdict::Keep));
+        }
+
+        self.mark_attempted(&signal.agent_id, model);
+        let candidates = self.candidates(&signal.agent_id, model, available);
+
+        if candidates.is_empty() {
+            return Some(Judge::done(Verdict::Keep));
+        }
+
+        let error = format!("{error_type}: {}", clip(message, MAX_ERROR_CHARS));
+        let question = self.question(model, &error, &candidates);
+        let from = model.clone();
+
+        Some(Judge::ask(question, move |answer| {
+            pick(
+                Rule::pick(MIN_CONFIDENCE).chosen(answer),
+                candidates,
+                from,
+                error,
+            )
+        }))
     }
 
     fn question(&self, current: &ModelRef, error: &str, candidates: &[ModelRef]) -> Question {
@@ -360,13 +427,46 @@ impl ModelRouter {
     }
 }
 
+/// What a finished judgment asks the router to do.
+pub enum Verdict {
+    /// Keep the current model: stay, or failover is not possible.
+    Keep,
+    /// Leave `from`, which failed with `error`, for `to`.
+    Switch {
+        from: ModelRef,
+        to: ModelRef,
+        error: String,
+    },
+    /// Whether to return to the model the agent left.
+    SwitchBack(bool),
+}
+
+/// The model a failover judgment picked. A failed or unsure judgment falls
+/// back on the posture: stay unblocked on the preferred candidate.
+fn pick(
+    chosen: Option<String>,
+    candidates: Vec<ModelRef>,
+    from: ModelRef,
+    error: String,
+) -> Verdict {
+    let to = match chosen.as_deref() {
+        Some(STAY) => None,
+        Some(choice) => candidates.into_iter().find(|model| model.key() == choice),
+        None => candidates.into_iter().next(),
+    };
+
+    to.map_or(Verdict::Keep, |to| Verdict::Switch { from, to, error })
+}
+
 #[derive(Deserialize, Serialize)]
 struct Saved {
     attempted: HashMap<String, HashSet<String>>,
     origins: HashMap<String, Origin>,
 }
 
-impl Capability for ModelRouter {
+impl Judged for ModelRouter {
+    type Verdict = Verdict;
+
     fn id(&self) -> &str {
         ID
     }
@@ -390,7 +490,7 @@ impl Capability for ModelRouter {
         }
     }
 
-    fn plan(&mut self, _: &Situation, signal: &Signal) -> Plan {
+    fn judge(&mut self, _: &Situation, signal: &Signal) -> Option<Judge<Verdict>> {
         match &signal.kind {
             SignalKind::ModelSucceeded { model } => {
                 if self
@@ -400,117 +500,40 @@ impl Capability for ModelRouter {
                 {
                     self.attempted.remove(&signal.agent_id);
                 }
-                Plan::Skip
+                None
             }
-            SignalKind::ModelError {
-                model,
-                error_type,
-                status,
-                message,
-                tool_executed,
-                available,
-            } => {
-                // A retry is still running on the origin: a proposed switch
-                // never reached the host (for example, it was cancelled).
-                // Let the next retry choose that fallback again.
-                if self
-                    .origins
-                    .get(&signal.agent_id)
-                    .is_some_and(|origin| origin.model == *model && origin.current != *model)
-                {
-                    self.origins.remove(&signal.agent_id);
-                    self.attempted.remove(&signal.agent_id);
-                }
-                // A model the router switched to that cannot serve the agent is a
-                // failed switch: move on to the next candidate.
-                let failed_switch = self
-                    .origins
-                    .get(&signal.agent_id)
-                    .is_some_and(|origin| origin.current == *model)
-                    && is_unusable_error(error_type, *status, message);
-
-                if !failed_switch && !is_limit_error(error_type, *status, message) {
-                    return Plan::Skip;
-                }
-
-                let keep = Effect::Model {
-                    agent_id: signal.agent_id.clone(),
-                    model: None,
-                };
-
-                // A tool already ran in the failed step; retrying elsewhere could repeat it.
-                if *tool_executed {
-                    return Plan::Settled(vec![keep]);
-                }
-
-                self.mark_attempted(&signal.agent_id, model);
-                let candidates = self.candidates(&signal.agent_id, model, available);
-
-                if candidates.is_empty() {
-                    return Plan::Settled(vec![keep]);
-                }
-
-                let error = format!("{error_type}: {}", clip(message, MAX_ERROR_CHARS));
-
-                Plan::Ask(vec![self.question(model, &error, &candidates)])
-            }
+            SignalKind::ModelError { .. } => self.failover(signal),
             SignalKind::UserMessage { model, .. } => {
                 let model = model.clone();
 
-                self.plan_switch_back(signal, model.as_ref())
+                self.switch_back(signal, model.as_ref())
             }
             SignalKind::ToolResult { .. }
             | SignalKind::PermissionRequest { .. }
             | SignalKind::IntegrationEvent { .. }
             | SignalKind::AgentRequest { .. }
-            | SignalKind::TurnEnd { .. } => Plan::Skip,
+            | SignalKind::TurnEnd { .. } => None,
         }
     }
 
-    fn decide(&mut self, signal: &Signal, answers: Option<&[Answer]>) -> Vec<Effect> {
-        let SignalKind::ModelError {
-            model,
-            available,
-            error_type,
-            message,
-            ..
-        } = &signal.kind
-        else {
-            return self.decide_switch_back(signal, answers);
-        };
+    fn act(&mut self, signal: &Signal, verdict: Verdict) -> Vec<Effect> {
         let agent_id = signal.agent_id.clone();
-        let candidates = self.candidates(&agent_id, model, available);
-        let judged = answers
-            .and_then(|answers| answers.iter().find(|answer| answer.id == QUESTION))
-            .filter(|answer| answer.effective_confidence() >= MIN_CONFIDENCE);
-        let chosen = match judged.map(|answer| &answer.value) {
-            Some(AnswerValue::Choice(choice)) if choice == STAY => None,
-            Some(AnswerValue::Choice(choice)) => candidates
-                .iter()
-                .find(|model| model.key() == *choice)
-                .cloned(),
-            // Posture: stay unblocked on the preferred candidate.
-            _ => candidates.first().cloned(),
-        };
 
-        match chosen {
-            Some(next) => {
-                self.mark_attempted(&agent_id, &next);
-                self.record_switch(
-                    signal,
-                    model,
-                    &next,
-                    format!("{error_type}: {}", clip(message, MAX_ERROR_CHARS)),
-                );
-                vec![Effect::Model {
-                    agent_id,
-                    model: Some(next),
-                }]
-            }
-            None => vec![Effect::Model {
+        match verdict {
+            Verdict::Keep => vec![Effect::Model {
                 agent_id,
                 model: None,
             }],
+            Verdict::Switch { from, to, error } => {
+                self.mark_attempted(&agent_id, &to);
+                self.record_switch(signal, &from, &to, error);
+                vec![Effect::Model {
+                    agent_id,
+                    model: Some(to),
+                }]
+            }
+            Verdict::SwitchBack(true) => self.return_to_origin(&agent_id),
+            Verdict::SwitchBack(false) => Vec::new(),
         }
     }
 }

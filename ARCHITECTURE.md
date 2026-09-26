@@ -90,7 +90,8 @@ A judgment is a state machine, `chauffeur_core::judge::Judge<T>`: finished
 with a value, or asking questions whose answers (or `None` for a failed call)
 choose its next state. Four primitives build every judge: `done`, `ask`,
 `then` (continue in the next round), and `all` (side by side in one round;
-`zip` for two value types). Rules (`Rule::yes`, `Rule::no`, `Rule::unless_no`,
+`zip` for two value types); `unless_failed` tells an unanswered judgment from
+rules that refused. Rules (`Rule::yes`, `Rule::no`, `Rule::unless_no`,
 `Rule::pick`) hold every threshold and refuse a failed call. `judge::strategy`
 composes the common strategies, `single`, `fan_out`, and `chain`; a capability
 composes others where it needs them. A capability implements `Judged`
@@ -241,7 +242,7 @@ come first in that prefix.
 | Model router | switch, and to which same-tier model, or stay? has the limit on the model left behind cleared? | model usage-limit error; user message after a switch | decision | built |
 | Permission / skill contract | each matching contract's typed question | permission request | decision | built |
 | Skill exposure | does the request need each offered skill? (fan-out) is the agent using a generic approach where a skill fits? | user message; tool result and turn end; `ask_chauffeur` | persistent | built |
-| Tool exposure | will the task need this tool group? does the latest request need a hidden group now? which hidden group or Code Mode namespace serves the agent's request? | first user message of a context; later user messages; `ask_chauffeur` | tool set; Code Mode note | built |
+| Tool exposure | will the task need this tool group? does the latest request need a hidden group now? which hidden groups and Code Mode namespaces cover the agent's request? (fan-out) | first user message of a context; later user messages; `ask_chauffeur` | tool set; Code Mode note | built |
 | Rules | each admitted rule's step, one or two rounds | tool result for a watched tool; turn end | persistent (steer, resume, or wait; skill hand-over) | built |
 | Event gate | does this integration event need the agent to act now? (told what the event's monitor watches) | integration event | decision | built |
 | Monitors | is this PR, Jira issue, or Slack thread the session's own work to follow? | tool result naming one | sourcefed monitor; steer | built |
@@ -256,13 +257,14 @@ The adapter registers the tool (never hidden, never in Code Mode) with one
 input, `need`: what the agent has to do, in plain words. A call sends an
 `agent_request` signal with the need, the user's latest request, the tools
 hidden in this context, and the host's Code Mode namespaces ranked against
-the need. Both exposure capabilities answer in the same Jev call: tool
-exposure picks one hidden group or namespace, or none; skill exposure picks
-one skill the agent was not yet given, or none. Each needs confidence ≥ 0.4.
-A chosen group is revealed from the agent's next step; a namespace's best
-matches and a skill's body come back in the tool's reply, which also says
-what was revealed. Nothing chosen, or a failed judgment, replies that
-nothing fits, so the agent carries on. The call itself is not reported as a
+the need. Both exposure capabilities fan out in the same Jev call: tool
+exposure asks, per hidden group and per namespace, whether it covers any part
+of the need, since one request can need several; skill exposure asks, per
+skill the agent was not yet given, whether it serves the need. Each grant
+needs P ≥ 0.7 with confidence ≥ 0.4. Granted groups are revealed from the
+agent's next step; granted namespaces' best matches and skills' bodies come
+back in the tool's reply, which also says what was revealed. Nothing granted,
+or a failed judgment, replies that nothing fits, so the agent carries on. The call itself is not reported as a
 tool result, so no rule judges it.
 
 ## Skills

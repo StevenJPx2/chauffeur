@@ -4,8 +4,8 @@ Chauffeur progressively enhances a coding agent's context. It observes the
 agent's events, classifies the situation with a System One model (TypeSafe's
 Jev), and routes the judgment to capabilities:
 
-- **Skill exposure** attaches the one skill that best fits each user message,
-  and hands the agent a better-fitting skill when it drifts, such as driving a
+- **Skill exposure** attaches every skill a user message needs, judging them
+  all in one call, and hands the agent a better-fitting skill when it drifts, such as driving a
   browser for X or Jira where a dedicated skill exists.
 - **Tool exposure** hides tool groups a context won't need and brings them
   back when a later message does. With Code Mode, it points the agent at the

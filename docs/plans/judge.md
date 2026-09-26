@@ -34,7 +34,9 @@ Four primitives build every judge:
 | `Judge::all(judges)` | run judges side by side, questions in the same rounds; finishes with all their values | max |
 
 `map` follows from `then`, and `a.zip(b)` is `all` for two judges of different value
-types. Question IDs within a round must be unique; `all` and `zip` check this.
+types. `judge.unless_failed()` finishes with `None` when a round's call failed, so a
+capability can tell an unanswered judgment from rules that refused. Question IDs within a
+round must be unique; `all` and `zip` check this.
 
 Answers are read through **rules**, the one place thresholds live:
 

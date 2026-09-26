@@ -3,7 +3,8 @@
 //! agent's own work to follow. A confirmed one gets a monitor from the
 //! integration (sourcefed), unless one already watches it, and the agent is
 //! told, so it does not set one up itself. An unreachable integration or a
-//! failed judgment creates nothing.
+//! failed judgment creates nothing. Run it as
+//! `Judging::new(FollowWork::new(monitors))`.
 
 mod detect;
 mod watch;
@@ -11,9 +12,9 @@ mod watch;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
+use chauffeur_core::judge::strategy::{self, Candidate};
 use chauffeur_core::{
-    Answer, AnswerValue, Capability, Delivery, Effect, Plan, Question, QuestionKind, Signal,
-    SignalKind, Situation,
+    Delivery, Effect, Judge, Judged, Question, QuestionKind, Rule, Signal, SignalKind, Situation,
 };
 
 pub use detect::candidates;
@@ -31,8 +32,6 @@ pub struct FollowWork {
     monitors: Arc<dyn Monitors>,
     /// Watches already judged per agent, so a call is asked about once.
     judged: HashMap<String, HashSet<Watch>>,
-    /// The watches the current signal asks about, in question order.
-    pending: Vec<Watch>,
 }
 
 impl FollowWork {
@@ -41,7 +40,6 @@ impl FollowWork {
         Self {
             monitors,
             judged: HashMap::new(),
-            pending: Vec::new(),
         }
     }
 
@@ -90,7 +88,17 @@ impl FollowWork {
     }
 }
 
-impl Capability for FollowWork {
+/// What a judged call decided: every watch asked about, and the question
+/// indices of those confirmed.
+pub struct Outcome {
+    asked: Vec<Watch>,
+    confirmed: Vec<usize>,
+}
+
+impl Judged for FollowWork {
+    /// `None` when the call failed.
+    type Verdict = Option<Outcome>;
+
     fn id(&self) -> &str {
         ID
     }
@@ -105,9 +113,7 @@ impl Capability for FollowWork {
         }
     }
 
-    fn plan(&mut self, _: &Situation, signal: &Signal) -> Plan {
-        self.pending.clear();
-
+    fn judge(&mut self, _: &Situation, signal: &Signal) -> Option<Judge<Option<Outcome>>> {
         let SignalKind::ToolResult {
             tool,
             ok: true,
@@ -116,7 +122,7 @@ impl Capability for FollowWork {
             ..
         } = &signal.kind
         else {
-            return Plan::Skip;
+            return None;
         };
         let fresh: Vec<Watch> = candidates(tool, input, evidence)
             .into_iter()
@@ -124,13 +130,11 @@ impl Capability for FollowWork {
             .collect();
 
         if fresh.is_empty() {
-            return Plan::Skip;
+            return None;
         }
 
         // An unreachable integration cannot follow anything, so nothing is asked.
-        let Ok(existing) = self.monitors.list(&signal.agent_id) else {
-            return Plan::Skip;
-        };
+        let existing = self.monitors.list(&signal.agent_id).ok()?;
         let watched: Vec<Watch> = existing
             .into_iter()
             .filter_map(|monitor| monitor.watch)
@@ -141,55 +145,56 @@ impl Capability for FollowWork {
         self.record(&signal.agent_id, &already);
 
         if new.is_empty() {
-            return Plan::Skip;
+            return None;
         }
 
-        let questions = new
+        let candidates: Vec<Candidate<usize>> = new
             .iter()
             .enumerate()
-            .map(|(index, watch)| question(index, watch, tool, input))
+            .map(|(index, watch)| Candidate {
+                key: index,
+                question: question(index, watch, tool, input),
+                rule: Rule::yes(FOLLOW_AT_OR_ABOVE, MIN_CONFIDENCE),
+            })
             .collect();
 
-        self.pending = new;
-
-        Plan::Ask(questions)
+        Some(
+            strategy::fan_out(candidates)
+                .unless_failed()
+                .map(|confirmed| {
+                    confirmed.map(|confirmed| Outcome {
+                        asked: new,
+                        confirmed,
+                    })
+                }),
+        )
     }
 
-    fn decide(&mut self, signal: &Signal, answers: Option<&[Answer]>) -> Vec<Effect> {
-        // A failed judgment follows nothing, and the call may be judged again.
-        let Some(answers) = answers else {
+    /// Follow the confirmed watches in question order. Every asked watch is
+    /// judged; a failed call follows nothing and may be judged again.
+    fn act(&mut self, signal: &Signal, outcome: Option<Outcome>) -> Vec<Effect> {
+        let Some(Outcome {
+            asked,
+            mut confirmed,
+        }) = outcome
+        else {
             return Vec::new();
         };
-        let pending = std::mem::take(&mut self.pending);
 
-        self.record(&signal.agent_id, &pending);
+        self.record(&signal.agent_id, &asked);
+        confirmed.sort_unstable();
 
-        pending
+        confirmed
             .iter()
-            .enumerate()
-            .filter(|(index, _)| confirmed(answers, *index))
-            .filter_map(|(_, watch)| self.follow(&signal.agent_id, watch))
+            .filter_map(|index| asked.get(*index))
+            .filter_map(|watch| self.follow(&signal.agent_id, watch))
             .collect()
     }
 }
 
-fn question_id(index: usize) -> String {
-    format!("follow/{index}")
-}
-
-fn confirmed(answers: &[Answer], index: usize) -> bool {
-    let id = question_id(index);
-
-    answers.iter().any(|answer| {
-        answer.id == id
-            && matches!(answer.value, AnswerValue::Noul(p) if p >= FOLLOW_AT_OR_ABOVE)
-            && answer.effective_confidence() >= MIN_CONFIDENCE
-    })
-}
-
 fn question(index: usize, watch: &Watch, tool: &str, input: &str) -> Question {
     Question {
-        id: question_id(index),
+        id: format!("follow/{index}"),
         instructions: format!(
             "The agent's latest {tool} call, with input {input}, involves {}. Is it the coding \
              session's own work, which the session should keep following so new reviews, CI \
