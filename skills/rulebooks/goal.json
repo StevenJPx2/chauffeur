@@ -17,9 +17,9 @@
       "steps": [
         {
           "id": "done",
-          "question": "The user's goal is: {args}. Does concrete evidence in this session (files changed, commands run and their output, test or benchmark results) show the goal is fully achieved? Answer no if the agent only claims it is done, or if any part of the goal is unverified.",
-          "yes_at_or_above": 0.8,
-          "minimum_confidence": 0.5
+          "question": "The user's goal is: {args}. Judging from the agent's report of what it did, the commands it ran and what they showed, is every part of the goal achieved and checked? Answer no when a part is missing, a check failed or was not run, or the report only says it is done without saying how it knows.",
+          "yes_at_or_above": 0.7,
+          "minimum_confidence": 0.4
         }
       ],
       "then": {
@@ -56,9 +56,9 @@
       "steps": [
         {
           "id": "not-done",
-          "question": "The user's goal is: {args}. Is the goal still not achieved, with a next step the agent can take on its own?",
-          "yes_at_or_above": 0.7,
-          "minimum_confidence": 0.4
+          "question": "The user's goal is: {args}. From the agent's report, is some part of the goal not yet achieved, or not yet checked by running something, so the agent should keep working or run the check?",
+          "yes_at_or_above": 0.5,
+          "minimum_confidence": 0
         }
       ],
       "then": {

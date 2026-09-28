@@ -12,6 +12,7 @@ test("turn end carries the workspace and user instruction, and delivers a confir
   const messages: Array<{ readonly text: string; readonly resume?: boolean }> = []
 
   const host = fakeHost({
+    location: { directory: "/projects/hpdp-overlay/main" },
     event: { subscribe: events.subscribe },
     session: {
       get: () => Effect.succeed({ location: { directory: "/projects/hpdp-overlay/main" } }),
@@ -43,6 +44,37 @@ test("turn end carries the workspace and user instruction, and delivers a confir
       summary: "Changes are local; no PR opened.",
     })
     expect(messages).toEqual([expect.objectContaining({ text: "Check the overlay", resume: true })])
+  } finally {
+    await plugin.close()
+  }
+})
+
+test("a plugin instance at another location leaves the turn to the session's own", async () => {
+  const events = eventStream()
+  const sent: Signal[] = []
+
+  const host = fakeHost({
+    location: { directory: "/projects/other" },
+    event: { subscribe: events.subscribe },
+    session: {
+      get: () => Effect.succeed({ location: { directory: "/projects/hpdp-overlay/main" } }),
+      context: () => Effect.succeed([]),
+    },
+  })
+
+  const daemon: DaemonClient = { rulebooks: noRulebooks, signal: (value) => Effect.sync(() => {
+    sent.push(value)
+
+    return []
+  }) }
+
+  const plugin = await install(installIdle, host, daemon)
+
+  try {
+    await events.publish({ type: "session.execution.succeeded", data: { sessionID: "ses_elsewhere" } })
+    await settle()
+
+    expect(sent).toEqual([])
   } finally {
     await plugin.close()
   }

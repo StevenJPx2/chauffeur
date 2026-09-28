@@ -6,8 +6,9 @@ import { deliverContext } from "./skills.js"
 import { clip, isIntegrationMessage } from "./text.js"
 
 /**
- * Reports finished turns and delivers any context the engine returns, which
- * either wakes the idle agent or waits for its next turn.
+ * Reports finished turns of sessions in this plugin's location and delivers
+ * any context the engine returns, which either wakes the idle agent or waits
+ * for its next turn.
  */
 export const installIdle = Effect.gen(function* () {
   const host = yield* Host
@@ -33,6 +34,10 @@ function reportTurnEnd(sessionID: SessionID): Effect.Effect<void, never, Host | 
       host.session.get({ sessionID }).pipe(Effect.orElseSucceed(() => undefined)),
       host.session.context({ sessionID }).pipe(Effect.orElseSucceed(() => [])),
     ], { concurrency: "unbounded" })
+
+    // The service runs one plugin instance per location, and each sees every
+    // session's events: only the session's own location reports its turn.
+    if (session && String(session.location.directory) !== String(host.location.directory)) return
 
     const user = context.findLast((message) => message.type === "user" && !isIntegrationMessage(message.metadata))
     const reply = context.findLast((message) => message.type === "assistant")
