@@ -1,0 +1,6 @@
+{
+  "prompt": "Please implement slugify() in textutil.py according to the spec in README.md.",
+  "check": ["python3", "-m", "unittest", "-q", "test_slugify"],
+  "timeout_seconds": 600,
+  "tags": ["feature"]
+}

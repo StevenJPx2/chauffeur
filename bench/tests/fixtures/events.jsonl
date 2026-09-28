@@ -1,0 +1,16 @@
+{"type":"step_start","timestamp":1,"sessionID":"ses_1","part":{"id":"prt_1","type":"step-start"}}
+{"type":"tool_use","timestamp":2,"sessionID":"ses_1","part":{"id":"prt_2","type":"tool","tool":"read","callID":"call_1","state":{"status":"completed","input":{"filePath":"src/lib.rs"},"output":"..."}}}
+{"type":"tool_use","timestamp":3,"sessionID":"ses_1","part":{"id":"prt_3","type":"tool","tool":"bash","callID":"call_2","state":{"status":"error","input":{"command":"cargo tset"},"error":"exit 101"}}}
+{"type":"tool_use","timestamp":3,"sessionID":"ses_1","part":{"id":"prt_3","type":"tool","tool":"bash","callID":"call_2","state":{"status":"error","input":{"command":"cargo tset"},"error":"exit 101"}}}
+{"type":"tool_use","timestamp":3,"sessionID":"ses_1","part":{"id":"prt_9","type":"tool","tool":"bash","callID":"call_9","state":{"status":"running"}}}
+{"type":"step_finish","timestamp":4,"sessionID":"ses_1","part":{"id":"prt_4","type":"step-finish","reason":"tool-calls","cost":0.0125,"tokens":{"input":1200,"output":80,"reasoning":10,"cache":{"read":300,"write":50}}}}
+this line is not json
+{"type":"step_start","timestamp":5,"sessionID":"ses_1","part":{"id":"prt_5","type":"step-start"}}
+{"type":"tool_use","timestamp":6,"sessionID":"ses_1","part":{"id":"prt_6","type":"tool","tool":"bash","callID":"call_3","state":{"status":"completed","input":{"command":"cargo test"},"output":"ok"}}}
+{"type":"text","timestamp":7,"sessionID":"ses_1","part":{"id":"prt_7","type":"text","text":"Working on it."}}
+{"type":"error","timestamp":7,"sessionID":"ses_1","error":{"type":"APIError","message":"rate limited"}}
+{"type":"error","timestamp":7,"sessionID":"ses_1","error":{"name":"Other","data":{"message":"second"}}}
+{"type":"text","timestamp":8,"sessionID":"ses_1","part":{"id":"prt_8","type":"text","text":"Fixed the failing test."}}
+{"type":"step_finish","timestamp":9,"sessionID":"ses_1","part":{"id":"prt_10","type":"step-finish","reason":"stop","cost":0.0075,"tokens":{"input":800,"output":120,"reasoning":0,"cache":{"read":1000,"write":0}}}}
+{"type":"session_status","timestamp":10}
+[1,2,3]

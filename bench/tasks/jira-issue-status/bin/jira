@@ -1,0 +1,70 @@
+#!/usr/bin/env python3
+"""Offline stand-in for jira-cli. Logs argv to $BENCH_LOG and prints canned output."""
+import json
+import os
+import sys
+
+USAGE = """Usage: jira issue view ISSUE-KEY [--plain] [--raw] [--comments N]
+
+Other commands are unavailable in this environment."""
+
+ISSUE = {
+    "key": "ADEPT-123",
+    "fields": {
+        "summary": "Checkout button misaligned on mobile",
+        "status": {"name": "In Review"},
+        "assignee": {"displayName": "Priya Natarajan", "emailAddress": "priya@acme.example"},
+        "reporter": {"displayName": "Sam Okafor"},
+        "priority": {"name": "Medium"},
+        "issuetype": {"name": "Bug"},
+        "labels": ["mobile", "checkout"],
+        "updated": "2026-09-25T14:02:11.000+0000",
+    },
+}
+
+PLAIN = """ADEPT-123  Checkout button misaligned on mobile
+
+  Type:      Bug
+  Status:    In Review
+  Priority:  Medium
+  Assignee:  Priya Natarajan
+  Reporter:  Sam Okafor
+  Labels:    mobile, checkout
+  Updated:   2026-09-25 14:02
+
+  On iOS Safari below 390px width the "Place order" button overflows the card.
+"""
+
+COMMENTS = """
+  Comments (1)
+  Priya Natarajan, 2026-09-25: Fix is up for review in PR #812.
+"""
+
+
+def log():
+    path = os.environ.get("BENCH_LOG")
+    if path:
+        with open(path, "a", encoding="utf-8") as fh:
+            fh.write(json.dumps(["jira", *sys.argv[1:]]) + "\n")
+
+
+def main():
+    log()
+    args = sys.argv[1:]
+    if not args or "--help" in args or "-h" in args or args[0] == "help":
+        print(USAGE)
+        return 0
+    if args[:2] == ["issue", "view"] and "ADEPT-123" in args:
+        if "--raw" in args:
+            print(json.dumps(ISSUE, indent=2))
+        else:
+            print(PLAIN + (COMMENTS if "--comments" in args else ""))
+        return 0
+    if args[:2] == ["issue", "view"]:
+        print("Error: issue not found", file=sys.stderr)
+        return 1
+    print(f"Error: unsupported command: {' '.join(args)}\n\n{USAGE}", file=sys.stderr)
+    return 1
+
+
+sys.exit(main())

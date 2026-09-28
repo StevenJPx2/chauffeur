@@ -38,6 +38,8 @@ pub struct DaemonOptions {
     pub idle_reminders: bool,
     /// sourcefed's daemon, unless `CHAUFFEUR_SOURCEFED=off`.
     pub sourcefed: Option<SourcefedConfig>,
+    /// Capability IDs left out, from `CHAUFFEUR_DISABLE=skill-exposure,rules`.
+    pub disabled: Vec<String>,
     pub state_file: Option<PathBuf>,
     pub audit_file: Option<PathBuf>,
 }
@@ -64,6 +66,13 @@ impl DaemonOptions {
             sourcefed: std::env::var("CHAUFFEUR_SOURCEFED")
                 .map_or(true, |value| value != "off")
                 .then(SourcefedConfig::from_env),
+            disabled: std::env::var("CHAUFFEUR_DISABLE")
+                .unwrap_or_default()
+                .split(',')
+                .map(str::trim)
+                .filter(|id| !id.is_empty())
+                .map(str::to_string)
+                .collect(),
             state_file: Some(state.join("state.json")),
             audit_file: Some(state.join("audit.jsonl")),
         })
@@ -81,6 +90,7 @@ pub async fn serve(options: DaemonOptions) -> Result<(), String> {
         jev,
         idle_reminders: options.idle_reminders,
         sourcefed: options.sourcefed,
+        disabled: options.disabled,
         state_file: options.state_file,
         audit_file: options.audit_file,
     })

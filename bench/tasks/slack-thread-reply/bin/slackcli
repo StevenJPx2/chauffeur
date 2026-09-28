@@ -1,0 +1,80 @@
+#!/usr/bin/env python3
+"""Offline stand-in for slackcli. Logs argv to $BENCH_LOG and prints canned output."""
+import json
+import os
+import sys
+
+USAGE = """Usage: slackcli <command> [options]
+
+Commands:
+  conversations read [CHANNEL] [--permalink URL] [--thread-ts TS] [--limit N] [--json]
+  conversations list [--json]
+  messages send (--permalink URL | --recipient-id ID [--thread-ts TS]) (--message TEXT | --message-file PATH)
+  search messages QUERY [--json]
+  auth status
+"""
+
+THREAD = {
+    "ok": True,
+    "channel": {"id": "C0123ABCD", "name": "deploys"},
+    "thread_ts": "1700000000.000000",
+    "messages": [
+        {"ts": "1700000000.000000", "user": "U01PRIYA", "user_name": "priya",
+         "text": "Kicking off the prod deploy for v2.14.0. Will report back here."},
+        {"ts": "1700000123.000100", "user": "U02SAM", "user_name": "sam",
+         "text": "Thanks! Ping this thread when it's done please."},
+    ],
+}
+
+
+def log():
+    path = os.environ.get("BENCH_LOG")
+    if path:
+        with open(path, "a", encoding="utf-8") as fh:
+            fh.write(json.dumps(["slackcli", *sys.argv[1:]]) + "\n")
+
+
+def opt(args, name):
+    for i, arg in enumerate(args):
+        if arg == name and i + 1 < len(args):
+            return args[i + 1]
+        if arg.startswith(name + "="):
+            return arg.split("=", 1)[1]
+    return None
+
+
+def main():
+    log()
+    args = sys.argv[1:]
+    if not args or args[0] in ("-h", "--help", "help") or "--help" in args:
+        print(USAGE)
+        return 0
+    if args[:2] == ["auth", "status"]:
+        print("Authenticated as bench-bot in workspace acme")
+        return 0
+    if args[:2] == ["conversations", "read"]:
+        if "--json" in args:
+            print(json.dumps(THREAD, indent=2))
+        else:
+            for msg in THREAD["messages"]:
+                print(f"[{msg['ts']}] {msg['user_name']}: {msg['text']}")
+        return 0
+    if args[:2] == ["conversations", "list"]:
+        print(json.dumps([{"id": "C0123ABCD", "name": "deploys"}]) if "--json" in args else "C0123ABCD  #deploys")
+        return 0
+    if args[:2] == ["messages", "send"]:
+        target = opt(args, "--permalink") or opt(args, "--recipient-id")
+        text = opt(args, "--message") or opt(args, "--message-file")
+        if not target or not text:
+            print("error: messages send needs a target and --message or --message-file", file=sys.stderr)
+            return 1
+        print("Message sent to C0123ABCD (ts 1700000456.000200)")
+        return 0
+    if args[:2] == ["search", "messages"]:
+        print(json.dumps({"ok": True, "matches": []}) if "--json" in args else "No matches.")
+        return 0
+    print(f"error: unknown command: {' '.join(args)}\n\n{USAGE}", file=sys.stderr)
+    return 1
+
+
+sys.exit(main())

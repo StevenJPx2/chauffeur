@@ -1,0 +1,6 @@
+{
+  "prompt": "Which port does the HTTP server actually listen on when I run `node src/server.js` with no environment variables set? Write the port and the file it comes from to ANSWER.md. Don't change any other files.",
+  "check": ["python3", ".bench/check_answer.py"],
+  "timeout_seconds": 600,
+  "tags": ["read"]
+}

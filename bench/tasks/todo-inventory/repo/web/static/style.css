@@ -1,0 +1,8 @@
+#todos {
+  list-style: none;
+  padding: 0;
+}
+
+#todos li {
+  padding: 4px 0;
+}

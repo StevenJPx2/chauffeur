@@ -1,0 +1,7 @@
+# Site-specific overrides, applied on top of default.json.
+http:
+  # port: 7000
+  port: 8443
+metrics:
+  enabled: true
+logLevel: debug

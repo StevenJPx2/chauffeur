@@ -1,0 +1,6 @@
+{
+  "prompt": "Rename the function getUserName to displayName everywhere in this project, including the tests. Keep the tests passing.",
+  "check": ["node", ".bench/check_rename.js"],
+  "timeout_seconds": 600,
+  "tags": ["refactor"]
+}

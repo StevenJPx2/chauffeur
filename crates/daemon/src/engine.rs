@@ -47,6 +47,9 @@ pub struct EngineOptions {
     /// sourcefed's daemon, for following the agent's own work and giving the
     /// event gate each event's monitor; `None` leaves both out.
     pub sourcefed: Option<SourcefedConfig>,
+    /// Capability IDs to leave out, such as for a benchmark handicap. An ID
+    /// no capability has is an error, so a typo cannot pass for a handicap.
+    pub disabled: Vec<String>,
     /// Where per-agent memory is kept across restarts; `None` keeps it in
     /// memory only.
     pub state_file: Option<PathBuf>,
@@ -252,13 +255,43 @@ fn capabilities(
     Ok(capabilities)
 }
 
+/// `capabilities` without the `disabled` IDs, each of which must name one.
+fn without(
+    capabilities: Vec<Box<dyn Capability>>,
+    disabled: &[String],
+) -> Result<Vec<Box<dyn Capability>>, String> {
+    if let Some(unknown) = disabled.iter().find(|id| {
+        !capabilities
+            .iter()
+            .any(|capability| capability.id() == id.as_str())
+    }) {
+        let known: Vec<&str> = capabilities
+            .iter()
+            .map(|capability| capability.id())
+            .collect();
+
+        return Err(format!(
+            "CHAUFFEUR_DISABLE names {unknown}, which is not one of {}",
+            known.join(", ")
+        ));
+    }
+
+    Ok(capabilities
+        .into_iter()
+        .filter(|capability| !disabled.iter().any(|id| id == capability.id()))
+        .collect())
+}
+
 fn build_engine(options: EngineOptions) -> Result<Engine, String> {
     let system_one = Box::new(JevClient::new(options.jev)?);
-    let capabilities = capabilities(
-        &options.config_dir,
-        &options.skills_dir,
-        options.idle_reminders,
-        options.sourcefed,
+    let capabilities = without(
+        capabilities(
+            &options.config_dir,
+            &options.skills_dir,
+            options.idle_reminders,
+            options.sourcefed,
+        )?,
+        &options.disabled,
     )?;
 
     let backstop = Backstop::load(&options.config_dir.join("backstop.json"))?;
@@ -277,4 +310,48 @@ fn build_engine(options: EngineOptions) -> Result<Engine, String> {
         .with_backstop(backstop.with_learned(learned_backstop))
         .with_redactor(redactor)
         .with_learning(learning))
+}
+
+#[cfg(test)]
+mod tests {
+    use chauffeur_core::{Plan, Situation};
+
+    use super::*;
+
+    struct Named(&'static str);
+
+    impl Capability for Named {
+        fn id(&self) -> &str {
+            self.0
+        }
+
+        fn plan(&mut self, _: &Situation, _: &Signal) -> Plan {
+            Plan::Skip
+        }
+
+        fn decide(&mut self, _: &Signal, _: Option<&[chauffeur_core::Answer]>) -> Vec<Effect> {
+            Vec::new()
+        }
+    }
+
+    fn all() -> Vec<Box<dyn Capability>> {
+        vec![Box::new(Named("rules")), Box::new(Named("skill-exposure"))]
+    }
+
+    #[test]
+    fn a_disabled_capability_is_left_out() {
+        let kept = without(all(), &["skill-exposure".to_string()]).unwrap();
+        let ids: Vec<&str> = kept.iter().map(|capability| capability.id()).collect();
+
+        assert_eq!(ids, ["rules"]);
+    }
+
+    #[test]
+    fn an_unknown_id_is_an_error_naming_the_known_ones() {
+        let Err(error) = without(all(), &["skil-exposure".to_string()]) else {
+            panic!("expected an error")
+        };
+
+        assert!(error.contains("skil-exposure") && error.contains("rules, skill-exposure"));
+    }
 }

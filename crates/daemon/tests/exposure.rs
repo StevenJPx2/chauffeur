@@ -56,6 +56,7 @@ async fn first_user_message_attaches_skills_and_hides_unneeded_tools() {
         jev,
         idle_reminders: false,
         sourcefed: None,
+        disabled: Vec::new(),
         state_file: None,
         audit_file: None,
     })

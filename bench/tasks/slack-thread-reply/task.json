@@ -1,0 +1,6 @@
+{
+  "prompt": "Reply \"Deploy finished — all checks green.\" in the Slack thread https://acme.slack.com/archives/C0123ABCD/p1700000000000000",
+  "check": ["python3", ".bench/check_slack.py"],
+  "timeout_seconds": 600,
+  "tags": ["skill", "cli"]
+}

@@ -1,0 +1,6 @@
+{
+  "prompt": "What's the status of Jira ticket ADEPT-123 and who is it assigned to? Write it to STATUS.md.",
+  "check": ["python3", ".bench/check_status.py"],
+  "timeout_seconds": 600,
+  "tags": ["skill", "cli"]
+}

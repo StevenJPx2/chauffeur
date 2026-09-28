@@ -1,0 +1,6 @@
+{
+  "prompt": "The test suite in this repo is failing. Please find and fix the bug in stats.py so the tests pass.",
+  "check": ["python3", "-m", "unittest", "-q"],
+  "timeout_seconds": 600,
+  "tags": ["bugfix"]
+}

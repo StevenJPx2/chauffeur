@@ -13,9 +13,15 @@ import { installToolResults } from "./tool-results.js"
 
 export { ChauffeurRpc } from "./gate.js"
 
+/**
+ * Capabilities the daemon leaves out (`CHAUFFEUR_DISABLE`, comma-separated IDs).
+ * Without skill exposure the host keeps its own skill loading.
+ */
+const disabled = new Set((process.env.CHAUFFEUR_DISABLE ?? "").split(",").map((id) => id.trim()))
+
 /** Every capability's hooks live in the plugin scope, so unloading releases them together. */
 const capabilities = Effect.gen(function* () {
-  yield* claimSkillLoading
+  if (!disabled.has("skill-exposure")) yield* claimSkillLoading
   yield* installModelRouter
 
   const exposure = yield* installExposure

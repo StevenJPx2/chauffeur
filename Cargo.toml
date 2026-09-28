@@ -16,6 +16,7 @@ members = [
   "capabilities/monitors",
   "capabilities/event-gate",
   "judges/jev",
+  "bench",
 ]
 
 [workspace.package]

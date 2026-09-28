@@ -118,6 +118,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "chauffeur-bench"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "chauffeur-capability-event-gate"
 version = "0.1.0"
 dependencies = [

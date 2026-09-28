@@ -1,0 +1,10 @@
+{
+  "prompt": "Add a --verbose flag to app.py (it uses argparse) that prints \"verbose on\" when set. Add an entry for it under \"Unreleased\" in CHANGELOG.md, then commit everything with the message \"feat: add --verbose flag\".",
+  "check": [
+    "python3",
+    "-c",
+    "import re, subprocess, sys\ndef run(*a):\n    return subprocess.run(list(a), capture_output=True, text=True)\nsubject = run('git', 'log', '-1', '--format=%s').stdout.strip()\nif subject != 'feat: add --verbose flag':\n    sys.exit(f'last commit subject is {subject!r}')\ndirty = run('git', 'status', '--porcelain').stdout.strip()\nif dirty:\n    sys.exit(f'working tree not clean:\\n{dirty}')\non = run(sys.executable, 'app.py', '--verbose')\nif on.returncode != 0 or 'verbose on' not in on.stdout:\n    sys.exit(f'--verbose output: {on.stdout!r} {on.stderr!r}')\noff = run(sys.executable, 'app.py')\nif off.returncode != 0 or 'verbose on' in off.stdout:\n    sys.exit(f'default output: {off.stdout!r}')\nlog = open('CHANGELOG.md', encoding='utf-8').read()\nm = re.search(r'^##\\s*\\[?Unreleased\\]?\\s*$(.*?)(?=^##\\s|\\Z)', log, re.M | re.S | re.I)\nif not m or 'verbose' not in m.group(1).lower():\n    sys.exit('CHANGELOG.md has no --verbose entry under Unreleased')\nprint('ok')\n"
+  ],
+  "timeout_seconds": 600,
+  "tags": ["git"]
+}
