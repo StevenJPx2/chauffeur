@@ -3,7 +3,7 @@ import { Deferred, Effect } from "effect"
 import type { DaemonClient } from "../src/daemon.js"
 import { installModelRouter } from "../src/model-router.js"
 import type { HostEffect, Signal } from "../src/protocol.js"
-import { eventStream, fakeHost, Hooks, install, settle } from "./support.js"
+import { eventStream, fakeHost, Hooks, install, noRulebooks, settle } from "./support.js"
 
 const failed = { providerID: "anthropic", id: "claude-opus-5-5", variant: "high" }
 
@@ -37,7 +37,7 @@ test("a tool in an earlier request does not block failover; a tool in this reque
     event: { subscribe: events.subscribe },
   })
 
-  const daemon: DaemonClient = { signal: (value) => Effect.sync(() => {
+  const daemon: DaemonClient = { rulebooks: noRulebooks, signal: (value) => Effect.sync(() => {
     signals.push(value)
 
     return value.kind.type === "model_error" && !value.kind.tool_executed
@@ -93,7 +93,7 @@ test("a session on the default model fails over; one whose selection moved on do
     event: { subscribe: events.subscribe },
   })
 
-  const plugin = await install(installModelRouter, host, { signal: () => Effect.succeed([
+  const plugin = await install(installModelRouter, host, { rulebooks: noRulebooks, signal: () => Effect.succeed([
     { type: "model", agent_id: sessionID, model: { provider: "openai", model: "gpt-6-sol" } },
   ]) })
 
@@ -137,7 +137,7 @@ test("stopping while the daemon decides never switches a cancelled execution", a
     event: { subscribe: events.subscribe },
   })
 
-  const plugin = await install(installModelRouter, host, { signal: () => Deferred.await(decided) })
+  const plugin = await install(installModelRouter, host, { rulebooks: noRulebooks, signal: () => Deferred.await(decided) })
 
   try {
     await events.publish({ type: "session.execution.started", data: { sessionID } })
@@ -176,7 +176,7 @@ test("running sessions past the cap are forgotten, and a forgotten one keeps the
     event: { subscribe: events.subscribe },
   })
 
-  const plugin = await install(installModelRouter, host, { signal: (value) => Effect.succeed([
+  const plugin = await install(installModelRouter, host, { rulebooks: noRulebooks, signal: (value) => Effect.succeed([
     { type: "model", agent_id: value.agent_id, model: { provider: "openai", model: "gpt-6-sol" } },
   ]) })
 

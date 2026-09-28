@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process"
 import { Context, type Duration, Effect, Schema } from "effect"
-import { RpcReply, SignalReply, type HostEffect, type Signal } from "./protocol.js"
+import { RpcReply, RulebooksReply, SignalReply, type HostEffect, type RulebookEntry, type Signal } from "./protocol.js"
 
 const DEFAULT_URL = "http://127.0.0.1:18790"
 
@@ -15,6 +15,8 @@ export class DaemonError extends Schema.TaggedError<DaemonError>()("DaemonError"
 
 export type DaemonClient = {
   readonly signal: (signal: Signal, timeout?: Duration.Input) => Effect.Effect<ReadonlyArray<HostEffect>, DaemonError>
+  /** The rulebooks the user can start, offered as slash commands. */
+  readonly rulebooks: () => Effect.Effect<ReadonlyArray<RulebookEntry>, DaemonError>
 }
 
 type Endpoint = { readonly url: string; readonly headers: Headers }
@@ -51,6 +53,8 @@ const connect = Effect.gen(function* () {
   return {
     signal: (value, timeout = SIGNAL_TIMEOUT) =>
       request(endpoint, "signal", { signal: value }, SignalReply, timeout).pipe(Effect.map((reply) => reply.effects)),
+    rulebooks: () =>
+      request(endpoint, "rulebooks", {}, RulebooksReply, RPC_TIMEOUT).pipe(Effect.map((reply) => reply.rulebooks)),
   } satisfies DaemonClient
 })
 

@@ -71,7 +71,10 @@ export function settle(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 10))
 }
 
-export const noDaemon: DaemonClient = { signal: () => Effect.die("unexpected daemon signal") }
+/** A daemon offering no rulebooks, for fakes that only answer signals. */
+export const noRulebooks: DaemonClient["rulebooks"] = () => Effect.succeed([])
+
+export const noDaemon: DaemonClient = { rulebooks: noRulebooks, signal: () => Effect.die("unexpected daemon signal") }
 
 /** Exposure with nothing hidden and no Code Mode; a test overrides what it reads. */
 export function fakeExposure(overrides: Partial<ExposureControl> = {}): ExposureControl {

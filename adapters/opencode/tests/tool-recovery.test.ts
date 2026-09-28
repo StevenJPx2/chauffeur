@@ -3,7 +3,7 @@ import { Effect } from "effect"
 import type { DaemonClient } from "../src/daemon.js"
 import type { HostEffect, Signal } from "../src/protocol.js"
 import { installToolResults } from "../src/tool-results.js"
-import { fakeExposure, fakeHost, Hooks, install } from "./support.js"
+import { fakeExposure, fakeHost, Hooks, install, noRulebooks } from "./support.js"
 
 const sessionID = "ses_recovery"
 
@@ -20,7 +20,7 @@ function toolHost(hooks: Hooks, delivered: string[]) {
 }
 
 function daemon(sent: Signal[], effects: ReadonlyArray<HostEffect>): DaemonClient {
-  return { signal: (value) => Effect.sync(() => {
+  return { rulebooks: noRulebooks, signal: (value) => Effect.sync(() => {
     sent.push(value)
 
     return effects

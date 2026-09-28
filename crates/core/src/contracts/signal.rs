@@ -160,6 +160,18 @@ pub enum SignalKind {
         workspace: String,
         #[serde(default)]
         user_request: String,
+        /// The agent's closing message for the turn, clipped: evidence for
+        /// judging whether work is done.
+        #[serde(default)]
+        summary: String,
+    },
+    /// The user started, paused, resumed, cleared, or asked about a rulebook
+    /// in this session, such as `/goal <objective>`.
+    Rulebook {
+        command: RulebookCommand,
+        rulebook: String,
+        #[serde(default)]
+        args: String,
     },
     /// A model request failed. The host reports every retryable error; core
     /// decides whether it is a usage limit.
@@ -192,6 +204,17 @@ pub enum SignalKind {
         #[serde(default)]
         monitor: String,
     },
+}
+
+/// What the user asked of a rulebook.
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, Eq, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum RulebookCommand {
+    Start,
+    Pause,
+    Resume,
+    Clear,
+    Status,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
@@ -241,7 +264,19 @@ impl SignalKind {
             SignalKind::TurnEnd {
                 workspace,
                 user_request,
-            } => all_bounded(&[(workspace, "workspace"), (user_request, "user request")]),
+                summary,
+            } => all_bounded(&[
+                (workspace, "workspace"),
+                (user_request, "user request"),
+                (summary, "summary"),
+            ]),
+            SignalKind::Rulebook { rulebook, args, .. } => {
+                if rulebook.is_empty() {
+                    return Err("a rulebook signal must name its rulebook".into());
+                }
+
+                all_bounded(&[(rulebook, "rulebook"), (args, "rulebook args")])
+            }
             SignalKind::AgentRequest {
                 need,
                 user_request,

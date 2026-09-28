@@ -6,6 +6,8 @@ use std::collections::HashSet;
 use chauffeur_core::Delivery;
 use serde::Deserialize;
 
+use crate::rulebook::End;
+
 pub const SCHEMA_VERSION: u8 = 2;
 const MAX_STEPS: usize = 2;
 const MAX_ID_BYTES: usize = 64;
@@ -115,13 +117,23 @@ pub struct Then {
     /// A skill handed over with the text, such as `slack-cli`.
     #[serde(default)]
     pub skill: Option<String>,
+    /// Inside a rulebook: end the book once this delivers.
+    #[serde(default)]
+    pub end: Option<End>,
 }
 
 impl Rule {
     pub fn from_json(bytes: &[u8]) -> Result<Self, String> {
         let rule: Self = serde_json::from_slice(bytes).map_err(|error| error.to_string())?;
 
-        rule.validate()?;
+        rule.validate_as_part()?;
+
+        if rule.then.end.is_some() {
+            return Err(format!(
+                "{}: then.end applies only inside a rulebook",
+                rule.id
+            ));
+        }
 
         Ok(rule)
     }
@@ -132,7 +144,9 @@ impl Rule {
         self.then.label.as_deref().unwrap_or(&self.name)
     }
 
-    fn validate(&self) -> Result<(), String> {
+    /// Every bound except where the rule may appear; a rulebook checks its
+    /// own rules with this.
+    pub(crate) fn validate_as_part(&self) -> Result<(), String> {
         if self.schema_version != SCHEMA_VERSION {
             return Err(format!(
                 "unsupported schema_version {} (rules use {SCHEMA_VERSION})",
@@ -279,7 +293,7 @@ impl Rule {
     }
 }
 
-fn identifier(value: &str) -> bool {
+pub(crate) fn identifier(value: &str) -> bool {
     !value.is_empty()
         && value.len() <= MAX_ID_BYTES
         && value.bytes().all(|byte| {

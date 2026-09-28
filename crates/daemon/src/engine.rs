@@ -9,7 +9,7 @@ use chauffeur_capability_event_gate::{EventGate, EventGateConfig};
 use chauffeur_capability_model_router::{ModelRouter, ModelRouterConfig, Provider};
 use chauffeur_capability_monitors::{FollowWork, Monitors, MonitorsConfig};
 use chauffeur_capability_permission::{Permission, load_skills};
-use chauffeur_capability_rules::{Rules, RulesConfig, Trigger, load_dir};
+use chauffeur_capability_rules::{Rules, RulesConfig, Trigger, load_dir, load_rulebooks};
 use chauffeur_capability_skill_exposure::{SkillExposure, SkillExposureConfig};
 use chauffeur_capability_tool_exposure::{ToolExposure, ToolExposureConfig};
 use chauffeur_core::{
@@ -225,7 +225,12 @@ fn capabilities(
         rules.retain(|rule| rule.on != Trigger::TurnEnd);
     }
 
-    let rules = Rules::new(rules).with_config(RulesConfig::load(&config("rules.json"))?);
+    let rules = Rules::new(rules)
+        .with_config(RulesConfig::load(&config("rules.json"))?)
+        .with_rulebooks(
+            load_rulebooks(&skills_dir.join("rulebooks"))?,
+            idle_reminders,
+        );
     let gate = EventGateConfig::load(&config("event-gate.json"))?;
     let mut capabilities: Vec<Box<dyn Capability>> = vec![
         Box::new(Judging::new(router)),
@@ -253,6 +258,27 @@ fn capabilities(
     }
 
     Ok(capabilities)
+}
+
+/// The rulebooks in `skills_dir/rulebooks`, as a host offers them.
+///
+/// # Errors
+///
+/// An unreadable or invalid rulebook.
+pub fn rulebooks(skills_dir: &Path) -> Result<chauffeur_core::RulebooksResult, String> {
+    let books = load_rulebooks(&skills_dir.join("rulebooks"))?;
+
+    Ok(chauffeur_core::RulebooksResult {
+        rulebooks: books
+            .into_iter()
+            .map(|book| chauffeur_core::RulebookEntry {
+                id: book.id,
+                name: book.name,
+                description: book.description,
+                args_required: book.args.required,
+            })
+            .collect(),
+    })
 }
 
 /// `capabilities` without the `disabled` IDs, each of which must name one.

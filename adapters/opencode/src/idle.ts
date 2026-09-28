@@ -35,11 +35,17 @@ function reportTurnEnd(sessionID: SessionID): Effect.Effect<void, never, Host | 
     ], { concurrency: "unbounded" })
 
     const user = context.findLast((message) => message.type === "user" && !isIntegrationMessage(message.metadata))
+    const reply = context.findLast((message) => message.type === "assistant")
+
+    const summary = reply?.type === "assistant"
+      ? reply.content.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("\n")
+      : ""
 
     const effects = yield* daemon.signal(signal(String(sessionID), {
       type: "turn_end",
       workspace: session ? clip(String(session.location.directory), TEXT_CODE_POINTS) : "",
       user_request: user?.type === "user" ? clip(user.text, TEXT_CODE_POINTS) : "",
+      summary: clip(summary, TEXT_CODE_POINTS),
     }))
 
     const deliveries = effects.flatMap((effect) =>

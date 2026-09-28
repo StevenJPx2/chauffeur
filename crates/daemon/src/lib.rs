@@ -16,7 +16,8 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::post;
 use axum::{Json, Router};
 use chauffeur_core::{
-    DaemonRequest, DaemonResponse, Effect, METHOD_HEALTH, METHOD_SIGNAL, SignalParams, SignalResult,
+    DaemonRequest, DaemonResponse, Effect, METHOD_HEALTH, METHOD_RULEBOOKS, METHOD_SIGNAL,
+    RulebooksResult, SignalParams, SignalResult,
 };
 use chauffeur_judge_jev::JevConfig;
 pub use chauffeur_plugin_sourcefed::SourcefedConfig;
@@ -28,6 +29,7 @@ pub const DEFAULT_PORT: u16 = 18_790;
 struct AppState {
     engine: EngineHandle,
     token: Option<String>,
+    rulebooks: std::sync::Arc<RulebooksResult>,
 }
 
 pub struct DaemonOptions {
@@ -84,6 +86,11 @@ pub async fn serve(options: DaemonOptions) -> Result<(), String> {
     let jev = JevConfig::from_env()
         .ok_or("TYPESAFE_API_KEY is required: Jev is Chauffeur's System One provider")?;
 
+    let rulebooks = std::sync::Arc::new(if options.disabled.iter().any(|id| id == "rules") {
+        RulebooksResult::default()
+    } else {
+        engine::rulebooks(&options.skills_dir)?
+    });
     let engine = EngineHandle::spawn(EngineOptions {
         config_dir: options.config_dir,
         skills_dir: options.skills_dir,
@@ -98,6 +105,7 @@ pub async fn serve(options: DaemonOptions) -> Result<(), String> {
     let state = AppState {
         engine,
         token: options.token,
+        rulebooks,
     };
     let app = Router::new()
         .route("/rpc", post(rpc).layer(DefaultBodyLimit::max(128 * 1024)))
@@ -128,6 +136,9 @@ async fn rpc(
     let result = match request.method.as_str() {
         METHOD_HEALTH => Ok(json!({ "ok": true })),
         METHOD_SIGNAL => signal(&state.engine, request.params).await,
+        METHOD_RULEBOOKS => {
+            serde_json::to_value(&*state.rulebooks).map_err(|error| error.to_string())
+        }
         method => Err(format!("unknown method {method}")),
     };
     let (status, response) = match result {

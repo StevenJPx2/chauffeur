@@ -35,7 +35,7 @@ function daemon(reply: Reply | Response): void {
   process.env.CHAUFFEUR_DAEMON_URL = `http://127.0.0.1:${server.port}`
 }
 
-const turnEnd = signal("ses_daemon", { type: "turn_end", workspace: "", user_request: "" })
+const turnEnd = signal("ses_daemon", { type: "turn_end", workspace: "", user_request: "", summary: "" })
 
 async function send(): Promise<Exit.Exit<ReadonlyArray<HostEffect>, DaemonError>> {
   const client = await Effect.runPromise(Daemon.connect)

@@ -112,7 +112,12 @@ fn detail(kind: &SignalKind) -> String {
             ..
         } => format!("{source} {kind}: {summary}"),
         SignalKind::ModelSucceeded { model } => model.key(),
-        SignalKind::TurnEnd { .. } => String::new(),
+        SignalKind::TurnEnd { summary, .. } => summary.clone(),
+        SignalKind::Rulebook {
+            command,
+            rulebook,
+            args,
+        } => format!("{rulebook} {command:?} {args}"),
     }
 }
 
@@ -159,6 +164,7 @@ mod tests {
             &signal(SignalKind::TurnEnd {
                 workspace: String::new(),
                 user_request: String::new(),
+                summary: String::new(),
             }),
             &Trace::default(),
             &Ok(Vec::new()),

@@ -1,0 +1,70 @@
+{
+  "schema_version": 1,
+  "id": "goal",
+  "name": "Goal",
+  "description": "Keep working across turns until evidence shows the objective is done.",
+  "args": { "required": true },
+  "budget": 20,
+  "on_start": "Goal: {args}\nWork toward this goal until concrete evidence shows it is achieved: tests passing, command output, or the finished artifact. Chauffeur checks after each turn and continues you while it is not done. If only the user can unblock you (a decision, access, or information you cannot get), stop and say exactly what you need.",
+  "on_budget": "Goal budget reached: {args}\nStop substantive work. Summarise what is done, the evidence for it, what still blocks the goal, and the next useful step.",
+  "rules": [
+    {
+      "schema_version": 2,
+      "id": "goal-done",
+      "name": "Goal achieved",
+      "on": "turn_end",
+      "priority": 20,
+      "steps": [
+        {
+          "id": "done",
+          "question": "The user's goal is: {args}. Does concrete evidence in this session (files changed, commands run and their output, test or benchmark results) show the goal is fully achieved? Answer no if the agent only claims it is done, or if any part of the goal is unverified.",
+          "yes_at_or_above": 0.8,
+          "minimum_confidence": 0.5
+        }
+      ],
+      "then": {
+        "delivery": "wait",
+        "text": "Goal achieved: {args}",
+        "end": "complete"
+      }
+    },
+    {
+      "schema_version": 2,
+      "id": "goal-blocked",
+      "name": "Goal blocked",
+      "on": "turn_end",
+      "priority": 10,
+      "steps": [
+        {
+          "id": "needs-user",
+          "question": "The user's goal is: {args}. Did the agent stop because it needs something only the user can provide (a decision, access, credentials, or information), and say what it needs?",
+          "yes_at_or_above": 0.7,
+          "minimum_confidence": 0.4
+        }
+      ],
+      "then": {
+        "delivery": "wait",
+        "text": "Goal paused until you answer the agent: {args}\nResume it with /goal resume.",
+        "end": "pause"
+      }
+    },
+    {
+      "schema_version": 2,
+      "id": "goal-continue",
+      "name": "Goal: keep going",
+      "on": "turn_end",
+      "steps": [
+        {
+          "id": "not-done",
+          "question": "The user's goal is: {args}. Is the goal still not achieved, with a next step the agent can take on its own?",
+          "yes_at_or_above": 0.7,
+          "minimum_confidence": 0.4
+        }
+      ],
+      "then": {
+        "delivery": "resume",
+        "text": "Goal: {args}\nNot done yet. Check the goal against the evidence so far, pick the next most useful step, and continue. If you are blocked on something only the user can provide, stop and say what you need."
+      }
+    }
+  ]
+}

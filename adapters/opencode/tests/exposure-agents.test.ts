@@ -3,7 +3,7 @@ import { Effect } from "effect"
 import type { DaemonClient } from "../src/daemon.js"
 import { installExposure } from "../src/exposure.js"
 import type { Signal } from "../src/protocol.js"
-import { fakeHost, Hooks, install } from "./support.js"
+import { fakeHost, Hooks, install, noRulebooks } from "./support.js"
 
 const tools = [
   { id: "read", description: "Read a file" },
@@ -32,7 +32,7 @@ test("another agent's requests do not change the tools a default-agent session j
     tool: { list: () => Effect.succeed(tools) },
   })
 
-  const daemon: DaemonClient = { signal: (value) => Effect.sync(() => {
+  const daemon: DaemonClient = { rulebooks: noRulebooks, signal: (value) => Effect.sync(() => {
     sent.push(value)
 
     return []

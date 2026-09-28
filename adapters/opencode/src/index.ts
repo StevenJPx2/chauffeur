@@ -8,6 +8,7 @@ import { Host } from "./host.js"
 import { installIdle } from "./idle.js"
 import { installModelRouter } from "./model-router.js"
 import { installPermission } from "./permission.js"
+import { installRulebooks } from "./rulebooks.js"
 import { claimSkillLoading, hostLoadsSkills } from "./skills.js"
 import { installToolResults } from "./tool-results.js"
 
@@ -25,6 +26,7 @@ const capabilities = Effect.gen(function* () {
   yield* installAskTool(exposure)
   yield* installGate
   yield* installIdle
+  yield* installRulebooks
 })
 
 export default Plugin.define({

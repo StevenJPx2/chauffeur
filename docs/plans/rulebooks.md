@@ -1,12 +1,31 @@
-# Playbooks: rule sets the user activates
+# Rulebooks: rule sets the user activates
 
-A playbook is a named set of rules that stays dormant until the user turns it
+A rulebook is a named set of rules that stays dormant until the user turns it
 on in a session, with arguments, and off again. Rules today are always on
-(shipped) or on per project (`.chauffeur/rules/`); a playbook adds a third
+(shipped) or on per project (`.chauffeur/rules/`); a rulebook adds a third
 scope: on for one session, by request.
 
 "Skill" already names `SKILL.md` files (skill exposure, `ask_chauffeur`,
-`then.skill`), so this plan calls the new unit a playbook.
+`then.skill`), so this plan calls the new unit a rulebook.
+
+## Status
+
+Steps 1–4 of the build order are built; the user-facing format is in
+`skills/README.md`, and `skills/rulebooks/goal.json` ships the goal. Where the
+build differs from the draft below:
+
+- `on_start` and `on_budget` are plain texts; `budget` is a number of
+  deliveries.
+- The no-spin guard is state, not a gate fact: after the book resumes the
+  agent, its turn-end rules wait for a tool call or a user message. No `*`
+  wildcard was needed.
+- `then.end` has `complete` and `pause`; the goal pauses when the agent says
+  only the user can unblock it.
+- Only shipped rulebooks (`skills/rulebooks/`) exist; project rulebooks wait
+  for a use, since OpenCode commands are global.
+- Headless `opencode run` neither dispatches slash commands nor reports turn
+  ends before it exits, so step 5 (a bench task) needs a harness that drives
+  a live session; `/goal` is verified in the TUI.
 
 ## The target: Codex `/goal`
 
@@ -33,13 +52,13 @@ Each of those maps onto the rule engine:
 | Objective in the prompt | – | Arguments: `{args}` in questions and text |
 | Thread-scoped, on by request | – | Activation per session |
 | pause / resume / clear | – | Lifecycle state per session |
-| Done ends it | – | A rule effect that deactivates the playbook |
+| Done ends it | – | A rule effect that deactivates the rulebook |
 | No spinning | gate `tools_called_any` (turn window) | Gate relative to the last continuation |
 | Budget | `cooldown_seconds`, `once` | A continuation count, then a budget rule |
 
 ## Format
 
-`skills/playbooks/<id>.json` (shipped) or `.chauffeur/playbooks/<id>.json`
+`skills/rulebooks/<id>.json` (shipped) or `.chauffeur/rulebooks/<id>.json`
 (project). Strict, like rules; the rules inside use the existing rule format
 unchanged, plus `{args}` and one new `then` field.
 
@@ -100,14 +119,14 @@ unchanged, plus `{args}` and one new `then` field.
 
 New pieces:
 
-- `args`: whether the playbook takes arguments, and their bound. `{args}` is
-  substituted into step questions and `then.text` when the playbook activates;
+- `args`: whether the rulebook takes arguments, and their bound. `{args}` is
+  substituted into step questions and `then.text` when the rulebook activates;
   the substituted text is bounded by the existing 1 KiB limits.
-- `then.end`: `"complete"` deactivates the playbook after delivering. Only a
-  playbook rule may set it.
-- `budget.deliveries`: the playbook's rules deliver at most this many times per
+- `then.end`: `"complete"` deactivates the rulebook after delivering. Only a
+  rulebook rule may set it.
+- `budget.deliveries`: the rulebook's rules deliver at most this many times per
   activation; the next delivery would be `on_budget` instead, after which the
-  playbook stops as `budget_limited`.
+  rulebook stops as `budget_limited`.
 - Gate facts stay exact. The no-spin guard is `tools_called_any` in the turn
   window, where a turn now also starts at a Chauffeur resume, not only a user
   message, so "the continuation turn made a tool call" is a fact, not a Jev
@@ -116,7 +135,7 @@ New pieces:
 ## Lifecycle
 
 Per session, in the rules capability's saved state (so a daemon restart keeps
-it), keyed by `(agent, playbook)`:
+it), keyed by `(agent, rulebook)`:
 
 `active(args, deliveries) → paused → active → complete | budget_limited | cleared`
 
@@ -125,20 +144,20 @@ the model cannot clear or pause a goal. A user message does not end a goal;
 it renews the turn window as today.
 
 Ordering at a turn end: `goal-done` before `goal-continue` (priority), and at
-most one of a playbook's rules delivers per signal, so the agent is never told
+most one of a rulebook's rules delivers per signal, so the agent is never told
 both "done" and "keep going".
 
 ## Protocol and adapter
 
-- New signal `playbook` from the host: `{ command: "start" | "pause" |
-  "resume" | "clear" | "status", playbook, args }`. The engine answers with a
+- New signal `rulebook` from the host: `{ command: "start" | "pause" |
+  "resume" | "clear" | "status", rulebook, args }`. The engine answers with a
   context effect confirming the state ("Goal set: …"), so the adapter needs no
-  playbook knowledge.
-- The OpenCode adapter registers one slash command per loaded playbook through
+  rulebook knowledge.
+- The OpenCode adapter registers one slash command per loaded rulebook through
   `command.transform` (`editor.add({ name, description, execute })`); `execute`
   receives the session and the raw argument text. `/goal pause`, `/goal
   resume`, `/goal clear` and bare `/goal` map to the lifecycle commands; any
-  other text starts the playbook with those arguments.
+  other text starts the rulebook with those arguments.
 - `/goal <objective>` should also start work, like Codex: the confirmation is
   delivered with `resume`, carrying the objective, so the agent begins.
 
@@ -147,27 +166,27 @@ both "done" and "keep going".
 `turn_end` carries only the workspace and the latest user request. A goal
 check needs the turn's evidence, so `TurnEnd` gains a bounded `summary`: the
 agent's final message (clipped), the tools it called this turn, and whether
-the last check commands succeeded. Questions for a playbook rule include it.
+the last check commands succeeded. Questions for a rulebook rule include it.
 This helps shipped turn-end rules too.
 
 ## Limits
 
-- One active playbook per session at first; more later if a second use needs
+- One active rulebook per session at first; more later if a second use needs
   it.
 - A continuation is at most one `resume` per turn end, so the idle-steering
-  guard (`CHAUFFEUR_IDLE_STEERING`) must be on for playbooks to continue;
+  guard (`CHAUFFEUR_IDLE_STEERING`) must be on for rulebooks to continue;
   status says so when it is off.
 - The budget counts deliveries, not tokens: Chauffeur does not see token
   counts. A token budget can come later from the host's step events.
 
 ## Build order
 
-1. `{args}`, `then.end`, and the playbook file format with validation and
+1. `{args}`, `then.end`, and the rulebook file format with validation and
    tests (rules crate).
 2. Per-session activation and lifecycle state, saved with the rules state;
-   playbook rules join `rules_for` only while active.
-3. The `playbook` signal and its confirmation effect; `TurnEnd.summary`.
-4. OpenCode slash commands from the loaded playbooks.
+   rulebook rules join `rules_for` only while active.
+3. The `rulebook` signal and its confirmation effect; `TurnEnd.summary`.
+4. OpenCode slash commands from the loaded rulebooks.
 5. Ship `goal.json`; add a bench task where the first turn usually stops
    short (a long task with visible progress checks) and compare `full` with
    and without `/goal`.

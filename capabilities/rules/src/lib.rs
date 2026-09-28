@@ -5,8 +5,10 @@
 //! as `Judging::new(Rules::new(rules))`, with your limits as
 //! `Rules::new(rules).with_config(RulesConfig::load(path)?)`.
 
+mod book;
 mod history;
 mod rule;
+mod rulebook;
 mod source;
 
 use std::collections::HashMap;
@@ -21,9 +23,17 @@ use chauffeur_core::{
 };
 use serde::{Deserialize, Deserializer, Serialize};
 
+use book::{Books, Notice, Running};
 use history::Histories;
 pub use rule::{Gate, History, Rule, SCHEMA_VERSION, Step, Then, Trigger};
+pub use rulebook::{Args, End, RULEBOOK_SCHEMA_VERSION, Rulebook, load_rulebooks};
 pub use source::{load_dir, load_project};
+
+/// The rules that held for a signal, or a rulebook command's answer.
+pub struct Verdict {
+    rules: Vec<Rule>,
+    notice: Option<Notice>,
+}
 
 pub const ID: &str = "rules";
 /// The most contexts any config lets one signal deliver.
@@ -94,12 +104,15 @@ pub struct Rules {
     fired: HashMap<(String, String), Fired>,
     /// The latest project-rule error, logged once until it changes.
     project_error: Option<String>,
+    books: Books,
 }
 
 #[derive(Deserialize)]
 struct Saved {
     histories: Histories,
     fired: Vec<((String, String), Fired)>,
+    #[serde(default)]
+    books: Vec<(String, Running)>,
 }
 
 /// [`Saved`], borrowed for writing.
@@ -107,6 +120,7 @@ struct Saved {
 struct SavedRef<'a> {
     histories: &'a Histories,
     fired: Vec<(&'a (String, String), Fired)>,
+    books: Vec<(&'a String, &'a Running)>,
 }
 
 impl Rules {
@@ -120,6 +134,7 @@ impl Rules {
             histories: Histories::default(),
             fired: HashMap::new(),
             project_error: None,
+            books: Books::new(Vec::new(), false),
         }
     }
 
@@ -127,6 +142,15 @@ impl Rules {
     #[must_use]
     pub fn with_config(mut self, config: RulesConfig) -> Self {
         self.config = config;
+        self
+    }
+
+    /// Rulebooks the user can start per session. `continues` says whether
+    /// turn-end rules may resume the agent; without it a book's turn-end
+    /// rules stay quiet.
+    #[must_use]
+    pub fn with_rulebooks(mut self, shelf: Vec<Rulebook>, continues: bool) -> Self {
+        self.books = Books::new(shelf, continues);
         self
     }
 
@@ -173,9 +197,12 @@ impl Rules {
         tool: Option<&str>,
     ) -> Judge<Vec<Rule>> {
         let agent = &signal.agent_id;
+        let book = self.books.rules(agent, trigger);
+        let tools = self.histories.turn_tools(agent);
         let rules: Vec<Rule> = self
             .rules_for(workspace)
             .into_iter()
+            .chain(book)
             .filter(|rule| rule.on == trigger)
             .filter(|rule| {
                 tool.is_none_or(|tool| rule.when.tools.iter().any(|watched| watched == tool))
@@ -189,7 +216,7 @@ impl Rules {
                 .iter()
                 .map(|step| {
                     (
-                        question(&rule, step, &signal.kind),
+                        question(&rule, step, &signal.kind, &tools),
                         judge::Rule::yes(step.yes_at_or_above, step.minimum_confidence),
                     )
                 })
@@ -228,7 +255,7 @@ impl Rules {
 }
 
 impl Judged for Rules {
-    type Verdict = Vec<Rule>;
+    type Verdict = Verdict;
 
     fn id(&self) -> &str {
         ID
@@ -242,6 +269,7 @@ impl Judged for Rules {
                 .iter()
                 .map(|(key, fired)| (key, *fired))
                 .collect(),
+            books: self.books.save(),
         })
         .ok()
     }
@@ -253,15 +281,23 @@ impl Judged for Rules {
 
         self.histories = Histories::restore(saved.histories);
         self.fired = saved.fired.into_iter().take(MAX_FIRED).collect();
+        self.books.load(saved.books);
     }
 
-    fn judge(&mut self, _: &Situation, signal: &Signal) -> Option<Judge<Vec<Rule>>> {
+    fn judge(&mut self, _: &Situation, signal: &Signal) -> Option<Judge<Verdict>> {
         let agent = signal.agent_id.as_str();
+        let rules = |judge: Judge<Vec<Rule>>| {
+            judge.map(|rules| Verdict {
+                rules,
+                notice: None,
+            })
+        };
 
         match &signal.kind {
             SignalKind::UserMessage { .. } => {
                 self.histories.user_message(agent);
                 self.renew(agent);
+                self.books.worked(agent);
                 None
             }
             SignalKind::IntegrationEvent { source, kind, .. } => {
@@ -272,36 +308,87 @@ impl Judged for Rules {
                 tool, workspace, ..
             } => {
                 self.histories.tool(agent, workspace, tool);
-                Some(self.start(signal, Trigger::ToolResult, workspace, Some(tool)))
+                self.books.worked(agent);
+                Some(rules(self.start(
+                    signal,
+                    Trigger::ToolResult,
+                    workspace,
+                    Some(tool),
+                )))
             }
             SignalKind::TurnEnd { workspace, .. } => {
-                Some(self.start(signal, Trigger::TurnEnd, workspace, None))
+                Some(rules(self.start(signal, Trigger::TurnEnd, workspace, None)))
             }
+            SignalKind::Rulebook {
+                command,
+                rulebook,
+                args,
+            } => Some(Judge::done(Verdict {
+                rules: Vec::new(),
+                notice: Some(self.books.command(agent, *command, rulebook, args)),
+            })),
             _ => None,
         }
     }
 
-    /// The confirmed rules' contexts, highest priority first, within
-    /// [`RulesConfig::max_deliveries`]. Among equal priorities, a rule
-    /// confirmed in an earlier round, having fewer steps, comes first.
-    fn act(&mut self, signal: &Signal, mut confirmed: Vec<Rule>) -> Vec<Effect> {
+    /// A rulebook command's answer, then the confirmed rules' contexts,
+    /// highest priority first, within [`RulesConfig::max_deliveries`]. Among
+    /// equal priorities, a rule confirmed in an earlier round, having fewer
+    /// steps, comes first. A running rulebook delivers one rule per signal, so
+    /// the agent never hears both "done" and "keep going".
+    fn act(&mut self, signal: &Signal, verdict: Verdict) -> Vec<Effect> {
+        let agent = signal.agent_id.as_str();
+        let mut confirmed = verdict.rules;
+        let mut book_delivered = false;
+
         confirmed.sort_by_key(|rule| (std::cmp::Reverse(rule.priority), rule.steps.len()));
+        confirmed.retain(|rule| {
+            let from_book = self.books.owns(agent, rule);
+            let keep = !(from_book && book_delivered);
+
+            book_delivered |= from_book;
+            keep
+        });
         confirmed.truncate(self.config.max_deliveries());
 
-        confirmed
+        let mut effects: Vec<Effect> = verdict
+            .notice
             .into_iter()
-            .map(|rule| {
-                self.record_fired(&signal.agent_id, &rule, signal.at);
+            .map(|notice| context(agent, notice))
+            .collect();
 
-                Effect::Context {
-                    agent_id: signal.agent_id.clone(),
+        for rule in confirmed {
+            self.record_fired(agent, &rule, signal.at);
+
+            let budget = if self.books.owns(agent, &rule) {
+                self.books.deliver(agent, &rule)
+            } else {
+                None
+            };
+
+            effects.push(match budget {
+                Some(notice) => context(agent, notice),
+                None => Effect::Context {
+                    agent_id: agent.to_string(),
                     delivery: rule.then.delivery,
                     label: rule.label().to_string(),
                     skills: rule.then.skill.into_iter().collect(),
                     text: Some(rule.then.text),
-                }
-            })
-            .collect()
+                },
+            });
+        }
+
+        effects
+    }
+}
+
+fn context(agent: &str, notice: Notice) -> Effect {
+    Effect::Context {
+        agent_id: agent.to_string(),
+        delivery: notice.delivery,
+        label: notice.label,
+        skills: Vec::new(),
+        text: Some(notice.text),
     }
 }
 
@@ -310,8 +397,9 @@ fn question_id(rule: &Rule, step: &Step) -> String {
 }
 
 /// A step's question with what it is about: the call a tool-result rule
-/// judges, or the user's latest request at a turn end.
-fn question(rule: &Rule, step: &Step, kind: &SignalKind) -> Question {
+/// judges, or at a turn end the user's latest request, the agent's closing
+/// message, and the tools it called since that request.
+fn question(rule: &Rule, step: &Step, kind: &SignalKind, tools: &[String]) -> Question {
     let instructions = match kind {
         SignalKind::ToolResult {
             tool, ok, input, ..
@@ -325,10 +413,11 @@ fn question(rule: &Rule, step: &Step, kind: &SignalKind) -> Question {
                 step.question
             )
         }
-        SignalKind::TurnEnd { user_request, .. } if !user_request.trim().is_empty() => format!(
-            "{} Latest user request: {user_request}. Respect explicit user instructions.",
-            step.question
-        ),
+        SignalKind::TurnEnd {
+            user_request,
+            summary,
+            ..
+        } => turn_end_question(&step.question, user_request, summary, tools),
         _ => step.question.clone(),
     };
 
@@ -337,4 +426,32 @@ fn question(rule: &Rule, step: &Step, kind: &SignalKind) -> Question {
         instructions,
         kind: QuestionKind::Noul,
     }
+}
+
+fn turn_end_question(
+    question: &str,
+    user_request: &str,
+    summary: &str,
+    tools: &[String],
+) -> String {
+    let mut text = question.to_string();
+
+    if !user_request.trim().is_empty() {
+        text.push_str(&format!(
+            " Latest user request: {user_request}. Respect explicit user instructions."
+        ));
+    }
+    if !summary.trim().is_empty() {
+        text.push_str(&format!(
+            "\nThe agent's closing message this turn: {summary}"
+        ));
+    }
+    if !tools.is_empty() {
+        text.push_str(&format!(
+            "\nTools it called since that request: {}.",
+            tools.join(", ")
+        ));
+    }
+
+    text
 }

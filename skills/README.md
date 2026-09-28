@@ -9,6 +9,7 @@ rejected, and `chauffeur skill validate PATH` checks one.
 |---|---|
 | `permission/` | Permission contracts: which edits, shell commands, and outside directories OpenCode would ask about that Jev may approve. |
 | `rules/` | Rules: steers after a tool call, with an optional skill to hand over, and idle reminders at a turn end. |
+| `rulebooks/` | Rulebooks: named sets of rules the user starts in a session with a slash command, such as `/goal <objective>`. |
 | `safety/` | The backstop's deny and confirm patterns, redaction shapes, and the bars for learning from them. |
 | `config/` | Each capability's tunable defaults: judgment bars, budgets, timing, and word lists, plus `providers/` model tier tables. |
 | `handoff/` | Skills Chauffeur hands over, in OpenCode's `SKILL.md` format: `slack-cli`, `jira-cli`, and `twitter-cli`. Link them into a skills directory OpenCode reads, such as `~/.agents/skills`. |
@@ -62,7 +63,8 @@ every rule a session there would load.
 - **`on`**: `tool_result` or `turn_end`. After a call to a tool in `when.tools`,
   Jev sees the call's input and is told that a call the user explicitly asked
   for does not count; phrase the question as "Does this call …?". At a turn
-  end, Jev sees the user's latest request.
+  end, Jev sees the user's latest request, the agent's closing message, and
+  the tools it called since that request.
 - **`when`**: exact facts checked before Jev is asked. `tools_called`,
   `tools_called_any`, and `tools_not_called` read the tools the agent ran
   since the latest user message (`"history": "turn"`, the default) or this
@@ -79,3 +81,42 @@ every rule a session there would load.
 
 IDs are 1–64 characters of `[a-z0-9_-]`; questions and text are at most 1 KiB; a
 directory holds at most 64 rules, a project at most 32.
+
+## Rulebooks
+
+A rulebook is a set of rules that stays off until the user starts it in a
+session. OpenCode offers each one as a slash command named after its `id`:
+`/goal <text>` starts it with that text as its arguments; `/goal pause`,
+`/goal resume`, and `/goal clear` control it; bare `/goal` reports its status.
+A session runs one rulebook at a time; starting another stops the first.
+
+```json
+{
+  "schema_version": 1,
+  "id": "goal",
+  "name": "Goal",
+  "description": "Keep working across turns until evidence shows the objective is done.",
+  "args": { "required": true },
+  "budget": 20,
+  "on_start": "Goal: {args}\nWork toward this goal until …",
+  "on_budget": "Goal budget reached: {args}\nSummarise …",
+  "rules": [ { "schema_version": 2, "id": "goal-done", "on": "turn_end", "…": "…",
+               "then": { "delivery": "wait", "text": "Goal achieved: {args}", "end": "complete" } } ]
+}
+```
+
+- **`rules`**: 1–8 rules in the rule format above, each ID starting with the
+  rulebook's ID and `-`. `{args}` in a question or text becomes the start
+  arguments. A rulebook delivers at most one of its rules per signal, highest
+  `priority` first, so the agent never hears "done" and "keep going" together.
+- **`then.end`** (rulebook turn-end rules only): `complete` stops the book
+  after delivering; `pause` pauses it until `/<id> resume`.
+- **`budget`**: deliveries per start, 1–200. The next one delivers
+  `on_budget` instead, waking the agent, and stops the book.
+- **`on_start`**: delivered, waking the agent, when the book starts or resumes.
+- After a rulebook resumes the agent, its turn-end rules wait until the agent
+  calls a tool or the user writes, so a book cannot keep waking an agent that
+  does nothing. Turn-end rules need `CHAUFFEUR_IDLE_STEERING=true`.
+
+The running book, its arguments, and its spent budget are saved with the
+daemon's state, so a restart keeps them.

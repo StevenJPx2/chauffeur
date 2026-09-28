@@ -9,6 +9,23 @@ use crate::signal::Signal;
 pub const METHOD_HEALTH: &str = "health";
 /// Report one observation; returns the effects it produced.
 pub const METHOD_SIGNAL: &str = "signal";
+/// The rulebooks a user can start, for a host to offer as commands.
+pub const METHOD_RULEBOOKS: &str = "rulebooks";
+
+/// One rulebook as a host offers it, such as the `/goal` command.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct RulebookEntry {
+    pub id: String,
+    pub name: String,
+    pub description: String,
+    /// Starting it without arguments is refused.
+    pub args_required: bool,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+pub struct RulebooksResult {
+    pub rulebooks: Vec<RulebookEntry>,
+}
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 pub struct DaemonRequest {

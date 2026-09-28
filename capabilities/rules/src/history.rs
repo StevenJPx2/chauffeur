@@ -65,6 +65,19 @@ impl Histories {
         }
     }
 
+    /// Tools `agent` called since the latest user message, sorted.
+    #[must_use]
+    pub fn turn_tools(&self, agent: &str) -> Vec<String> {
+        let mut tools: Vec<String> = self
+            .0
+            .get(agent)
+            .map(|history| history.turn.iter().cloned().collect())
+            .unwrap_or_default();
+
+        tools.sort();
+        tools
+    }
+
     /// Whether `gate` admits `agent` in `workspace`.
     #[must_use]
     pub fn admits(&self, gate: &Gate, agent: &str, workspace: &str) -> bool {

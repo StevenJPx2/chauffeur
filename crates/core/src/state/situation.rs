@@ -112,6 +112,15 @@ fn describe(kind: &SignalKind) -> Option<String> {
             summary,
             ..
         } => Some(format!("{source} {kind} event: {summary}")),
+        SignalKind::TurnEnd { summary, .. } if !summary.trim().is_empty() => {
+            Some(format!("Agent ended its turn: {summary}"))
+        }
+        SignalKind::Rulebook {
+            command,
+            rulebook,
+            args,
+            ..
+        } => Some(format!("User ran rulebook {rulebook} {command:?}: {args}")),
         SignalKind::ModelSucceeded { .. } | SignalKind::TurnEnd { .. } => None,
     }
 }

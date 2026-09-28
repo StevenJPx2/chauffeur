@@ -53,7 +53,8 @@ export type SignalKind =
     workspace: string
   }
   | { type: "tool_result"; tool: string; ok: boolean; workspace: string; input: string; error: string; user_request: string; evidence: string; candidates: CatalogEntry[] }
-  | { type: "turn_end"; workspace: string; user_request: string }
+  | { type: "turn_end"; workspace: string; user_request: string; summary: string }
+  | { type: "rulebook"; command: RulebookCommand; rulebook: string; args: string }
   | { type: "agent_request"; need: string; user_request: string; tools: CatalogEntry[]; code_mode: CodeModeNamespace[] }
   | {
     type: "model_error"
@@ -68,6 +69,20 @@ export type SignalKind =
   | { type: "integration_event"; source: string; kind: string; summary: string; body: string; actionable: boolean; monitor: string }
 
 export type Signal = { agent_id: string; at: number; kind: SignalKind }
+
+export type RulebookCommand = "start" | "pause" | "resume" | "clear" | "status"
+
+/** A rulebook the user can start, offered as a slash command. */
+const RulebookEntry = Schema.Struct({
+  id: Schema.String,
+  name: Schema.String,
+  description: Schema.String,
+  args_required: Schema.Boolean,
+})
+
+export type RulebookEntry = typeof RulebookEntry.Type
+
+export const RulebooksReply = Schema.Struct({ rulebooks: Schema.Array(RulebookEntry) })
 
 export function signal(agentID: string, kind: SignalKind): Signal {
   return { agent_id: agentID, at: Math.floor(Date.now() / 1_000), kind }

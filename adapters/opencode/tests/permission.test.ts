@@ -3,7 +3,7 @@ import { Effect } from "effect"
 import { type DaemonClient, DaemonError } from "../src/daemon.js"
 import { installPermission } from "../src/permission.js"
 import type { HostEffect, Signal } from "../src/protocol.js"
-import { fakeHost, Hooks, install } from "./support.js"
+import { fakeHost, Hooks, install, noRulebooks } from "./support.js"
 
 const sessionID = "ses_permission"
 
@@ -23,7 +23,7 @@ function permissionHost(hooks: Hooks) {
 }
 
 function replying(sent: Signal[], effects: ReadonlyArray<HostEffect>): DaemonClient {
-  return { signal: (value) => Effect.sync(() => {
+  return { rulebooks: noRulebooks, signal: (value) => Effect.sync(() => {
     sent.push(value)
 
     return effects
@@ -84,7 +84,7 @@ test("a host allow is reported as one, and stands unless the engine vetoes it", 
 
 test("an engine failure or an oversized request keeps asking", async () => {
   const failed = await evaluate(
-    { signal: () => Effect.fail(new DaemonError({ message: "daemon down" })) },
+    { rulebooks: noRulebooks, signal: () => Effect.fail(new DaemonError({ message: "daemon down" })) },
     { sessionID, action: "shell", resources: ["ls"], effect: "ask" },
   )
 
