@@ -29,7 +29,21 @@ pub const DEFAULT_PORT: u16 = 18_790;
 struct AppState {
     engine: EngineHandle,
     token: Option<String>,
-    rulebooks: std::sync::Arc<RulebooksResult>,
+    /// The shipped rulebooks; each request adds the workspace's own.
+    rulebooks: std::sync::Arc<Vec<chauffeur_capability_rules::Rulebook>>,
+}
+
+/// The rulebooks offered in the request's `workspace`, or none when rules
+/// are disabled.
+fn offered(state: &AppState, params: &serde_json::Value) -> Result<serde_json::Value, String> {
+    if state.rulebooks.is_empty() {
+        return serde_json::to_value(RulebooksResult::default()).map_err(|error| error.to_string());
+    }
+
+    let workspace = params["workspace"].as_str().unwrap_or_default();
+    let offered = engine::rulebooks(&state.rulebooks, workspace)?;
+
+    serde_json::to_value(offered).map_err(|error| error.to_string())
 }
 
 pub struct DaemonOptions {
@@ -86,10 +100,11 @@ pub async fn serve(options: DaemonOptions) -> Result<(), String> {
     let jev = JevConfig::from_env()
         .ok_or("TYPESAFE_API_KEY is required: Jev is Chauffeur's System One provider")?;
 
+    // Without rules, no rulebook can run, so none is offered.
     let rulebooks = std::sync::Arc::new(if options.disabled.iter().any(|id| id == "rules") {
-        RulebooksResult::default()
+        Vec::new()
     } else {
-        engine::rulebooks(&options.skills_dir)?
+        engine::shipped_rulebooks(&options.skills_dir)?
     });
     let engine = EngineHandle::spawn(EngineOptions {
         config_dir: options.config_dir,
@@ -137,9 +152,7 @@ async fn rpc(
     let result = match request.method.as_str() {
         METHOD_HEALTH => Ok(json!({ "ok": true })),
         METHOD_SIGNAL => signal(&state.engine, request.params).await,
-        METHOD_RULEBOOKS => {
-            serde_json::to_value(&*state.rulebooks).map_err(|error| error.to_string())
-        }
+        METHOD_RULEBOOKS => offered(&state, &request.params),
         method => Err(format!("unknown method {method}")),
     };
     let (status, response) = match result {

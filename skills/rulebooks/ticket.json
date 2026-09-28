@@ -1,0 +1,94 @@
+{
+  "schema_version": 1,
+  "id": "ticket",
+  "name": "HPDP ticket",
+  "description": "Take an HPDP Overlay task from intake to a PR in review.",
+  "args": { "required": true },
+  "scope": [
+    "~/Documents/Adeptmind/Projects/hpdp-overlay/**",
+    "~/Documents/Adeptmind/Projects/hpdp-overlay-worktrees/**",
+    "~/Documents/Adeptmind/Projects/hpdp-overlay-jiratown-worktrees/**"
+  ],
+  "skills": ["hpdp-overlay"],
+  "input_skills": { "jira": "jira-cli", "slack": "slack-cli" },
+  "budget": 30,
+  "on_start": "HPDP Overlay task: {input}\nFollow the hpdp-overlay workflow: intake (read it, monitor it, and when a change is needed assign the ticket and move it to In Progress), a worktree for the ticket, tests first, local checks, a live check at 390, 1024 and 1440 px for user-visible changes, then the PR with the repository gates, the #hpdp-engineering post, and the Jira move to In Review. Chauffeur checks after each turn and keeps you going until the PR is open and in review. If the ticket, merchant, reference, worktree or live result is ambiguous, stop and ask.",
+  "on_budget": "HPDP task budget reached: {input}\nStop substantive work. Summarise what is done and verified, what remains before the PR can be in review, and what blocks it.",
+  "otherwise": "HPDP task: {input}\nNot in review yet. Take the next step in the hpdp-overlay workflow: finish the change and its tests, check user-visible behaviour live at 390, 1024 and 1440 px, open the PR with the repository gates, post it in #hpdp-engineering, and move the covered tickets to In Review. If you are blocked on something only the user can provide, stop and say what you need.",
+  "rules": [
+    {
+      "schema_version": 2,
+      "id": "ticket-done",
+      "name": "HPDP task in review",
+      "on": "turn_end",
+      "priority": 20,
+      "steps": [
+        {
+          "id": "in-review",
+          "question": "The HPDP Overlay task is: {input}. Judging from the agent's report and what it ran, is the work complete with a PR open, the covered Jira tickets moved to In Review, and the PR posted in #hpdp-engineering, or did the agent verify that no repository change is needed and report that? Answer no when any of these is missing or unverified.",
+          "yes_at_or_above": 0.7,
+          "minimum_confidence": 0.4
+        }
+      ],
+      "then": { "delivery": "wait", "text": "HPDP task in review: {input}", "end": "complete" }
+    },
+    {
+      "schema_version": 2,
+      "id": "ticket-blocked",
+      "name": "HPDP task blocked",
+      "on": "turn_end",
+      "priority": 15,
+      "steps": [
+        {
+          "id": "needs-user",
+          "question": "The HPDP Overlay task is: {input}. Did the agent stop because it needs something only the user can provide: an approval such as a browser connection, access, credentials, or a decision because the ticket, merchant, reference, worktree or live result is ambiguous, and say what it needs?",
+          "yes_at_or_above": 0.7,
+          "minimum_confidence": 0.4
+        }
+      ],
+      "then": { "delivery": "wait", "text": "HPDP task paused until you answer the agent: {input}\nResume it with /ticket resume.", "end": "pause" }
+    },
+    {
+      "schema_version": 2,
+      "id": "ticket-live-check",
+      "name": "HPDP live check",
+      "on": "turn_end",
+      "priority": 10,
+      "once": true,
+      "when": { "tools_called_any": ["edit", "write", "patch"] },
+      "steps": [
+        {
+          "id": "visible",
+          "question": "Did this HPDP Overlay task change user-visible behaviour of the overlay? Answer no for non-visual changes or when the user explicitly declined live checks.",
+          "yes_at_or_above": 0.7,
+          "minimum_confidence": 0.4
+        },
+        {
+          "id": "unchecked",
+          "question": "Is live verification still missing for the changed behaviour? Answer no if the overlay has already been exercised at mobile, tablet and desktop widths, or a real blocker was reported.",
+          "yes_at_or_above": 0.7,
+          "minimum_confidence": 0.4
+        }
+      ],
+      "then": { "delivery": "resume", "text": "Check the changed HPDP overlay behaviour live at 390px, 1024px and 1440px. Confirm #am-overlay is mounted; compare the result with the task reference and report any blocker." }
+    },
+    {
+      "schema_version": 2,
+      "id": "ticket-open-pr",
+      "name": "HPDP PR",
+      "on": "turn_end",
+      "priority": 5,
+      "once": true,
+      "when": { "tools_called_any": ["edit", "write", "patch"], "tools_not_called": ["github_open_pr"] },
+      "steps": [
+        {
+          "id": "ready",
+          "question": "The HPDP Overlay task is: {input}. Are its required tests, diff review and any user-visible live checks complete, with no PR open yet and no user instruction against one? Answer no when checks remain, a blocker is unresolved, or a PR already exists.",
+          "yes_at_or_above": 0.7,
+          "minimum_confidence": 0.4
+        }
+      ],
+      "then": { "delivery": "resume", "text": "The HPDP Overlay work is ready for review. Follow the repository PR workflow and gates, then commit, push and open the PR for this task, post it in #hpdp-engineering, and move the covered tickets to In Review." }
+    }
+  ]
+}

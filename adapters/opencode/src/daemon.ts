@@ -15,13 +15,13 @@ export class DaemonError extends Schema.TaggedError<DaemonError>()("DaemonError"
 
 export type DaemonClient = {
   readonly signal: (signal: Signal, timeout?: Duration.Input) => Effect.Effect<ReadonlyArray<HostEffect>, DaemonError>
-  /** The rulebooks the user can start, offered as slash commands. */
-  readonly rulebooks: () => Effect.Effect<ReadonlyArray<RulebookEntry>, DaemonError>
+  /** The rulebooks the user can start in `workspace`, offered as slash commands. */
+  readonly rulebooks: (workspace: string) => Effect.Effect<ReadonlyArray<RulebookEntry>, DaemonError>
 }
 
 type Endpoint = { readonly url: string; readonly headers: Headers }
 
-type RpcParams = { readonly signal?: Signal }
+type RpcParams = { readonly signal?: Signal; readonly workspace?: string }
 
 /**
  * Connect to the configured daemon, or start a local one when none answers.
@@ -53,8 +53,8 @@ const connect = Effect.gen(function* () {
   return {
     signal: (value, timeout = SIGNAL_TIMEOUT) =>
       request(endpoint, "signal", { signal: value }, SignalReply, timeout).pipe(Effect.map((reply) => reply.effects)),
-    rulebooks: () =>
-      request(endpoint, "rulebooks", {}, RulebooksReply, RPC_TIMEOUT).pipe(Effect.map((reply) => reply.rulebooks)),
+    rulebooks: (workspace) =>
+      request(endpoint, "rulebooks", { workspace }, RulebooksReply, RPC_TIMEOUT).pipe(Effect.map((reply) => reply.rulebooks)),
   } satisfies DaemonClient
 })
 

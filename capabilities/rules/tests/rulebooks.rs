@@ -36,6 +36,7 @@ fn command(at: u64, command: RulebookCommand, args: &str) -> Signal {
             command,
             rulebook: "goal".into(),
             args: args.into(),
+            workspace: String::new(),
         },
     )
 }
@@ -248,12 +249,13 @@ fn commands_answer_without_asking() {
             command: RulebookCommand::Start,
             rulebook: "nope".into(),
             args: String::new(),
+            workspace: String::new(),
         },
     );
     assert!(
         settled(&mut engine, &unknown)[0]
             .1
-            .contains("No rulebook named nope. Rulebooks: goal.")
+            .contains("No rulebook named nope here. Rulebooks: /goal.")
     );
 }
 

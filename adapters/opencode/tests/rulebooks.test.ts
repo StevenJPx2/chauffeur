@@ -21,14 +21,20 @@ type Command = {
   readonly execute: (input: { sessionID: string; prompt: { text: string } }) => Effect.Effect<void, unknown>
 }
 
-type Recorded = { readonly sent: Signal[]; readonly prompts: Array<{ readonly text: string }>; readonly notes: Array<{ readonly text: string }> }
+type Recorded = {
+  readonly sent: Signal[]
+  readonly offeredIn: string[]
+  readonly prompts: Array<{ readonly text: string }>
+  readonly notes: Array<{ readonly text: string }>
+}
 
 /** Install the goal command against a daemon answering with `answer`. */
-async function goalCommand(answer: { delivery: "resume" | "wait"; text: string }) {
-  const recorded: Recorded = { sent: [], prompts: [], notes: [] }
+async function goalCommand(answer: { delivery: "resume" | "wait"; text: string; skills?: string[] }) {
+  const recorded: Recorded = { sent: [], offeredIn: [], prompts: [], notes: [] }
   const commands: Command[] = []
 
   const host = fakeHost({
+    location: { directory: "/work/hpdp" },
     command: { transform: (edit: (editor: { add: (command: Command) => void }) => void) => Effect.sync(() => edit({ add: (command) => { commands.push(command) } })) },
     session: {
       prompt: (message: { readonly text: string }) => Effect.sync(() => { recorded.prompts.push(message) }),
@@ -38,7 +44,11 @@ async function goalCommand(answer: { delivery: "resume" | "wait"; text: string }
   })
 
   const daemon: DaemonClient = {
-    rulebooks: () => Effect.succeed([{ id: "goal", name: "Goal", description: "Keep working.", args_required: true }]),
+    rulebooks: (workspace) => Effect.sync(() => {
+      recorded.offeredIn.push(workspace)
+
+      return [{ id: "goal", name: "Goal", description: "Keep working.", args_required: true }]
+    }),
     signal: (value) => Effect.sync(() => {
       recorded.sent.push(value)
 
@@ -53,17 +63,18 @@ async function goalCommand(answer: { delivery: "resume" | "wait"; text: string }
 }
 
 test("starting a goal sends the whole text and shows the goal as a prompt", async () => {
-  const { plugin, commands, recorded, run } = await goalCommand({ delivery: "resume", text: "Goal: ship it" })
+  const { plugin, commands, recorded, run } = await goalCommand({ delivery: "resume", text: "Goal: ship it", skills: ["hpdp-overlay"] })
   const long = `ship it ${"and keep the API stable ".repeat(100)}`
 
   try {
+    expect(recorded.offeredIn).toEqual(["/work/hpdp"])
     expect(commands.map((command) => command.name)).toEqual(["goal"])
     expect(commands[0]?.description).toContain("/goal <what>")
 
     await run(long)
 
-    expect(recorded.sent[0]?.kind).toEqual({ type: "rulebook", command: "start", rulebook: "goal", args: long.trim() })
-    expect(recorded.prompts).toEqual([expect.objectContaining({ text: "Goal: ship it" })])
+    expect(recorded.sent[0]?.kind).toEqual({ type: "rulebook", command: "start", rulebook: "goal", args: long.trim(), workspace: "/work/hpdp" })
+    expect(recorded.prompts).toEqual([expect.objectContaining({ text: "Goal: ship it", skills: [{ id: "hpdp-overlay" }] })])
     expect(recorded.notes).toEqual([])
   } finally {
     await plugin.close()
@@ -95,7 +106,7 @@ test("the user's words are sent whole, or left out when over the engine's bound"
 
 test("no rulebooks, no commands", async () => {
   let transformed = false
-  const host = fakeHost({ command: { transform: () => Effect.sync(() => { transformed = true }) } })
+  const host = fakeHost({ location: { directory: "/work" }, command: { transform: () => Effect.sync(() => { transformed = true }) } })
   const daemon: DaemonClient = { rulebooks: () => Effect.succeed([]), signal: () => Effect.die("unexpected") }
   const plugin = await install(installRulebooks, host, daemon)
 

@@ -88,7 +88,14 @@ A rulebook is a set of rules that stays off until the user starts it in a
 session. OpenCode offers each one as a slash command named after its `id`:
 `/goal <text>` starts it with that text as its arguments; `/goal pause`,
 `/goal resume`, and `/goal clear` control it; bare `/goal` reports its status.
-A session runs one rulebook at a time; starting another stops the first.
+A session runs up to four rulebooks at once, one of each, such as a `/goal`
+inside a `/ticket`; each keeps its own budget and delivers at most one of its
+rules per turn. Starting a running book again restarts it.
+
+A rulebook is offered where it applies: a shipped one everywhere, or only
+under its `scope` folders; a project's own, from `.chauffeur/rulebooks/` in
+the worktree (read from its Git root down, like project rules), only there.
+`/ticket` in `rulebooks/ticket.json` is scoped to the HPDP Overlay folders.
 
 ```json
 {
@@ -106,9 +113,17 @@ A session runs one rulebook at a time; starting another stops the first.
 }
 ```
 
+- **`scope`** (optional): up to 8 absolute or `~/` folders, each optionally
+  ending in `/**`; the book is offered only in sessions under one of them.
+- **`skills`** and **`input_skills`** (optional): skills handed over when the
+  book starts or resumes, plus one per kind of input: `{ "jira": "jira-cli",
+  "slack": "slack-cli" }`.
+- **Input**: the start text is a Jira key (`ADEPT-12345`), a Slack thread link,
+  or anything else. `{args}` is the text as typed; `{input}` describes it:
+  "Jira ticket ADEPT-12345", "Slack thread https://…", or the text itself.
 - **`rules`**: 1–8 rules in the rule format above, each ID starting with the
-  rulebook's ID and `-`. `{args}` in a question or text becomes the start
-  arguments. A rulebook delivers at most one of its rules per signal, highest
+  rulebook's ID and `-`. `{args}` and `{input}` in a question or text are
+  filled in on start. A rulebook delivers at most one of its rules per signal, highest
   `priority` first, so the agent never hears "done" and "keep going" together.
 - **`then.end`** (rulebook turn-end rules only): `complete` stops the book
   after delivering; `pause` pauses it until `/<id> resume`.

@@ -54,7 +54,7 @@ export type SignalKind =
   }
   | { type: "tool_result"; tool: string; ok: boolean; workspace: string; input: string; error: string; user_request: string; evidence: string; candidates: CatalogEntry[] }
   | { type: "turn_end"; workspace: string; user_request: string; summary: string }
-  | { type: "rulebook"; command: RulebookCommand; rulebook: string; args: string }
+  | { type: "rulebook"; command: RulebookCommand; rulebook: string; args: string; workspace: string }
   | { type: "agent_request"; need: string; user_request: string; tools: CatalogEntry[]; code_mode: CodeModeNamespace[] }
   | {
     type: "model_error"

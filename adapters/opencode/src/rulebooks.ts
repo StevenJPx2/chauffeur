@@ -1,3 +1,4 @@
+import { Skill } from "@opencode/plugin/effect"
 import { Effect, type Scope } from "effect"
 import { Daemon } from "./daemon.js"
 import { Host, type SessionID } from "./host.js"
@@ -26,15 +27,17 @@ export function parseRulebookInput(text: string): RulebookInput {
 }
 
 /**
- * One slash command per rulebook the daemon offers, such as `/goal`. The
- * engine keeps each session's rulebook and answers every command with the
- * context to deliver, so this adapter knows nothing of any rulebook.
+ * One slash command per rulebook the daemon offers in this plugin's
+ * location, such as `/goal` everywhere and `/ticket` only where it is in
+ * scope; the host keeps commands per location. The engine keeps each
+ * session's books and answers every command with the context to deliver, so
+ * this adapter knows nothing of any rulebook.
  */
 export const installRulebooks: Effect.Effect<void, never, Host | Daemon | Scope.Scope> = Effect.gen(function* () {
   const host = yield* Host
   const daemon = yield* Daemon
 
-  const books = yield* daemon.rulebooks().pipe(
+  const books = yield* daemon.rulebooks(String(host.location.directory)).pipe(
     Effect.catch((error) => Effect.logError("chauffeur: rulebooks unavailable", error).pipe(Effect.as([]))),
   )
 
@@ -78,14 +81,21 @@ function run(sessionID: SessionID, rulebook: string, text: string): Effect.Effec
       return
     }
 
-    const effects = yield* daemon.signal(signal(String(sessionID), { type: "rulebook", command, rulebook, args }))
+    const workspace = String(host.location.directory)
+    const effects = yield* daemon.signal(signal(String(sessionID), { type: "rulebook", command, rulebook, args, workspace }))
 
     const answers = effects.flatMap((effect) =>
       effect.type === "context" && effect.agent_id === String(sessionID) ? [effect] : [])
 
+    // A start or resume shows as a prompt; OpenCode attaches its skills.
     yield* Effect.forEach(answers, (effect) =>
       effect.delivery === "resume" && effect.text
-        ? host.session.prompt({ sessionID, text: effect.text, metadata: { [RULEBOOK_METADATA_KEY]: rulebook } }).pipe(Effect.asVoid)
+        ? host.session.prompt({
+          sessionID,
+          text: effect.text,
+          skills: effect.skills.map((id) => ({ id: Skill.ID.make(id) })),
+          metadata: { [RULEBOOK_METADATA_KEY]: rulebook },
+        }).pipe(Effect.asVoid)
         : deliverContext(sessionID, effect), { discard: true })
   }).pipe(
     Effect.catch((error) => note(sessionID, rulebook, `/${rulebook} failed: ${String(error)}`).pipe(

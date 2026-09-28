@@ -21,8 +21,14 @@ build differs from the draft below:
   wildcard was needed.
 - `then.end` has `complete` and `pause`; the goal pauses when the agent says
   only the user can unblock it.
-- Only shipped rulebooks (`skills/rulebooks/`) exist; project rulebooks wait
-  for a use, since OpenCode commands are global.
+- Rulebooks are scoped: a shipped book may list `scope` folders, and a
+  project keeps its own in `.chauffeur/rulebooks/`. OpenCode keeps commands
+  per location, and the plugin runs once per location, so each location is
+  offered only its books (`rulebooks` RPC with the workspace). `/ticket`
+  (HPDP Overlay) replaced the project rules copied into its 26 worktrees.
+- A session runs up to four books at once, one of each; a running book is a
+  copy taken at start. The start text may be a Jira key, a Slack thread link,
+  or plain text (`{input}`), and a book hands over its skills on start.
 - Headless `opencode run` neither dispatches slash commands nor reports turn
   ends before it exits, so step 5 (a bench task) needs a harness that drives
   a live session; `/goal` is verified in the TUI.

@@ -11,7 +11,7 @@ mod rule;
 mod rulebook;
 mod source;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use chauffeur_core::judge::{
@@ -26,16 +26,28 @@ use serde::{Deserialize, Deserializer, Serialize};
 use book::{Books, Notice, Running};
 use history::Histories;
 pub use rule::{Gate, History, Rule, SCHEMA_VERSION, Step, Then, Trigger};
-pub use rulebook::{Args, End, RULEBOOK_SCHEMA_VERSION, Rulebook, load_rulebooks};
+pub use rulebook::{
+    Args, End, Input, InputSkills, RULEBOOK_SCHEMA_VERSION, Rulebook, load_rulebooks,
+};
+
+/// The rulebooks offered in `workspace`: `shipped` ones whose scope covers it,
+/// then the project's own. `home` expands `~/` in a scope.
+///
+/// # Errors
+///
+/// An unreadable or invalid project rulebook.
+pub fn rulebooks_for(shipped: Vec<Rulebook>, workspace: &str) -> Result<Vec<Rulebook>, String> {
+    Books::new(shipped, true).available(workspace)
+}
 pub use source::{load_dir, load_project};
 
 /// The rules that held for a signal, or a rulebook command's answer.
 pub struct Verdict {
     rules: Vec<Rule>,
     notice: Option<Notice>,
-    /// A running rulebook's turn-end rules were asked, so its `otherwise`
-    /// applies when none of them holds.
-    book_turn: bool,
+    /// Running books whose turn-end rules were asked, so each one's
+    /// `otherwise` applies when none of its rules holds.
+    book_turn: Vec<String>,
 }
 
 pub const ID: &str = "rules";
@@ -115,7 +127,7 @@ struct Saved {
     histories: Histories,
     fired: Vec<((String, String), Fired)>,
     #[serde(default)]
-    books: Vec<(String, Running)>,
+    books: Vec<(String, Vec<Running>)>,
 }
 
 /// [`Saved`], borrowed for writing.
@@ -123,7 +135,7 @@ struct Saved {
 struct SavedRef<'a> {
     histories: &'a Histories,
     fired: Vec<(&'a (String, String), Fired)>,
-    books: Vec<(&'a String, &'a Running)>,
+    books: Vec<(&'a String, &'a Vec<Running>)>,
 }
 
 impl Rules {
@@ -293,7 +305,7 @@ impl Judged for Rules {
             judge.map(|rules| Verdict {
                 rules,
                 notice: None,
-                book_turn: false,
+                book_turn: Vec::new(),
             })
         };
 
@@ -321,7 +333,7 @@ impl Judged for Rules {
                 )))
             }
             SignalKind::TurnEnd { workspace, .. } => {
-                let book_turn = !self.books.rules(agent, Trigger::TurnEnd).is_empty();
+                let book_turn = self.books.turn_books(agent);
 
                 Some(
                     self.start(signal, Trigger::TurnEnd, workspace, None)
@@ -336,10 +348,14 @@ impl Judged for Rules {
                 command,
                 rulebook,
                 args,
+                workspace,
             } => Some(Judge::done(Verdict {
                 rules: Vec::new(),
-                notice: Some(self.books.command(agent, *command, rulebook, args)),
-                book_turn: false,
+                notice: Some(
+                    self.books
+                        .command(agent, *command, rulebook, args, workspace),
+                ),
+                book_turn: Vec::new(),
             })),
             _ => None,
         }
@@ -353,33 +369,22 @@ impl Judged for Rules {
     /// where none of its rules holds it delivers its `otherwise`.
     fn act(&mut self, signal: &Signal, verdict: Verdict) -> Vec<Effect> {
         let agent = signal.agent_id.as_str();
-        let mut confirmed = verdict.rules;
-        let mut book_delivered = false;
-
-        confirmed.sort_by_key(|rule| (std::cmp::Reverse(rule.priority), rule.steps.len()));
-        confirmed.retain(|rule| {
-            let from_book = self.books.owns(agent, rule);
-            let keep = !(from_book && book_delivered);
-
-            book_delivered |= from_book;
-            keep
-        });
-        confirmed.truncate(self.config.max_deliveries());
-
+        let mut delivered: HashSet<String> = HashSet::new();
         let mut effects: Vec<Effect> = verdict
             .notice
             .into_iter()
             .map(|notice| context(agent, notice))
             .collect();
 
-        for rule in confirmed {
+        for (rule, owner) in self.chosen(agent, verdict.rules) {
             self.record_fired(agent, &rule, signal.at);
 
-            let budget = if self.books.owns(agent, &rule) {
-                self.books.deliver(agent, &rule)
-            } else {
-                None
-            };
+            let budget = owner.and_then(|id| {
+                let spent = self.books.deliver(agent, &id, &rule);
+
+                delivered.insert(id);
+                spent
+            });
 
             effects.push(match budget {
                 Some(notice) => context(agent, notice),
@@ -393,11 +398,15 @@ impl Judged for Rules {
             });
         }
 
-        // Not done and not blocked: a running book keeps the agent going.
-        if verdict.book_turn && !book_delivered {
+        // Not done and not blocked: each running book keeps the agent going.
+        for id in verdict
+            .book_turn
+            .iter()
+            .filter(|id| !delivered.contains(*id))
+        {
             effects.extend(
                 self.books
-                    .otherwise(agent)
+                    .otherwise(agent, id)
                     .map(|notice| context(agent, notice)),
             );
         }
@@ -406,12 +415,33 @@ impl Judged for Rules {
     }
 }
 
+impl Rules {
+    /// The confirmed rules to deliver, highest priority first, at most one
+    /// per running book, within the delivery limit; each with its book.
+    fn chosen(&self, agent: &str, mut confirmed: Vec<Rule>) -> Vec<(Rule, Option<String>)> {
+        let mut books: HashSet<String> = HashSet::new();
+
+        confirmed.sort_by_key(|rule| (std::cmp::Reverse(rule.priority), rule.steps.len()));
+
+        confirmed
+            .into_iter()
+            .map(|rule| {
+                let owner = self.books.owner(agent, &rule);
+
+                (rule, owner)
+            })
+            .filter(|(_, owner)| owner.as_ref().is_none_or(|id| books.insert(id.clone())))
+            .take(self.config.max_deliveries())
+            .collect()
+    }
+}
+
 fn context(agent: &str, notice: Notice) -> Effect {
     Effect::Context {
         agent_id: agent.to_string(),
         delivery: notice.delivery,
         label: notice.label,
-        skills: Vec::new(),
+        skills: notice.skills,
         text: Some(notice.text),
     }
 }

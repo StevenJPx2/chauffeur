@@ -175,6 +175,10 @@ pub enum SignalKind {
         rulebook: String,
         #[serde(default)]
         args: String,
+        /// The session's working directory: where the rulebook must be in
+        /// scope, and where a project's own rulebooks are found.
+        #[serde(default)]
+        workspace: String,
     },
     /// A model request failed. The host reports every retryable error; core
     /// decides whether it is a usage limit.
@@ -272,12 +276,17 @@ impl SignalKind {
                 all_bounded(&[(workspace, "workspace"), (summary, "summary")])?;
                 prompt_bounded(user_request, "user request")
             }
-            SignalKind::Rulebook { rulebook, args, .. } => {
+            SignalKind::Rulebook {
+                rulebook,
+                args,
+                workspace,
+                ..
+            } => {
                 if rulebook.is_empty() {
                     return Err("a rulebook signal must name its rulebook".into());
                 }
 
-                bounded(rulebook, "rulebook")?;
+                all_bounded(&[(rulebook, "rulebook"), (workspace, "workspace")])?;
                 prompt_bounded(args, "rulebook args")
             }
             SignalKind::AgentRequest {

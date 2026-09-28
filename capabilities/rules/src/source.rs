@@ -34,6 +34,34 @@ pub fn load_dir(directory: &Path) -> Result<Vec<Rule>, String> {
 /// workspace or one outside a Git repository has none. IDs must be unique
 /// across all levels.
 pub fn load_project(workspace: &str) -> Result<Vec<Rule>, String> {
+    let mut rules = Vec::new();
+
+    for files in project_levels(workspace, "rules", MAX_FILE_BYTES)? {
+        collect(files, &mut rules, MAX_PROJECT_RULES)?;
+    }
+
+    Ok(rules)
+}
+
+/// Every JSON file in `.chauffeur/<folder>/` from the workspace's Git root
+/// down to the workspace, root first.
+pub(crate) fn project_json(
+    workspace: &str,
+    folder: &str,
+    max_bytes: u64,
+) -> Result<Vec<(PathBuf, Vec<u8>)>, String> {
+    Ok(project_levels(workspace, folder, max_bytes)?
+        .into_iter()
+        .flatten()
+        .collect())
+}
+
+/// One level's JSON files, as `(path, bytes)`.
+type Files = Vec<(PathBuf, Vec<u8>)>;
+
+/// `.chauffeur/<folder>/` files for each level from the Git root down. A
+/// relative workspace or one outside a Git repository has none.
+fn project_levels(workspace: &str, folder: &str, max_bytes: u64) -> Result<Vec<Files>, String> {
     let path = Path::new(workspace);
 
     if !path.is_absolute() {
@@ -53,13 +81,13 @@ pub fn load_project(workspace: &str) -> Result<Vec<Rule>, String> {
     else {
         return Ok(Vec::new());
     };
-    let mut rules = Vec::new();
 
-    for directory in ancestors.iter().take(root.saturating_add(1)).rev() {
-        collect(project_files(directory)?, &mut rules, MAX_PROJECT_RULES)?;
-    }
-
-    Ok(rules)
+    ancestors
+        .iter()
+        .take(root.saturating_add(1))
+        .rev()
+        .map(|directory| project_files(directory, folder, max_bytes))
+        .collect()
 }
 
 fn collect(
@@ -86,12 +114,16 @@ fn collect(
     Ok(())
 }
 
-/// JSON files in `directory/.chauffeur/rules`. Symlinked directories are
-/// rejected so a rule cannot be read from outside the worktree;
+/// JSON files in `directory/.chauffeur/<folder>`. Symlinked directories are
+/// rejected so a file cannot be read from outside the worktree;
 /// [`read_json_files`] rejects symlinked files.
-fn project_files(directory: &Path) -> Result<Vec<(PathBuf, Vec<u8>)>, String> {
+fn project_files(
+    directory: &Path,
+    folder: &str,
+    max_bytes: u64,
+) -> Result<Vec<(PathBuf, Vec<u8>)>, String> {
     let config = directory.join(".chauffeur");
-    let folder = config.join("rules");
+    let folder = config.join(folder);
 
     for item in [&config, &folder] {
         if item
@@ -102,5 +134,5 @@ fn project_files(directory: &Path) -> Result<Vec<(PathBuf, Vec<u8>)>, String> {
         }
     }
 
-    read_json_files(&folder, MAX_PROJECT_FILES, MAX_FILE_BYTES)
+    read_json_files(&folder, MAX_PROJECT_FILES, max_bytes)
 }

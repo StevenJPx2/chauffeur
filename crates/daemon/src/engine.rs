@@ -9,7 +9,9 @@ use chauffeur_capability_event_gate::{EventGate, EventGateConfig};
 use chauffeur_capability_model_router::{ModelRouter, ModelRouterConfig, Provider};
 use chauffeur_capability_monitors::{FollowWork, Monitors, MonitorsConfig};
 use chauffeur_capability_permission::{Permission, load_skills};
-use chauffeur_capability_rules::{Rules, RulesConfig, Trigger, load_dir, load_rulebooks};
+use chauffeur_capability_rules::{
+    Rulebook, Rules, RulesConfig, Trigger, load_dir, load_rulebooks, rulebooks_for,
+};
 use chauffeur_capability_skill_exposure::{SkillExposure, SkillExposureConfig};
 use chauffeur_capability_tool_exposure::{ToolExposure, ToolExposureConfig};
 use chauffeur_core::{
@@ -260,13 +262,26 @@ fn capabilities(
     Ok(capabilities)
 }
 
-/// The rulebooks in `skills_dir/rulebooks`, as a host offers them.
+/// The shipped rulebooks, from `skills_dir/rulebooks`.
 ///
 /// # Errors
 ///
 /// An unreadable or invalid rulebook.
-pub fn rulebooks(skills_dir: &Path) -> Result<chauffeur_core::RulebooksResult, String> {
-    let books = load_rulebooks(&skills_dir.join("rulebooks"))?;
+pub fn shipped_rulebooks(skills_dir: &Path) -> Result<Vec<Rulebook>, String> {
+    load_rulebooks(&skills_dir.join("rulebooks"))
+}
+
+/// The rulebooks offered in `workspace`, as a host offers them: `shipped`
+/// ones in scope, then the project's own.
+///
+/// # Errors
+///
+/// An unreadable or invalid project rulebook.
+pub fn rulebooks(
+    shipped: &[Rulebook],
+    workspace: &str,
+) -> Result<chauffeur_core::RulebooksResult, String> {
+    let books = rulebooks_for(shipped.to_vec(), workspace)?;
 
     Ok(chauffeur_core::RulebooksResult {
         rulebooks: books

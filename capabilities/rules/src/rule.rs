@@ -4,7 +4,7 @@
 use std::collections::HashSet;
 
 use chauffeur_core::Delivery;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::rulebook::End;
 
@@ -18,7 +18,7 @@ const MAX_COOLDOWN_SECS: u64 = 86_400;
 
 /// One rule. Facts admit it, Jev confirms its steps in order, and its
 /// context is delivered once the last step holds.
-#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Rule {
     pub schema_version: u8,
@@ -41,7 +41,7 @@ pub struct Rule {
     pub cooldown_seconds: u64,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Trigger {
     /// After each tool call; the rule can ask about that call.
@@ -51,7 +51,7 @@ pub enum Trigger {
 }
 
 /// How far back the gate's facts reach, and how long `once` lasts.
-#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, serde::Serialize)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum History {
     /// Since the latest user message, in the current workspace.
@@ -65,7 +65,7 @@ pub enum History {
 /// here because the model cannot see them reliably: it scored "the agent
 /// opened a pull request" at 0.24 on a state that contained
 /// `github_open_pr`. Empty lists mean no constraint.
-#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Gate {
     /// For `tool_result`: the call's tool must be one of these.
@@ -93,7 +93,7 @@ pub struct Gate {
     pub hooks: Vec<String>,
 }
 
-#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Step {
     pub id: String,
@@ -105,7 +105,7 @@ pub struct Step {
 }
 
 /// The context a confirmed rule delivers.
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Then {
     /// `steer` for a tool result; `resume` or `wait` at a turn end.

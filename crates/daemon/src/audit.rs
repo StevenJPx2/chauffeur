@@ -117,6 +117,7 @@ fn detail(kind: &SignalKind) -> String {
             command,
             rulebook,
             args,
+            ..
         } => format!("{rulebook} {command:?} {args}"),
     }
 }

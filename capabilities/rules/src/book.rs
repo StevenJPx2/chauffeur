@@ -1,6 +1,7 @@
-//! Rulebooks running in sessions: which book each agent runs, with what
-//! arguments, how much of its budget is spent, and whether the agent worked
-//! since the book last continued it.
+//! Rulebooks running in sessions: which books each agent runs, with what
+//! arguments, how much of each budget is spent, and whether the agent worked
+//! since a book last continued it. A running book is a copy of its rulebook
+//! taken at start, so a project's edit applies from the next start.
 
 use std::collections::HashMap;
 
@@ -8,14 +9,16 @@ use chauffeur_core::{Delivery, RulebookCommand};
 use serde::{Deserialize, Serialize};
 
 use crate::rule::{Rule, Trigger};
-use crate::rulebook::{End, Rulebook};
+use crate::rulebook::{End, Rulebook, load_project_rulebooks};
 
 const MAX_SESSIONS: usize = 256;
+/// Books one session runs at once, such as a goal inside a ticket.
+const MAX_RUNNING: usize = 4;
 
-/// One session's book.
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+/// One running book in a session.
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct Running {
-    pub book: String,
+    pub book: Rulebook,
     pub args: String,
     pub paused: bool,
     pub deliveries: u32,
@@ -25,102 +28,158 @@ pub struct Running {
     pub worked: bool,
 }
 
-/// What Chauffeur tells the session about its book.
+/// What Chauffeur tells the session about a book.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Notice {
     pub delivery: Delivery,
     pub label: String,
     pub text: String,
+    /// Skills handed over with it, on a start or resume.
+    pub skills: Vec<String>,
 }
 
-/// The shelf of rulebooks and each session's running book.
+/// The shipped rulebooks and each session's running books.
 pub struct Books {
-    shelf: Vec<Rulebook>,
-    sessions: HashMap<String, Running>,
+    shipped: Vec<Rulebook>,
+    sessions: HashMap<String, Vec<Running>>,
     /// Turn-end rules may resume the agent (`CHAUFFEUR_IDLE_STEERING`).
     continues: bool,
+    /// Expands `~/` in a book's scope.
+    home: String,
 }
 
 impl Books {
     #[must_use]
-    pub fn new(shelf: Vec<Rulebook>, continues: bool) -> Self {
+    pub fn new(shipped: Vec<Rulebook>, continues: bool) -> Self {
         Self {
-            shelf,
+            shipped,
             sessions: HashMap::new(),
             continues,
+            home: std::env::var("HOME").unwrap_or_default(),
         }
     }
 
-    pub fn save(&self) -> Vec<(&String, &Running)> {
+    pub fn save(&self) -> Vec<(&String, &Vec<Running>)> {
         self.sessions.iter().collect()
     }
 
-    pub fn load(&mut self, saved: Vec<(String, Running)>) {
+    pub fn load(&mut self, saved: Vec<(String, Vec<Running>)>) {
         self.sessions = saved
             .into_iter()
-            .filter(|(_, running)| self.book(&running.book).is_some())
             .take(MAX_SESSIONS)
+            .map(|(agent, mut running)| {
+                running.truncate(MAX_RUNNING);
+                (agent, running)
+            })
             .collect();
     }
 
-    fn book(&self, id: &str) -> Option<&Rulebook> {
-        self.shelf.iter().find(|book| book.id == id)
+    /// The books offered in `workspace`: shipped ones in scope, then the
+    /// project's own. A project book reusing a shipped ID is left out.
+    ///
+    /// # Errors
+    ///
+    /// An unreadable or invalid project rulebook.
+    pub fn available(&self, workspace: &str) -> Result<Vec<Rulebook>, String> {
+        let shipped: Vec<Rulebook> = self
+            .shipped
+            .iter()
+            .filter(|book| book.in_scope(workspace, &self.home))
+            .cloned()
+            .collect();
+        let project = load_project_rulebooks(workspace)?
+            .into_iter()
+            .filter(|book| self.shipped.iter().all(|shipped| shipped.id != book.id));
+
+        Ok(shipped.into_iter().chain(project).collect())
     }
 
-    /// The running book's rules for `trigger`, with its arguments in place.
-    /// Turn-end rules wait until the agent has worked since the last
-    /// continuation.
+    fn running(&self, agent: &str) -> &[Running] {
+        self.sessions.get(agent).map_or(&[], Vec::as_slice)
+    }
+
+    fn find(&mut self, agent: &str, id: &str) -> Option<&mut Running> {
+        self.sessions
+            .get_mut(agent)?
+            .iter_mut()
+            .find(|running| running.book.id == id)
+    }
+
+    fn stop(&mut self, agent: &str, id: &str) {
+        if let Some(running) = self.sessions.get_mut(agent) {
+            running.retain(|running| running.book.id != id);
+        }
+    }
+
+    /// Whether `running` asks its turn-end rules now.
+    fn checks_turn(&self, running: &Running) -> bool {
+        running.worked && self.continues
+    }
+
+    /// The running books' rules for `trigger`, with their arguments filled
+    /// in. Turn-end rules wait until the agent has worked since the book
+    /// last continued it.
     #[must_use]
     pub fn rules(&self, agent: &str, trigger: Trigger) -> Vec<Rule> {
-        let Some(running) = self.sessions.get(agent).filter(|running| !running.paused) else {
-            return Vec::new();
-        };
-        let Some(book) = self.book(&running.book) else {
-            return Vec::new();
-        };
-
-        if trigger == Trigger::TurnEnd && !(running.worked && self.continues) {
-            return Vec::new();
-        }
-
-        book.rules_with(&running.args)
-            .into_iter()
+        self.running(agent)
+            .iter()
+            .filter(|running| !running.paused)
+            .filter(|running| trigger != Trigger::TurnEnd || self.checks_turn(running))
+            .flat_map(|running| running.book.rules_with(&running.args))
             .filter(|rule| rule.on == trigger)
+            .collect()
+    }
+
+    /// The books whose turn-end rules [`Books::rules`] asks now.
+    #[must_use]
+    pub fn turn_books(&self, agent: &str) -> Vec<String> {
+        self.running(agent)
+            .iter()
+            .filter(|running| !running.paused && self.checks_turn(running))
+            .filter(|running| {
+                running
+                    .book
+                    .rules
+                    .iter()
+                    .any(|rule| rule.on == Trigger::TurnEnd)
+            })
+            .map(|running| running.book.id.clone())
             .collect()
     }
 
     /// A tool ran or the user wrote.
     pub fn worked(&mut self, agent: &str) {
-        if let Some(running) = self.sessions.get_mut(agent) {
+        for running in self.sessions.get_mut(agent).into_iter().flatten() {
             running.worked = true;
         }
     }
 
-    /// Whether `rule` belongs to `agent`'s running book.
+    /// The running book `rule` belongs to, by the longest matching ID.
     #[must_use]
-    pub fn owns(&self, agent: &str, rule: &Rule) -> bool {
-        self.sessions
-            .get(agent)
-            .is_some_and(|running| rule.id.starts_with(&format!("{}-", running.book)))
+    pub fn owner(&self, agent: &str, rule: &Rule) -> Option<String> {
+        self.running(agent)
+            .iter()
+            .map(|running| &running.book.id)
+            .filter(|id| rule.id.starts_with(&format!("{id}-")))
+            .max_by_key(|id| id.len())
+            .cloned()
     }
 
-    /// Record that `rule` of the running book is delivering. A spent budget
+    /// Record that `rule` of book `id` is delivering. A spent budget
     /// replaces the delivery with the book's budget notice and stops it.
-    pub fn deliver(&mut self, agent: &str, rule: &Rule) -> Option<Notice> {
-        if let Some(spent) = self.spent(agent) {
+    pub fn deliver(&mut self, agent: &str, id: &str, rule: &Rule) -> Option<Notice> {
+        if let Some(spent) = self.spent(agent, id) {
             return Some(spent);
         }
 
-        let running = self.sessions.get_mut(agent)?;
+        let running = self.find(agent, id)?;
         running.deliveries = running.deliveries.saturating_add(1);
 
         if rule.then.delivery == Delivery::Resume {
             running.worked = false;
         }
         match rule.then.end {
-            Some(End::Complete) => {
-                self.sessions.remove(agent);
-            }
+            Some(End::Complete) => self.stop(agent, id),
             Some(End::Pause) => running.paused = true,
             None => {}
         }
@@ -128,149 +187,136 @@ impl Books {
         None
     }
 
-    /// The running book's `otherwise`, for a turn end where its turn-end
-    /// rules were asked and none holds; within the budget like any delivery.
-    pub fn otherwise(&mut self, agent: &str) -> Option<Notice> {
-        if let Some(spent) = self.spent(agent) {
+    /// Book `id`'s `otherwise`, for a turn end where its turn-end rules were
+    /// asked and none holds; within the budget like any delivery.
+    pub fn otherwise(&mut self, agent: &str, id: &str) -> Option<Notice> {
+        if let Some(spent) = self.spent(agent, id) {
             return Some(spent);
         }
 
-        let running = self
-            .sessions
-            .get_mut(agent)
-            .filter(|running| !running.paused)?;
-        let book = self.shelf.iter().find(|book| book.id == running.book)?;
-        let text = Rulebook::say(book.otherwise.as_deref()?, &running.args);
+        let running = self.find(agent, id).filter(|running| !running.paused)?;
+        let text = Rulebook::say(running.book.otherwise.as_deref()?, &running.args);
 
         running.deliveries = running.deliveries.saturating_add(1);
         running.worked = false;
 
-        Some(notice(Delivery::Resume, &book.name, text))
+        Some(notice(Delivery::Resume, &running.book.name, text))
     }
 
-    /// The budget notice, stopping the book, once its deliveries are spent.
-    fn spent(&mut self, agent: &str) -> Option<Notice> {
-        let running = self.sessions.get(agent)?;
-        let book = self.book(&running.book)?;
+    /// The budget notice, stopping book `id`, once its deliveries are spent.
+    fn spent(&mut self, agent: &str, id: &str) -> Option<Notice> {
+        let running = self.find(agent, id)?;
 
-        if running.deliveries < book.budget {
+        if running.deliveries < running.book.budget {
             return None;
         }
 
         let notice = notice(
             Delivery::Resume,
-            &book.name,
-            Rulebook::say(&book.on_budget, &running.args),
+            &running.book.name,
+            Rulebook::say(&running.book.on_budget, &running.args),
         );
-        self.sessions.remove(agent);
+        self.stop(agent, id);
 
         Some(notice)
     }
 
-    /// Carry out the user's command and say what happened.
+    /// Carry out the user's command in `workspace` and say what happened.
     pub fn command(
         &mut self,
         agent: &str,
         command: RulebookCommand,
         id: &str,
         args: &str,
+        workspace: &str,
     ) -> Notice {
-        let Some(book) = self.book(id).cloned() else {
-            let known: Vec<&str> = self.shelf.iter().map(|book| book.id.as_str()).collect();
+        if command == RulebookCommand::Start {
+            return self.start(agent, id, args, workspace);
+        }
 
+        let Some(running) = self.find(agent, id).map(|running| running.clone()) else {
             return notice(
                 Delivery::Wait,
-                "Rulebooks",
-                format!("No rulebook named {id}. Rulebooks: {}.", known.join(", ")),
+                id,
+                format!("/{id} is not running. Start it with /{id} <what>."),
             );
         };
-        let running = self
-            .sessions
-            .get(agent)
-            .filter(|running| running.book == id)
-            .cloned();
+        let name = running.book.name.clone();
 
-        match (command, running) {
-            (RulebookCommand::Start, _) => self.start(agent, &book, args),
-            (RulebookCommand::Status, None)
-            | (RulebookCommand::Pause | RulebookCommand::Resume | RulebookCommand::Clear, None) => {
-                notice(
-                    Delivery::Wait,
-                    &book.name,
-                    format!(
-                        "{} is not running. Start it with /{} <what>.",
-                        book.name, book.id
-                    ),
-                )
-            }
-            (RulebookCommand::Status, Some(running)) => {
+        match command {
+            RulebookCommand::Status => {
                 let state = if running.paused { "paused" } else { "running" };
 
                 notice(
                     Delivery::Wait,
-                    &book.name,
+                    &name,
                     format!(
-                        "{} is {state}: {}\n{} of {} continuations used.",
-                        book.name, running.args, running.deliveries, book.budget
+                        "{name} is {state}: {}\n{} of {} continuations used.",
+                        running.args, running.deliveries, running.book.budget
                     ),
                 )
             }
-            (RulebookCommand::Pause, Some(_)) => {
-                self.set(agent, |running| running.paused = true);
+            RulebookCommand::Pause => {
+                self.set(agent, id, |running| running.paused = true);
                 notice(
                     Delivery::Wait,
-                    &book.name,
-                    format!("{} paused. Resume it with /{} resume.", book.name, book.id),
+                    &name,
+                    format!("{name} paused. Resume it with /{id} resume."),
                 )
             }
-            (RulebookCommand::Resume, Some(running)) => {
-                self.set(agent, |running| {
+            RulebookCommand::Resume => {
+                self.set(agent, id, |running| {
                     running.paused = false;
                     running.worked = true;
                 });
-                notice(
-                    Delivery::Resume,
-                    &book.name,
-                    Rulebook::say(&book.on_start, &running.args),
-                )
+                started(&running.book, &running.args, "")
             }
-            (RulebookCommand::Clear, Some(_)) => {
-                self.sessions.remove(agent);
-                notice(
-                    Delivery::Wait,
-                    &book.name,
-                    format!("{} cleared.", book.name),
-                )
+            RulebookCommand::Clear | RulebookCommand::Start => {
+                self.stop(agent, id);
+                notice(Delivery::Wait, &name, format!("{name} cleared."))
             }
         }
     }
 
-    fn start(&mut self, agent: &str, book: &Rulebook, args: &str) -> Notice {
+    fn start(&mut self, agent: &str, id: &str, args: &str, workspace: &str) -> Notice {
+        let books = match self.available(workspace) {
+            Ok(books) => books,
+            Err(error) => {
+                return notice(
+                    Delivery::Wait,
+                    id,
+                    format!("Rulebooks here are unreadable: {error}"),
+                );
+            }
+        };
+        let Some(book) = books.iter().find(|book| book.id == id).cloned() else {
+            let known: Vec<String> = books.iter().map(|book| format!("/{}", book.id)).collect();
+
+            return notice(
+                Delivery::Wait,
+                id,
+                format!(
+                    "No rulebook named {id} here. Rulebooks: {}.",
+                    known.join(", ")
+                ),
+            );
+        };
         let args = match book.accept(args) {
             Ok(args) => args.to_string(),
             Err(error) => return notice(Delivery::Wait, &book.name, error),
         };
-        let replaced = self
-            .sessions
-            .get(agent)
-            .filter(|running| running.book != book.id)
-            .map(|running| format!("Stopped rulebook {}. ", running.book))
-            .unwrap_or_default();
 
+        self.stop(agent, id);
+        if self.running(agent).len() >= MAX_RUNNING {
+            return notice(
+                Delivery::Wait,
+                &book.name,
+                format!("A session runs at most {MAX_RUNNING} rulebooks; clear one first."),
+            );
+        }
         if !self.sessions.contains_key(agent) && self.sessions.len() >= MAX_SESSIONS {
             self.sessions.clear();
         }
-
-        self.sessions.insert(
-            agent.to_string(),
-            Running {
-                book: book.id.clone(),
-                args: args.clone(),
-                paused: false,
-                deliveries: 0,
-                worked: true,
-            },
-        );
 
         let blocked = if self.continues || book.rules.iter().all(|rule| rule.on != Trigger::TurnEnd)
         {
@@ -278,21 +324,37 @@ impl Books {
         } else {
             "\n(Chauffeur's idle steering is off, so this rulebook cannot continue the agent between turns.)"
         };
+        let answer = started(&book, &args, blocked);
 
-        notice(
-            Delivery::Resume,
-            &book.name,
-            format!(
-                "{replaced}{}{blocked}",
-                Rulebook::say(&book.on_start, &args)
-            ),
-        )
+        self.sessions
+            .entry(agent.to_string())
+            .or_default()
+            .push(Running {
+                book,
+                args,
+                paused: false,
+                deliveries: 0,
+                worked: true,
+            });
+
+        answer
     }
 
-    fn set(&mut self, agent: &str, change: impl FnOnce(&mut Running)) {
-        if let Some(running) = self.sessions.get_mut(agent) {
+    fn set(&mut self, agent: &str, id: &str, change: impl FnOnce(&mut Running)) {
+        if let Some(running) = self.find(agent, id) {
             change(running);
         }
+    }
+}
+
+/// The start or resume answer: `on_start` with the book's skills, waking the
+/// agent.
+fn started(book: &Rulebook, args: &str, suffix: &str) -> Notice {
+    Notice {
+        delivery: Delivery::Resume,
+        label: book.name.clone(),
+        text: format!("{}{suffix}", Rulebook::say(&book.on_start, args)),
+        skills: book.skills_for(args),
     }
 }
 
@@ -301,5 +363,6 @@ fn notice(delivery: Delivery, label: &str, text: String) -> Notice {
         delivery,
         label: label.to_string(),
         text,
+        skills: Vec::new(),
     }
 }
