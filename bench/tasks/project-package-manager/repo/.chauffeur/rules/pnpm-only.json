@@ -1,0 +1,20 @@
+{
+  "schema_version": 2,
+  "id": "titles-pnpm-only",
+  "name": "This project uses pnpm",
+  "on": "tool_result",
+  "when": { "tools": ["shell"] },
+  "steps": [
+    {
+      "id": "npm",
+      "question": "Does this call run npm or npx (not pnpm), such as npm install, npm i, npm test, or npx?",
+      "yes_at_or_above": 0.7,
+      "minimum_confidence": 0.4
+    }
+  ],
+  "then": {
+    "delivery": "steer",
+    "text": "Chauffeur: This project uses pnpm (see packageManager and pnpm-lock.yaml). Use pnpm, not npm. If npm created package-lock.json, delete it and redo that step with pnpm."
+  },
+  "cooldown_seconds": 60
+}

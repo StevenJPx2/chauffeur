@@ -42,6 +42,9 @@ pub fn opencode_config(setup: &Setup) -> Result<String, String> {
 /// A failed copy, write, or git command.
 pub fn prepare(task: &Task, setup: &Setup, dest: &Path) -> Result<(), String> {
     fsutil::overlay(&task.repo(), dest, &[])?;
+    if let Some(outside) = task.outside() {
+        fsutil::overlay(&outside, &outside_dir(dest), &[])?;
+    }
     let config_dir = dest.join(".opencode");
     std::fs::create_dir_all(&config_dir)
         .map_err(|error| format!("create {}: {error}", config_dir.display()))?;
@@ -81,13 +84,24 @@ fn git(repo: &Path, args: &[&str]) -> Result<(), String> {
     }
 }
 
-/// `PATH` (with the task's stubs first) and `BENCH_LOG`, shared by the agent,
-/// `.solve.sh`, and the check.
+/// The folder beside `repo` that holds the task's `outside/` files.
+#[must_use]
+pub fn outside_dir(repo: &Path) -> PathBuf {
+    repo.with_file_name("outside")
+}
+
+/// `PATH` (with the task's stubs first), `BENCH_LOG`, and `BENCH_OUTSIDE`,
+/// shared by the agent, `.solve.sh`, and the check.
 ///
 /// # Errors
 /// A `PATH` that cannot be rebuilt with the stub folder.
 pub fn task_env(task: &Task, bench_log: &Path) -> Result<Vec<(OsString, OsString)>, String> {
     let mut env = vec![("BENCH_LOG".into(), bench_log.as_os_str().to_os_string())];
+
+    if task.outside().is_some() {
+        let folder = bench_log.with_file_name("outside");
+        env.push(("BENCH_OUTSIDE".into(), folder.into_os_string()));
+    }
 
     if let Some(bin) = task.bin() {
         let inherited = std::env::var_os("PATH").unwrap_or_default();

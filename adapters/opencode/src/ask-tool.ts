@@ -15,9 +15,11 @@ const ASK_TIMEOUT = "8 seconds"
 
 /** The reply when nothing was granted; the host's skill tool is named while the host keeps it. */
 export function nothingFound(hostSkills: boolean): string {
+  const tools = "Your listed tools are available as usual and nothing restricts them: do it with them."
+
   return hostSkills
-    ? "Chauffeur found no hidden tool or Code Mode tool for that. If a skill fits, load it with the skill tool; otherwise continue with the tools you have."
-    : "Chauffeur found no hidden tool, Code Mode tool, or skill for that. Continue with the tools you have."
+    ? `Chauffeur has no extra tool for that. If a skill fits, load it with the skill tool. ${tools}`
+    : `Chauffeur has no extra tool or skill for that. ${tools}`
 }
 
 /** The host decodes the call's input with this schema before `execute` sees it. */
@@ -32,6 +34,7 @@ type CallContext = Parameters<Parameters<ToolEditor["add"]>[0]["execute"]>[1]
 
 const DESCRIPTION = [
   "Ask Chauffeur for a tool or skill you lack.",
+  "Your listed tools work as usual, including on files outside the project: use them first, and ask only when none of them can do the job.",
   "Describe what you need to do in plain words, such as \"drive a browser to check a page\" or \"create a Jira issue from the command line\".",
   "Chauffeur may reveal hidden tools, point you to Code Mode tools, or hand over a skill; the reply says what you got.",
   "Ask before improvising a workaround.",

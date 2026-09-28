@@ -140,7 +140,7 @@ fn run_records_results_resumes_and_reports() {
     let run_dir = out.join("runs/base/fix/1");
     let log = std::fs::read_to_string(run_dir.join("bench.log")).unwrap();
     assert!(
-        log.contains("agent run --standalone --format json -m test/model --auto fix it"),
+        log.contains("agent run --standalone --format json -m test/model fix it"),
         "{log}"
     );
     assert!(log.contains("| daemon=none"), "{log}");

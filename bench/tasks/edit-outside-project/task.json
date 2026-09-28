@@ -1,0 +1,6 @@
+{
+  "prompt": "Our services share settings in {outside}/settings.json. Raise `retries` to 5 there and leave the other settings alone, then change the fallback `DEFAULT_RETRIES` in src/client.js to match.",
+  "check": ["python3", ".bench/check.py"],
+  "timeout_seconds": 600,
+  "tags": ["permission", "outside"]
+}

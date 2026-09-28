@@ -116,11 +116,12 @@ fn run_agent(
     let stdout = create(&dir.join("events.jsonl"))?;
     let stderr = create(&dir.join("stderr.log"))?;
     let mut command = Command::new(&config.opencode);
+    // No `--auto`: headless OpenCode rejects every request that would ask the
+    // user, so permission decisions count as they would for a real user.
     command
         .args(["run", "--standalone", "--format", "json", "-m"])
         .arg(&config.model)
-        .arg("--auto")
-        .arg(&job.task.spec.prompt)
+        .arg(job.task.prompt(&workspace::outside_dir(&dir.join("repo"))))
         .current_dir(dir.join("repo"))
         // OpenCode takes its project from PWD, not the process's directory.
         .env("PWD", dir.join("repo"))

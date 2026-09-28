@@ -36,6 +36,7 @@ the daemon's audit log.
   - `hidden/` (optional): copied over the agent's work before the check.
   - `bin/` (optional): stubs prepended to `PATH` for the agent and the check; they append their argv to `$BENCH_LOG`.
   - `solution/` (optional): an overlay that makes the check pass, with an optional `.solve.sh` run in the repo copy.
+  - `outside/` (optional): copied beside the repo; the prompt's `{outside}` names it and commands see `BENCH_OUTSIDE`.
 
 Both files are parsed strictly: unknown fields are errors.
 
@@ -95,7 +96,9 @@ with `pgrep -fl "chauffeur daemon"` after one.
    `CHAUFFEUR_STATE_DIR=<run>/state`, `CHAUFFEUR_DISABLE=<csv>`,
    `CHAUFFEUR_SOURCEFED=off`, `CHAUFFEUR_IDLE_STEERING=true`, and wait up to 15 s
    for `health`.
-3. `opencode run --standalone --format json -m <model> --auto <prompt>` with
+3. `opencode run --standalone --format json -m <model> <prompt>`, without
+   `--auto`: headless OpenCode rejects every request that would ask the user,
+   unless Chauffeur's permission capability allows it. Run with
    `BENCH_LOG`, the task's `bin/` on `PATH`, and for
    Chauffeur variants `CHAUFFEUR_DAEMON_URL` and `CHAUFFEUR_DISABLE`. Killed at
    `timeout_seconds`. The daemon is stopped when OpenCode exits.

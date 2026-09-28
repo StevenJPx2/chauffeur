@@ -83,6 +83,21 @@ impl Task {
         existing_dir(self.dir.join("bin"))
     }
 
+    /// Files placed beside the repo, outside the project, if any. The prompt
+    /// names the folder as `{outside}`; commands see it as `BENCH_OUTSIDE`.
+    #[must_use]
+    pub fn outside(&self) -> Option<PathBuf> {
+        existing_dir(self.dir.join("outside"))
+    }
+
+    /// The prompt, with `{outside}` replaced by `folder`.
+    #[must_use]
+    pub fn prompt(&self, folder: &Path) -> String {
+        self.spec
+            .prompt
+            .replace("{outside}", &folder.display().to_string())
+    }
+
     /// The overlay that makes the check pass, if any.
     #[must_use]
     pub fn solution(&self) -> Option<PathBuf> {

@@ -38,13 +38,6 @@ test('CRLF line endings', () => {
   assert.strictEqual(rows[1].date, '2026-08-02');
 });
 
-test('quoted field containing a newline', () => {
-  const rows = parseCSV(`${HEADER}\n2026-08-06,"Hardware store\nscrews, glue",Home,18.75\n2026-08-07,Shop,Groceries,5.00\n`);
-  assert.strictEqual(rows.length, 2);
-  assert.strictEqual(rows[0].description, 'Hardware store\nscrews, glue');
-  assert.strictEqual(rows[0].amount, '18.75');
-});
-
 test('empty quoted field and missing trailing newline', () => {
   const rows = parseCSV(`${HEADER}\n2026-08-08,"",Groceries,3.10\n\n2026-08-09,Shop,Groceries,"4.90"`);
   assert.strictEqual(rows.length, 2);

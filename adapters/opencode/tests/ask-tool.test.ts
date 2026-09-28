@@ -113,8 +113,8 @@ test("nothing granted, a failed reveal, or a daemon failure still replies", asyn
   const unrevealed = await registered(replying([], [{ type: "tools", agent_id: sessionID, hide: [], reveal: ["browser_open"] }]), fakeExposure())
   const down = await registered({ signal: () => Effect.fail(new DaemonError({ message: "daemon down" })) }, fakeExposure())
 
-  expect(await nothing.ask({ need: "a time machine" })).toContain("found no hidden tool")
-  expect(await unrevealed.ask({ need: "a browser" })).toContain("found no hidden tool")
+  expect(await nothing.ask({ need: "a time machine" })).toContain("nothing restricts them")
+  expect(await unrevealed.ask({ need: "a browser" })).toContain("nothing restricts them")
   expect(await down.ask({ need: "a browser" })).toContain("could not answer")
 
   await Promise.all([nothing.close(), unrevealed.close(), down.close()])

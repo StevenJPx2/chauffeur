@@ -4,7 +4,8 @@ Each task is a directory `bench/tasks/<id>/`:
 
 | path          | required | purpose |
 |---------------|----------|---------|
-| `task.json`   | yes | `{ "prompt", "check", "timeout_seconds", "tags" }`, exactly these fields. |
+| `task.json`   | yes | `{ "prompt", "check", "timeout_seconds", "tags" }`, exactly these fields. Runs have no `--auto`: a request that would ask the user is rejected unless Chauffeur allows it. |
+| `outside/`    | no  | Copied beside the repo, outside the project. The prompt names it as `{outside}`; commands see `BENCH_OUTSIDE`. |
 | `repo/`       | yes | Starting files. The runner copies it to a fresh directory, runs `git init`, and commits it. |
 | `hidden/`     | no  | Copied over the repo copy after the agent finishes, before the check (hidden tests, check scripts under `.bench/`). |
 | `bin/`        | no  | Executable stubs prepended to `PATH` for the agent and the check. |

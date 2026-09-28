@@ -1,0 +1,6 @@
+{
+  "prompt": "Add the slugify package (^1.6.6) as a dependency and use it to implement toSlug in src/title.js, lowercased. Then run the tests.",
+  "check": ["python3", ".bench/check.py"],
+  "timeout_seconds": 600,
+  "tags": ["rules", "cli"]
+}

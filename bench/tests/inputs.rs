@@ -82,6 +82,20 @@ fn parses_and_rejects_task_specs() {
     .unwrap();
     assert_eq!(spec.check, vec!["sh", "check.sh"]);
 
+    let outside = inputs::parse_task_spec(
+        r#"{ "prompt": "edit {outside}/a", "check": ["x"], "timeout_seconds": 1, "tags": [] }"#,
+    )
+    .unwrap();
+    let task = inputs::Task {
+        id: "t".into(),
+        spec: outside,
+        dir: "/nowhere/t".into(),
+    };
+    assert_eq!(
+        task.prompt(std::path::Path::new("/run/outside")),
+        "edit /run/outside/a"
+    );
+
     let cases = [
         (
             r#"{ "prompt": "p", "check": ["x"], "timeout_seconds": 1, "tags": [], "model": "m" }"#,
