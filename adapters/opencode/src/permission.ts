@@ -5,7 +5,7 @@ import { Effect } from "effect"
 import { Daemon } from "./daemon.js"
 import { Host } from "./host.js"
 import { signal, TEXT_CODE_POINTS, type Resource, type SignalKind } from "./protocol.js"
-import { clip, isIntegrationMessage } from "./text.js"
+import { clip, isIntegrationMessage, userText } from "./text.js"
 
 // Permission is synchronous for the host; past this the request asks.
 const PERMISSION_TIMEOUT = "600 millis"
@@ -60,7 +60,7 @@ function request(event: PermissionEvaluation, hostDecision: "allow" | "ask"): Ef
     const history = yield* host.session.context({ sessionID: event.sessionID })
 
     const userRequests = history
-      .flatMap((message) => (message.type === "user" && !isIntegrationMessage(message.metadata) ? [clip(message.text, TEXT_CODE_POINTS)] : []))
+      .flatMap((message) => (message.type === "user" && !isIntegrationMessage(message.metadata) ? [userText(message.text)] : []))
       .slice(-MAX_USER_REQUESTS)
 
     return {

@@ -2,6 +2,7 @@ import { expect, test } from "bun:test"
 import { Effect } from "effect"
 import type { DaemonClient } from "../src/daemon.js"
 import type { Signal } from "../src/protocol.js"
+import { userText } from "../src/text.js"
 import { installRulebooks, parseRulebookInput } from "../src/rulebooks.js"
 import { fakeHost, install } from "./support.js"
 
@@ -20,39 +21,76 @@ type Command = {
   readonly execute: (input: { sessionID: string; prompt: { text: string } }) => Effect.Effect<void, unknown>
 }
 
-test("each rulebook becomes a command that signals the engine and delivers its answer", async () => {
-  const sent: Signal[] = []
-  const messages: Array<{ readonly text: string; readonly resume?: boolean }> = []
+type Recorded = { readonly sent: Signal[]; readonly prompts: Array<{ readonly text: string }>; readonly notes: Array<{ readonly text: string }> }
+
+/** Install the goal command against a daemon answering with `answer`. */
+async function goalCommand(answer: { delivery: "resume" | "wait"; text: string }) {
+  const recorded: Recorded = { sent: [], prompts: [], notes: [] }
   const commands: Command[] = []
 
   const host = fakeHost({
     command: { transform: (edit: (editor: { add: (command: Command) => void }) => void) => Effect.sync(() => edit({ add: (command) => { commands.push(command) } })) },
-    session: { synthetic: (message: (typeof messages)[number]) => Effect.sync(() => { messages.push(message) }) },
+    session: {
+      prompt: (message: { readonly text: string }) => Effect.sync(() => { recorded.prompts.push(message) }),
+      synthetic: (message: { readonly text: string }) => Effect.sync(() => { recorded.notes.push(message) }),
+    },
     skill: { list: () => Effect.succeed({ data: [] }) },
   })
 
   const daemon: DaemonClient = {
     rulebooks: () => Effect.succeed([{ id: "goal", name: "Goal", description: "Keep working.", args_required: true }]),
     signal: (value) => Effect.sync(() => {
-      sent.push(value)
+      recorded.sent.push(value)
 
-      return [{ type: "context", agent_id: "ses_goal", delivery: "resume", label: "Goal", skills: [], text: "Goal: ship it" }]
+      return [{ type: "context", agent_id: "ses_goal", label: "Goal", skills: [], ...answer }]
     }),
   }
 
   const plugin = await install(installRulebooks, host, daemon)
+  const run = (text: string) => Effect.runPromise(commands[0]!.execute({ sessionID: "ses_goal", prompt: { text } }))
+
+  return { plugin, commands, recorded, run }
+}
+
+test("starting a goal sends the whole text and shows the goal as a prompt", async () => {
+  const { plugin, commands, recorded, run } = await goalCommand({ delivery: "resume", text: "Goal: ship it" })
+  const long = `ship it ${"and keep the API stable ".repeat(100)}`
 
   try {
     expect(commands.map((command) => command.name)).toEqual(["goal"])
     expect(commands[0]?.description).toContain("/goal <what>")
 
-    await Effect.runPromise(commands[0]!.execute({ sessionID: "ses_goal", prompt: { text: "ship it" } }))
+    await run(long)
 
-    expect(sent[0]?.kind).toEqual({ type: "rulebook", command: "start", rulebook: "goal", args: "ship it" })
-    expect(messages).toEqual([expect.objectContaining({ text: "Goal: ship it", resume: true })])
+    expect(recorded.sent[0]?.kind).toEqual({ type: "rulebook", command: "start", rulebook: "goal", args: long.trim() })
+    expect(recorded.prompts).toEqual([expect.objectContaining({ text: "Goal: ship it" })])
+    expect(recorded.notes).toEqual([])
   } finally {
     await plugin.close()
   }
+})
+
+test("other answers are Chauffeur notes, and an oversized goal is refused without a signal", async () => {
+  const { plugin, recorded, run } = await goalCommand({ delivery: "wait", text: "Goal is running." })
+
+  try {
+    await run("")
+    expect(recorded.notes).toEqual([expect.objectContaining({ text: "Goal is running." })])
+    expect(recorded.prompts).toEqual([])
+
+    await run("x".repeat(70_000))
+    expect(recorded.sent).toHaveLength(1)
+    expect(recorded.notes[1]?.text).toContain("the limit is 64 KiB")
+  } finally {
+    await plugin.close()
+  }
+})
+
+test("the user's words are sent whole, or left out when over the engine's bound", () => {
+  const words = "é".repeat(20_000)
+
+  expect(userText(words)).toBe(words)
+  expect(userText("x".repeat(65_537))).toBe("")
 })
 
 test("no rulebooks, no commands", async () => {

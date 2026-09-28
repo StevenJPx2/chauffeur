@@ -7,7 +7,7 @@ import type { ExposureControl } from "./exposure.js"
 import { Host } from "./host.js"
 import { signal, TEXT_CODE_POINTS, type CatalogEntry, type HostEffect } from "./protocol.js"
 import { deliverContext } from "./skills.js"
-import { clip } from "./text.js"
+import { clip, userText } from "./text.js"
 
 const ERROR_CODE_POINTS = 240
 
@@ -86,7 +86,7 @@ function observe(event: ToolResult): Observed {
 function recover(host: Plugin.Context, exposure: ExposureControl, event: ToolResult, observed: Observed): Effect.Effect<Recovery, unknown> {
   return Effect.gen(function* () {
     const lastUser = (yield* host.session.context({ sessionID: event.sessionID })).findLast((message) => message.type === "user")
-    const userRequest = lastUser?.type === "user" ? clip(lastUser.text, TEXT_CODE_POINTS) : ""
+    const userRequest = lastUser?.type === "user" ? userText(lastUser.text) : ""
     const catalog = yield* exposure.candidates(event.sessionID)
 
     return { userRequest, candidates: matching(catalog, `${observed.input} ${observed.evidence} ${userRequest}`) }

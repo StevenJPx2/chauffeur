@@ -5,7 +5,7 @@ import type { ExposureControl } from "./exposure.js"
 import { Host, type SessionID } from "./host.js"
 import { signal, TEXT_CODE_POINTS, type HostEffect } from "./protocol.js"
 import { hostLoadsSkills, renderContext } from "./skills.js"
-import { clip, isIntegrationMessage } from "./text.js"
+import { clip, isIntegrationMessage, userText } from "./text.js"
 
 /** Chauffeur's own tool; exposure never judges or hides it. */
 export const ASK_TOOL = "ask_chauffeur"
@@ -79,7 +79,7 @@ function answer({ need }: Input, context: CallContext, exposure: ExposureControl
     const effects = yield* daemon.signal(signal(String(context.sessionID), {
       type: "agent_request",
       need: clipped,
-      user_request: lastUser?.type === "user" ? clip(lastUser.text, TEXT_CODE_POINTS) : "",
+      user_request: lastUser?.type === "user" ? userText(lastUser.text) : "",
       tools: yield* exposure.candidates(context.sessionID),
       code_mode: yield* exposure.codeMode(String(context.agent), clipped),
     }), ASK_TIMEOUT)

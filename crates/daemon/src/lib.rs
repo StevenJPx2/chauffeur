@@ -108,7 +108,8 @@ pub async fn serve(options: DaemonOptions) -> Result<(), String> {
         rulebooks,
     };
     let app = Router::new()
-        .route("/rpc", post(rpc).layer(DefaultBodyLimit::max(128 * 1024)))
+        // A permission request quotes up to eight whole user messages.
+        .route("/rpc", post(rpc).layer(DefaultBodyLimit::max(1024 * 1024)))
         .route(
             "/integrations/sourcefed",
             post(sourcefed_event).layer(DefaultBodyLimit::max(64 * 1024)),

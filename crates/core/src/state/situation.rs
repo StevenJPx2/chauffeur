@@ -27,7 +27,11 @@ impl Situation {
             self.entries.pop_front();
         }
 
-        self.entries.push_back(clip(&line));
+        self.entries.push_back(if quotes_user(&signal.kind) {
+            line
+        } else {
+            clip(&line)
+        });
     }
 
     #[must_use]
@@ -125,6 +129,17 @@ fn describe(kind: &SignalKind) -> Option<String> {
     }
 }
 
+/// Lines carrying the user's own words are kept whole; the signal bounds
+/// them. Lines about tools and models are clipped.
+fn quotes_user(kind: &SignalKind) -> bool {
+    matches!(
+        kind,
+        SignalKind::UserMessage { .. }
+            | SignalKind::PermissionRequest { .. }
+            | SignalKind::Rulebook { .. }
+    )
+}
+
 fn clip(line: &str) -> String {
     line.chars().take(MAX_LINE_CHARS).collect()
 }
@@ -215,5 +230,35 @@ mod tests {
         assert!(state.contains("tool-5."));
         assert!(state.contains(&format!("tool-{}.", MAX_ENTRIES + 4)));
         assert_eq!(situation.last_at(), (MAX_ENTRIES + 4) as u64);
+    }
+
+    #[test]
+    fn user_words_stay_whole_while_tool_lines_are_clipped() {
+        let mut situation = Situation::default();
+        let words = format!("{} the end", "requirement ".repeat(100));
+
+        situation.record(&Signal {
+            agent_id: "a".into(),
+            at: 1,
+            kind: SignalKind::UserMessage {
+                text: words.clone(),
+                first_in_context: true,
+                skills: Vec::new(),
+                tools: Vec::new(),
+                model: None,
+                code_mode: Vec::new(),
+                workspace: String::new(),
+            },
+        });
+        let mut long_tool = tool(1);
+        if let SignalKind::ToolResult { input, .. } = &mut long_tool.kind {
+            *input = "x".repeat(1_000);
+        }
+        situation.record(&long_tool);
+
+        let state = situation.render();
+
+        assert!(state.contains(&format!("User: {words}")));
+        assert!(!state.contains(&"x".repeat(MAX_LINE_CHARS)));
     }
 }

@@ -8,7 +8,7 @@ import { hostModel, ref, sameModel } from "./model-router.js"
 import { ASK_TOOL } from "./ask-tool.js"
 import { catalogEntry, signal, TEXT_CODE_POINTS, type CatalogEntry, type CodeModeNamespace, type ContextEffect, type HostEffect, type ModelRef } from "./protocol.js"
 import { hostLoadsSkills, SKILLS_METADATA_KEY } from "./skills.js"
-import { clip, isIntegrationMessage } from "./text.js"
+import { clip, isIntegrationMessage, userText } from "./text.js"
 
 const MAX_SESSIONS = 256
 
@@ -147,7 +147,7 @@ export const installExposure: Effect.Effect<ExposureControl, never, Host | Daemo
 
       const effects = yield* daemon.signal(signal(sessionID, {
         type: "user_message",
-        text: clip(event.prompt.text, TEXT_CODE_POINTS),
+        text: userText(event.prompt.text),
         first_in_context: firstInContext,
         skills: skills.map((skill) => catalogEntry(skill.id, skill.description ?? skill.name, skill.content)),
         tools: tools.map((tool) => catalogEntry(tool.id, tool.description, "")),

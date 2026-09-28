@@ -15,7 +15,7 @@ const MAX_FILE_BYTES: u64 = 32_768;
 /// Where a rulebook's arguments go in its questions and texts.
 pub const ARGS: &str = "{args}";
 const MAX_RULES: usize = 8;
-const MAX_ARGS_BYTES: usize = 1_024;
+const MAX_ARGS_BYTES: usize = chauffeur_core::MAX_PROMPT_BYTES;
 const MAX_BUDGET: u32 = 200;
 const MAX_TEXT_BYTES: usize = 1_024;
 const MAX_DESCRIPTION_BYTES: usize = 256;

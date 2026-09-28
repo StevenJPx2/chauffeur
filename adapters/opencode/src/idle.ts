@@ -3,7 +3,7 @@ import { Daemon } from "./daemon.js"
 import { Host, type SessionID } from "./host.js"
 import { signal, TEXT_CODE_POINTS } from "./protocol.js"
 import { deliverContext } from "./skills.js"
-import { clip, isIntegrationMessage } from "./text.js"
+import { clip, isIntegrationMessage, userText } from "./text.js"
 
 /**
  * Reports finished turns of sessions in this plugin's location and delivers
@@ -49,7 +49,7 @@ function reportTurnEnd(sessionID: SessionID): Effect.Effect<void, never, Host | 
     const effects = yield* daemon.signal(signal(String(sessionID), {
       type: "turn_end",
       workspace: session ? clip(String(session.location.directory), TEXT_CODE_POINTS) : "",
-      user_request: user?.type === "user" ? clip(user.text, TEXT_CODE_POINTS) : "",
+      user_request: user?.type === "user" ? userText(user.text) : "",
       summary: clip(summary, TEXT_CODE_POINTS),
     }))
 

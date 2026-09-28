@@ -7,6 +7,18 @@ export function clip(value: string, codePoints: number): string {
   return Array.from(value).slice(0, codePoints).join("")
 }
 
+/** The engine's bound on the user's own words, in UTF-8 bytes. */
+const PROMPT_BYTES = 65_536
+
+/**
+ * The user's words as Chauffeur receives them: whole, never clipped. Text
+ * over the engine's bound is left out instead, so the signal still reaches
+ * the engine; the host still has the full prompt.
+ */
+export function userText(value: string): string {
+  return Buffer.byteLength(value, "utf8") <= PROMPT_BYTES ? value : ""
+}
+
 /** Truncate to whole code points within `bytes` of UTF-8. */
 export function clipBytes(value: string, bytes: number): string {
   let used = 0

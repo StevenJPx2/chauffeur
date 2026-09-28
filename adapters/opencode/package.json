@@ -5,8 +5,11 @@
   "license": "MIT",
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./dist/index.mjs"
   },
+  "files": [
+    "dist"
+  ],
   "dependencies": {
     "@opencode/plugin": "2.0.14",
     "effect": "4.0.0-rc.112"
@@ -17,7 +20,9 @@
     "lint": "oxlint src tests",
     "audit": "fallow audit",
     "test": "bun test tests",
-    "check": "npm run typecheck && npm run lint && npm test && npm run audit"
+    "check": "npm run typecheck && npm run lint && npm test && npm run audit",
+    "build": "tsdown",
+    "deploy": "sh scripts/deploy.sh"
   },
   "devDependencies": {
     "@oxlint/plugins": "1.78.0",
@@ -25,6 +30,7 @@
     "@types/node": "^24.0.0",
     "fallow": "3.28.0",
     "oxlint": "1.78.0",
+    "tsdown": "^0.23.0",
     "typescript": "5.9.2"
   }
 }

@@ -6,6 +6,9 @@ use crate::effect::PermissionDecision;
 
 pub const MAX_AGENT_ID_BYTES: usize = 128;
 pub const MAX_TEXT_BYTES: usize = 2_048;
+/// The user's own words: a message, a request quoted in another signal, or
+/// a rulebook's arguments. Jev judged 64 KiB goals in under a second.
+pub const MAX_PROMPT_BYTES: usize = 65_536;
 pub const MAX_AVAILABLE_MODELS: usize = 256;
 pub const MAX_CATALOG_ENTRIES: usize = 128;
 pub const MAX_DESCRIPTION_BYTES: usize = 400;
@@ -256,26 +259,26 @@ impl SignalKind {
                     (workspace, "workspace"),
                     (input, "tool input"),
                     (error, "tool error"),
-                    (user_request, "user request"),
                     (evidence, "tool evidence"),
                 ])?;
+                prompt_bounded(user_request, "user request")?;
                 validate_catalog(candidates, "tool candidates")
             }
             SignalKind::TurnEnd {
                 workspace,
                 user_request,
                 summary,
-            } => all_bounded(&[
-                (workspace, "workspace"),
-                (user_request, "user request"),
-                (summary, "summary"),
-            ]),
+            } => {
+                all_bounded(&[(workspace, "workspace"), (summary, "summary")])?;
+                prompt_bounded(user_request, "user request")
+            }
             SignalKind::Rulebook { rulebook, args, .. } => {
                 if rulebook.is_empty() {
                     return Err("a rulebook signal must name its rulebook".into());
                 }
 
-                all_bounded(&[(rulebook, "rulebook"), (args, "rulebook args")])
+                bounded(rulebook, "rulebook")?;
+                prompt_bounded(args, "rulebook args")
             }
             SignalKind::AgentRequest {
                 need,
@@ -329,7 +332,7 @@ fn validate_agent_request(
     }
 
     bounded(need, "need")?;
-    bounded(user_request, "user request")?;
+    prompt_bounded(user_request, "user request")?;
     validate_code_mode(code_mode)?;
     validate_catalog(tools, "tools")
 }
@@ -372,7 +375,8 @@ fn validate_user_message(message: &SignalKind) -> Result<(), String> {
         return Ok(());
     };
 
-    all_bounded(&[(text, "text"), (workspace, "workspace")])?;
+    prompt_bounded(text, "text")?;
+    bounded(workspace, "workspace")?;
     validate_code_mode(code_mode)?;
 
     if let Some(model) = model {
@@ -420,7 +424,7 @@ fn validate_permission_lists(
     })?;
     user_requests
         .iter()
-        .try_for_each(|text| bounded(text, "user request"))
+        .try_for_each(|text| prompt_bounded(text, "user request"))
 }
 
 fn validate_code_mode(namespaces: &[CodeModeNamespace]) -> Result<(), String> {
@@ -485,6 +489,16 @@ fn all_bounded(fields: &[(&String, &str)]) -> Result<(), String> {
 fn bounded(value: &str, field: &str) -> Result<(), String> {
     if value.len() > MAX_TEXT_BYTES {
         return Err(format!("signal {field} exceeds {MAX_TEXT_BYTES} bytes"));
+    }
+
+    Ok(())
+}
+
+/// The user's own words, which hosts send whole: never clipped, only
+/// bounded, at a size Jev judges in under a second.
+fn prompt_bounded(value: &str, field: &str) -> Result<(), String> {
+    if value.len() > MAX_PROMPT_BYTES {
+        return Err(format!("signal {field} exceeds {MAX_PROMPT_BYTES} bytes"));
     }
 
     Ok(())

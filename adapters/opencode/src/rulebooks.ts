@@ -1,9 +1,9 @@
 import { Effect, type Scope } from "effect"
 import { Daemon } from "./daemon.js"
 import { Host, type SessionID } from "./host.js"
-import { signal, TEXT_CODE_POINTS, type RulebookCommand, type RulebookEntry } from "./protocol.js"
+import { signal, type RulebookCommand, type RulebookEntry } from "./protocol.js"
 import { deliverContext } from "./skills.js"
-import { clip } from "./text.js"
+import { userText } from "./text.js"
 
 const COMMANDS: ReadonlyArray<RulebookCommand> = ["pause", "resume", "clear", "status"]
 
@@ -61,23 +61,42 @@ function description(book: RulebookEntry): string {
   return `${book.description} ${usage}, or pause | resume | clear.`
 }
 
+/**
+ * The user's arguments reach the engine whole. Its answer that wakes the
+ * agent (a start or resume, carrying the goal) becomes a visible prompt;
+ * every other answer is a Chauffeur note.
+ */
 function run(sessionID: SessionID, rulebook: string, text: string): Effect.Effect<void, never, Host | Daemon> {
   return Effect.gen(function* () {
+    const host = yield* Host
     const daemon = yield* Daemon
     const { command, args } = parseRulebookInput(text)
 
-    const effects = yield* daemon.signal(signal(String(sessionID), {
-      type: "rulebook",
-      command,
-      rulebook,
-      args: clip(args, TEXT_CODE_POINTS),
-    }))
+    if (userText(args) !== args) {
+      yield* note(sessionID, rulebook, `/${rulebook} text is ${Math.ceil(Buffer.byteLength(args, "utf8") / 1_024)} KiB; the limit is 64 KiB. Nothing was started: shorten it and try again.`)
 
-    const notices = effects.flatMap((effect) =>
+      return
+    }
+
+    const effects = yield* daemon.signal(signal(String(sessionID), { type: "rulebook", command, rulebook, args }))
+
+    const answers = effects.flatMap((effect) =>
       effect.type === "context" && effect.agent_id === String(sessionID) ? [effect] : [])
 
-    yield* Effect.forEach(notices, (effect) => deliverContext(sessionID, effect), { discard: true })
+    yield* Effect.forEach(answers, (effect) =>
+      effect.delivery === "resume" && effect.text
+        ? host.session.prompt({ sessionID, text: effect.text, metadata: { [RULEBOOK_METADATA_KEY]: rulebook } }).pipe(Effect.asVoid)
+        : deliverContext(sessionID, effect), { discard: true })
   }).pipe(
-    Effect.catch((error) => Effect.logError(`chauffeur: /${rulebook} failed`, error)),
+    Effect.catch((error) => note(sessionID, rulebook, `/${rulebook} failed: ${String(error)}`).pipe(
+      Effect.catch(() => Effect.logError(`chauffeur: /${rulebook} failed`, error)),
+    )),
   )
+}
+
+/** Visible rulebook prompts record the rulebook here. */
+const RULEBOOK_METADATA_KEY = "chauffeur.rulebook"
+
+function note(sessionID: SessionID, rulebook: string, text: string): Effect.Effect<void, unknown, Host> {
+  return deliverContext(sessionID, { type: "context", agent_id: String(sessionID), delivery: "wait", label: `/${rulebook}`, skills: [], text })
 }
