@@ -1,0 +1,10 @@
+{
+  "title": "Household spending, August 2026",
+  "budgets": {
+    "Groceries": 400,
+    "Rent": 1500,
+    "Travel": 150,
+    "Utilities": 120
+  },
+  "exclude": ["Transfer"]
+}

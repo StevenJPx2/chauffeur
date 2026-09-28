@@ -1,0 +1,151 @@
+#!/usr/bin/env python3
+"""Offline stand-in for jira-cli. Logs argv to $BENCH_LOG and prints canned output."""
+import json
+import os
+import sys
+
+KEY = "ADEPT-481"
+STATES = ["To Do", "In Progress", "In Review", "Done"]
+
+USAGE = """Usage: jira <command> [flags]
+
+Commands:
+  issue view ISSUE-KEY [--plain] [--raw] [--comments N]
+  issue comment add ISSUE-KEY [COMMENT_BODY] [-b|--body COMMENT_BODY]
+  issue move ISSUE-KEY STATE [--comment COMMENT_BODY]    (alias: issue transition)
+
+Other commands are unavailable in this environment."""
+
+ISSUE = {
+    "key": KEY,
+    "fields": {
+        "summary": "Morning digest shows the wrong day for some users",
+        "status": {"name": "To Do"},
+        "assignee": None,
+        "reporter": {"displayName": "Mei Chen"},
+        "priority": {"name": "High"},
+        "issuetype": {"name": "Bug"},
+        "labels": ["digest", "customer-reported"],
+        "updated": "2026-09-28T08:41:07.000+0000",
+        "description": None,
+    },
+}
+
+DESCRIPTION = """Several customers in Australia say their morning digest lists yesterday's
+evening plans and misses today's early meetings. One customer in California
+says the digest she got in the evening already listed the next day. The times
+shown in the email also don't match what people see in the app.
+
+Repro (from support, using the dev fixtures):
+
+    python3 -m adept.cli digest u-syd --now 2026-09-28T21:30:00Z
+
+Expected: Jack's digest for Tuesday 29 September with Standup at 08:00,
+1:1 with Priya at 10:30 and Gym at 18:00.
+Actual: Monday 28 September, with "Dinner with the Okafors" at 09:00 and
+Standup at 22:00."""
+
+ISSUE["fields"]["description"] = DESCRIPTION
+
+PLAIN = f"""{KEY}  Morning digest shows the wrong day for some users
+
+  Type:      Bug
+  Status:    To Do
+  Priority:  High
+  Assignee:  Unassigned
+  Reporter:  Mei Chen
+  Labels:    digest, customer-reported
+  Updated:   2026-09-28 08:41
+
+  {DESCRIPTION.replace(chr(10), chr(10) + '  ')}
+"""
+
+COMMENTS = """
+  Comments (1)
+  Mei Chen, 2026-09-28: Customers in Lisbon haven't reported anything, only people further away.
+"""
+
+
+def log():
+    path = os.environ.get("BENCH_LOG")
+    if path:
+        with open(path, "a", encoding="utf-8") as fh:
+            fh.write(json.dumps(["jira", *sys.argv[1:]]) + "\n")
+
+
+def fail(message):
+    print(f"Error: {message}", file=sys.stderr)
+    return 1
+
+
+def split(args, value_flags):
+    """Split args into positionals and a dict of flag values."""
+    positionals, flags = [], {}
+    i = 0
+    while i < len(args):
+        arg = args[i]
+        name, eq, inline = arg.partition("=")
+        if name in value_flags:
+            if eq:
+                flags[name] = inline
+            elif i + 1 < len(args):
+                flags[name] = args[i + 1]
+                i += 1
+            else:
+                raise ValueError(f"flag needs an argument: {name}")
+        elif arg.startswith("-") and arg != "-":
+            flags[arg] = True
+        else:
+            positionals.append(arg)
+        i += 1
+    return positionals, flags
+
+
+def check_key(positionals):
+    if not positionals:
+        raise ValueError("issue key is required")
+    if positionals[0] != KEY:
+        raise LookupError(f"issue {positionals[0]} not found")
+
+
+def main():
+    log()
+    args = sys.argv[1:]
+    if not args or "--help" in args or "-h" in args or args[0] == "help":
+        print(USAGE)
+        return 0
+    try:
+        if args[:2] == ["issue", "view"]:
+            pos, flags = split(args[2:], {"--comments"})
+            check_key(pos)
+            if "--raw" in flags:
+                print(json.dumps(ISSUE, indent=2))
+            else:
+                print(PLAIN + (COMMENTS if "--comments" in flags else ""))
+            return 0
+        if args[:3] == ["issue", "comment", "add"]:
+            pos, flags = split(args[3:], {"--body", "-b", "--template", "-T"})
+            check_key(pos)
+            body = flags.get("--body") or flags.get("-b") or " ".join(pos[1:])
+            if not body.strip():
+                return fail("comment body is required")
+            print(f"✓ Comment added to issue \"{KEY}\"\nhttps://adept.atlassian.net/browse/{KEY}")
+            return 0
+        if args[:2] in (["issue", "move"], ["issue", "transition"]):
+            pos, flags = split(args[2:], {"--comment", "--resolution", "-R", "--assignee", "-a"})
+            check_key(pos)
+            if len(pos) != 2:
+                return fail("expected exactly one target state, e.g. jira issue move ADEPT-481 \"In Review\"")
+            state = next((s for s in STATES if s.lower() == pos[1].strip().lower()), None)
+            if state is None:
+                return fail(f"invalid transition \"{pos[1]}\"; available: {', '.join(STATES)}")
+            print(f"✓ Issue transitioned to \"{state}\"\nhttps://adept.atlassian.net/browse/{KEY}")
+            return 0
+    except LookupError as exc:
+        return fail(exc.args[0])
+    except ValueError as exc:
+        return fail(exc.args[0])
+    return fail(f"unsupported command: {' '.join(args)}\n\n{USAGE}")
+
+
+sys.exit(main())

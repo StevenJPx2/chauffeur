@@ -1,0 +1,19 @@
+{
+  "users": [
+    {"id": "u-lis", "name": "Ana", "email": "ana@example.com", "utc_offset_minutes": 0},
+    {"id": "u-syd", "name": "Jack", "email": "jack@example.com", "utc_offset_minutes": 600},
+    {"id": "u-sfo", "name": "Maria", "email": "maria@example.com", "utc_offset_minutes": -420}
+  ],
+  "events": [
+    {"id": "e1", "user_id": "u-lis", "title": "Design review", "starts_at": "2026-09-28T09:30:00Z"},
+    {"id": "e2", "user_id": "u-lis", "title": "Lunch with Tom", "starts_at": "2026-09-28T12:00:00Z"},
+    {"id": "e3", "user_id": "u-lis", "title": "Flight to Porto", "starts_at": "2026-09-29T07:15:00Z"},
+    {"id": "e4", "user_id": "u-syd", "title": "Dinner with the Okafors", "starts_at": "2026-09-28T09:00:00Z"},
+    {"id": "e5", "user_id": "u-syd", "title": "Standup", "starts_at": "2026-09-28T22:00:00Z"},
+    {"id": "e6", "user_id": "u-syd", "title": "1:1 with Priya", "starts_at": "2026-09-29T00:30:00Z"},
+    {"id": "e7", "user_id": "u-syd", "title": "Gym", "starts_at": "2026-09-29T08:00:00Z"},
+    {"id": "e8", "user_id": "u-sfo", "title": "Board prep", "starts_at": "2026-09-28T16:00:00Z"},
+    {"id": "e9", "user_id": "u-sfo", "title": "School pickup", "starts_at": "2026-09-28T22:30:00Z"},
+    {"id": "e10", "user_id": "u-sfo", "title": "Investor call", "starts_at": "2026-09-29T15:00:00Z"}
+  ]
+}

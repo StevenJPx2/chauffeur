@@ -1,0 +1,12 @@
+date,description,category,amount
+2026-08-01,Rent August,Rent,"1,500.00"
+2026-08-02,Weekly shop,Groceries,82.40
+2026-08-03,"Taxi, airport",Travel,45.00
+2026-08-05,Electricity,Utilities,61.25
+2026-08-09,Weekly shop,Groceries,77.15
+2026-08-12,Transfer to savings,Transfer,500.00
+2026-08-15,"Train tickets, return",Travel,38.60
+2026-08-16,Weekly shop,Groceries,91.05
+2026-08-20,Water,Utilities,24.80
+2026-08-22,"Refund: taxi, overcharged",Travel,-12.00
+2026-08-23,Weekly shop,Groceries,69.90

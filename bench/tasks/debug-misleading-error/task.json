@@ -1,0 +1,6 @@
+{
+  "prompt": "Our monthly spending report broke after I dropped in the new August bank export (data/transactions.csv). `node src/index.js` and `node test/run.js` both die with `TypeError: Cannot read properties of undefined (reading 'toFixed')` in src/format.js. Can you track down what's actually going wrong and fix it so the report is correct?",
+  "check": ["node", "test/run.js"],
+  "timeout_seconds": 1200,
+  "tags": ["bugfix", "debug", "long"]
+}

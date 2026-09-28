@@ -1,0 +1,9 @@
+Household spending, August 2026
+
+Category         Count      Amount      Budget
+Groceries            4      320.50      400.00
+Rent                 1    1,500.00    1,500.00
+Travel               3       71.60      150.00
+Utilities            2       86.05      120.00
+
+Total               10    1,978.15

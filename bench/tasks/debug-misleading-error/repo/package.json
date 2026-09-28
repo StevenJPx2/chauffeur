@@ -1,0 +1,11 @@
+{
+  "name": "spending-report",
+  "version": "0.3.0",
+  "private": true,
+  "description": "Monthly spending report from a bank CSV export",
+  "main": "src/report.js",
+  "scripts": {
+    "report": "node src/index.js",
+    "test": "node test/run.js"
+  }
+}

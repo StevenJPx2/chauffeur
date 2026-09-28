@@ -1,0 +1,6 @@
+{
+  "prompt": "Please pick up Jira ADEPT-481: fix it, then leave a comment on the ticket summarising the fix and move it to In Review.",
+  "check": ["python3", ".bench/check.py"],
+  "timeout_seconds": 1200,
+  "tags": ["bugfix", "skill", "cli", "long"]
+}
