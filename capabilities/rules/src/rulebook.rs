@@ -37,6 +37,11 @@ pub struct Rulebook {
     pub on_start: String,
     /// Delivered, waking the agent, when the budget runs out.
     pub on_budget: String,
+    /// Delivered, waking the agent, at a turn end where the book's turn-end
+    /// rules were asked and none holds: the book is not finished, so the
+    /// agent keeps going. Without it, such a turn delivers nothing.
+    #[serde(default)]
+    pub otherwise: Option<String>,
 }
 
 /// Whether a rulebook takes arguments.
@@ -140,9 +145,19 @@ impl Rulebook {
                 self.id
             ));
         }
-        if !within(&self.on_start, MAX_TEXT_BYTES) || !within(&self.on_budget, MAX_TEXT_BYTES) {
+        let texts = [
+            Some(&self.on_start),
+            Some(&self.on_budget),
+            self.otherwise.as_ref(),
+        ];
+
+        if texts
+            .into_iter()
+            .flatten()
+            .any(|text| !within(text, MAX_TEXT_BYTES))
+        {
             return Err(format!(
-                "{}: on_start and on_budget must be 1-{MAX_TEXT_BYTES} bytes",
+                "{}: on_start, on_budget, and otherwise must be 1-{MAX_TEXT_BYTES} bytes",
                 self.id
             ));
         }

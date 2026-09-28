@@ -147,8 +147,8 @@ fn a_goal_continues_until_evidence_says_done() {
         &turn_end(3, "Profiled the handler; p95 is 180 ms."),
     );
     let ids: Vec<&str> = questions.iter().map(|(id, _)| id.as_str()).collect();
-    assert_eq!(ids.len(), 3, "{ids:?}");
-    for id in [DONE, BLOCKED, CONTINUE] {
+    assert_eq!(ids.len(), 2, "{ids:?}");
+    for id in [DONE, BLOCKED] {
         assert!(ids.contains(&id), "{ids:?}");
     }
     assert!(
@@ -162,7 +162,8 @@ fn a_goal_continues_until_evidence_says_done() {
             .contains("closing message this turn: Profiled the handler")
     );
 
-    let delivered = answer(&mut engine, &questions, &[CONTINUE]);
+    // Neither done nor blocked: the book's `otherwise` keeps the agent going.
+    let delivered = answer(&mut engine, &questions, &[]);
     assert_eq!(delivered.len(), 1);
     assert_eq!(delivered[0].0, Delivery::Resume);
     assert!(delivered[0].1.contains("Not done yet"));
@@ -182,8 +183,8 @@ fn a_goal_continues_until_evidence_says_done() {
         "{questions:?}"
     );
 
-    // Done and keep-going both hold: only the higher-priority "done" delivers.
-    let delivered = answer(&mut engine, &questions, &[DONE, CONTINUE]);
+    // Done and blocked both hold: only the higher-priority "done" delivers.
+    let delivered = answer(&mut engine, &questions, &[DONE, BLOCKED]);
     assert_eq!(
         delivered,
         vec![(
@@ -205,7 +206,7 @@ fn a_blocked_goal_pauses_until_resumed() {
 
     settled(&mut engine, &command(1, RulebookCommand::Start, "ship it"));
     let questions = asked(&mut engine, &turn_end(2, "I need the staging password."));
-    let delivered = answer(&mut engine, &questions, &[BLOCKED, CONTINUE]);
+    let delivered = answer(&mut engine, &questions, &[BLOCKED]);
     assert!(delivered[0].1.contains("Goal paused"), "{delivered:?}");
 
     assert!(asked(&mut engine, &tool(3)).is_empty());
@@ -219,7 +220,7 @@ fn a_blocked_goal_pauses_until_resumed() {
 
     let resumed = settled(&mut engine, &command(6, RulebookCommand::Resume, ""));
     assert_eq!(resumed[0].0, Delivery::Resume);
-    assert_eq!(asked(&mut engine, &turn_end(7, "")).len(), 3);
+    assert_eq!(asked(&mut engine, &turn_end(7, "")).len(), 2);
 }
 
 #[test]
@@ -302,6 +303,30 @@ fn a_spent_budget_asks_for_a_summary_and_stops() {
     assert!(
         asked(&mut engine, &turn_end(6, "")).is_empty(),
         "stopped by budget"
+    );
+}
+
+#[test]
+fn otherwise_continues_within_the_budget() {
+    let mut value = book(1);
+    value["otherwise"] = json!("not done: {args}");
+    let mut engine = engine(vec![parse(&value).unwrap()]);
+
+    settled(&mut engine, &command(1, RulebookCommand::Start, "x"));
+    let questions = asked(&mut engine, &turn_end(2, ""));
+    assert_eq!(
+        answer(&mut engine, &questions, &[]),
+        vec![(Delivery::Resume, "not done: x".to_string())]
+    );
+
+    // Nothing ran since: no check, and no `otherwise`.
+    assert!(asked(&mut engine, &turn_end(3, "")).is_empty());
+
+    asked(&mut engine, &tool(4));
+    let questions = asked(&mut engine, &turn_end(5, ""));
+    assert_eq!(
+        answer(&mut engine, &questions, &[]),
+        vec![(Delivery::Resume, "budget spent on x".to_string())]
     );
 }
 

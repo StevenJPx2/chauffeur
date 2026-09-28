@@ -107,20 +107,11 @@ impl Books {
     /// Record that `rule` of the running book is delivering. A spent budget
     /// replaces the delivery with the book's budget notice and stops it.
     pub fn deliver(&mut self, agent: &str, rule: &Rule) -> Option<Notice> {
-        let running = self.sessions.get_mut(agent)?;
-        let book = self.shelf.iter().find(|book| book.id == running.book)?;
-
-        if running.deliveries >= book.budget {
-            let notice = Notice {
-                delivery: Delivery::Resume,
-                label: book.name.clone(),
-                text: Rulebook::say(&book.on_budget, &running.args),
-            };
-            self.sessions.remove(agent);
-
-            return Some(notice);
+        if let Some(spent) = self.spent(agent) {
+            return Some(spent);
         }
 
+        let running = self.sessions.get_mut(agent)?;
         running.deliveries = running.deliveries.saturating_add(1);
 
         if rule.then.delivery == Delivery::Resume {
@@ -135,6 +126,45 @@ impl Books {
         }
 
         None
+    }
+
+    /// The running book's `otherwise`, for a turn end where its turn-end
+    /// rules were asked and none holds; within the budget like any delivery.
+    pub fn otherwise(&mut self, agent: &str) -> Option<Notice> {
+        if let Some(spent) = self.spent(agent) {
+            return Some(spent);
+        }
+
+        let running = self
+            .sessions
+            .get_mut(agent)
+            .filter(|running| !running.paused)?;
+        let book = self.shelf.iter().find(|book| book.id == running.book)?;
+        let text = Rulebook::say(book.otherwise.as_deref()?, &running.args);
+
+        running.deliveries = running.deliveries.saturating_add(1);
+        running.worked = false;
+
+        Some(notice(Delivery::Resume, &book.name, text))
+    }
+
+    /// The budget notice, stopping the book, once its deliveries are spent.
+    fn spent(&mut self, agent: &str) -> Option<Notice> {
+        let running = self.sessions.get(agent)?;
+        let book = self.book(&running.book)?;
+
+        if running.deliveries < book.budget {
+            return None;
+        }
+
+        let notice = notice(
+            Delivery::Resume,
+            &book.name,
+            Rulebook::say(&book.on_budget, &running.args),
+        );
+        self.sessions.remove(agent);
+
+        Some(notice)
     }
 
     /// Carry out the user's command and say what happened.

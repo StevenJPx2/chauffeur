@@ -33,6 +33,9 @@ pub use source::{load_dir, load_project};
 pub struct Verdict {
     rules: Vec<Rule>,
     notice: Option<Notice>,
+    /// A running rulebook's turn-end rules were asked, so its `otherwise`
+    /// applies when none of them holds.
+    book_turn: bool,
 }
 
 pub const ID: &str = "rules";
@@ -290,6 +293,7 @@ impl Judged for Rules {
             judge.map(|rules| Verdict {
                 rules,
                 notice: None,
+                book_turn: false,
             })
         };
 
@@ -317,7 +321,16 @@ impl Judged for Rules {
                 )))
             }
             SignalKind::TurnEnd { workspace, .. } => {
-                Some(rules(self.start(signal, Trigger::TurnEnd, workspace, None)))
+                let book_turn = !self.books.rules(agent, Trigger::TurnEnd).is_empty();
+
+                Some(
+                    self.start(signal, Trigger::TurnEnd, workspace, None)
+                        .map(move |rules| Verdict {
+                            rules,
+                            notice: None,
+                            book_turn,
+                        }),
+                )
             }
             SignalKind::Rulebook {
                 command,
@@ -326,6 +339,7 @@ impl Judged for Rules {
             } => Some(Judge::done(Verdict {
                 rules: Vec::new(),
                 notice: Some(self.books.command(agent, *command, rulebook, args)),
+                book_turn: false,
             })),
             _ => None,
         }
@@ -335,7 +349,8 @@ impl Judged for Rules {
     /// highest priority first, within [`RulesConfig::max_deliveries`]. Among
     /// equal priorities, a rule confirmed in an earlier round, having fewer
     /// steps, comes first. A running rulebook delivers one rule per signal, so
-    /// the agent never hears both "done" and "keep going".
+    /// the agent never hears both "done" and "keep going", and at a turn end
+    /// where none of its rules holds it delivers its `otherwise`.
     fn act(&mut self, signal: &Signal, verdict: Verdict) -> Vec<Effect> {
         let agent = signal.agent_id.as_str();
         let mut confirmed = verdict.rules;
@@ -376,6 +391,15 @@ impl Judged for Rules {
                     text: Some(rule.then.text),
                 },
             });
+        }
+
+        // Not done and not blocked: a running book keeps the agent going.
+        if verdict.book_turn && !book_delivered {
+            effects.extend(
+                self.books
+                    .otherwise(agent)
+                    .map(|notice| context(agent, notice)),
+            );
         }
 
         effects

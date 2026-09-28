@@ -100,6 +100,7 @@ A session runs one rulebook at a time; starting another stops the first.
   "budget": 20,
   "on_start": "Goal: {args}\nWork toward this goal until …",
   "on_budget": "Goal budget reached: {args}\nSummarise …",
+  "otherwise": "Goal: {args}\nNot done yet …",
   "rules": [ { "schema_version": 2, "id": "goal-done", "on": "turn_end", "…": "…",
                "then": { "delivery": "wait", "text": "Goal achieved: {args}", "end": "complete" } } ]
 }
@@ -114,6 +115,11 @@ A session runs one rulebook at a time; starting another stops the first.
 - **`budget`**: deliveries per start, 1–200. The next one delivers
   `on_budget` instead, waking the agent, and stops the book.
 - **`on_start`**: delivered, waking the agent, when the book starts or resumes.
+  `/goal` shows it as a prompt, so the goal is visible in the session.
+- **`otherwise`** (optional): delivered, waking the agent, at a turn end where
+  the book's turn-end rules were asked and none holds. The goal uses it for
+  "not done yet, keep going", so a goal never sits silent between "done" and
+  "blocked". It counts against the budget.
 - After a rulebook resumes the agent, its turn-end rules wait until the agent
   calls a tool or the user writes, so a book cannot keep waking an agent that
   does nothing. Turn-end rules need `CHAUFFEUR_IDLE_STEERING=true`.

@@ -47,24 +47,7 @@
         "text": "Goal paused until you answer the agent: {args}\nResume it with /goal resume.",
         "end": "pause"
       }
-    },
-    {
-      "schema_version": 2,
-      "id": "goal-continue",
-      "name": "Goal: keep going",
-      "on": "turn_end",
-      "steps": [
-        {
-          "id": "not-done",
-          "question": "The user's goal is: {args}. From the agent's report, is some part of the goal not yet achieved, or not yet checked by running something, so the agent should keep working or run the check?",
-          "yes_at_or_above": 0.5,
-          "minimum_confidence": 0
-        }
-      ],
-      "then": {
-        "delivery": "resume",
-        "text": "Goal: {args}\nNot done yet. Check the goal against the evidence so far, pick the next most useful step, and continue. If you are blocked on something only the user can provide, stop and say what you need."
-      }
     }
-  ]
+  ],
+  "otherwise": "Goal: {args}\nNot done yet. Check every part of the goal against the evidence so far, run any check you have not run, pick the next most useful step, and continue. If you are blocked on something only the user can provide, stop and say what you need."
 }
