@@ -8,20 +8,14 @@ import { Host } from "./host.js"
 import { installIdle } from "./idle.js"
 import { installModelRouter } from "./model-router.js"
 import { installPermission } from "./permission.js"
-import { claimSkillLoading } from "./skills.js"
+import { claimSkillLoading, hostLoadsSkills } from "./skills.js"
 import { installToolResults } from "./tool-results.js"
 
 export { ChauffeurRpc } from "./gate.js"
 
-/**
- * Capabilities the daemon leaves out (`CHAUFFEUR_DISABLE`, comma-separated IDs).
- * Without skill exposure the host keeps its own skill loading.
- */
-const disabled = new Set((process.env.CHAUFFEUR_DISABLE ?? "").split(",").map((id) => id.trim()))
-
 /** Every capability's hooks live in the plugin scope, so unloading releases them together. */
 const capabilities = Effect.gen(function* () {
-  if (!disabled.has("skill-exposure")) yield* claimSkillLoading
+  if (!hostLoadsSkills()) yield* claimSkillLoading
   yield* installModelRouter
 
   const exposure = yield* installExposure

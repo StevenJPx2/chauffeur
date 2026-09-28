@@ -139,6 +139,7 @@ fn run_agent(
             .env_remove("CHAUFFEUR_DAEMON_URL")
             .env_remove("CHAUFFEUR_DISABLE"),
     };
+    command.envs(&job.variant.env);
 
     let started = Instant::now();
     let timeout = Duration::from_secs(job.task.spec.timeout_seconds);

@@ -7,6 +7,7 @@ fn variant(id: &str) -> Variant {
     Variant {
         id: id.into(),
         setup: Setup::Base,
+        env: Default::default(),
     }
 }
 

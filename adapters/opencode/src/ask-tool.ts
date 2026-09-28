@@ -4,7 +4,7 @@ import { Daemon } from "./daemon.js"
 import type { ExposureControl } from "./exposure.js"
 import { Host, type SessionID } from "./host.js"
 import { signal, TEXT_CODE_POINTS, type HostEffect } from "./protocol.js"
-import { renderContext } from "./skills.js"
+import { hostLoadsSkills, renderContext } from "./skills.js"
 import { clip, isIntegrationMessage } from "./text.js"
 
 /** Chauffeur's own tool; exposure never judges or hides it. */
@@ -13,7 +13,12 @@ export const ASK_TOOL = "ask_chauffeur"
 // One Jev call judges the tools and skills together.
 const ASK_TIMEOUT = "8 seconds"
 
-const NOTHING = "Chauffeur found no hidden tool, Code Mode tool, or skill for that. Continue with the tools you have."
+/** The reply when nothing was granted; the host's skill tool is named while the host keeps it. */
+export function nothingFound(hostSkills: boolean): string {
+  return hostSkills
+    ? "Chauffeur found no hidden tool or Code Mode tool for that. If a skill fits, load it with the skill tool; otherwise continue with the tools you have."
+    : "Chauffeur found no hidden tool, Code Mode tool, or skill for that. Continue with the tools you have."
+}
 
 /** The host decodes the call's input with this schema before `execute` sees it. */
 const Input = Schema.Struct({
@@ -79,7 +84,7 @@ function answer({ need }: Input, context: CallContext, exposure: ExposureControl
     const parts = yield* Effect.forEach(effects, (effect) => granted(context.sessionID, effect, exposure))
     const reply = parts.filter((part) => part !== "").join("\n\n")
 
-    return reply === "" ? NOTHING : reply
+    return reply === "" ? nothingFound(hostLoadsSkills()) : reply
   })
 }
 

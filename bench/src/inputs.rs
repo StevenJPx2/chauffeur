@@ -1,7 +1,7 @@
 //! The benchmark's fixed inputs: `variants.json` and `tasks/<id>/task.json`,
 //! parsed strictly and validated once here.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
@@ -20,6 +20,8 @@ pub enum Setup {
 pub struct Variant {
     pub id: String,
     pub setup: Setup,
+    /// Extra environment for OpenCode, such as `CHAUFFEUR_HOST_SKILLS=keep`.
+    pub env: BTreeMap<String, String>,
 }
 
 impl Variant {
@@ -39,6 +41,8 @@ struct RawVariant {
     id: String,
     chauffeur: bool,
     disable: Option<Vec<String>>,
+    #[serde(default)]
+    env: BTreeMap<String, String>,
 }
 
 /// A task's `task.json`.
@@ -126,6 +130,7 @@ pub fn parse_variants(text: &str) -> Result<Vec<Variant>, String> {
         variants.push(Variant {
             id: variant.id,
             setup,
+            env: variant.env,
         });
     }
 

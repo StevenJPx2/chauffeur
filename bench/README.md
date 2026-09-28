@@ -27,7 +27,10 @@ the daemon's audit log.
 ## Inputs
 
 - `variants.json`: `[{ "id": "base", "chauffeur": false }, { "id": "no-rules", "chauffeur": true, "disable": ["rules"] }, …]`.
-  `disable` is required when `chauffeur` is true.
+  `disable` is required when `chauffeur` is true. An optional `env` object adds
+  environment variables for OpenCode, such as `hybrid`'s
+  `"CHAUFFEUR_HOST_SKILLS": "keep"`: Chauffeur attaches skills and OpenCode keeps
+  its own skill tool and skill list.
 - `tasks/<id>/task.json`: `{ "prompt", "check": [argv…], "timeout_seconds", "tags" }`, beside:
   - `repo/`: starting files.
   - `hidden/` (optional): copied over the agent's work before the check.

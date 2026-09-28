@@ -8,32 +8,38 @@ fn parses_variants() {
             { "id": "base", "chauffeur": false },
             { "id": "base-empty", "chauffeur": false, "disable": [] },
             { "id": "full", "chauffeur": true, "disable": [] },
-            { "id": "no-rules", "chauffeur": true, "disable": ["rules", "permission"] }
+            { "id": "no-rules", "chauffeur": true, "disable": ["rules", "permission"] },
+            { "id": "hybrid", "chauffeur": true, "disable": [], "env": { "CHAUFFEUR_HOST_SKILLS": "keep" } }
         ]"#,
     )
     .unwrap();
+    let variant = |id: &str, setup: Setup, env: &[(&str, &str)]| Variant {
+        id: id.into(),
+        setup,
+        env: env
+            .iter()
+            .map(|(key, value)| ((*key).to_string(), (*value).to_string()))
+            .collect(),
+    };
 
     assert_eq!(
         variants,
         vec![
-            Variant {
-                id: "base".into(),
-                setup: Setup::Base
-            },
-            Variant {
-                id: "base-empty".into(),
-                setup: Setup::Base
-            },
-            Variant {
-                id: "full".into(),
-                setup: Setup::Chauffeur { disable: vec![] }
-            },
-            Variant {
-                id: "no-rules".into(),
-                setup: Setup::Chauffeur {
+            variant("base", Setup::Base, &[]),
+            variant("base-empty", Setup::Base, &[]),
+            variant("full", Setup::Chauffeur { disable: vec![] }, &[]),
+            variant(
+                "no-rules",
+                Setup::Chauffeur {
                     disable: vec!["rules".into(), "permission".into()]
-                }
-            },
+                },
+                &[]
+            ),
+            variant(
+                "hybrid",
+                Setup::Chauffeur { disable: vec![] },
+                &[("CHAUFFEUR_HOST_SKILLS", "keep")]
+            ),
         ]
     );
     assert_eq!(variants[3].disable_csv(), "rules,permission");

@@ -7,7 +7,7 @@ import { type HistoryMessage, Host, type HostTool, type SessionID } from "./host
 import { hostModel, ref, sameModel } from "./model-router.js"
 import { ASK_TOOL } from "./ask-tool.js"
 import { catalogEntry, signal, TEXT_CODE_POINTS, type CatalogEntry, type CodeModeNamespace, type ContextEffect, type HostEffect, type ModelRef } from "./protocol.js"
-import { SKILLS_METADATA_KEY } from "./skills.js"
+import { hostLoadsSkills, SKILLS_METADATA_KEY } from "./skills.js"
 import { clip, isIntegrationMessage } from "./text.js"
 
 const MAX_SESSIONS = 256
@@ -376,11 +376,14 @@ function toolsToJudge(host: Plugin.Context, firstInContext: boolean, hidden: Hid
  * tools reach the model through `execute`, not the request's tool record, so
  * hiding them would change nothing. Before any request is seen, only tools
  * flagged as Code Mode are left out. Chauffeur's own tool is never judged, so
- * the agent can always ask for what it lacks.
+ * the agent can always ask for what it lacks, and nor is `skill` while the host
+ * keeps its own skill loading.
  */
 function catalog(tools: ReadonlyArray<HostTool>, inRequests: ReadonlySet<string> | null): HostTool[] {
+  const hostSkills = hostLoadsSkills()
+
   return tools
-    .filter((tool) => tool.id !== ASK_TOOL)
+    .filter((tool) => tool.id !== ASK_TOOL && !(hostSkills && tool.id === "skill"))
     .filter((tool) => (inRequests ? inRequests.has(tool.id) : tool.options?.codemode !== true))
     .toSorted((a, b) => Number(b.id === "skill") - Number(a.id === "skill"))
     .slice(0, MAX_CATALOG)

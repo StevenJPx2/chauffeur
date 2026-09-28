@@ -1,12 +1,25 @@
 import { expect, test } from "bun:test"
 import { Effect } from "effect"
-import { ASK_TOOL, installAskTool } from "../src/ask-tool.js"
+import { ASK_TOOL, installAskTool, nothingFound } from "../src/ask-tool.js"
 import { type DaemonClient, DaemonError } from "../src/daemon.js"
 import type { ExposureControl } from "../src/exposure.js"
 import type { HostEffect, Signal } from "../src/protocol.js"
+import { hostLoadsSkills } from "../src/skills.js"
 import { fakeExposure, fakeHost, install } from "./support.js"
 
 const sessionID = "ses_ask"
+
+test("the host keeps skill loading when skill exposure is off or kept on request", () => {
+  expect(hostLoadsSkills({})).toBe(false)
+  expect(hostLoadsSkills({ CHAUFFEUR_DISABLE: "rules, skill-exposure" })).toBe(true)
+  expect(hostLoadsSkills({ CHAUFFEUR_DISABLE: "skill-exposures" })).toBe(false)
+  expect(hostLoadsSkills({ CHAUFFEUR_HOST_SKILLS: "keep" })).toBe(true)
+})
+
+test("an empty answer points at the skill tool only while the host keeps it", () => {
+  expect(nothingFound(true)).toContain("load it with the skill tool")
+  expect(nothingFound(false)).not.toContain("skill tool")
+})
 
 /** The host has decoded the call's input by the time `execute` runs. */
 type Need = { readonly need: string }

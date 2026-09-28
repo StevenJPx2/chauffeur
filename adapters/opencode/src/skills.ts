@@ -6,6 +6,17 @@ import type { ContextEffect } from "./protocol.js"
 export const SKILLS_METADATA_KEY = "chauffeur.skills"
 
 /**
+ * Whether the host keeps its own skill tool and skill list: when skill
+ * exposure is off (`CHAUFFEUR_DISABLE`), or when `CHAUFFEUR_HOST_SKILLS=keep`
+ * keeps them beside the skills Chauffeur attaches.
+ */
+export function hostLoadsSkills(env: Record<string, string | undefined> = process.env): boolean {
+  const disabled = (env.CHAUFFEUR_DISABLE ?? "").split(",").map((id) => id.trim())
+
+  return disabled.includes("skill-exposure") || env.CHAUFFEUR_HOST_SKILLS === "keep"
+}
+
+/**
  * Deliver context outside the prompt hook as one synthetic message: the text,
  * then each skill's body in OpenCode's own skill-message form. `steer` reaches
  * the running turn, `resume` wakes an idle agent, and `wait` stays for the

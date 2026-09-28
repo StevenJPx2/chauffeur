@@ -1,6 +1,7 @@
 [
   { "id": "base", "chauffeur": false },
   { "id": "full", "chauffeur": true, "disable": [] },
+  { "id": "hybrid", "chauffeur": true, "disable": [], "env": { "CHAUFFEUR_HOST_SKILLS": "keep" } },
   { "id": "no-skill-exposure", "chauffeur": true, "disable": ["skill-exposure"] },
   { "id": "no-tool-exposure", "chauffeur": true, "disable": ["tool-exposure"] },
   { "id": "no-rules", "chauffeur": true, "disable": ["rules"] },
