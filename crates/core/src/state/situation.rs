@@ -66,6 +66,7 @@ fn describe(kind: &SignalKind) -> Option<String> {
             action,
             resources,
             request,
+            workspace,
             user_requests,
             ..
         } => {
@@ -75,9 +76,20 @@ fn describe(kind: &SignalKind) -> Option<String> {
                 .collect();
             // User intent decides permission; the latest request travels with it.
             let asked = user_requests.last().map_or("none recorded", String::as_str);
+            // Where the session works, so a request can be judged against it.
+            let project = if workspace.is_empty() {
+                String::new()
+            } else {
+                format!(" from the project {workspace}")
+            };
+            let reason = if request.trim().is_empty() {
+                "no reason given"
+            } else {
+                request.as_str()
+            };
 
             Some(format!(
-                "Agent asks to {action} {}: {request} (latest user request: {asked})",
+                "Agent asks to {action} {}{project}. Its reason: {reason} (latest user request: {asked})",
                 targets.join(", ")
             ))
         }
@@ -186,7 +198,7 @@ mod tests {
         });
 
         assert!(situation.render().contains(
-            "Agent asks to edit /w/README.md: update install (latest user request: please update README.md)"
+            "Agent asks to edit /w/README.md from the project /w. Its reason: update install (latest user request: please update README.md)"
         ));
     }
 

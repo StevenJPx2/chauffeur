@@ -7,6 +7,11 @@ export function clip(value: string, codePoints: number): string {
   return Array.from(value).slice(0, codePoints).join("")
 }
 
+/** The last `codePoints` code points, whole: the end of a text is nearest what came next. */
+export function clipStart(value: string, codePoints: number): string {
+  return Array.from(value).slice(-codePoints).join("")
+}
+
 /** The engine's bound on the user's own words, in UTF-8 bytes. */
 const PROMPT_BYTES = 65_536
 

@@ -57,6 +57,33 @@ test("the engine's decision answers the request, with resolved paths and only th
   })
 })
 
+test("the agent's reason is the host's message, else what it said just before the call", async () => {
+  const hooks = new Hooks()
+  const sent: Signal[] = []
+
+  const host = fakeHost({
+    location: { project: { canonical: "/projects/chauffeur" } },
+    permission: { hook: hooks.register },
+    session: {
+      context: () => Effect.succeed([
+        { type: "user", text: "Compare with main", metadata: {} },
+        { type: "assistant", content: [{ type: "reasoning", text: "hmm" }, { type: "text", text: "I will read the main worktree for the reference implementation." }] },
+      ]),
+    },
+  })
+
+  const plugin = await install(installPermission, host, replying(sent, []))
+
+  await hooks.emit("evaluate", { sessionID, action: "external_directory", resources: ["/projects/main/*"], effect: "ask" })
+  await hooks.emit("evaluate", { sessionID, action: "external_directory", resources: ["/projects/main/*"], effect: "ask", message: "Read outside the project" })
+  await plugin.close()
+
+  expect(sent.map((entry) => entry.kind)).toMatchObject([
+    { request: "I will read the main worktree for the reference implementation.", workspace: "/projects/chauffeur" },
+    { request: "Read outside the project" },
+  ])
+})
+
 test("a host denial stands without asking the engine", async () => {
   const sent: Signal[] = []
   const denied = await evaluate(replying(sent, []), { sessionID, action: "shell", resources: ["rm -rf /"], effect: "deny" })

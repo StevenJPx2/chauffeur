@@ -3,9 +3,9 @@ import { basename, dirname, resolve } from "node:path"
 import type { PermissionEvaluation } from "@opencode/plugin/effect/permission"
 import { Effect } from "effect"
 import { Daemon } from "./daemon.js"
-import { Host } from "./host.js"
+import { type HistoryMessage, Host } from "./host.js"
 import { signal, TEXT_CODE_POINTS, type Resource, type SignalKind } from "./protocol.js"
-import { clip, isIntegrationMessage, userText } from "./text.js"
+import { clip, clipStart, isIntegrationMessage, userText } from "./text.js"
 
 // Permission is synchronous for the host; past this the request asks.
 const PERMISSION_TIMEOUT = "600 millis"
@@ -69,12 +69,28 @@ function request(event: PermissionEvaluation, hostDecision: "allow" | "ask"): Ef
       resources: event.resources.map((requested) => FILE_ACTIONS.has(event.action)
         ? resolveResource(workspace, requested)
         : { requested: clip(requested, TEXT_CODE_POINTS), resolved: clip(requested, TEXT_CODE_POINTS) }),
-      request: clip(event.message ?? "", TEXT_CODE_POINTS),
+      request: reason(event.message, history),
       workspace,
       user_requests: userRequests,
       host_decision: hostDecision,
     } satisfies SignalKind
   })
+}
+
+/**
+ * Why the agent wants this: the host's own message when it has one, else what
+ * the agent said just before the call, which is its stated reason.
+ */
+function reason(message: string | undefined, history: ReadonlyArray<HistoryMessage>): string {
+  if (message !== undefined && message.trim() !== "") return clip(message, TEXT_CODE_POINTS)
+
+  const reply = history.findLast((entry) => entry.type === "assistant")
+
+  if (reply?.type !== "assistant") return ""
+
+  const said = reply.content.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("\n").trim()
+
+  return clipStart(said, TEXT_CODE_POINTS)
 }
 
 /** Absolute, with symlinks resolved for the path or its parent when they exist. */
