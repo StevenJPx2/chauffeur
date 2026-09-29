@@ -251,6 +251,12 @@ fn scope_and_project_rulebooks_decide_what_a_workspace_offers() {
         settled(&mut engine, &start(2, "fix", "x", &inside))[0].1,
         "fix started on x"
     );
+    // A removed worktree still offers the shipped books in its scope.
+    let removed = repo.join("gone").display().to_string();
+    assert_eq!(
+        settled(&mut engine, &start(3, "ticket", "x", &removed))[0].1,
+        "ticket started on x"
+    );
 
     let _ = std::fs::remove_dir_all(&repo);
 }

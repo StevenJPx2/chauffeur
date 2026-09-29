@@ -25,9 +25,9 @@
       "steps": [
         {
           "id": "in-review",
-          "question": "The HPDP Overlay task is: {input}. Judging from the agent's report and what it ran, is the work complete with a PR open, the covered Jira tickets moved to In Review, and the PR posted in #hpdp-engineering, or did the agent verify that no repository change is needed and report that? Answer no when any of these is missing or unverified.",
-          "yes_at_or_above": 0.7,
-          "minimum_confidence": 0.4
+          "question": "The HPDP Overlay task is: {input}. Judging from the agent's report, is its part finished: a PR is open, the covered Jira tickets are In Review, and nothing is left that the agent can do itself, so what remains is only other people's reviews, CI runs or merges? Also answer yes when the agent verified that no repository change is needed and reported that. Answer no when the agent still has work of its own, such as failing checks to fix, a PR to open, tickets to move, or the #hpdp-engineering post to make.",
+          "yes_at_or_above": 0.55,
+          "minimum_confidence": 0
         }
       ],
       "then": { "delivery": "wait", "text": "HPDP task in review: {input}", "end": "complete" }

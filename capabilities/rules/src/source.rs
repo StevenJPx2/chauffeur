@@ -68,8 +68,13 @@ fn project_levels(workspace: &str, folder: &str, max_bytes: u64) -> Result<Vec<F
         return Ok(Vec::new());
     }
 
-    let path =
-        std::fs::canonicalize(path).map_err(|error| format!("resolve {workspace}: {error}"))?;
+    // A workspace that no longer exists, such as a removed worktree, has no
+    // project files; that must not hide what is shipped.
+    let path = match std::fs::canonicalize(path) {
+        Ok(path) => path,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => return Err(format!("resolve {workspace}: {error}")),
+    };
     let ancestors: Vec<PathBuf> = path
         .ancestors()
         .take(MAX_PROJECT_DEPTH)
