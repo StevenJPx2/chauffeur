@@ -358,6 +358,28 @@ fn shell_decided(
 }
 
 #[test]
+fn each_question_names_the_request_it_judges() {
+    let skill = Skill::from_json(WRITE_GUARD_JSON).unwrap();
+    let mut permission = Permission::new(vec![skill]);
+    let signal = request(1, "shell", "pnpm check", "pnpm check");
+    let chauffeur_core::Plan::Ask(questions) =
+        permission.plan(&chauffeur_core::Situation::default(), &signal)
+    else {
+        panic!("expected a question")
+    };
+
+    // Jev must not have to find the command in the recent activity, where
+    // an earlier write could pass for it.
+    assert!(
+        questions[0]
+            .instructions
+            .starts_with("The request to judge: shell pnpm check\nJudge only this request"),
+        "{}",
+        questions[0].instructions
+    );
+}
+
+#[test]
 fn the_write_guard_also_vetoes_what_the_host_would_allow() {
     let contracts: &[&[u8]] = &[SHELL_JSON, WRITE_GUARD_JSON];
     let vetoed = shell_decided(0.9, 0.95, contracts, PermissionDecision::Allow);

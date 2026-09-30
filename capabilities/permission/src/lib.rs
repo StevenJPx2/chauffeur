@@ -148,7 +148,7 @@ impl Capability for Permission {
             .into_iter()
             .filter(|skill| contract::missing_evidence(skill, &evidence).is_empty())
             .filter(|skill| !self.cooling(&signal.agent_id, skill, signal.at))
-            .map(question)
+            .map(|skill| question(skill, &signal.kind))
             .collect();
 
         if questions.is_empty() {
@@ -239,7 +239,10 @@ fn rank(effect: OutcomeEffect) -> u8 {
     }
 }
 
-fn question(skill: &Skill) -> Question {
+/// The contract's question about this request. The request itself comes
+/// first: Jev otherwise looks for it in the recent activity, where an earlier
+/// request can pass for this one.
+fn question(skill: &Skill, request: &SignalKind) -> Question {
     let decision: &DecisionQuestion = &skill.decision;
     let kind = match decision.kind {
         QuestionType::Choice => QuestionKind::Choice {
@@ -264,7 +267,26 @@ fn question(skill: &Skill) -> Question {
 
     Question {
         id: skill.identity.id.clone(),
-        instructions: decision.instructions.clone(),
+        instructions: format!(
+            "{}\nJudge only this request; earlier activity in the session is context.\n{}",
+            this_request(request),
+            decision.instructions
+        ),
         kind,
     }
+}
+
+fn this_request(request: &SignalKind) -> String {
+    let SignalKind::PermissionRequest {
+        action, resources, ..
+    } = request
+    else {
+        return String::new();
+    };
+    let targets: Vec<&str> = resources
+        .iter()
+        .map(|resource| resource.resolved.as_str())
+        .collect();
+
+    format!("The request to judge: {action} {}", targets.join(", "))
 }
