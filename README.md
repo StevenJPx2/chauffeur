@@ -1,70 +1,100 @@
 # Chauffeur
 
-Chauffeur progressively enhances a coding agent's context. It observes the
-agent's events, classifies the situation with a System One model (TypeSafe's
-Jev), and routes the judgment to capabilities:
+Chauffeur rides along with your OpenCode agent. It watches what the agent is
+about to do and steps in when it matters: it hands the agent the right skill,
+approves the permission prompts you would have approved anyway, stops the
+shortcuts you would have stopped, and keeps a goal running until it is done.
 
-- **Skill exposure** attaches every skill a user message needs, judging them
-  all in one call, and hands the agent a better-fitting skill when it drifts, such as driving a
-  browser for X or Jira where a dedicated skill exists.
-- **Tool exposure** hides tool groups a context won't need and brings them
-  back when a later message does. With Code Mode, it points the agent at the
-  Code Mode tools a request needs, which Code Mode's catalog shows only in
-  part, and it removes OpenCode's own skill list (about 4k tokens), since
-  Chauffeur loads skills itself.
-- **Permission** lets Jev approve the edits, shell commands, and outside
-  directories OpenCode would ask you about, when they clearly serve your task,
-  and vetoes irreversible harm in what OpenCode allows. A force-push to `main`
-  or `master` always asks you; one to a rebased feature branch does not.
-- **Model router** switches to an equivalent model on a usage limit, and back
-  once the limit has likely cleared.
-- **`ask_chauffeur`** lets the agent ask for a tool or skill it lacks, in plain
-  words; Jev picks the hidden tools, Code Mode tools, or skill that serve it.
-- **Rules** deliver context when exact facts and Jev agree: they steer the
-  agent after a tool call such as a hand-rolled Python patch script or the
-  browser for Slack, handing over the right skill; remind an idle agent of
-  follow-through (optional); and run a project's own `.chauffeur/rules/`.
-- **Event gate** decides which sourcefed events reach the agent, so only ones
-  it needs to act on arrive, knowing what each event's monitor watches.
-- **Monitors** set up a sourcefed monitor when the agent opens a PR or works on
-  a Jira issue or Slack thread, once Jev confirms it is the session's own work.
+Each decision is a quick yes/no judgment by [Jev](https://typesafe.ai), a small
+fast model, so it adds about a third of a second, not another agent turn.
 
-See [`ARCHITECTURE.md`](./ARCHITECTURE.md) for the design, what is built, and
-its limits.
+## What it does for you
 
-## Prerequisites
+### The right skill, without the token bill
 
-Set `TYPESAFE_API_KEY` to a TypeSafe API key. Jev is Chauffeur's only System
-One provider, so the daemon refuses to start without it. If Jev is unreachable,
-Chauffeur stands aside: prompts go through unenhanced and permission requests
-fall back to asking you.
+Chauffeur reads your message and attaches only the skills it needs. It hides
+OpenCode's full skill list and the tool groups a task won't use, and brings them
+back if a later message does.
 
-## Build and validate
+![Chauffeur attaching the jira-cli skill to a question about a Jira ticket](docs/media/jira.gif)
+
+On our longer benchmark tasks, this used 29% fewer input tokens and finished
+19% faster than plain OpenCode, with the same or better pass rate
+([`bench/`](bench)).
+
+### Fewer permission prompts, and the right ones
+
+- **Approves** what clearly serves your task: an edit in the project, a file
+  you named, a sibling worktree of the same repository when the agent says why.
+- **Asks you** about the rest: unrelated folders, credential stores such as
+  `~/.ssh`, anything it is unsure of.
+- **Blocks** irreversible harm (`rm -rf /`) and shell rewrites of project files
+  (`sed -i`, `node -e`, heredocs), pointing the agent at the edit tools, so every
+  change stays reviewable. A force-push to `main` always asks.
+
+![Chauffeur denying a sed rewrite; the agent switches to the edit tool](docs/media/guard.gif)
+
+### Steers when the agent drifts
+
+After a tool call, Chauffeur nudges the agent back on course, and hands over the
+matching skill when there is one: `cat` or `sed -n` instead of the read tool,
+a recursive `grep` instead of `rg`, a browser for GitHub, Slack, Jira, or X
+where `gh`, `slackcli`, `jira`, or `twitter-cli` does it directly. A project
+can add its own rules in `.chauffeur/rules/`.
+
+### Rulebooks: `/goal`, `/ticket`, and your own
+
+A rulebook is a set of rules you switch on for one session with a slash command.
+
+- **`/goal <objective>`** keeps the agent working across turns until the
+  evidence shows the goal is met, pauses when only you can unblock it, and stops
+  after 20 continuations with a progress summary.
+- **`/ticket <Jira key | Slack link | request>`** takes an HPDP Overlay task
+  from intake to a PR in review. It is scoped to those folders, so it only
+  appears there.
+
+![/goal running a task to "Goal achieved"](docs/media/goal.gif)
+
+Add your own in `skills/rulebooks/`, or per project in `.chauffeur/rulebooks/`
+([format](skills/README.md#rulebooks)).
+
+### And quietly
+
+- **`ask_chauffeur`**: the agent can ask, in plain words, for a tool or skill
+  it lacks.
+- **Model failover**: on a usage limit, Chauffeur switches to an equivalent
+  model and back once the limit has likely cleared.
+- **[sourcefed](https://github.com/StevenJPx2/sourcefed) events**: Chauffeur sets up
+  monitors for the PR, Jira issue, or Slack thread you are working on, and lets
+  through only the events the agent needs to act on.
+
+## Install
+
+You need Rust, Node.js, OpenCode 2, and a TypeSafe API key.
 
 ```sh
-cargo build --release
-ln -s "$PWD/skills" ~/.config/chauffeur/skills
-ln -s "$PWD"/skills/handoff/* ~/.agents/skills/
-./target/release/chauffeur skill validate skills/rules/slack-via-browser.json
+export TYPESAFE_API_KEY=...          # Jev; the daemon will not start without it
+export CHAUFFEUR_IDLE_STEERING=true  # lets rulebooks continue the agent between turns
+
+git clone https://github.com/StevenJPx2/chauffeur && cd chauffeur
+cargo install --locked --path crates/cli             # the chauffeur daemon and CLI
+mkdir -p ~/.config/chauffeur && ln -s "$PWD/skills" ~/.config/chauffeur/skills
+ln -s "$PWD"/skills/handoff/* ~/.agents/skills/      # skills Chauffeur hands over
+cd adapters/opencode && npm install && npm run deploy
+opencode service restart
 ```
 
-Contracts and Chauffeur's own skills live apart from the code in `skills/`
-(`permission/`, `rules/`, `handoff/`). The daemon loads that folder from
-`CHAUFFEUR_SKILLS_DIR`, by default `~/.config/chauffeur/skills`. Link
-`skills/handoff/*` into a directory OpenCode reads, such as
-`~/.agents/skills`, so hand-overs can find them. Validation uses the same strict JSON schema and size
-limits as daemon startup, and rejects unknown fields, invalid thresholds,
-duplicate IDs, and unsupported schema versions.
+`npm run deploy` checks and builds the plugin, then installs it as
+`~/.config/opencode/plugins/chauffeur.js`. The plugin starts the daemon when
+none is running. If Jev is unreachable, Chauffeur stands aside: prompts go
+through unchanged and permission requests fall back to asking you.
 
-The daemon keeps what it has learned about each session in
-`~/.local/state/chauffeur/state.json` (`CHAUFFEUR_STATE_DIR`), so a restart
-loses nothing.
+## See what it decided
 
-Every decision is logged to `~/.local/state/chauffeur/audit.jsonl`. To see
-why Chauffeur did something:
+Every decision is logged, with the questions asked and how long they took:
 
 ```sh
-chauffeur audit      # the last 20 decisions
+chauffeur audit        # the last 20 decisions
 chauffeur audit 100
 ```
 
@@ -73,132 +103,35 @@ chauffeur audit 100
 00:16:42 UTC ses_f32a1b… permission_request shell rm -rf / → permission deny | 0 asked, 0 ms; vetoed: rm -rf /
 ```
 
-## Run
-
-```sh
-./target/release/chauffeur daemon
-./target/release/chauffeur signal --file permission.json
-```
-
-The OpenCode adapter reports events to the daemon automatically.
-`chauffeur signal` sends one signal by hand and prints the effects it produced,
-for example a permission request:
-
-```json
-{
-  "agent_id": "demo-session",
-  "at": 1780000000,
-  "kind": {
-    "type": "permission_request",
-    "action": "edit",
-    "resources": [{ "requested": "README.md", "resolved": "/work/app/README.md" }],
-    "request": "Update the install section",
-    "workspace": "/work/app",
-    "user_requests": ["please update README.md"],
-    "host_decision": "ask"
-  }
-}
-```
-
-Contracts judge only requests whose `host_decision` is `ask` (the default);
-an `allow` reaches only the safety backstop. The permission capability
-computes each contract's evidence
-(`resource_present`, `resource_within_workspace`, `resource_named_by_user`)
-before any model call. Missing evidence returns the contract's fixed
-`missing_evidence` outcome; low confidence selects `uncertain`; a System One
-failure selects `judge_failure`. The most restrictive matching outcome answers
-the host, and a host denial always stands.
-
-## Load the OpenCode adapter
-
-Install the adapter's dependencies once (`cd adapters/opencode && npm install`),
-then load it with a one-line plugin file, either for one project in
-`.opencode/plugins/chauffeur.ts` or for every project in
-`~/.config/opencode/plugins/chauffeur.ts`:
-
-```ts
-export { default } from "/path/to/chauffeur/adapters/opencode/src/index.ts"
-```
-
-OpenCode 2.0.15 does not load the adapter when its package directory is listed
-under `plugins` in `opencode.json(c)`; the plugin file form loads it.
-
-## Author a skill
-
-Add a `.json` file under `skills/` with these required sections:
-
-1. `schema_version` and `identity` (`id`, `name`, numeric `major.minor.patch` `version`)
-2. `match.events` and `match.actions` with exact host values
-3. `predicates.required_evidence` and `predicates.forbidden_evidence`
-4. A typed `decision` (`choice`, `score`, or `noul`) with confidence and explicit
-   numeric thresholds or criterion-to-branch mappings
-5. Six static outcomes: `positive`, `negative`, `uncertain`,
-   `missing_evidence`, `judge_failure`, and `cooldown`
-6. `cooldown_seconds`
-
-All objects reject unknown fields. Skill files may be at most 65,536 bytes; a
-directory may contain at most 64 JSON skill files and 256 entries total. Skill
-contexts are limited to 65,536 encoded bytes, and the daemon caps RPC request
-bodies at 128 KiB. See
-[`skills/permission/workspace-edit-gate.json`](./skills/permission/workspace-edit-gate.json)
-for a complete permission-boundary example.
-
-## Model failover
-
-When a model hits a usage limit, the model router asks System One to pick an
-equivalent model from the same tier (or to stay), and the OpenCode adapter
-switches the session and retries. Pin preferred fallbacks in
-`~/.config/chauffeur/model-router.json`:
-
-```json
-{ "pins": ["openai/gpt-6-sol", "anthropic/claude-opus-5-5#low"] }
-```
-
-Once the limit has likely cleared (judged no sooner than 5 minutes later), the
-router switches the session back to the model it left.
-
-## sourcefed events
-
-With both plugins installed, nothing needs configuring: sourcefed asks
-Chauffeur before delivering each monitor event, and only events the agent needs
-to act on reach the session; bot comments, approvals, and status churn are
-withheld. Chauffeur also follows through on them (for example: PR merged, so
-remind the agent to transition the Jira ticket). If Chauffeur is not loaded or
-fails, sourcefed delivers as before. sourcefed's messages in the session are
-not treated as yours.
-
-Chauffeur also talks to sourcefed's daemon directly. It reads each session's
-monitors, so the gate knows what an event's monitor watches, and it creates a
-monitor when the agent opens a PR, or works on a Jira issue or Slack thread,
-that Jev confirms is the session's own work, skipping any already watched. Set
-`CHAUFFEUR_SOURCEFED=off` to leave sourcefed alone.
-
-## Configuration
+## Configure
 
 | Variable | Default |
 |---|---|
 | `TYPESAFE_API_KEY` | required |
-| `CHAUFFEUR_CONFIG_DIR` | `~/.config/chauffeur` |
+| `CHAUFFEUR_IDLE_STEERING` | `false`; `true` lets turn-end rules and rulebooks resume the agent |
+| `CHAUFFEUR_CONFIG_DIR` | `~/.config/chauffeur`; per-capability overrides as JSON |
 | `CHAUFFEUR_SKILLS_DIR` | `~/.config/chauffeur/skills` (a link to `skills/`) |
-| `CHAUFFEUR_STATE_DIR` | `~/.local/state/chauffeur` |
+| `CHAUFFEUR_STATE_DIR` | `~/.local/state/chauffeur` (session memory, audit log) |
 | `CHAUFFEUR_DAEMON_URL` | `http://127.0.0.1:18790` |
-| `CHAUFFEUR_DAEMON_TOKEN` | unset |
-| `CHAUFFEUR_BIN` | `chauffeur` for the OpenCode adapter |
-| `CHAUFFEUR_IDLE_STEERING` | `false`; set to `true` on the daemon to enable idle reminders |
-| `CHAUFFEUR_SOURCEFED` | on; `off` leaves sourcefed's monitors alone |
-| `SOURCEFED_DAEMON_URL`, `SOURCEFED_DAEMON_TOKEN` | `http://127.0.0.1:18787`, unset, as sourcefed reads them |
-| `CHAUFFEUR_SOURCEFED_TARGET_KIND` | `opencode-session` |
+| `CHAUFFEUR_SOURCEFED` | on; `off` leaves sourcefed alone |
 
-## Development checks
+Rules, rulebooks, and permission contracts are strict JSON in [`skills/`](skills);
+[`skills/README.md`](skills/README.md) documents each format, and
+`chauffeur skill validate PATH` checks a file. [`ARCHITECTURE.md`](ARCHITECTURE.md)
+covers the design.
+
+## Develop
 
 ```sh
 cargo fmt --all -- --check
-cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
-cargo test --workspace --all-targets --all-features --locked
-cd adapters/opencode && npm run check
+cargo clippy --workspace --all-targets --locked -- -D warnings
+cargo test --workspace --locked
+cd adapters/opencode && npm run check   # types, lint, tests, fallow audit
 ```
 
-`npm run check` typechecks the adapter and its tests, lints them with Oxlint and
-the vendored [anti-slop](https://github.com/dmmulroy/anti-slop) rules (generic
-and Effect; see `tools/oxlint/anti-slop/UPSTREAM.md`), runs the Bun tests, and
-gates the change with `fallow audit`.
+`chauffeur-bench` compares OpenCode with and without Chauffeur on a task suite;
+see [`bench/README.md`](bench/README.md).
+
+The demos above were recorded with
+[terminal-control](https://github.com/anomalyco/terminal-control) in throwaway
+repositories, with a stub `jira` CLI.
