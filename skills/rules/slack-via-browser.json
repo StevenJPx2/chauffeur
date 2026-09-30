@@ -3,7 +3,7 @@
   "id": "slack-via-browser",
   "name": "Slack through a browser",
   "on": "tool_result",
-  "when": { "tools": ["shell", "webfetch", "execute"] },
+  "when": { "tools": ["shell", "webfetch", "execute"], "input_excludes": ["slackcli"] },
   "steps": [
     {
       "id": "misuse",

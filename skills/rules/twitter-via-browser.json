@@ -3,7 +3,7 @@
   "id": "twitter-via-browser",
   "name": "X/Twitter through a browser",
   "on": "tool_result",
-  "when": { "tools": ["shell", "webfetch", "execute"] },
+  "when": { "tools": ["shell", "webfetch", "execute"], "input_excludes": ["twitter-cli"] },
   "steps": [
     {
       "id": "misuse",

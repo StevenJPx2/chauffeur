@@ -214,6 +214,10 @@ impl Rules {
         let agent = &signal.agent_id;
         let book = self.books.rules(agent, trigger);
         let tools = self.histories.turn_tools(agent);
+        let input = match &signal.kind {
+            SignalKind::ToolResult { input, .. } => input.as_str(),
+            _ => "",
+        };
         let rules: Vec<Rule> = self
             .rules_for(workspace)
             .into_iter()
@@ -221,6 +225,13 @@ impl Rules {
             .filter(|rule| rule.on == trigger)
             .filter(|rule| {
                 tool.is_none_or(|tool| rule.when.tools.iter().any(|watched| watched == tool))
+            })
+            .filter(|rule| {
+                !rule
+                    .when
+                    .input_excludes
+                    .iter()
+                    .any(|text| input.contains(text.as_str()))
             })
             .filter(|rule| self.histories.admits(&rule.when, agent, workspace))
             .filter(|rule| self.may_fire(agent, rule, signal.at))

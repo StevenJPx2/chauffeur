@@ -499,6 +499,72 @@ fn the_shipped_rules_load_and_hand_over_shipped_skills() {
     }
 }
 
+fn shell(at: u64, command: &str) -> Signal {
+    signal(
+        at,
+        SignalKind::ToolResult {
+            tool: "shell".into(),
+            ok: true,
+            workspace: String::new(),
+            input: serde_json::to_string(&json!({ "command": command })).unwrap(),
+            error: String::new(),
+            user_request: String::new(),
+            evidence: String::new(),
+            candidates: Vec::new(),
+        },
+    )
+}
+
+#[test]
+fn a_call_already_using_the_cli_is_not_judged_by_its_browser_rule() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let rules = load_dir(&root.join("skills/rules")).unwrap();
+    let mut engine = Engine::hosted(vec![Box::new(Judging::new(Rules::new(rules)))]).unwrap();
+    let github = |ids: Vec<String>| ids.iter().any(|id| id.contains("github-via-browser"));
+
+    for (at, command) in [
+        (1, "gh pr edit 2660 --title \"fix: spacing\""),
+        (
+            2,
+            "gh api repos/AdeptMind/hpdp/actions/jobs/1/logs > ci.log",
+        ),
+        (3, "cd main && git push origin feat/x"),
+    ] {
+        assert!(
+            !github(asked(&mut engine, &shell(at, command))),
+            "{command}"
+        );
+    }
+    assert!(github(asked(
+        &mut engine,
+        &shell(
+            4,
+            "curl -s https://api.github.com/repos/AdeptMind/hpdp/pulls/899"
+        )
+    )));
+}
+
+#[test]
+fn input_excludes_is_only_for_tool_results_and_bounded() {
+    let turn_end = with(
+        reminder("r", json!({})),
+        "when",
+        json!({ "input_excludes": ["gh "] }),
+    );
+    assert!(
+        parsed(&turn_end)
+            .unwrap_err()
+            .contains("only to tool_result")
+    );
+
+    let blank = with(
+        misuse("m"),
+        "when",
+        json!({ "tools": ["shell"], "input_excludes": [" "] }),
+    );
+    assert!(parsed(&blank).unwrap_err().contains("input_excludes"));
+}
+
 // Project rules.
 
 const PR: &str = r#"{

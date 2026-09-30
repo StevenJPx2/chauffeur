@@ -91,6 +91,11 @@ pub struct Gate {
     /// At least one of these integration events arrived, as `source:kind`.
     #[serde(default)]
     pub hooks: Vec<String>,
+    /// For `tool_result`: the call's input contains none of these, such as
+    /// `gh ` for a rule steering GitHub work toward gh. Checked before Jev,
+    /// so a call already using the right command is never judged.
+    #[serde(default)]
+    pub input_excludes: Vec<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -227,6 +232,27 @@ impl Rule {
             if let Some(value) = values.iter().find(|value| !fact(value)) {
                 return Err(format!("{}: invalid when.{field} value {value:?}", self.id));
             }
+        }
+
+        // Text inside a call's input, where spaces matter ("gh " is not "ghost").
+        let excludes = &gate.input_excludes;
+        let text = |value: &String| {
+            !value.trim().is_empty()
+                && value.len() <= MAX_ID_BYTES
+                && !value.chars().any(char::is_control)
+        };
+
+        if excludes.len() > MAX_LIST || !excludes.iter().all(text) {
+            return Err(format!(
+                "{}: when.input_excludes lists at most {MAX_LIST} texts of 1-{MAX_ID_BYTES} bytes",
+                self.id
+            ));
+        }
+        if !excludes.is_empty() && self.on != Trigger::ToolResult {
+            return Err(format!(
+                "{}: when.input_excludes applies only to tool_result",
+                self.id
+            ));
         }
 
         Ok(())

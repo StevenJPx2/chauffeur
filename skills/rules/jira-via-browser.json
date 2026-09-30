@@ -3,7 +3,7 @@
   "id": "jira-via-browser",
   "name": "Jira through a browser",
   "on": "tool_result",
-  "when": { "tools": ["shell", "webfetch", "execute"] },
+  "when": { "tools": ["shell", "webfetch", "execute"], "input_excludes": ["jira "] },
   "steps": [
     {
       "id": "misuse",

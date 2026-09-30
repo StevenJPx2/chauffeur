@@ -3,11 +3,14 @@
   "id": "github-via-browser",
   "name": "GitHub through a browser",
   "on": "tool_result",
-  "when": { "tools": ["shell", "webfetch", "execute"] },
+  "when": {
+    "tools": ["shell", "webfetch", "execute"],
+    "input_excludes": ["gh ", "git ", "\"gh\"", "\"git\""]
+  },
   "steps": [
     {
       "id": "misuse",
-      "question": "Does this call use a browser, browser-harness, or raw web requests to inspect or change GitHub repositories, files, issues, PRs, reviews, or actions where the gh command line can do it directly? Ignore tasks that specifically require viewing or testing the GitHub web UI.",
+      "question": "Does this call use a browser, browser-harness, or raw web requests (curl or fetch of github.com or api.github.com) to inspect or change GitHub repositories, files, issues, PRs, reviews, or actions where the gh command line can do it directly? Answer no when the call already runs gh or git. Ignore tasks that specifically require viewing or testing the GitHub web UI.",
       "yes_at_or_above": 0.7,
       "minimum_confidence": 0.4
     }
