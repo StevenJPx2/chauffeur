@@ -7,7 +7,7 @@ rejected, and `chauffeur skill validate PATH` checks one.
 
 | Directory | What it holds |
 |---|---|
-| `permission/` | Permission contracts: which edits, shell commands, and outside directories OpenCode would ask about that Jev may approve. |
+| `permission/` | Permission contracts: which edits, shell commands, and outside directories OpenCode would ask about that Jev may approve, and `shell-file-write-guard`, which denies a shell command that rewrites project files by script, heredoc, or redirect. A contract outcome may `abstain`: it is left out when outcomes combine, so a guard neither approves nor holds anything else. |
 | `rules/` | Rules: steers after a tool call, with an optional skill to hand over, and idle reminders at a turn end. |
 | `rulebooks/` | Rulebooks: named sets of rules the user starts in a session with a slash command, such as `/goal <objective>`. |
 | `safety/` | The backstop's deny and confirm patterns, redaction shapes, and the bars for learning from them. |

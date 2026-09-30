@@ -7,8 +7,10 @@ import { type HistoryMessage, Host } from "./host.js"
 import { signal, TEXT_CODE_POINTS, type Resource, type SignalKind } from "./protocol.js"
 import { clip, clipStart, isIntegrationMessage, userText } from "./text.js"
 
-// Permission is synchronous for the host; past this the request asks.
-const PERMISSION_TIMEOUT = "600 millis"
+// Permission is synchronous for the host; past this the request asks. The
+// engine runs permission first, but may still finish a Jev call already under
+// way (300-400 ms) before its own; 600 ms timed out 3 in 4 such requests.
+const PERMISSION_TIMEOUT = "2 seconds"
 
 const MAX_RESOURCES = 32
 

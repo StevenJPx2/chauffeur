@@ -14,6 +14,8 @@ const EDIT_JSON: &[u8] = include_bytes!("../../../skills/permission/workspace-ed
 const SHELL_JSON: &[u8] = include_bytes!("../../../skills/permission/workspace-shell-gate.json");
 const DIRECTORY_JSON: &[u8] =
     include_bytes!("../../../skills/permission/external-directory-gate.json");
+const WRITE_GUARD_JSON: &[u8] =
+    include_bytes!("../../../skills/permission/shell-file-write-guard.json");
 
 /// System One answers each contract question with this P(yes), or fails.
 /// Core's own harm and secret probes are answered no.
@@ -294,4 +296,74 @@ fn the_backstop_denies_irreversible_harm_without_consulting_system_one() {
     assert_eq!(decided, PermissionDecision::Deny);
     assert!(message.unwrap().contains("irreversible"));
     assert_eq!(*calls.lock().unwrap(), 0);
+}
+
+/// Answers each contract by its ID: the shell gate `shell`, the write guard
+/// `guard`; core's probes no.
+struct PerContract {
+    shell: f32,
+    guard: f32,
+}
+
+impl SystemOne for PerContract {
+    fn name(&self) -> &str {
+        "per-contract"
+    }
+
+    fn ask(&mut self, _: &str, questions: &[Question]) -> Result<Vec<Answer>, SystemOneError> {
+        Ok(questions
+            .iter()
+            .map(|question| {
+                let p = match question.id.as_str() {
+                    id if id.ends_with("workspace-shell-gate") => self.shell,
+                    id if id.ends_with("shell-file-write-guard") => self.guard,
+                    _ => 0.0,
+                };
+
+                Answer {
+                    id: question.id.clone(),
+                    value: AnswerValue::Noul(p),
+                    confidence: None,
+                }
+            })
+            .collect())
+    }
+}
+
+fn shell_with_guard(shell: f32, guard: f32, contracts: &[&[u8]]) -> Vec<Effect> {
+    let skills = contracts
+        .iter()
+        .map(|json| Skill::from_json(json).unwrap())
+        .collect();
+    let capabilities: Vec<Box<dyn Capability>> = vec![Box::new(Permission::new(skills))];
+    let mut engine = Engine::new(Box::new(PerContract { shell, guard }), capabilities).unwrap();
+    let command = "node -e 'fs.writeFileSync(\"src/app.ts\", s)'";
+
+    engine
+        .ingest(&request(1, "shell", command, command))
+        .unwrap()
+}
+
+#[test]
+fn the_write_guard_denies_a_script_write_even_when_the_shell_gate_approves() {
+    let (decided, message) = decision(&shell_with_guard(
+        0.9,
+        0.95,
+        &[SHELL_JSON, WRITE_GUARD_JSON],
+    ));
+
+    assert_eq!(decided, PermissionDecision::Deny);
+    assert!(message.unwrap().contains("edit, write, or patch tools"));
+}
+
+#[test]
+fn an_abstaining_guard_leaves_the_decision_to_the_other_contracts() {
+    let approved = shell_with_guard(0.9, 0.1, &[SHELL_JSON, WRITE_GUARD_JSON]);
+    assert_eq!(decision(&approved).0, PermissionDecision::Allow);
+
+    let unsure = shell_with_guard(0.9, 0.5, &[SHELL_JSON, WRITE_GUARD_JSON]);
+    assert_eq!(decision(&unsure).0, PermissionDecision::Allow);
+
+    // Alone, an abstaining guard decides nothing: the host's own ask stands.
+    assert!(shell_with_guard(0.9, 0.1, &[WRITE_GUARD_JSON]).is_empty());
 }

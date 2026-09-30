@@ -1,6 +1,7 @@
 //! Owns the engine on a dedicated thread. The Jev client blocks on HTTPS, so
 //! the engine never runs on the async runtime.
 
+use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
@@ -16,7 +17,7 @@ use chauffeur_capability_skill_exposure::{SkillExposure, SkillExposureConfig};
 use chauffeur_capability_tool_exposure::{ToolExposure, ToolExposureConfig};
 use chauffeur_core::{
     Backstop, Capability, Effect, Engine, Judging, LearningConfig, RedactionConfig, Redactor,
-    Signal, load_config,
+    Signal, SignalKind, load_config,
 };
 use chauffeur_judge_jev::{JevClient, JevConfig};
 use chauffeur_plugin_anthropic::AnthropicProvider;
@@ -85,7 +86,9 @@ impl EngineHandle {
                     restore(&mut engine, path);
                 }
 
-                while let Some(job) = queue.blocking_recv() {
+                let mut pending = VecDeque::new();
+
+                while let Some(job) = next_job(&mut queue, &mut pending) {
                     if job.reply.is_closed() {
                         continue;
                     }
@@ -148,6 +151,25 @@ impl EngineHandle {
             .map_err(|_| "engine timed out".to_string())?
             .map_err(|_| "engine dropped the signal".to_string())?
     }
+}
+
+/// The next job to run: a permission request first, since the host holds a
+/// tool call until it is answered, then the rest in arrival order. Waits
+/// only when nothing is pending; `None` once the daemon is shutting down.
+fn next_job(queue: &mut mpsc::Receiver<Job>, pending: &mut VecDeque<Job>) -> Option<Job> {
+    if pending.is_empty() {
+        pending.push_back(queue.blocking_recv()?);
+    }
+    while let Ok(job) = queue.try_recv() {
+        pending.push_back(job);
+    }
+
+    let urgent = pending
+        .iter()
+        .position(|job| matches!(job.signal.kind, SignalKind::PermissionRequest { .. }))
+        .unwrap_or(0);
+
+    pending.remove(urgent)
 }
 
 /// Larger state files are ignored rather than read.
@@ -394,5 +416,57 @@ mod tests {
         };
 
         assert!(error.contains("skil-exposure") && error.contains("rules, skill-exposure"));
+    }
+
+    fn job(kind: SignalKind) -> Job {
+        let (reply, _) = oneshot::channel();
+
+        Job {
+            signal: Signal {
+                agent_id: "ses".into(),
+                at: 1,
+                kind,
+            },
+            reply,
+        }
+    }
+
+    fn turn_end() -> SignalKind {
+        SignalKind::TurnEnd {
+            workspace: String::new(),
+            user_request: String::new(),
+            summary: "first".into(),
+        }
+    }
+
+    fn permission() -> SignalKind {
+        SignalKind::PermissionRequest {
+            action: "shell".into(),
+            resources: Vec::new(),
+            request: String::new(),
+            workspace: String::new(),
+            user_requests: Vec::new(),
+            host_decision: chauffeur_core::PermissionDecision::Ask,
+        }
+    }
+
+    #[test]
+    fn a_waiting_permission_request_runs_before_earlier_signals() {
+        let (jobs, mut queue) = mpsc::channel(8);
+        let mut pending = VecDeque::new();
+
+        for kind in [turn_end(), permission(), turn_end()] {
+            jobs.try_send(job(kind)).unwrap();
+        }
+
+        let order: Vec<bool> = std::iter::from_fn(|| {
+            (!pending.is_empty() || !queue.is_empty())
+                .then(|| next_job(&mut queue, &mut pending))
+                .flatten()
+        })
+        .map(|job| matches!(job.signal.kind, SignalKind::PermissionRequest { .. }))
+        .collect();
+
+        assert_eq!(order, [true, false, false]);
     }
 }

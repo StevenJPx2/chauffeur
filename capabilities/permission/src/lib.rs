@@ -191,15 +191,20 @@ fn judged<'a>(skill: &'a Skill, judgment: &Judgment<'_>) -> &'a Outcome {
 }
 
 /// The most restrictive outcome wins: deny, then ask, then allow. Prompt and
-/// remind outcomes ask, carrying their reminder.
+/// remind outcomes ask, carrying their reminder. Abstentions are left out;
+/// when every outcome abstains, the host decides.
 fn combine(agent_id: &str, outcomes: &[&Outcome]) -> Option<Effect> {
-    let chosen = outcomes.iter().min_by_key(|outcome| rank(outcome.effect))?;
+    let chosen = outcomes
+        .iter()
+        .filter(|outcome| outcome.effect != OutcomeEffect::Abstain)
+        .min_by_key(|outcome| rank(outcome.effect))?;
     let decision = match chosen.effect {
         OutcomeEffect::Allow => PermissionDecision::Allow,
         OutcomeEffect::Deny => PermissionDecision::Deny,
         OutcomeEffect::Ask | OutcomeEffect::Prompt | OutcomeEffect::Remind => {
             PermissionDecision::Ask
         }
+        OutcomeEffect::Abstain => return None,
     };
     let message = (decision != PermissionDecision::Allow).then(|| {
         chosen
@@ -220,6 +225,7 @@ fn rank(effect: OutcomeEffect) -> u8 {
         OutcomeEffect::Deny => 0,
         OutcomeEffect::Ask | OutcomeEffect::Prompt | OutcomeEffect::Remind => 1,
         OutcomeEffect::Allow => 2,
+        OutcomeEffect::Abstain => 3,
     }
 }
 

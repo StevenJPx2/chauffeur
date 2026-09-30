@@ -21,6 +21,9 @@ pub enum Effect {
     Ask,
     Prompt,
     Remind,
+    /// No opinion: left out when outcomes combine, so a contract that only
+    /// guards against one misuse neither approves nor holds anything else.
+    Abstain,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]

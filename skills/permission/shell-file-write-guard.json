@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "identity": {
+    "id": "shell-file-write-guard",
+    "name": "File writes through the shell",
+    "version": "1.0.0"
+  },
+  "match": {
+    "events": ["permission.evaluate"],
+    "actions": ["shell"]
+  },
+  "predicates": {
+    "required_evidence": ["resource_present"],
+    "forbidden_evidence": []
+  },
+  "decision": {
+    "id": "writes_project_files_by_script",
+    "type": "noul",
+    "instructions": "Does this shell command create or change files in the project (source, config, tests or docs) through a script or text rewrite, such as python or node -e writing files, sed -i, perl -pi, awk into a file, a heredoc, or a > or >> redirect into a project file, where the agent's edit, write or patch tools would make the same change? Answer no when output goes only to a temporary file, a log, or /dev/null; when a tool whose job is to write files runs, such as a formatter, package manager, git, a code generator, or a build or test command; and when the command only reads.",
+    "minimum_confidence": 0.4,
+    "positive_at_or_above": 0.7,
+    "negative_at_or_below": 0.3
+  },
+  "outcomes": {
+    "positive": {
+      "effect": "deny",
+      "message": "Chauffeur: change project files with the edit, write, or patch tools, not a shell script, heredoc, or redirect. They show the change and keep permission checks working."
+    },
+    "negative": {
+      "effect": "abstain",
+      "message": "Unused: this contract has no opinion on commands that do not write project files."
+    },
+    "uncertain": {
+      "effect": "abstain",
+      "message": "Unused: an unsure answer leaves the command to the other contracts."
+    },
+    "missing_evidence": {
+      "effect": "abstain",
+      "message": "Unused: an empty command is left to the other contracts."
+    },
+    "judge_failure": {
+      "effect": "abstain",
+      "message": "Unused: a failed judgment is left to the other contracts."
+    },
+    "cooldown": {
+      "effect": "abstain",
+      "message": "Unused: this contract has no cooldown."
+    }
+  },
+  "cooldown_seconds": 0
+}
