@@ -7,14 +7,14 @@
   "steps": [
     {
       "id": "misuse",
-      "question": "Does this call view a file's contents with cat, head, or tail instead of the read tool?",
+      "question": "Does this call view a file's contents to read it, with cat, head, tail, sed -n, awk, or a similar printer, instead of the read tool? Answer no when the output is filtered by a search such as rg or grep, or piped into another program to process rather than to read.",
       "yes_at_or_above": 0.65,
       "minimum_confidence": 0.4
     }
   ],
   "then": {
     "delivery": "steer",
-    "text": "Chauffeur: View files with the read tool, not cat, head, or tail."
+    "text": "Chauffeur: View files with the read tool, not cat, head, tail, or sed -n."
   },
   "cooldown_seconds": 120
 }

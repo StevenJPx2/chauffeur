@@ -331,6 +331,16 @@ impl SystemOne for PerContract {
 }
 
 fn shell_with_guard(shell: f32, guard: f32, contracts: &[&[u8]]) -> Vec<Effect> {
+    shell_decided(shell, guard, contracts, PermissionDecision::Ask)
+}
+
+/// One `node -e` file write the host decided `host` on, judged by `contracts`.
+fn shell_decided(
+    shell: f32,
+    guard: f32,
+    contracts: &[&[u8]],
+    host: PermissionDecision,
+) -> Vec<Effect> {
     let skills = contracts
         .iter()
         .map(|json| Skill::from_json(json).unwrap())
@@ -338,10 +348,39 @@ fn shell_with_guard(shell: f32, guard: f32, contracts: &[&[u8]]) -> Vec<Effect> 
     let capabilities: Vec<Box<dyn Capability>> = vec![Box::new(Permission::new(skills))];
     let mut engine = Engine::new(Box::new(PerContract { shell, guard }), capabilities).unwrap();
     let command = "node -e 'fs.writeFileSync(\"src/app.ts\", s)'";
+    let mut signal = request(1, "shell", command, command);
 
-    engine
-        .ingest(&request(1, "shell", command, command))
-        .unwrap()
+    if let SignalKind::PermissionRequest { host_decision, .. } = &mut signal.kind {
+        *host_decision = host;
+    }
+
+    engine.ingest(&signal).unwrap()
+}
+
+#[test]
+fn the_write_guard_also_vetoes_what_the_host_would_allow() {
+    let contracts: &[&[u8]] = &[SHELL_JSON, WRITE_GUARD_JSON];
+    let vetoed = shell_decided(0.9, 0.95, contracts, PermissionDecision::Allow);
+
+    assert_eq!(decision(&vetoed).0, PermissionDecision::Deny);
+    // The shell gate judges only asks; with the guard abstaining, the
+    // host's allow stands untouched.
+    assert!(shell_decided(0.1, 0.1, contracts, PermissionDecision::Allow).is_empty());
+}
+
+#[test]
+fn a_contract_judging_allowed_requests_may_only_deny_or_abstain() {
+    let mut contract: serde_json::Value = serde_json::from_slice(WRITE_GUARD_JSON).unwrap();
+    contract["outcomes"]["negative"]["effect"] = serde_json::json!("allow");
+    let error = Skill::from_json(&serde_json::to_vec(&contract).unwrap()).unwrap_err();
+
+    assert!(error.contains("only deny or abstain"), "{error}");
+
+    let mut deny: serde_json::Value = serde_json::from_slice(SHELL_JSON).unwrap();
+    deny["match"]["host_decisions"] = serde_json::json!(["deny"]);
+    let error = Skill::from_json(&serde_json::to_vec(&deny).unwrap()).unwrap_err();
+
+    assert!(error.contains("host_decisions"), "{error}");
 }
 
 #[test]

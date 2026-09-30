@@ -43,20 +43,17 @@ impl Permission {
         }
     }
 
-    fn matching(&self, action: &str) -> Vec<&Skill> {
+    /// Contracts for `action` that judge what the host decided: most judge
+    /// only what it would ask about; a guard may also judge what it allows.
+    fn matching(&self, action: &str, host: PermissionDecision) -> Vec<&Skill> {
         self.contracts
             .iter()
             .filter(|skill| {
-                skill
-                    .match_conditions
-                    .events
-                    .iter()
-                    .any(|event| event == EVENT)
-                    && skill
-                        .match_conditions
-                        .actions
-                        .iter()
-                        .any(|allowed| allowed == action)
+                let conditions = &skill.match_conditions;
+
+                conditions.events.iter().any(|event| event == EVENT)
+                    && conditions.actions.iter().any(|allowed| allowed == action)
+                    && conditions.host_decisions.contains(&host)
             })
             .collect()
     }
@@ -72,14 +69,14 @@ impl Permission {
     fn outcomes<'a>(
         &'a self,
         signal: &Signal,
-        action: &str,
+        (action, host): (&str, PermissionDecision),
         judgment: &Judgment<'_>,
     ) -> (Vec<&'a Outcome>, Vec<String>) {
         let evidence = evidence::collect(&signal.kind);
         let mut outcomes = Vec::new();
         let mut record = Vec::new();
 
-        for skill in self.matching(action) {
+        for skill in self.matching(action, host) {
             let id = skill.identity.id.clone();
 
             if !contract::missing_evidence(skill, &evidence).is_empty() {
@@ -108,8 +105,13 @@ impl Permission {
         }
     }
 
-    fn answer(&mut self, signal: &Signal, action: &str, judgment: &Judgment<'_>) -> Vec<Effect> {
-        let (outcomes, record) = self.outcomes(signal, action, judgment);
+    fn answer(
+        &mut self,
+        signal: &Signal,
+        request: (&str, PermissionDecision),
+        judgment: &Judgment<'_>,
+    ) -> Vec<Effect> {
+        let (outcomes, record) = self.outcomes(signal, request, judgment);
         let effect = combine(&signal.agent_id, &outcomes);
 
         self.record(&signal.agent_id, record, signal.at);
@@ -134,17 +136,15 @@ impl Capability for Permission {
     }
 
     fn plan(&mut self, _: &Situation, signal: &Signal) -> Plan {
-        let SignalKind::PermissionRequest {
-            action,
-            host_decision: PermissionDecision::Ask,
-            ..
-        } = &signal.kind
+        // A host denial always stands; only its asks and allows are judged.
+        let Some((action, host)) =
+            request(signal).filter(|(_, host)| *host != PermissionDecision::Deny)
         else {
             return Plan::Skip;
         };
         let evidence = evidence::collect(&signal.kind);
         let questions: Vec<Question> = self
-            .matching(action)
+            .matching(action, host)
             .into_iter()
             .filter(|skill| contract::missing_evidence(skill, &evidence).is_empty())
             .filter(|skill| !self.cooling(&signal.agent_id, skill, signal.at))
@@ -152,9 +152,7 @@ impl Capability for Permission {
             .collect();
 
         if questions.is_empty() {
-            let action = action.clone();
-
-            return match self.answer(signal, &action, &Judgment::NotAsked) {
+            return match self.answer(signal, (action, host), &Judgment::NotAsked) {
                 effects if effects.is_empty() => Plan::Skip,
                 effects => Plan::Settled(effects),
             };
@@ -164,12 +162,24 @@ impl Capability for Permission {
     }
 
     fn decide(&mut self, signal: &Signal, answers: Option<&[Answer]>) -> Vec<Effect> {
-        let SignalKind::PermissionRequest { action, .. } = &signal.kind else {
+        let Some(request) = request(signal) else {
             return Vec::new();
         };
         let judgment = answers.map_or(Judgment::Failed, Judgment::Answered);
 
-        self.answer(signal, &action.clone(), &judgment)
+        self.answer(signal, request, &judgment)
+    }
+}
+
+/// A permission request's action and the host's own decision.
+fn request(signal: &Signal) -> Option<(&str, PermissionDecision)> {
+    match &signal.kind {
+        SignalKind::PermissionRequest {
+            action,
+            host_decision,
+            ..
+        } => Some((action.as_str(), *host_decision)),
+        _ => None,
     }
 }
 

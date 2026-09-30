@@ -5,7 +5,7 @@ use std::fs::File;
 use std::io::Read;
 use std::path::Path;
 
-use chauffeur_core::{Answer, AnswerValue};
+use chauffeur_core::{Answer, AnswerValue, PermissionDecision};
 use serde::{Deserialize, Serialize};
 
 pub const MAX_SKILL_BYTES: usize = 65_536;
@@ -55,6 +55,15 @@ pub struct SkillIdentity {
 pub struct MatchConditions {
     pub events: Vec<String>,
     pub actions: Vec<String>,
+    /// The host decisions the contract judges: `ask` by default. A guard
+    /// that must also see what the host would allow lists `allow`; it may
+    /// then only deny or abstain, never approve or hold.
+    #[serde(default = "host_asks")]
+    pub host_decisions: Vec<PermissionDecision>,
+}
+
+fn host_asks() -> Vec<PermissionDecision> {
+    vec![PermissionDecision::Ask]
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, Eq, PartialEq)]
@@ -258,6 +267,7 @@ impl Skill {
         validate_predicate_sets(self)?;
         validate_question(&self.decision)?;
         validate_outcomes(&self.outcomes)?;
+        validate_host_decisions(self)?;
 
         if self.cooldown_seconds > 86_400 {
             return Err("cooldown_seconds exceeds 86400".into());
@@ -472,6 +482,40 @@ fn validate_outcomes(outcomes: &SkillOutcomes) -> Result<(), String> {
         if outcome.effect == Effect::Allow {
             return Err(format!("outcomes.{name} cannot allow the action"));
         }
+    }
+
+    Ok(())
+}
+
+/// A contract judges what the host would ask about, and may also judge what
+/// it would allow. The host's allow can then only be vetoed: every outcome
+/// denies or abstains, so the contract never turns an allow into an ask or
+/// grants anything itself. A host denial always stands.
+fn validate_host_decisions(skill: &Skill) -> Result<(), String> {
+    let decisions = &skill.match_conditions.host_decisions;
+
+    if decisions.is_empty() || decisions.len() > 2 || decisions.contains(&PermissionDecision::Deny)
+    {
+        return Err("match.host_decisions lists ask, allow, or both".into());
+    }
+    if !decisions.contains(&PermissionDecision::Allow) {
+        return Ok(());
+    }
+
+    let outcomes = &skill.outcomes;
+    let vetoes = [
+        &outcomes.positive,
+        &outcomes.negative,
+        &outcomes.uncertain,
+        &outcomes.missing_evidence,
+        &outcomes.judge_failure,
+        &outcomes.cooldown,
+    ]
+    .iter()
+    .all(|outcome| matches!(outcome.effect, Effect::Deny | Effect::Abstain));
+
+    if !vetoes {
+        return Err("a contract judging allowed requests may only deny or abstain".into());
     }
 
     Ok(())
