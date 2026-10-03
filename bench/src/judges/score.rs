@@ -44,7 +44,28 @@ struct Tally {
     failed_cases: u32,
     latencies: Vec<u64>,
     by_capability: BTreeMap<String, (u32, u32)>,
-    labelled: (u32, u32),
+    labelled: Labelled,
+}
+
+/// A judge's answers to labelled disputes: right, confidently wrong, or
+/// unsure (no action), out of the total.
+#[derive(Clone, Copy, Default)]
+struct Labelled {
+    right: u32,
+    wrong: u32,
+    unsure: u32,
+    total: u32,
+}
+
+impl Labelled {
+    fn add(&mut self, theirs: Option<&str>, label: &str) {
+        self.total += 1;
+        match theirs {
+            Some(theirs) if theirs == label => self.right += 1,
+            Some("unsure") | None => self.unsure += 1,
+            Some(_) => self.wrong += 1,
+        }
+    }
 }
 
 /// Every (case, question) where some judge acts differently from the reference.
@@ -123,8 +144,7 @@ pub fn report(cases: &[Case], outcomes: &[Outcome], labels: &BTreeMap<String, St
             entry.0 += u32::from(agrees);
             entry.1 += 1;
             if let Some(label) = labels.get(&format!("{}/{id}", case.id)) {
-                tally.labelled.0 += u32::from(theirs.as_deref() == Some(label.as_str()));
-                tally.labelled.1 += 1;
+                tally.labelled.add(theirs.as_deref(), label);
             }
         }
     }
@@ -137,9 +157,9 @@ pub fn report(cases: &[Case], outcomes: &[Outcome], labels: &BTreeMap<String, St
     )
 }
 
-/// How often the recorded reference itself matches the labels.
-fn reference_accuracy(cases: &[Case], labels: &BTreeMap<String, String>) -> (u32, u32) {
-    let mut right = (0, 0);
+/// How the recorded reference itself fares against the labels.
+fn reference_accuracy(cases: &[Case], labels: &BTreeMap<String, String>) -> Labelled {
+    let mut labelled = Labelled::default();
 
     for case in cases {
         for (id, question) in questions(case) {
@@ -147,21 +167,18 @@ fn reference_accuracy(cases: &[Case], labels: &BTreeMap<String, String>) -> (u32
                 continue;
             };
             let kind = question["type"].as_str().unwrap_or_default();
-            right.0 += u32::from(
-                action(kind, &case.reference[id.as_str()]).as_deref() == Some(label.as_str()),
-            );
-            right.1 += 1;
+            labelled.add(action(kind, &case.reference[id.as_str()]).as_deref(), label);
         }
     }
 
-    right
+    labelled
 }
 
 fn render(
     cases: usize,
     tallies: &BTreeMap<&str, Tally>,
     labels: &BTreeMap<String, String>,
-    reference: (u32, u32),
+    reference: Labelled,
 ) -> String {
     let mut out = format!(
         "# Judge benchmark\n\n{cases} recorded judgments, replayed against each judge. \
@@ -174,7 +191,7 @@ fn render(
 
     out.push_str("| Judge | Same action | Failed calls | p50 ms | p95 ms |");
     out.push_str(if labelled {
-        " Right on disputes |\n|---|---|---|---|---|---|\n"
+        " Disputes: right | wrong | unsure |\n|---|---|---|---|---|---|---|---|\n"
     } else {
         "\n|---|---|---|---|---|\n"
     });
@@ -188,15 +205,18 @@ fn render(
             percentile(&tally.latencies, 95),
         );
         if labelled {
-            let _ = write!(out, " {} |", percent(tally.labelled.0, tally.labelled.1));
+            out.push_str(&labelled_cells(tally.labelled));
         }
         out.push('\n');
     }
     if labelled {
         let _ = writeln!(
             out,
-            "\nThe recorded Jev answers were right on {} of the disputes.",
-            percent(reference.0, reference.1)
+            "\nOn the {} labelled disputes, the recorded Jev answers were right | wrong | \
+             unsure:{}\n\n\"Wrong\" is a confident answer against the label, which Chauffeur \
+             acts on; \"unsure\" takes no action.",
+            reference.total,
+            labelled_cells(reference)
         );
     }
 
@@ -231,6 +251,15 @@ fn by_capability(tallies: &BTreeMap<&str, Tally>) -> String {
     }
 
     out
+}
+
+fn labelled_cells(labelled: Labelled) -> String {
+    format!(
+        " {} | {} | {} |",
+        percent(labelled.right, labelled.total),
+        percent(labelled.wrong, labelled.total),
+        percent(labelled.unsure, labelled.total)
+    )
 }
 
 fn percent(part: u32, whole: u32) -> String {
@@ -279,6 +308,26 @@ mod tests {
             Some("1")
         );
         assert_eq!(action("noul", &json!({})), None);
+    }
+
+    #[test]
+    fn labelled_answers_split_into_right_wrong_and_unsure() {
+        let mut labelled = Labelled::default();
+
+        labelled.add(Some("no"), "no");
+        labelled.add(Some("yes"), "no");
+        labelled.add(Some("unsure"), "no");
+        labelled.add(None, "yes");
+
+        assert_eq!(
+            (
+                labelled.right,
+                labelled.wrong,
+                labelled.unsure,
+                labelled.total
+            ),
+            (1, 1, 2, 4)
+        );
     }
 
     #[test]
