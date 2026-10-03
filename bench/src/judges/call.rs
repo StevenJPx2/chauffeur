@@ -21,6 +21,10 @@ pub struct Judge {
     /// A field wrapping the reply, such as Workers AI's `result`.
     #[serde(default)]
     pub unwrap: Option<String>,
+    /// Send question IDs with only letters, digits, `_` and `-`, mapping the
+    /// answers back: Workers AI rejects Chauffeur's `capability/name` IDs.
+    #[serde(default)]
+    pub safe_ids: bool,
 }
 
 pub struct Caller {
@@ -29,6 +33,7 @@ pub struct Caller {
     key: Option<String>,
     model: String,
     unwrap: Option<String>,
+    safe_ids: bool,
 }
 
 impl Caller {
@@ -51,6 +56,7 @@ impl Caller {
             key,
             model: judge.model.clone(),
             unwrap: judge.unwrap.clone(),
+            safe_ids: judge.safe_ids,
         })
     }
 
@@ -61,6 +67,11 @@ impl Caller {
     pub fn ask(&self, request: &Value) -> Result<Map<String, Value>, String> {
         let mut body = request.clone();
         body["model"] = Value::String(self.model.clone());
+        let renamed = if self.safe_ids {
+            rename_ids(&mut body)
+        } else {
+            Vec::new()
+        };
 
         let mut post = self.http.post(&self.url).json(&body);
         if let Some(key) = &self.key {
@@ -80,11 +91,36 @@ impl Caller {
             None => &reply,
         };
 
-        reply["answers"]
+        let mut answers = reply["answers"]
             .as_object()
             .cloned()
-            .ok_or_else(|| format!("no answers: {}", clip(&reply.to_string())))
+            .ok_or_else(|| format!("no answers: {}", clip(&reply.to_string())))?;
+
+        for (original, safe) in renamed {
+            if let Some(answer) = answers.remove(&safe) {
+                answers.insert(original, answer);
+            }
+        }
+
+        Ok(answers)
     }
+}
+
+/// Rename each question to `q0`, `q1`, …; return (original, sent) pairs.
+fn rename_ids(body: &mut Value) -> Vec<(String, String)> {
+    let Some(questions) = body["questions"].as_object_mut() else {
+        return Vec::new();
+    };
+    let original = std::mem::take(questions);
+    let mut renamed = Vec::new();
+
+    for (index, (id, question)) in original.into_iter().enumerate() {
+        let safe = format!("q{index}");
+        questions.insert(safe.clone(), question);
+        renamed.push((id, safe));
+    }
+
+    renamed
 }
 
 fn env(name: &str, judge: &str) -> Result<String, String> {
@@ -118,7 +154,20 @@ fn clip(text: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::expand;
+    use super::{expand, rename_ids};
+
+    #[test]
+    fn renames_question_ids_and_keeps_the_mapping() {
+        let mut body =
+            serde_json::json!({ "questions": { "skill-exposure/drift": { "type": "noul" } } });
+        let renamed = rename_ids(&mut body);
+
+        assert_eq!(
+            renamed,
+            vec![("skill-exposure/drift".to_string(), "q0".to_string())]
+        );
+        assert_eq!(body["questions"]["q0"]["type"], "noul");
+    }
 
     #[test]
     fn expands_variables_in_the_url() {

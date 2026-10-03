@@ -10,14 +10,16 @@
     "url": "https://api.cloudflare.com/client/v4/accounts/{CLOUDFLARE_ACCOUNT_ID}/ai/run/@cf/cloudflare/clef",
     "model": "clef",
     "key_env": "CLOUDFLARE_AI_TOKEN",
-    "unwrap": "result"
+    "unwrap": "result",
+    "safe_ids": true
   },
   {
     "name": "clef-flash",
     "url": "https://api.cloudflare.com/client/v4/accounts/{CLOUDFLARE_ACCOUNT_ID}/ai/run/@cf/cloudflare/clef-flash",
     "model": "clef-flash",
     "key_env": "CLOUDFLARE_AI_TOKEN",
-    "unwrap": "result"
+    "unwrap": "result",
+    "safe_ids": true
   },
   {
     "name": "d1",
