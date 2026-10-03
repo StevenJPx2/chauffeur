@@ -53,6 +53,7 @@ pub fn serve_jev(
         api_key: "test".into(),
         model: "jev-test".into(),
         timeout: Duration::from_secs(5),
+        record: None,
     };
 
     (config, server)

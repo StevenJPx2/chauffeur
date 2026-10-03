@@ -3,6 +3,7 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
+use crate::judges::JudgeOptions;
 use crate::runner::RunOptions;
 
 /// The default model: the "base" setting, without a thinking variant.
@@ -18,8 +19,12 @@ commands:
   run [--tasks a,b] [--variants a,b] [--repeats 3] [--parallel 2]
       [--model openai/gpt-6-luna] [--out DIR] [--chauffeur BIN] [--opencode BIN]
   report DIR                             rebuild DIR/report.md from DIR/results.jsonl
+  judges CORPUS [--judges FILE] [--only a,b] [--out DIR] [--limit N]
+                                         replay judgments recorded with
+                                         CHAUFFEUR_RECORD_JUDGMENTS against each judge
+  judges-report DIR [--labels FILE]      rebuild a judges report, scoring disputes
 
---root defaults to the bench/ folder of this checkout.";
+--root defaults to the bench/ folder of this checkout; --judges to ROOT/judges.json.";
 
 /// A parsed invocation.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -33,9 +38,18 @@ pub struct Cli {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Command {
     List,
-    Verify { tasks: Option<Vec<String>> },
+    Verify {
+        tasks: Option<Vec<String>>,
+    },
     Run(RunOptions),
-    Report { dir: PathBuf },
+    Report {
+        dir: PathBuf,
+    },
+    Judges(JudgeOptions),
+    JudgesReport {
+        dir: PathBuf,
+        labels: Option<PathBuf>,
+    },
     Help,
 }
 
@@ -67,6 +81,17 @@ pub fn parse(args: &[String]) -> Result<Cli, String> {
                 dir: PathBuf::from(dir),
             },
             &[],
+        ),
+        ("judges", [corpus]) => (
+            Command::Judges(judge_options(&root, corpus, &flags)?),
+            &["judges", "only", "out", "limit"],
+        ),
+        ("judges-report", [dir]) => (
+            Command::JudgesReport {
+                dir: PathBuf::from(dir),
+                labels: flags.get("labels").map(PathBuf::from),
+            },
+            &["labels"],
         ),
         (name, _) => return Err(format!("unexpected arguments for {name}\n{USAGE}")),
     };
@@ -118,6 +143,29 @@ fn run_options(flags: &BTreeMap<String, String>) -> Result<RunOptions, String> {
             .get("opencode")
             .cloned()
             .unwrap_or_else(|| "opencode".into()),
+    })
+}
+
+fn judge_options(
+    root: &std::path::Path,
+    corpus: &str,
+    flags: &BTreeMap<String, String>,
+) -> Result<JudgeOptions, String> {
+    let limit = flags
+        .get("limit")
+        .map(|_| number(flags, "limit", 0))
+        .transpose()?;
+
+    Ok(JudgeOptions {
+        corpus: PathBuf::from(corpus),
+        judges: flags
+            .get("judges")
+            .map_or_else(|| root.join("judges.json"), PathBuf::from),
+        only: flags.get("only").map(|value| csv(value)),
+        out: flags
+            .get("out")
+            .map_or_else(|| PathBuf::from("judges-results"), PathBuf::from),
+        limit,
     })
 }
 

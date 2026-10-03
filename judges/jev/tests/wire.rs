@@ -109,6 +109,7 @@ fn client(base_url: String) -> JevClient {
         api_key: "test-key".into(),
         model: "jev-latest".into(),
         timeout: Duration::from_secs(5),
+        record: None,
     })
     .expect("client")
 }
@@ -145,6 +146,38 @@ fn sends_one_request_and_parses_the_live_answer_shape() {
         AnswerValue::Choice("openai/gpt-6-sol".into())
     );
     assert_eq!(answers[2].confidence, Some(0.53));
+}
+
+#[test]
+fn records_the_request_and_answers_for_replay() {
+    let path = std::env::temp_dir().join(format!("jev-record-{}.jsonl", std::process::id()));
+    let _ = std::fs::remove_file(&path);
+    let (base_url, server) = serve("200 OK", LIVE_RESPONSE);
+    let mut recording = JevClient::new(JevConfig {
+        base_url,
+        api_key: "test-key".into(),
+        model: "jev-latest".into(),
+        timeout: Duration::from_secs(5),
+        record: Some(path.clone()),
+    })
+    .expect("client");
+
+    recording.ask("state", &questions()).expect("answers");
+    server.join().expect("fixture");
+
+    let text = std::fs::read_to_string(&path).expect("recording");
+    let line: serde_json::Value = serde_json::from_str(text.trim()).expect("one json line");
+    let _ = std::fs::remove_file(&path);
+
+    assert_eq!(line["request"]["state"], "state");
+    assert_eq!(line["request"]["questions"]["lvl"]["criteria"][2], "high");
+    assert_eq!(
+        line["reply"]["answers"]["pick"]["choice"],
+        "openai/gpt-6-sol"
+    );
+    assert_eq!(line["reply"]["answers"]["pick"]["confidence"], 0.53_f32);
+    assert!((line["reply"]["answers"]["ok"]["noul"].as_f64().unwrap() - 0.97).abs() < 1e-6);
+    assert!(line["reply"]["answers"]["ok"].get("confidence").is_none());
 }
 
 #[test]

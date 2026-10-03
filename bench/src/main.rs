@@ -5,7 +5,7 @@ use std::process::ExitCode;
 
 use chauffeur_bench::cli::{self, Command};
 use chauffeur_bench::inputs::{self, Setup, Task};
-use chauffeur_bench::{report, runner, verify};
+use chauffeur_bench::{judges, report, runner, verify};
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -40,7 +40,17 @@ fn dispatch(root: &Path, command: Command) -> Result<ExitCode, String> {
 
             Ok(ExitCode::SUCCESS)
         }
+        Command::Judges(options) => print_path(judges::run(&options)?),
+        Command::JudgesReport { dir, labels } => {
+            print_path(judges::report(&dir, labels.as_deref())?)
+        }
     }
+}
+
+fn print_path(path: std::path::PathBuf) -> Result<ExitCode, String> {
+    println!("{}", path.display());
+
+    Ok(ExitCode::SUCCESS)
 }
 
 fn list(root: &Path) -> Result<(), String> {

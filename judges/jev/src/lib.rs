@@ -4,7 +4,10 @@
 //! every question against the state in one shared pass.
 
 use std::collections::HashMap;
-use std::time::Duration;
+use std::fs::OpenOptions;
+use std::io::Write;
+use std::path::PathBuf;
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use chauffeur_core::{
     Answer, AnswerValue, Question, QuestionKind, SystemOne, SystemOneError, validate_answers,
@@ -22,6 +25,9 @@ pub struct JevConfig {
     pub api_key: String,
     pub model: String,
     pub timeout: Duration,
+    /// Append every request and reply to this JSONL file, for replaying the
+    /// same judgments against other System One models.
+    pub record: Option<PathBuf>,
 }
 
 impl JevConfig {
@@ -38,6 +44,9 @@ impl JevConfig {
             api_key,
             model: std::env::var("TYPESAFE_DEFAULT_MODEL").unwrap_or_else(|_| DEFAULT_MODEL.into()),
             timeout: DEFAULT_TIMEOUT,
+            record: std::env::var_os("CHAUFFEUR_RECORD_JUDGMENTS")
+                .filter(|path| !path.is_empty())
+                .map(PathBuf::from),
         })
     }
 }
@@ -47,6 +56,7 @@ pub struct JevClient {
     endpoint: String,
     api_key: String,
     model: String,
+    record: Option<PathBuf>,
 }
 
 impl JevClient {
@@ -62,22 +72,16 @@ impl JevClient {
             endpoint: format!("{}/v1/systemone", config.base_url.trim_end_matches('/')),
             api_key: config.api_key,
             model: config.model,
+            record: config.record,
         })
     }
-}
 
-impl SystemOne for JevClient {
-    fn name(&self) -> &str {
-        "jev"
-    }
-
-    fn ask(&mut self, state: &str, questions: &[Question]) -> Result<Vec<Answer>, SystemOneError> {
-        let body = request_body(&self.model, state, questions);
+    fn call(&self, body: &Value) -> Result<Vec<Answer>, SystemOneError> {
         let response = self
             .http
             .post(&self.endpoint)
             .bearer_auth(&self.api_key)
-            .json(&body)
+            .json(body)
             .send()
             .map_err(|error| SystemOneError(format!("Jev request: {error}")))?;
         let status = response.status();
@@ -94,11 +98,74 @@ impl SystemOne for JevClient {
             return Err(SystemOneError(format!("Jev returned HTTP {status}")));
         }
 
-        let answers = parse_answers(&bytes)?;
+        parse_answers(&bytes)
+    }
 
-        validate_answers(questions, &answers)?;
+    /// Best effort: a recording that cannot be written never fails a judgment.
+    fn record(
+        &self,
+        body: &Value,
+        result: &Result<Vec<Answer>, SystemOneError>,
+        elapsed: Duration,
+    ) {
+        let Some(path) = &self.record else { return };
+        let outcome = match result {
+            Ok(answers) => json!({ "answers": answers_json(answers) }),
+            Err(error) => json!({ "error": error.0 }),
+        };
+        let line = json!({
+            "at_ms": SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |since| since.as_millis()),
+            "elapsed_ms": elapsed.as_millis(),
+            "request": body,
+            "reply": outcome,
+        });
+        let written = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)
+            .and_then(|mut file| file.write_all(format!("{line}\n").as_bytes()));
 
-        Ok(answers)
+        if let Err(error) = written {
+            eprintln!("chauffeur: record judgment to {}: {error}", path.display());
+        }
+    }
+}
+
+fn answers_json(answers: &[Answer]) -> Value {
+    let answers: Map<String, Value> = answers
+        .iter()
+        .map(|answer| {
+            let mut wire = match &answer.value {
+                AnswerValue::Choice(choice) => json!({ "type": "choice", "choice": choice }),
+                AnswerValue::Score(score) => json!({ "type": "score", "score": score }),
+                AnswerValue::Noul(probability) => json!({ "type": "noul", "noul": probability }),
+            };
+            if let Some(confidence) = answer.confidence {
+                wire["confidence"] = json!(confidence);
+            }
+            (answer.id.clone(), wire)
+        })
+        .collect();
+
+    Value::Object(answers)
+}
+
+impl SystemOne for JevClient {
+    fn name(&self) -> &str {
+        "jev"
+    }
+
+    fn ask(&mut self, state: &str, questions: &[Question]) -> Result<Vec<Answer>, SystemOneError> {
+        let body = request_body(&self.model, state, questions);
+        let started = Instant::now();
+        let result = self.call(&body).and_then(|answers| {
+            validate_answers(questions, &answers)?;
+            Ok(answers)
+        });
+
+        self.record(&body, &result, started.elapsed());
+
+        result
     }
 }
 

@@ -9,6 +9,7 @@ pub mod events;
 pub mod fsutil;
 pub mod inputs;
 pub mod jobs;
+pub mod judges;
 pub mod process;
 pub mod report;
 pub mod result;

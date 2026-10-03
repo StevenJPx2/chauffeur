@@ -1,0 +1,43 @@
+[
+  {
+    "name": "jev",
+    "url": "https://api.typesafe.ai/v1/systemone",
+    "model": "jev-latest",
+    "key_env": "TYPESAFE_API_KEY"
+  },
+  {
+    "name": "clef",
+    "url": "https://api.cloudflare.com/client/v4/accounts/{CLOUDFLARE_ACCOUNT_ID}/ai/run/@cf/cloudflare/clef",
+    "model": "clef",
+    "key_env": "CLOUDFLARE_AI_TOKEN",
+    "unwrap": "result"
+  },
+  {
+    "name": "clef-flash",
+    "url": "https://api.cloudflare.com/client/v4/accounts/{CLOUDFLARE_ACCOUNT_ID}/ai/run/@cf/cloudflare/clef-flash",
+    "model": "clef-flash",
+    "key_env": "CLOUDFLARE_AI_TOKEN",
+    "unwrap": "result"
+  },
+  {
+    "name": "d1",
+    "url": "https://openrouter.ai/api/v1/systemone",
+    "model": "liquid/d1",
+    "key_env": "OPENROUTER_API_KEY"
+  },
+  {
+    "name": "nimble",
+    "url": "http://localhost:11434/v1/systemone",
+    "model": "nimble"
+  },
+  {
+    "name": "tev1",
+    "url": "http://localhost:11434/v1/systemone",
+    "model": "tev1"
+  },
+  {
+    "name": "tev1-0.8b",
+    "url": "http://localhost:11434/v1/systemone",
+    "model": "tev1:0.8b"
+  }
+]
