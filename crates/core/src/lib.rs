@@ -13,6 +13,7 @@ pub mod config;
 pub mod engine;
 pub mod judge;
 pub mod protocol;
+pub mod watch;
 
 pub use contracts::{capability, effect, signal, system_one};
 pub(crate) use features::learning;
@@ -40,3 +41,4 @@ pub use system_one::{
     validate_answers,
 };
 pub use trace::Trace;
+pub use watch::{Reloading, Watch};

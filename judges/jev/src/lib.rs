@@ -20,6 +20,7 @@ pub const DEFAULT_MODEL: &str = "jev-latest";
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(3);
 const MAX_RESPONSE_BYTES: usize = 262_144;
 
+#[derive(Clone)]
 pub struct JevConfig {
     pub base_url: String,
     pub api_key: String,

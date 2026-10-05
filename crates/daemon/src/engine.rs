@@ -16,8 +16,8 @@ use chauffeur_capability_rules::{
 use chauffeur_capability_skill_exposure::{SkillExposure, SkillExposureConfig};
 use chauffeur_capability_tool_exposure::{ToolExposure, ToolExposureConfig};
 use chauffeur_core::{
-    Backstop, Capability, Effect, Engine, Judging, LearningConfig, RedactionConfig, Redactor,
-    Signal, SignalKind, load_config,
+    Backstop, Capability, Effect, Engine, Judging, LearnedShapes, LearningConfig, RedactionConfig,
+    Redactor, Reloading, Signal, SignalKind, Watch, load_config,
 };
 use chauffeur_judge_jev::{JevClient, JevConfig};
 use chauffeur_plugin_anthropic::AnthropicProvider;
@@ -69,9 +69,12 @@ impl EngineHandle {
         std::thread::Builder::new()
             .name("chauffeur-engine".into())
             .spawn(move || {
-                let state_file = options.state_file.clone();
-                let audit_file = options.audit_file.clone();
-                let mut engine = match build_engine(options) {
+                let learned = options
+                    .state_file
+                    .as_deref()
+                    .map(crate::learned::load)
+                    .unwrap_or_default();
+                let mut engine = match build_engine(&options, learned) {
                     Ok(engine) => {
                         let _ = ready.send(Ok(()));
                         engine
@@ -82,53 +85,16 @@ impl EngineHandle {
                     }
                 };
 
-                if let Some(path) = &state_file {
+                if let Some(path) = &options.state_file {
                     restore(&mut engine, path);
                 }
 
-                let mut pending = VecDeque::new();
+                let files = Files {
+                    state: options.state_file.clone(),
+                    audit: options.audit_file.clone(),
+                };
 
-                while let Some(job) = next_job(&mut queue, &mut pending) {
-                    if job.reply.is_closed() {
-                        continue;
-                    }
-                    // A model effect only counts when the host is still
-                    // waiting for it; an abandoned retry must not leave a
-                    // phantom attempted model or switch-back origin.
-                    let before = matches!(
-                        job.signal.kind,
-                        chauffeur_core::SignalKind::ModelError { .. }
-                    )
-                    .then(|| engine.save());
-                    let result = engine.ingest(&job.signal);
-
-                    if job.reply.is_closed() {
-                        if let Some(before) = before {
-                            engine.load(before);
-                        }
-                        continue;
-                    }
-
-                    if let Some(path) = &audit_file {
-                        crate::audit::append(path, &job.signal, engine.trace(), &result, |text| {
-                            engine.redact_for_audit(text)
-                        });
-                    }
-
-                    if job.reply.send(result).is_err() {
-                        if let Some(before) = before {
-                            engine.load(before);
-                        }
-                        continue;
-                    }
-
-                    if let Some(path) = &state_file {
-                        persist(&engine, path);
-                        if engine.take_learned_changed() {
-                            crate::learned::save(&engine, path);
-                        }
-                    }
-                }
+                serve(reloading(engine, options), &mut queue, &files);
             })
             .map_err(|error| format!("spawn engine thread: {error}"))?;
 
@@ -151,6 +117,90 @@ impl EngineHandle {
             .map_err(|_| "engine timed out".to_string())?
             .map_err(|_| "engine dropped the signal".to_string())?
     }
+}
+
+/// Where the engine thread keeps its memory and its decision log.
+struct Files {
+    state: Option<PathBuf>,
+    audit: Option<PathBuf>,
+}
+
+/// Run jobs until the daemon shuts down, rebuilding the engine first
+/// whenever its config or skills changed.
+fn serve(mut engine: Reloading<Engine>, queue: &mut mpsc::Receiver<Job>, files: &Files) {
+    let mut pending = VecDeque::new();
+
+    while let Some(job) = next_job(queue, &mut pending) {
+        if job.reply.is_closed() {
+            continue;
+        }
+        let engine = engine.current();
+        // A model effect only counts when the host is still waiting for it;
+        // an abandoned retry must not leave a phantom attempted model or
+        // switch-back origin.
+        let before =
+            matches!(job.signal.kind, SignalKind::ModelError { .. }).then(|| engine.save());
+        let result = engine.ingest(&job.signal);
+
+        if job.reply.is_closed() {
+            if let Some(before) = before {
+                engine.load(before);
+            }
+            continue;
+        }
+
+        if let Some(path) = &files.audit {
+            crate::audit::append(path, &job.signal, engine.trace(), &result, |text| {
+                engine.redact_for_audit(text)
+            });
+        }
+
+        if job.reply.send(result).is_err() {
+            if let Some(before) = before {
+                engine.load(before);
+            }
+            continue;
+        }
+
+        if let Some(path) = &files.state {
+            persist(engine, path);
+            if engine.take_learned_changed() {
+                crate::learned::save(engine, path);
+            }
+        }
+    }
+}
+
+/// The paths the engine is built from: your config folder and the skills
+/// folder's contracts, rules and rulebooks. Handed-over skills under
+/// `skills/` are not the daemon's, so they are not watched.
+fn watched(options: &EngineOptions) -> Vec<PathBuf> {
+    let mut paths = vec![options.config_dir.clone()];
+
+    paths.extend(
+        ["permission", "rules", "rulebooks"]
+            .iter()
+            .map(|folder| options.skills_dir.join(folder)),
+    );
+    paths
+}
+
+/// `engine`, rebuilt from the files whenever they change. The hook carries
+/// the running engine's memory and learned patterns into the new one, so
+/// sessions, running rulebooks and learned shapes survive an edit.
+fn reloading(engine: Engine, options: EngineOptions) -> Reloading<Engine> {
+    let watch = Watch::new(watched(&options));
+
+    Reloading::new(
+        "config and skills",
+        engine,
+        watch,
+        Box::new(move |old: &Engine| {
+            let mut fresh = build_engine(&options, old.learned())?;
+            fresh.load(old.save());
+            Ok(fresh)
+        }),
+    )
 }
 
 /// The next job to run: a permission request first, since the host holds a
@@ -345,24 +395,23 @@ fn without(
         .collect())
 }
 
-fn build_engine(options: EngineOptions) -> Result<Engine, String> {
-    let system_one = Box::new(JevClient::new(options.jev)?);
+/// Build the engine from the files, with patterns it learned before.
+fn build_engine(
+    options: &EngineOptions,
+    (learned_backstop, learned_shapes): (Vec<String>, LearnedShapes),
+) -> Result<Engine, String> {
+    let system_one = Box::new(JevClient::new(options.jev.clone())?);
     let capabilities = without(
         capabilities(
             &options.config_dir,
             &options.skills_dir,
             options.idle_reminders,
-            options.sourcefed,
+            options.sourcefed.clone(),
         )?,
         &options.disabled,
     )?;
 
     let backstop = Backstop::load(&options.config_dir.join("backstop.json"))?;
-    let (learned_backstop, learned_shapes) = options
-        .state_file
-        .as_deref()
-        .map(crate::learned::load)
-        .unwrap_or_default();
     let redaction_path = options.config_dir.join("redaction.json");
     let config: RedactionConfig = load_config(&redaction_path)?;
     let redactor = Redactor::new(config, learned_shapes)

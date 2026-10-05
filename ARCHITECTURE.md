@@ -573,6 +573,21 @@ with an error naming it. Structural bounds (per-agent maps, text and file
 sizes, rounds), protocol names (capability and question IDs, schema versions),
 HTTP status codes, and question wording stay in code.
 
+**Hot reload.** `chauffeur_core::watch` fingerprints files and directories
+(length and modification time per file, and which files exist) and is checked
+on demand, at most once a second. The engine thread checks
+`$CHAUFFEUR_CONFIG_DIR` and the skills folder's `permission/`, `rules/` and
+`rulebooks/` before each signal; on a change it builds a new engine from the
+files and loads the running engine's saved state and learned patterns into it,
+so sessions, running rulebooks and histories carry over. A running rulebook
+keeps its start-time snapshot. If the new files fail to load, the running
+engine stays and the error is logged once; at startup the same error stops
+the daemon. The shipped rulebook list behind the rulebooks RPC reloads the same
+way, and the OpenCode adapter re-reads the offer every five seconds,
+re-registering the slash commands when it changes. Project `.chauffeur/rules/`
+are read per signal already. The shipped defaults in `skills/config/` are
+compiled in and need a rebuild.
+
 | Variable | Default |
 |---|---|
 | `TYPESAFE_API_KEY` | required; the daemon refuses to start without it |

@@ -3,7 +3,7 @@ import { Effect } from "effect"
 import type { DaemonClient } from "../src/daemon.js"
 import type { Signal } from "../src/protocol.js"
 import { userText } from "../src/text.js"
-import { installRulebooks, parseRulebookInput } from "../src/rulebooks.js"
+import { installRulebooks, offerRulebooks, parseRulebookInput } from "../src/rulebooks.js"
 import { fakeHost, install } from "./support.js"
 
 test("command text maps to a rulebook command", () => {
@@ -35,7 +35,11 @@ async function goalCommand(answer: { delivery: "resume" | "wait"; text: string; 
 
   const host = fakeHost({
     location: { directory: "/work/hpdp" },
-    command: { transform: (edit: (editor: { add: (command: Command) => void }) => void) => Effect.sync(() => edit({ add: (command) => { commands.push(command) } })) },
+    command: { transform: (edit: (editor: { add: (command: Command) => void }) => void) => Effect.sync(() => {
+      edit({ add: (command) => { commands.push(command) } })
+
+      return { dispose: Effect.void }
+    }) },
     session: {
       prompt: (message: { readonly text: string }) => Effect.sync(() => { recorded.prompts.push(message) }),
       synthetic: (message: { readonly text: string }) => Effect.sync(() => { recorded.notes.push(message) }),
@@ -106,10 +110,60 @@ test("the user's words are sent whole, or left out when over the engine's bound"
 
 test("no rulebooks, no commands", async () => {
   let transformed = false
-  const host = fakeHost({ location: { directory: "/work" }, command: { transform: () => Effect.sync(() => { transformed = true }) } })
+
+  const host = fakeHost({ location: { directory: "/work" }, command: { transform: () => Effect.sync(() => {
+    transformed = true
+
+    return { dispose: Effect.void }
+  }) } })
+
   const daemon: DaemonClient = { rulebooks: () => Effect.succeed([]), signal: () => Effect.die("unexpected") }
   const plugin = await install(installRulebooks, host, daemon)
 
   expect(transformed).toBe(false)
   await plugin.close()
+})
+
+test("a rulebook added or removed on disk is registered or dropped while running", async () => {
+  const goal = { id: "goal", name: "Goal", description: "Keep working.", args_required: true }
+  const review = { id: "review", name: "Review", description: "Review the diff.", args_required: false }
+  let offer = [goal]
+  // Each registration's command names, while it is still registered.
+  const live = new Map<number, string[]>()
+  let next = 0
+
+  const host = fakeHost({
+    location: { directory: "/work" },
+    command: { transform: (edit: (editor: { add: (command: Command) => void }) => void) => Effect.sync(() => {
+      const id = next++
+      const names: string[] = []
+
+      edit({ add: (command) => { names.push(command.name) } })
+      live.set(id, names)
+
+      return { dispose: Effect.sync(() => { live.delete(id) }) }
+    }) },
+  })
+
+  const daemon: DaemonClient = { rulebooks: () => Effect.sync(() => offer), signal: () => Effect.die("unexpected") }
+  const plugin = await install(offerRulebooks("10 millis"), host, daemon)
+  const registered = () => [...live.values()].flat().sort()
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 60))
+
+  try {
+    expect(registered()).toEqual(["goal"])
+
+    await settle()
+    expect(next).toBe(1)
+
+    offer = [goal, review]
+    await settle()
+    expect(registered()).toEqual(["goal", "review"])
+
+    offer = []
+    await settle()
+    expect(registered()).toEqual([])
+  } finally {
+    await plugin.close()
+  }
 })

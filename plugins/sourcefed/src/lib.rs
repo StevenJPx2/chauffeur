@@ -15,6 +15,7 @@ pub const DEFAULT_TARGET_KIND: &str = "opencode-session";
 const TIMEOUT: Duration = Duration::from_secs(2);
 const MAX_RESPONSE_BYTES: usize = 262_144;
 
+#[derive(Clone)]
 pub struct SourcefedConfig {
     pub url: String,
     pub token: Option<String>,

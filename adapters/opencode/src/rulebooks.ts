@@ -1,5 +1,5 @@
-import { Skill } from "@opencode/plugin/effect"
-import { Effect, type Scope } from "effect"
+import { type Plugin, Skill } from "@opencode/plugin/effect"
+import { type Duration, Effect, Schedule, type Scope } from "effect"
 import { Daemon } from "./daemon.js"
 import { Host, type SessionID } from "./host.js"
 import { signal, type RulebookCommand, type RulebookEntry } from "./protocol.js"
@@ -7,6 +7,9 @@ import { deliverContext } from "./skills.js"
 import { userText } from "./text.js"
 
 const COMMANDS: ReadonlyArray<RulebookCommand> = ["pause", "resume", "clear", "status"]
+
+/** A set of registered commands, removed by disposing it. */
+type Registration = Effect.Success<ReturnType<Plugin.Context["command"]["transform"]>>
 
 /** What the user asked of a rulebook, and the text it starts with. */
 type RulebookInput = { readonly command: RulebookCommand; readonly args: string }
@@ -26,37 +29,77 @@ export function parseRulebookInput(text: string): RulebookInput {
   return command ? { command, args: "" } : { command: "start", args }
 }
 
+/** How often the offered rulebooks are re-read; the daemon reloads them from disk. */
+const REFRESH: Duration.Input = "5 seconds"
+
 /**
  * One slash command per rulebook the daemon offers in this plugin's
  * location, such as `/goal` everywhere and `/ticket` only where it is in
  * scope; the host keeps commands per location. The engine keeps each
  * session's books and answers every command with the context to deliver, so
  * this adapter knows nothing of any rulebook.
+ *
+ * The offer is re-read every few seconds, and the commands are registered
+ * again whenever it changes, so a rulebook added, edited or removed on disk
+ * shows up without restarting OpenCode.
  */
-export const installRulebooks: Effect.Effect<void, never, Host | Daemon | Scope.Scope> = Effect.gen(function* () {
-  const host = yield* Host
-  const daemon = yield* Daemon
+export const installRulebooks: Effect.Effect<void, never, Host | Daemon | Scope.Scope> = Effect.suspend(() => offerRulebooks(REFRESH))
 
-  const books = yield* daemon.rulebooks(String(host.location.directory)).pipe(
-    Effect.catch((error) => Effect.logError("chauffeur: rulebooks unavailable", error).pipe(Effect.as([]))),
-  )
+/** The offer the registered commands came from, as JSON, and their registration. */
+interface Installed {
+  readonly offer: string
+  readonly registration: Registration | undefined
+}
 
-  if (books.length === 0) return
+/** [`installRulebooks`], re-reading the offer every `refresh`. */
+export function offerRulebooks(refresh: Duration.Input): Effect.Effect<void, never, Host | Daemon | Scope.Scope> {
+  return Effect.gen(function* () {
+    const host = yield* Host
+    const daemon = yield* Daemon
+    const workspace = String(host.location.directory)
+    let installed: Installed = { offer: "[]", registration: undefined }
 
-  yield* host.command.transform((editor) => {
-    for (const book of books) {
-      editor.add({
-        name: book.id,
-        description: description(book),
-        execute: ({ sessionID, prompt }) =>
-          run(sessionID, book.id, prompt.text).pipe(
-            Effect.provideService(Host, host),
-            Effect.provideService(Daemon, daemon),
-          ),
-      })
-    }
+    const sync = Effect.gen(function* () {
+      // An unreachable daemon keeps the commands already registered.
+      const books = yield* daemon.rulebooks(workspace).pipe(
+        Effect.catch((error) => Effect.logError("chauffeur: rulebooks unavailable", error).pipe(Effect.as(undefined))),
+      )
+
+      const offer = JSON.stringify(books)
+
+      if (books === undefined || offer === installed.offer) return
+
+      if (installed.registration) yield* installed.registration.dispose
+
+      installed = { offer, registration: books.length === 0 ? undefined : yield* register(books) }
+    })
+
+    yield* sync
+    yield* sync.pipe(Effect.repeat(Schedule.spaced(refresh)), Effect.forkScoped)
   })
-})
+}
+
+/** One command per rulebook, registered together so they are removed together. */
+function register(books: ReadonlyArray<RulebookEntry>): Effect.Effect<Registration, never, Host | Daemon | Scope.Scope> {
+  return Effect.gen(function* () {
+    const host = yield* Host
+    const daemon = yield* Daemon
+
+    return yield* host.command.transform((editor) => {
+      for (const book of books) {
+        editor.add({
+          name: book.id,
+          description: description(book),
+          execute: ({ sessionID, prompt }) =>
+            run(sessionID, book.id, prompt.text).pipe(
+              Effect.provideService(Host, host),
+              Effect.provideService(Daemon, daemon),
+            ),
+        })
+      }
+    })
+  })
+}
 
 function description(book: RulebookEntry): string {
   const usage = book.args_required ? `/${book.id} <what>` : `/${book.id}`

@@ -9,15 +9,17 @@ pub use engine::{EngineHandle, EngineOptions};
 
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 
 use axum::extract::{DefaultBodyLimit, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::post;
 use axum::{Json, Router};
+use chauffeur_capability_rules::Rulebook;
 use chauffeur_core::{
     DaemonRequest, DaemonResponse, Effect, METHOD_HEALTH, METHOD_RULEBOOKS, METHOD_SIGNAL,
-    RulebooksResult, SignalParams, SignalResult,
+    Reloading, RulebooksResult, SignalParams, SignalResult, Watch,
 };
 use chauffeur_judge_jev::JevConfig;
 pub use chauffeur_plugin_sourcefed::SourcefedConfig;
@@ -29,19 +31,24 @@ pub const DEFAULT_PORT: u16 = 18_790;
 struct AppState {
     engine: EngineHandle,
     token: Option<String>,
-    /// The shipped rulebooks; each request adds the workspace's own.
-    rulebooks: std::sync::Arc<Vec<chauffeur_capability_rules::Rulebook>>,
+    /// The shipped rulebooks, reloaded when their folder changes; each
+    /// request adds the workspace's own. `None` when rules are disabled.
+    rulebooks: Option<Arc<Mutex<Reloading<Vec<Rulebook>>>>>,
 }
 
 /// The rulebooks offered in the request's `workspace`, or none when rules
 /// are disabled.
 fn offered(state: &AppState, params: &serde_json::Value) -> Result<serde_json::Value, String> {
-    if state.rulebooks.is_empty() {
+    let Some(rulebooks) = &state.rulebooks else {
         return serde_json::to_value(RulebooksResult::default()).map_err(|error| error.to_string());
-    }
-
+    };
+    let shipped = rulebooks
+        .lock()
+        .map_err(|_| "rulebooks lock poisoned".to_string())?
+        .current()
+        .clone();
     let workspace = params["workspace"].as_str().unwrap_or_default();
-    let offered = engine::rulebooks(&state.rulebooks, workspace)?;
+    let offered = engine::rulebooks(&shipped, workspace)?;
 
     serde_json::to_value(offered).map_err(|error| error.to_string())
 }
@@ -101,11 +108,20 @@ pub async fn serve(options: DaemonOptions) -> Result<(), String> {
         .ok_or("TYPESAFE_API_KEY is required: Jev is Chauffeur's System One provider")?;
 
     // Without rules, no rulebook can run, so none is offered.
-    let rulebooks = std::sync::Arc::new(if options.disabled.iter().any(|id| id == "rules") {
-        Vec::new()
+    let rulebooks = if options.disabled.iter().any(|id| id == "rules") {
+        None
     } else {
-        engine::shipped_rulebooks(&options.skills_dir)?
-    });
+        let folder = options.skills_dir.join("rulebooks");
+        let shipped = engine::shipped_rulebooks(&options.skills_dir)?;
+        let skills_dir = options.skills_dir.clone();
+
+        Some(Arc::new(Mutex::new(Reloading::new(
+            "rulebooks",
+            shipped,
+            Watch::new(vec![folder]),
+            Box::new(move |_| engine::shipped_rulebooks(&skills_dir)),
+        ))))
+    };
     let engine = EngineHandle::spawn(EngineOptions {
         config_dir: options.config_dir,
         skills_dir: options.skills_dir,

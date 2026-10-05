@@ -120,6 +120,12 @@ Rules, rulebooks, and permission contracts are strict JSON in [`skills/`](skills
 `chauffeur skill validate PATH` checks a file. [`ARCHITECTURE.md`](ARCHITECTURE.md)
 covers the design.
 
+Edits apply without a restart. Within a second, the daemon picks up rules,
+rulebooks, and contracts in `skills/` and overrides in `~/.config/chauffeur/`,
+keeping session memory and running rulebooks. A new or removed rulebook's slash
+command appears or disappears in OpenCode within a few seconds. A file that
+fails to load leaves the previous version running and logs why.
+
 ## Develop
 
 ```sh
