@@ -37,6 +37,9 @@ pub fn append(
         "error": result.as_ref().err(),
     });
     redact_record(&mut record, &redact);
+    // The host's session ID, not user content: kept whole so a session's
+    // decisions can be traced. A redactor sees it as a random token.
+    record["agent_id"] = Value::String(signal.agent_id.clone());
     if let Some(detail) = record["detail"].as_str() {
         record["detail"] = Value::String(detail.chars().take(MAX_DETAIL_CHARS).collect());
     }
@@ -174,6 +177,12 @@ mod tests {
             chauffeur_core::redact_secrets,
         );
         let engine = chauffeur_core::Engine::hosted(Vec::new()).unwrap();
+        // A real session ID looks like a random token; it must stay traceable.
+        let session = "ses_f36e3dcbfffeG9WYaBf75Hhay3";
+        let tool = Signal {
+            agent_id: session.into(),
+            ..tool
+        };
         append(&path, &tool, &Trace::default(), &Ok(vec![nudge]), |text| {
             engine.redact_for_audit(text)
         });
@@ -182,6 +191,7 @@ mod tests {
         let lines: Vec<&str> = written.lines().collect();
 
         assert_eq!(lines.len(), 1);
+        assert!(lines[0].contains(&format!("\"agent_id\":\"{session}\"")));
         assert!(lines[0].contains("\"signal\":\"tool_result\""));
         assert!(lines[0].contains("Chauffeur: use rg"));
         assert!(!lines[0].contains(secret));
