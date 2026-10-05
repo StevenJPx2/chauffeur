@@ -167,13 +167,37 @@ fn applies_the_judged_choice_and_never_retries_it() {
         router.decide(&signal, Some(&[choice("openai/luna", 0.8)][..])),
         switch("openai/luna")
     );
+    // Luna's limit covers all of openai, and anthropic is already exhausted.
     let mut failed = limit(false);
     if let SignalKind::ModelError { model, .. } = &mut failed.kind {
         *model = model_ref("openai/luna");
     }
+    assert_eq!(router.plan(&Situation::default(), &failed), keep());
+}
+
+fn keep() -> Plan {
+    Plan::Settled(vec![Effect::Model {
+        agent_id: "session".into(),
+        model: None,
+    }])
+}
+
+#[test]
+fn a_limit_covers_every_model_of_its_provider() {
+    // Opus hits the anthropic limit: haiku is never offered, even pinned.
+    let plan = router(&["anthropic/haiku"]).plan(&Situation::default(), &limit(false));
+
+    assert_eq!(options(&plan), vec!["openai/sol", "openai/luna", STAY]);
+}
+
+#[test]
+fn a_model_that_cannot_serve_leaves_the_rest_of_its_provider() {
+    let mut router = switched_router();
+
+    // sol does not exist for this account; luna, also openai, still can serve.
     assert_eq!(
-        options(&router.plan(&Situation::default(), &failed)),
-        vec!["openai/sol", STAY]
+        options(&router.plan(&Situation::default(), &auth_error("openai/sol"))),
+        vec!["openai/luna", STAY]
     );
 }
 
@@ -202,13 +226,12 @@ fn classifier_failure_or_low_confidence_switches_to_the_preferred_candidate() {
         router.decide(&signal, Some(&[choice(STAY, 0.05)][..])),
         switch("openai/luna")
     );
-    // The switch lands on luna, which fails too.
+    // The switch lands on luna, which hits openai's limit: nothing is left.
     let mut failed = limit(false);
     if let SignalKind::ModelError { model, .. } = &mut failed.kind {
         *model = model_ref("openai/luna");
     }
-    router.plan(&Situation::default(), &failed);
-    assert_eq!(router.decide(&failed, None), switch("openai/sol"));
+    assert_eq!(router.plan(&Situation::default(), &failed), keep());
 }
 
 #[test]
@@ -290,11 +313,9 @@ fn a_late_success_from_a_previous_model_does_not_reoffer_a_failed_candidate() {
     if let SignalKind::ModelError { model: failed, .. } = &mut limit.kind {
         *failed = model("openai/luna");
     }
-    // Every frontier model was tried: the next tier is offered, never sol or opus again.
-    assert_eq!(
-        options(&router.plan(&Situation::default(), &limit)),
-        vec!["anthropic/haiku", "openai/spark", STAY]
-    );
+    // Luna's limit covers openai and anthropic is exhausted: the late success
+    // from sol did not make either usable again.
+    assert_eq!(router.plan(&Situation::default(), &limit), keep());
 }
 
 #[test]
@@ -346,11 +367,11 @@ fn an_unknown_tier_offers_pinned_then_tiered_models_only() {
 
 #[test]
 fn a_pinned_model_is_a_candidate_across_tiers() {
-    let mut router = router(&["anthropic/haiku"]);
+    let mut router = router(&["openai/spark"]);
 
     assert_eq!(
         options(&router.plan(&Situation::default(), &limit(false))),
-        vec!["anthropic/haiku", "openai/sol", "openai/luna", STAY]
+        vec!["openai/spark", "openai/sol", "openai/luna", STAY]
     );
 }
 
@@ -669,18 +690,14 @@ fn tiers_follow_thinking_variants_and_never_offer_the_same_model() {
         )),
         vec!["openai/gpt-6.1-sol#high", STAY]
     );
-    // Opus at low thinking is balanced: sonnet and gpt-6-luna at max
-    // thinking, from the providers used directly, not a gateway copy.
+    // Opus at low thinking is balanced: gpt-6-luna at max thinking. Sonnet
+    // shares the anthropic limit, and the gateway copy is not used directly.
     assert_eq!(
         options(&shipped_router().plan(
             &Situation::default(),
             &limit_on("anthropic/claude-opus-5-5#low")
         )),
-        vec![
-            "openai/gpt-6-luna#max",
-            "anthropic/claude-sonnet-5-5#high",
-            STAY
-        ]
+        vec!["openai/gpt-6-luna#max", STAY]
     );
 
     // A switch carries the variant.
@@ -759,12 +776,7 @@ fn recommended_models_come_first_and_fast_or_old_editions_are_never_offered() {
 
     assert_eq!(
         options(&plan),
-        vec![
-            "openai/gpt-6.1-sol#high",
-            "openai/gpt-6-sol#high",
-            "anthropic/claude-opus-5#high",
-            STAY
-        ]
+        vec!["openai/gpt-6.1-sol#high", "openai/gpt-6-sol#high", STAY]
     );
 
     let Plan::Ask(questions) = &plan else {

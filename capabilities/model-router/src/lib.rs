@@ -34,6 +34,10 @@ pub struct ModelRouter {
     /// The model each agent chose to wait on after a limit. Waiting is
     /// offered once per model: hitting the limit again switches.
     waited: HashMap<String, String>,
+    /// Providers each agent hit a usage limit on. A limit belongs to the
+    /// account behind a provider, so none of its models is offered until a
+    /// model serves the agent again.
+    exhausted: HashMap<String, HashSet<String>>,
 }
 
 /// The model an agent left on a usage limit, and where it went.
@@ -54,6 +58,7 @@ impl ModelRouter {
             attempted: HashMap::new(),
             origins: HashMap::new(),
             waited: HashMap::new(),
+            exhausted: HashMap::new(),
         }
     }
 
@@ -168,8 +173,10 @@ impl ModelRouter {
         self.last_resort(agent_id, current, available)
     }
 
-    /// Usable host models not yet tried, other than the one that failed (in
-    /// any variant: a usage limit applies to the whole model).
+    /// Usable host models on providers not yet tried. A usage limit belongs
+    /// to the account behind a provider, such as a subscription, so when one
+    /// model hits it every model there does: the failed model's provider,
+    /// and every provider the agent already left on a limit, are skipped.
     fn untried(
         &self,
         agent_id: &str,
@@ -177,12 +184,33 @@ impl ModelRouter {
         available: &[chauffeur_core::AvailableModel],
     ) -> Vec<ModelRef> {
         let tried = self.attempted.get(agent_id);
+        let exhausted = self.exhausted.get(agent_id);
 
         self.expanded(available)
             .into_iter()
+            // Another variant of the failed model fails the same way.
             .filter(|model| !(model.provider == current.provider && model.model == current.model))
             .filter(|model| tried.is_none_or(|tried| !tried.contains(&model.key())))
+            .filter(|model| exhausted.is_none_or(|providers| !providers.contains(&model.provider)))
             .collect()
+    }
+
+    /// A usage limit on `model` covers its whole provider.
+    fn mark_exhausted(&mut self, agent_id: &str, model: &ModelRef) {
+        if !self.exhausted.contains_key(agent_id) && self.exhausted.len() >= MAX_TRACKED_AGENTS {
+            self.exhausted.clear();
+        }
+
+        self.exhausted
+            .entry(agent_id.to_string())
+            .or_default()
+            .insert(model.provider.clone());
+    }
+
+    /// Forget what the agent tried, once a model serves it again.
+    fn forget_attempts(&mut self, agent_id: &str) {
+        self.attempted.remove(agent_id);
+        self.exhausted.remove(agent_id);
     }
 
     /// Usable last-resort models, in host order, once each, at most the
@@ -336,7 +364,7 @@ impl ModelRouter {
             return Vec::new();
         };
 
-        self.attempted.remove(agent_id);
+        self.forget_attempts(agent_id);
         self.waited.remove(agent_id);
 
         vec![Effect::Model {
@@ -369,7 +397,7 @@ impl ModelRouter {
             .is_some_and(|origin| origin.model == *model && origin.current != *model)
         {
             self.origins.remove(&signal.agent_id);
-            self.attempted.remove(&signal.agent_id);
+            self.forget_attempts(&signal.agent_id);
         }
         // A model the router switched to that cannot serve the agent is a
         // failed switch: move on to the next candidate.
@@ -379,7 +407,9 @@ impl ModelRouter {
             .is_some_and(|origin| origin.current == *model)
             && self.config.is_unusable_error(error_type, *status, message);
 
-        if !failed_switch && !self.config.is_limit_error(error_type, *status, message) {
+        let limit = self.config.is_limit_error(error_type, *status, message);
+
+        if !failed_switch && !limit {
             return None;
         }
 
@@ -389,6 +419,9 @@ impl ModelRouter {
         }
 
         self.mark_attempted(&signal.agent_id, model);
+        if limit {
+            self.mark_exhausted(&signal.agent_id, model);
+        }
         let candidates = self.candidates(&signal.agent_id, model, available);
 
         if candidates.is_empty() {
@@ -515,6 +548,8 @@ struct Saved {
     origins: HashMap<String, Origin>,
     #[serde(default)]
     waited: HashMap<String, String>,
+    #[serde(default)]
+    exhausted: HashMap<String, HashSet<String>>,
 }
 
 impl Judged for ModelRouter {
@@ -529,6 +564,7 @@ impl Judged for ModelRouter {
             attempted: self.attempted.clone(),
             origins: self.origins.clone(),
             waited: self.waited.clone(),
+            exhausted: self.exhausted.clone(),
         })
         .ok()
     }
@@ -542,6 +578,11 @@ impl Judged for ModelRouter {
                 .collect();
             self.origins = saved.origins.into_iter().take(MAX_TRACKED_AGENTS).collect();
             self.waited = saved.waited.into_iter().take(MAX_TRACKED_AGENTS).collect();
+            self.exhausted = saved
+                .exhausted
+                .into_iter()
+                .take(MAX_TRACKED_AGENTS)
+                .collect();
         }
     }
 
@@ -553,7 +594,7 @@ impl Judged for ModelRouter {
                     .get(&signal.agent_id)
                     .is_none_or(|origin| origin.current == *model)
                 {
-                    self.attempted.remove(&signal.agent_id);
+                    self.forget_attempts(&signal.agent_id);
                 }
                 // A served request clears the limit it waited on.
                 if self.waited.get(&signal.agent_id) == Some(&model.key()) {

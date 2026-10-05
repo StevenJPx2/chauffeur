@@ -474,9 +474,11 @@ The router:
    ordered by pins, then recommended models, then other providers, then host
    order, at most 8. A model
    no table names is never a candidate unless pinned: hosts list many free
-   and preview models that are themselves rate limited. Another variant of the
-   current model is never a candidate, because a usage limit applies to the
-   whole model;
+   and preview models that are themselves rate limited. A usage limit belongs
+   to the account behind a provider, so no model of the failed model's
+   provider, or of any provider the agent already hit a limit on, is a
+   candidate, pinned or not, until a model serves the agent again. A model
+   that cannot serve (401, 403, 404) rules out only itself;
 3. offers `stay` only once per model and never for a lasting limit (402, or
    the `lasting` phrases and types: an exhausted quota, balance, billing, or
    usage limit): a second limit on a model the agent waited on, or a lasting
