@@ -27,6 +27,7 @@ fn rows(entries: &[(&'static str, Tier)]) -> Vec<TierEntry> {
             model: (*model).to_string(),
             variant: None,
             tier: *tier,
+            recommended: false,
         })
         .collect()
 }
@@ -730,6 +731,53 @@ fn a_gateway_model_takes_its_makers_tier_and_untiered_models_are_never_offered()
         offered.contains(&"openai/gpt-6.1-sol#high".to_string()),
         "{offered:?}"
     );
+}
+
+#[test]
+fn recommended_models_come_first_and_fast_or_old_editions_are_never_offered() {
+    let mut signal = limit_on("anthropic/claude-opus-5-5#high");
+
+    if let SignalKind::ModelError { available, .. } = &mut signal.kind {
+        // Listed first, as hosts list them, ahead of the recommended model.
+        let older = [
+            "openai/gpt-6-sol",
+            "openai/gpt-6.1-sol-fast",
+            "openai/gpt-5.6-sol",
+            "anthropic/claude-opus-5",
+            "anthropic/claude-opus-5-5-fast",
+            "anthropic/claude-opus-4-8",
+        ];
+
+        available.splice(
+            0..0,
+            older.into_iter().map(|key| AvailableModel {
+                model: model(key),
+                usable: true,
+            }),
+        );
+    }
+
+    let mut router = shipped_router();
+    let plan = router.plan(&Situation::default(), &signal);
+
+    assert_eq!(
+        options(&plan),
+        vec![
+            "openai/gpt-6.1-sol#high",
+            "openai/gpt-6-sol#high",
+            "anthropic/claude-opus-5#high",
+            STAY
+        ]
+    );
+
+    let Plan::Ask(questions) = &plan else {
+        unreachable!()
+    };
+    let QuestionKind::Choice { options } = &questions[0].kind else {
+        unreachable!()
+    };
+    assert!(options[0].description.contains("recommended"));
+    assert!(!options[1].description.contains("recommended"));
 }
 
 #[test]

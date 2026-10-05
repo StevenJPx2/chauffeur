@@ -10,7 +10,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 pub use config::{ErrorWords, MAX_CANDIDATES, ModelRouterConfig, SwitchBack};
-pub use provider::{MAX_TIER_ROWS, Provider, Tier, TierEntry, TierTable};
+pub use provider::{MAX_TIER_ROWS, Provider, Rating, Tier, TierEntry, TierTable};
 
 use chauffeur_core::judge::strategy;
 use chauffeur_core::{
@@ -60,16 +60,24 @@ impl ModelRouter {
     /// The model's tier from its provider's table, else from any table that
     /// names the same model ID: a gateway such as `opencode/claude-sonnet-5-5`
     /// serves the model its maker tiers.
-    fn tier(&self, model: &ModelRef) -> Option<Tier> {
+    fn rating(&self, model: &ModelRef) -> Option<Rating> {
         let variant = model.variant.as_deref();
 
         self.provider(&model.provider)
-            .and_then(|provider| provider.tier(&model.model, variant))
+            .and_then(|provider| provider.rating(&model.model, variant))
             .or_else(|| {
                 self.providers
                     .iter()
-                    .find_map(|provider| provider.tier(&model.model, variant))
+                    .find_map(|provider| provider.rating(&model.model, variant))
             })
+    }
+
+    fn tier(&self, model: &ModelRef) -> Option<Tier> {
+        self.rating(model).map(|rating| rating.tier)
+    }
+
+    fn recommended(&self, model: &ModelRef) -> bool {
+        self.rating(model).is_some_and(|rating| rating.recommended)
     }
 
     /// The variants a switch to `model` may choose, from its provider's table,
@@ -171,7 +179,11 @@ impl ModelRouter {
                 .position(|pin| *pin == model.key())
                 .unwrap_or(usize::MAX);
 
-            (pin, model.provider == current.provider)
+            (
+                pin,
+                !self.recommended(model),
+                model.provider == current.provider,
+            )
         });
         // One variant per model: a pinned one, else the first its table names.
         candidates.retain(|model| offered.insert((model.provider.clone(), model.model.clone())));
@@ -352,10 +364,15 @@ impl ModelRouter {
             .map(|model| ChoiceOption {
                 value: model.key(),
                 description: format!(
-                    "Switch to {} ({} tier, provider {}).",
+                    "Switch to {} ({} tier, provider {}{}).",
                     model.key(),
                     self.tier(model).map_or("unknown", Tier::label),
-                    model.provider
+                    model.provider,
+                    if self.recommended(model) {
+                        "; recommended"
+                    } else {
+                        ""
+                    }
                 ),
             })
             .collect();
@@ -369,7 +386,8 @@ impl ModelRouter {
             format!(
                 "The coding agent's model {} just failed with a usage limit ({error}). \
                  Switching discards the prompt cache on the new provider. Choose the model \
-                 that best fits the agent's recent work. Choose stay only if the error says \
+                 that best fits the agent's recent work, preferring one marked recommended. \
+                 Choose stay only if the error says \
                  the limit resets within a minute or two; a limit with no reset time, or one \
                  that resets later, keeps the agent blocked, so switch.",
                 current.key()
@@ -378,7 +396,8 @@ impl ModelRouter {
             format!(
                 "The coding agent's model {} failed with a usage limit ({error}) that waiting \
                  will not clear, so the agent must switch. Switching discards the prompt cache \
-                 on the new provider. Choose the model that best fits the agent's recent work.",
+                 on the new provider. Choose the model that best fits the agent's recent work, \
+                 preferring one marked recommended.",
                 current.key()
             )
         };

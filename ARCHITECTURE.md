@@ -443,15 +443,22 @@ table (`skills/config/providers/<provider>.json`; your
 `$CHAUFFEUR_CONFIG_DIR/providers/<provider>.json` replaces its `tiers`) maps a
 model family, at one variant or at any, to a tier. A row's `model` is an ID or
 a pattern where `*` matches any run of characters, so a new version needs no
-new row; a row naming the model exactly wins over a pattern. A model a gateway
-serves under its maker's ID (`opencode/claude-sonnet-5-5`) takes the maker's
-tier:
+new row; a row naming the model exactly wins over a pattern. Only an exact
+row may set `"recommended": true`: recommended models are offered right after
+pins and named as recommended to Jev, while models a pattern alone covers are
+same-tier fallbacks. A table's `exclude` patterns (`*-fast` editions, older
+generations) take a model out of every pattern, so it has a tier only through
+an exact row. A model a gateway serves under its maker's ID
+(`opencode/claude-sonnet-5-5`) takes the maker's rating:
 
-| Tier | Anthropic | OpenAI |
+| Tier | Recommended | Fallbacks |
 |---|---|---|
-| Frontier | `claude-opus-*` (offered at `#high`) | `gpt-*-sol*` (offered at `#high`) |
-| Balanced | `claude-opus-*#low`, `claude-sonnet-*` | `gpt-*-luna*#max` |
-| Fast | `claude-haiku-*` | `gpt-*-luna*` (other variants) |
+| Frontier | `claude-opus-5-5#high`, `gpt-6.1-sol#high` | `claude-opus-*`, `gpt-*-sol*` |
+| Balanced | `claude-opus-5-5#low`, `claude-sonnet-5-5`, `gpt-6-luna#max` | `claude-sonnet-*`, `gpt-*-luna*#max` |
+| Fast | `gpt-6-luna` (other variants) | `claude-haiku-*`, `gpt-*-luna*` |
+
+Excluded: `*-fast`, Claude generation 4 (`claude-*-4`, `claude-*-4-*`), and
+`gpt-5*`, `gpt-4*`.
 
 The router:
 
@@ -459,7 +466,8 @@ The router:
 2. computes candidates: each usable host model, once, at the first variant its
    table names, untried, in the current model's tier (any tier when the
    current model has none), plus every pinned model regardless of tier,
-   ordered by pins, then other providers, then host order, at most 8. A model
+   ordered by pins, then recommended models, then other providers, then host
+   order, at most 8. A model
    no table names is never a candidate unless pinned: hosts list many free
    and preview models that are themselves rate limited. Another variant of the
    current model is never a candidate, because a usage limit applies to the

@@ -9,28 +9,28 @@ use chauffeur_capability_model_router::{Provider, TierEntry, TierTable};
 const SHIPPED: &str = include_str!("../../../skills/config/providers/anthropic.json");
 
 pub struct AnthropicProvider {
-    tiers: Vec<TierEntry>,
+    table: TierTable,
 }
 
 impl AnthropicProvider {
-    /// The shipped table, replaced by your `providers/anthropic.json` at
-    /// `path` when it names `tiers`.
+    /// The shipped table, with your `providers/anthropic.json` at `path`
+    /// replacing whichever of `tiers` and `exclude` it names.
     ///
     /// # Errors
     ///
     /// When your file is unreadable, invalid, or out of bounds.
     pub fn load(path: &Path) -> Result<Self, String> {
-        let table = TierTable::load(SHIPPED, path)?;
-
-        Ok(Self { tiers: table.tiers })
+        Ok(Self {
+            table: TierTable::load(SHIPPED, path)?,
+        })
     }
 }
 
 impl Default for AnthropicProvider {
     fn default() -> Self {
-        let table = TierTable::parse(SHIPPED).expect("shipped anthropic tiers are valid");
-
-        Self { tiers: table.tiers }
+        Self {
+            table: TierTable::parse(SHIPPED).expect("shipped anthropic tiers are valid"),
+        }
     }
 }
 
@@ -40,7 +40,11 @@ impl Provider for AnthropicProvider {
     }
 
     fn tiers(&self) -> &[TierEntry] {
-        &self.tiers
+        &self.table.tiers
+    }
+
+    fn excluded(&self) -> &[String] {
+        &self.table.exclude
     }
 }
 
@@ -65,6 +69,14 @@ mod tests {
             model: model.into(),
             variant: variant.map(Into::into),
             tier,
+            recommended: false,
+        }
+    }
+
+    fn recommended(model: &str, variant: Option<&str>, tier: Tier) -> TierEntry {
+        TierEntry {
+            recommended: true,
+            ..row(model, variant, tier)
         }
     }
 
@@ -100,12 +112,37 @@ mod tests {
     }
 
     #[test]
+    fn current_models_are_recommended_and_fast_or_old_editions_excluded() {
+        let provider = AnthropicProvider::default();
+        let rated = |model: &str| {
+            provider
+                .rating(model, None)
+                .map(|rating| rating.recommended)
+        };
+
+        assert_eq!(rated("claude-opus-5-5"), Some(true));
+        assert_eq!(rated("claude-sonnet-5-5"), Some(true));
+        // An older 5.x model is a fallback of the same tier, not recommended.
+        assert_eq!(rated("claude-opus-5"), Some(false));
+        assert_eq!(provider.tier("claude-opus-5", None), Some(Tier::Frontier));
+        // Fast editions and generation 4 have no tier at all.
+        assert_eq!(rated("claude-opus-5-5-fast"), None);
+        assert_eq!(rated("claude-opus-4-8"), None);
+        assert_eq!(rated("claude-sonnet-4-6"), None);
+    }
+
+    #[test]
     fn the_shipped_file_holds_the_previous_table() {
         let provider = AnthropicProvider::load(Path::new("/nonexistent/anthropic.json")).unwrap();
 
         assert_eq!(
             provider.tiers(),
             [
+                recommended("claude-opus-5-5", Some("high"), Tier::Frontier),
+                recommended("claude-opus-5-5", Some("low"), Tier::Balanced),
+                recommended("claude-opus-5-5", None, Tier::Frontier),
+                recommended("claude-sonnet-5-5", Some("high"), Tier::Balanced),
+                recommended("claude-sonnet-5-5", None, Tier::Balanced),
                 row("claude-opus-*", Some("high"), Tier::Frontier),
                 row("claude-opus-*", Some("low"), Tier::Balanced),
                 row("claude-opus-*", None, Tier::Frontier),
@@ -151,6 +188,16 @@ mod tests {
                 r#"{ "tiers": [ { "model": "m", "variant": null, "tier": "fast" },
                                { "model": "m", "variant": null, "tier": "frontier" } ] }"#,
                 "repeats m at any variant",
+            ),
+            (
+                "pattern",
+                r#"{ "tiers": [ { "model": "m-*", "variant": null, "tier": "fast", "recommended": true } ] }"#,
+                "recommends the pattern m-*",
+            ),
+            (
+                "exclusion",
+                r#"{ "tiers": [], "exclude": [" "] }"#,
+                "empty exclude pattern",
             ),
         ];
 
