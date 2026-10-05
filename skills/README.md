@@ -78,12 +78,17 @@ every rule a session there would load.
   input contains any listed text, and `result_includes` admits a call only
   whose result contains one; the result text itself never goes into Jev's
   question. `session_kind` limits a rule to `top_level` or `subagent`
-  sessions; without it both are judged.
+  sessions; without it both are judged. At a turn end, `todos` admits the
+  rule only when the agent's todo list (written with Chauffeur's `todowrite`
+  tool) is in one of the listed states: `none` (no list), `open` (any todo
+  pending or in progress), or `done` (all completed or cancelled).
 - **`steps`**: one or two yes/no questions. A step holds at P(yes) ≥
   `yes_at_or_above` (0.5–1) with at least `minimum_confidence`; the second is
   asked only after the first holds.
 - **`then`**: `steer` for a tool result, `resume` or `wait` at a turn end;
   `text`, an optional `label` (the name by default), and an optional `skill`.
+  At a turn end, `{todos}` in a delivered text becomes the open todos, one
+  per line, or `none`.
 - **`priority`**, **`once`**, **`cooldown_seconds`**: a signal delivers at
   most two rules, highest priority first. `once` renews at the next user
   message for a `turn` rule and never for a `session` rule.
@@ -144,6 +149,11 @@ the worktree (read from its Git root down, like project rules), only there.
   the book's turn-end rules were asked and none holds. The goal uses it for
   "not done yet, keep going", so a goal never sits silent between "done" and
   "blocked". It counts against the budget.
+- **`/goal` and todos**: the goal asks the agent to break the work into todos
+  with `todowrite`. "Goal achieved" is asked only when no todo is open, so
+  while any todo is pending or in progress the goal keeps going and its
+  `otherwise` lists the open ones. A multi-step goal without todos is asked
+  once per turn window to write them.
 - After a rulebook resumes the agent, its turn-end rules wait until the agent
   calls a tool or the user writes, so a book cannot keep waking an agent that
   does nothing. Turn-end rules need `CHAUFFEUR_IDLE_STEERING=true`.

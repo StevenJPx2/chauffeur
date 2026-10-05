@@ -6,6 +6,7 @@ import { Daemon } from "./daemon.js"
 import { type HistoryMessage, Host, type HostTool, type SessionID } from "./host.js"
 import { hostModel, ref, sameModel } from "./model-router.js"
 import { ASK_TOOL } from "./ask-tool.js"
+import { TODO_TOOL } from "./todos.js"
 import { catalogEntry, signal, TEXT_CODE_POINTS, type CatalogEntry, type CodeModeNamespace, type ContextEffect, type HostEffect, type ModelRef } from "./protocol.js"
 import { hostLoadsSkills, SKILLS_METADATA_KEY } from "./skills.js"
 import { clip, isIntegrationMessage, userText } from "./text.js"
@@ -383,7 +384,7 @@ function catalog(tools: ReadonlyArray<HostTool>, inRequests: ReadonlySet<string>
   const hostSkills = hostLoadsSkills()
 
   return tools
-    .filter((tool) => tool.id !== ASK_TOOL && !(hostSkills && tool.id === "skill"))
+    .filter((tool) => tool.id !== ASK_TOOL && tool.id !== TODO_TOOL && !(hostSkills && tool.id === "skill"))
     .filter((tool) => (inRequests ? inRequests.has(tool.id) : tool.options?.codemode !== true))
     .toSorted((a, b) => Number(b.id === "skill") - Number(a.id === "skill"))
     .slice(0, MAX_CATALOG)

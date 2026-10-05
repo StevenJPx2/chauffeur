@@ -71,6 +71,7 @@ fn turn_end(at: u64) -> Signal {
             subagent: false,
             user_request: String::new(),
             summary: String::new(),
+            todos: Vec::new(),
         },
     )
 }

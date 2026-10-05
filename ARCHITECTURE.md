@@ -539,6 +539,12 @@ The adapter sends **Signals** and applies **Effects**; it holds no policy.
   whether the session has a parent (`subagent`), from `session.get`.
   Permission resources are file paths for `read`, `edit`, `write`, and
   `patch`, and command text for `shell`.
+- **Own tools:** `ask_chauffeur`, and `todowrite` in place of V1's: the agent
+  writes the session's whole todo list (content and status), kept in plugin
+  storage under `todos/<session>` and sent with each turn end, where rules
+  gate on `when.todos` and texts render `{todos}`. Exposure never judges
+  either. `tool.transform` also appends the cheaper-subagent instruction to
+  the host's `subagent` description, so the agent reads it before launching.
 - **`permission`:** `permission.hook("evaluate")`, answered within 600 ms.
 - **`model`:** `session.switchModel` (with the variant) plus the retry
   decision; the session's model comes from `session.get`.
@@ -622,7 +628,10 @@ keeps its start-time snapshot. If the new files fail to load, the running
 engine stays and the error is logged once; at startup the same error stops
 the daemon. The shipped rulebook list behind the rulebooks RPC reloads the same
 way, and the OpenCode adapter re-reads the offer every five seconds,
-re-registering the slash commands when it changes. Project `.chauffeur/rules/`
+re-registering the slash commands when it changes. It reads `command.list()`
+afterward to materialize the lazy registry and publish additions to an idle
+TUI. In OpenCode 2.0.23, a deleted command can linger in TUI autocomplete even
+after it leaves the server registry. Project `.chauffeur/rules/`
 are read per signal already. The shipped defaults in `skills/config/` are
 compiled in and need a rebuild.
 

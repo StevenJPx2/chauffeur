@@ -93,7 +93,8 @@ fn asks_whether_an_integration_event_needs_the_agent() {
                     workspace: String::new(),
                     subagent: false,
                     user_request: String::new(),
-                    summary: String::new()
+                    summary: String::new(),
+                    todos: Vec::new(),
                 },
                 ..event("", "")
             }

@@ -100,6 +100,7 @@ fn turn_end_of(at: u64, workspace: &str, request: &str, subagent: bool) -> Signa
             subagent,
             user_request: request.into(),
             summary: String::new(),
+            todos: Vec::new(),
         },
     )
 }
@@ -662,6 +663,43 @@ fn a_call_already_using_the_cli_is_not_judged_by_its_browser_rule() {
             "curl -s https://api.github.com/repos/AdeptMind/hpdp/pulls/899"
         )
     )));
+}
+
+fn subagent_call(at: u64, input: &Value, subagent: bool) -> Signal {
+    signal(
+        at,
+        SignalKind::ToolResult {
+            tool: "subagent".into(),
+            ok: true,
+            workspace: String::new(),
+            subagent,
+            input: input.to_string(),
+            error: String::new(),
+            user_request: String::new(),
+            evidence: String::new(),
+            candidates: Vec::new(),
+        },
+    )
+}
+
+#[test]
+fn a_subagent_launched_without_a_model_is_judged_for_a_cheaper_one() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let rules = load_dir(&root.join("skills/rules")).unwrap();
+    let mut engine = Engine::hosted(vec![Box::new(Judging::new(Rules::new(rules)))]).unwrap();
+    let cheaper = |ids: Vec<String>| ids.iter().any(|id| id.contains("cheaper-subagent"));
+    let task =
+        json!({ "agent": "explore", "description": "Map auth", "prompt": "Find the auth flow." });
+    let mut with_model = task.clone();
+    with_model["model"] = json!("anthropic/claude-sonnet-5-5");
+
+    assert!(cheaper(asked(&mut engine, &subagent_call(1, &task, false))));
+    assert!(!cheaper(asked(
+        &mut engine,
+        &subagent_call(2, &with_model, false)
+    )));
+    // A subagent's own launches are its parent's concern.
+    assert!(!cheaper(asked(&mut engine, &subagent_call(3, &task, true))));
 }
 
 #[test]

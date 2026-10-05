@@ -4,6 +4,7 @@ import { Host, type SessionID } from "./host.js"
 import { signal, TEXT_CODE_POINTS } from "./protocol.js"
 import { deliverContext } from "./skills.js"
 import { clip, isIntegrationMessage, userText } from "./text.js"
+import { readTodos } from "./todos.js"
 
 /**
  * Reports finished turns of sessions in this plugin's location and delivers
@@ -52,6 +53,7 @@ function reportTurnEnd(sessionID: SessionID): Effect.Effect<void, never, Host | 
       subagent: session?.parentID !== undefined,
       user_request: user?.type === "user" ? userText(user.text) : "",
       summary: clip(summary, TEXT_CODE_POINTS),
+      todos: yield* readTodos(String(sessionID)),
     }))
 
     const deliveries = effects.flatMap((effect) =>

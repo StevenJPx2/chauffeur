@@ -487,6 +487,7 @@ mod tests {
             subagent: false,
             user_request: String::new(),
             summary: "first".into(),
+            todos: Vec::new(),
         }
     }
 

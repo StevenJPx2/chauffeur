@@ -3,7 +3,7 @@
 
 use std::collections::HashSet;
 
-use chauffeur_core::Delivery;
+use chauffeur_core::{Delivery, TodoState};
 use serde::{Deserialize, Serialize};
 
 use crate::rulebook::End;
@@ -104,6 +104,10 @@ pub struct Gate {
     /// The kind of session the agent runs in; either when absent.
     #[serde(default)]
     pub session_kind: Option<SessionKind>,
+    /// For `turn_end`: the agent's todo list is in one of these states,
+    /// such as `open` while any todo is pending or in progress.
+    #[serde(default)]
+    pub todos: Vec<TodoState>,
 }
 
 /// Whether a session is one the user drives or a subagent's.
@@ -267,6 +271,10 @@ impl Rule {
             ("result_includes", &gate.result_includes),
         ] {
             self.validate_call_texts(field, texts)?;
+        }
+
+        if !gate.todos.is_empty() && self.on != Trigger::TurnEnd {
+            return Err(format!("{}: when.todos applies only to turn_end", self.id));
         }
 
         Ok(())

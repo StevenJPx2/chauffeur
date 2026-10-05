@@ -1,0 +1,24 @@
+{
+  "schema_version": 2,
+  "id": "cheaper-subagent",
+  "name": "Subagent on a cheaper model",
+  "on": "tool_result",
+  "when": {
+    "tools": ["subagent"],
+    "input_excludes": ["\"model\""],
+    "session_kind": "top_level"
+  },
+  "steps": [
+    {
+      "id": "routine",
+      "question": "Is this subagent's task routine work that a smaller model handles well, such as searching, reading and summarising code or docs, or a mechanical edit, rather than hard design, debugging or review?",
+      "yes_at_or_above": 0.6,
+      "minimum_confidence": 0.2
+    }
+  ],
+  "then": {
+    "delivery": "steer",
+    "text": "Chauffeur: the user asks that subagents doing routine work run on a cheaper model from your own provider. Pass model \"anthropic/claude-sonnet-5-5\" when you run on Claude Opus, or \"openai/gpt-6-luna\" when you run on GPT-6.1 Sol, on your next subagent calls."
+  },
+  "cooldown_seconds": 900
+}

@@ -171,6 +171,7 @@ mod tests {
                 subagent: false,
                 user_request: String::new(),
                 summary: String::new(),
+                todos: Vec::new(),
             }),
             &Trace::default(),
             &Ok(Vec::new()),

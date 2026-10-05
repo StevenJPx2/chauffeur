@@ -19,7 +19,8 @@ use chauffeur_core::judge::{
     strategy::{self, Chained},
 };
 use chauffeur_core::{
-    Effect, Judge, Judged, Question, QuestionKind, Signal, SignalKind, Situation, load_layered,
+    Effect, Judge, Judged, Question, QuestionKind, Signal, SignalKind, Situation, Todo, TodoState,
+    TodoStatus, load_layered,
 };
 use serde::{Deserialize, Deserializer, Serialize};
 
@@ -27,7 +28,7 @@ use book::{Books, Notice, Running};
 use history::Histories;
 pub use rule::{Gate, History, Rule, SCHEMA_VERSION, SessionKind, Step, Then, Trigger};
 pub use rulebook::{
-    Args, End, Input, InputSkills, RULEBOOK_SCHEMA_VERSION, Rulebook, load_rulebooks,
+    Args, End, Input, InputSkills, RULEBOOK_SCHEMA_VERSION, Rulebook, TODOS, load_rulebooks,
 };
 
 /// The rulebooks offered in `workspace`: `shipped` ones whose scope covers it,
@@ -412,7 +413,27 @@ impl Judged for Rules {
             );
         }
 
+        let todos = todos_of(&signal.kind);
+
         effects
+            .into_iter()
+            .map(|effect| match effect {
+                Effect::Context {
+                    agent_id,
+                    delivery,
+                    label,
+                    skills,
+                    text,
+                } => Effect::Context {
+                    agent_id,
+                    delivery,
+                    label,
+                    skills,
+                    text: text.map(|text| with_todos(text, todos)),
+                },
+                other => other,
+            })
+            .collect()
     }
 }
 
@@ -435,6 +456,38 @@ impl Rules {
             .take(self.config.max_deliveries())
             .collect()
     }
+}
+
+/// The todo list a signal carries; only a turn end reports one.
+fn todos_of(kind: &SignalKind) -> &[Todo] {
+    match kind {
+        SignalKind::TurnEnd { todos, .. } => todos,
+        _ => &[],
+    }
+}
+
+/// `text` with the open todos, one per line, in place of [`TODOS`]; `none`
+/// when nothing is open.
+fn with_todos(text: String, todos: &[Todo]) -> String {
+    if !text.contains(TODOS) {
+        return text;
+    }
+
+    let open: Vec<String> = todos
+        .iter()
+        .filter(|todo| todo.status.is_open())
+        .map(|todo| match todo.status {
+            TodoStatus::InProgress => format!("- {} (in progress)", todo.content),
+            _ => format!("- {}", todo.content),
+        })
+        .collect();
+    let list = if open.is_empty() {
+        "none".to_string()
+    } else {
+        open.join("\n")
+    };
+
+    text.replace(TODOS, &list)
 }
 
 fn context(agent: &str, notice: Notice) -> Effect {
@@ -462,8 +515,10 @@ fn admits_signal(gate: &Gate, kind: &SignalKind) -> bool {
     };
     let contains = |haystack: &str, text: &String| haystack.contains(text.as_str());
 
-    gate.session_kind
-        .is_none_or(|session| session == SessionKind::of(subagent))
+    (gate.todos.is_empty() || gate.todos.contains(&TodoState::of(todos_of(kind))))
+        && gate
+            .session_kind
+            .is_none_or(|session| session == SessionKind::of(subagent))
         && !gate.input_excludes.iter().any(|text| contains(input, text))
         && (gate.result_includes.is_empty()
             || gate

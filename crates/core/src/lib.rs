@@ -32,8 +32,8 @@ pub use judge::{Confidence, Judge, Judged, Judging, Pick, Rule, Threshold};
 pub use protocol::*;
 pub use redact::{LearnedShapes, Prefix, RedactionConfig, Redactor, Shape, redact_secrets};
 pub use signal::{
-    AvailableModel, CatalogEntry, CodeModeNamespace, MAX_PROMPT_BYTES, MAX_TEXT_BYTES, ModelRef,
-    Resource, RulebookCommand, Signal, SignalKind,
+    AvailableModel, CatalogEntry, CodeModeNamespace, MAX_PROMPT_BYTES, MAX_TEXT_BYTES, MAX_TODOS,
+    ModelRef, Resource, RulebookCommand, Signal, SignalKind, Todo, TodoState, TodoStatus,
 };
 pub use situation::Situation;
 pub use system_one::{

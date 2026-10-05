@@ -5,7 +5,7 @@
   "description": "Keep working across turns until evidence shows the objective is done.",
   "args": { "required": true },
   "budget": 20,
-  "on_start": "Goal: {args}\nWork toward this goal until concrete evidence shows it is achieved: tests passing, command output, or the finished artifact. Chauffeur checks after each turn and continues you while it is not done. If only the user can unblock you (a decision, access, or information you cannot get), stop and say exactly what you need.",
+  "on_start": "Goal: {args}\nFirst break the goal into todos with todowrite, one per distinct step, with the first in_progress. Keep them current as you work: mark a todo completed only when its evidence is in, and cancel any that no longer apply. Work toward the goal until concrete evidence shows it is achieved: tests passing, command output, or the finished artifact. Chauffeur checks after each turn and continues you while any todo is open or the goal is not done. Hand routine work such as searching, reading or mechanical edits to subagents on a cheaper model from your own provider. If only the user can unblock you (a decision, access, or information you cannot get), stop and say exactly what you need.",
   "on_budget": "Goal budget reached: {args}\nStop substantive work. Summarise what is done, the evidence for it, what still blocks the goal, and the next useful step.",
   "rules": [
     {
@@ -14,6 +14,7 @@
       "name": "Goal achieved",
       "on": "turn_end",
       "priority": 20,
+      "when": { "todos": ["none", "done"] },
       "steps": [
         {
           "id": "done",
@@ -47,7 +48,28 @@
         "text": "Goal paused until you answer the agent: {args}\nResume it with /goal resume.",
         "end": "pause"
       }
+    },
+    {
+      "schema_version": 2,
+      "id": "goal-todos",
+      "name": "Goal todos",
+      "on": "turn_end",
+      "priority": 5,
+      "once": true,
+      "when": { "todos": ["none"] },
+      "steps": [
+        {
+          "id": "several-steps",
+          "question": "The user's goal is: {args}. Does reaching it take several distinct steps of work, rather than one small change or answer?",
+          "yes_at_or_above": 0.6,
+          "minimum_confidence": 0.2
+        }
+      ],
+      "then": {
+        "delivery": "resume",
+        "text": "Goal: {args}\nBreak the goal into todos with todowrite now, one per distinct step, with the next one in_progress, then continue. Mark each completed only when its evidence is in. Chauffeur keeps the goal going until every todo is completed or cancelled."
+      }
     }
   ],
-  "otherwise": "Goal: {args}\nNot done yet. Check every part of the goal against the evidence so far, run any check you have not run, pick the next most useful step, and continue. If you are blocked on something only the user can provide, stop and say what you need."
+  "otherwise": "Goal: {args}\nNot done yet. Open todos:\n{todos}\nTake the next open todo, check every part of the goal against the evidence so far, and run any check you have not run. Keep your todos current with todowrite as you go. If you are blocked on something only the user can provide, stop and say what you need."
 }

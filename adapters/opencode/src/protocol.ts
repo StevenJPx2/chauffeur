@@ -1,5 +1,8 @@
 import { Schema } from "effect"
 import { clip, clipBytes } from "./text.js"
+import type { Todo } from "./todos.js"
+
+export type { Todo } from "./todos.js"
 
 /** Signal text fields, in code points: 4 bytes each stays within the engine's 2,048-byte text bound. */
 export const TEXT_CODE_POINTS = 512
@@ -53,7 +56,7 @@ export type SignalKind =
     workspace: string
   }
   | { type: "tool_result"; tool: string; ok: boolean; workspace: string; subagent: boolean; input: string; error: string; user_request: string; evidence: string; candidates: CatalogEntry[] }
-  | { type: "turn_end"; workspace: string; subagent: boolean; user_request: string; summary: string }
+  | { type: "turn_end"; workspace: string; subagent: boolean; user_request: string; summary: string; todos: ReadonlyArray<Todo> }
   | { type: "rulebook"; command: RulebookCommand; rulebook: string; args: string; workspace: string }
   | { type: "agent_request"; need: string; user_request: string; tools: CatalogEntry[]; code_mode: CodeModeNamespace[] }
   | {

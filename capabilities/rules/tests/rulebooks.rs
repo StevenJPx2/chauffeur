@@ -7,7 +7,7 @@ use std::path::Path;
 use chauffeur_capability_rules::{Rule, Rulebook, Rules, load_rulebooks};
 use chauffeur_core::{
     Answer, AnswerValue, Delivery, Effect, Engine, Judging, RulebookCommand, Signal, SignalKind,
-    Step,
+    Step, Todo, TodoStatus,
 };
 use serde_json::{Value, json};
 
@@ -42,6 +42,10 @@ fn command(at: u64, command: RulebookCommand, args: &str) -> Signal {
 }
 
 fn turn_end(at: u64, summary: &str) -> Signal {
+    turn_end_with(at, summary, Vec::new())
+}
+
+fn turn_end_with(at: u64, summary: &str, todos: Vec<Todo>) -> Signal {
     signal(
         at,
         SignalKind::TurnEnd {
@@ -49,6 +53,7 @@ fn turn_end(at: u64, summary: &str) -> Signal {
             subagent: false,
             user_request: "make the tests pass".into(),
             summary: summary.into(),
+            todos,
         },
     )
 }
@@ -123,6 +128,14 @@ fn contexts(effects: &[Effect]) -> Vec<(Delivery, String)> {
 
 const DONE: &str = "rules/goal-done/done";
 const BLOCKED: &str = "rules/goal-blocked/needs-user";
+const TODOS: &str = "rules/goal-todos/several-steps";
+
+fn todo(content: &str, status: TodoStatus) -> Todo {
+    Todo {
+        content: content.into(),
+        status,
+    }
+}
 const CONTINUE: &str = "rules/goal-continue/not-done";
 
 #[test]
@@ -149,9 +162,10 @@ fn a_goal_continues_until_evidence_says_done() {
         &mut engine,
         &turn_end(3, "Profiled the handler; p95 is 180 ms."),
     );
+    // No todos yet: whether the goal needs them is asked too.
     let ids: Vec<&str> = questions.iter().map(|(id, _)| id.as_str()).collect();
-    assert_eq!(ids.len(), 2, "{ids:?}");
-    for id in [DONE, BLOCKED] {
+    assert_eq!(ids.len(), 3, "{ids:?}");
+    for id in [DONE, BLOCKED, TODOS] {
         assert!(ids.contains(&id), "{ids:?}");
     }
     assert!(
@@ -223,7 +237,92 @@ fn a_blocked_goal_pauses_until_resumed() {
 
     let resumed = settled(&mut engine, &command(6, RulebookCommand::Resume, ""));
     assert_eq!(resumed[0].0, Delivery::Resume);
-    assert_eq!(asked(&mut engine, &turn_end(7, "")).len(), 2);
+    assert_eq!(asked(&mut engine, &turn_end(7, "")).len(), 3);
+}
+
+#[test]
+fn a_goal_with_open_todos_cannot_finish_and_lists_them() {
+    let mut engine = engine(shipped());
+
+    let started = settled(&mut engine, &command(1, RulebookCommand::Start, "ship it"));
+    assert!(started[0].1.contains("todowrite"), "{started:?}");
+
+    // Open todos: "done" is not even asked, and the nudge names what is open.
+    let open = vec![
+        todo("write the migration", TodoStatus::Completed),
+        todo("backfill old rows", TodoStatus::InProgress),
+        todo("update the docs", TodoStatus::Pending),
+    ];
+    let questions = asked(&mut engine, &turn_end_with(2, "Migration written.", open));
+    let ids: Vec<&str> = questions.iter().map(|(id, _)| id.as_str()).collect();
+    assert_eq!(ids, vec![BLOCKED], "{ids:?}");
+
+    // Even a report that says done keeps going while todos are open.
+    let delivered = answer(&mut engine, &questions, &[]);
+    assert_eq!(delivered[0].0, Delivery::Resume);
+    assert!(
+        delivered[0]
+            .1
+            .contains("Open todos:\n- backfill old rows (in progress)\n- update the docs\n"),
+        "{delivered:?}"
+    );
+    assert!(!delivered[0].1.contains("write the migration"));
+
+    // Every todo completed or cancelled: "done" is asked again.
+    assert!(asked(&mut engine, &tool(3)).is_empty());
+    let finished = vec![
+        todo("write the migration", TodoStatus::Completed),
+        todo("backfill old rows", TodoStatus::Completed),
+        todo("update the docs", TodoStatus::Cancelled),
+    ];
+    let questions = asked(
+        &mut engine,
+        &turn_end_with(4, "All done; tests pass.", finished),
+    );
+    let delivered = answer(&mut engine, &questions, &[DONE]);
+    assert_eq!(
+        delivered,
+        vec![(Delivery::Wait, "Goal achieved: ship it".to_string())]
+    );
+}
+
+#[test]
+fn a_multi_step_goal_without_todos_is_asked_to_write_them() {
+    let mut engine = engine(shipped());
+
+    settled(
+        &mut engine,
+        &command(1, RulebookCommand::Start, "migrate the API"),
+    );
+    let questions = asked(&mut engine, &turn_end(2, "Read the code."));
+    let delivered = answer(&mut engine, &questions, &[TODOS]);
+
+    assert_eq!(delivered.len(), 1, "{delivered:?}");
+    assert_eq!(delivered[0].0, Delivery::Resume);
+    assert!(
+        delivered[0]
+            .1
+            .contains("Break the goal into todos with todowrite")
+    );
+}
+
+#[test]
+fn todo_gates_belong_to_turn_end_rules() {
+    let rule = json!({
+        "schema_version": 2,
+        "id": "bad",
+        "name": "Bad",
+        "on": "tool_result",
+        "when": { "tools": ["shell"], "todos": ["open"] },
+        "steps": [{ "id": "q", "question": "q?", "yes_at_or_above": 0.7, "minimum_confidence": 0.4 }],
+        "then": { "delivery": "steer", "text": "x" }
+    });
+
+    let error = Rule::from_json(rule.to_string().as_bytes()).unwrap_err();
+    assert!(
+        error.contains("when.todos applies only to turn_end"),
+        "{error}"
+    );
 }
 
 #[test]

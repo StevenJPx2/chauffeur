@@ -72,6 +72,12 @@ export function offerRulebooks(refresh: Duration.Input): Effect.Effect<void, nev
       if (installed.registration) yield* installed.registration.dispose
 
       installed = { offer, registration: books.length === 0 ? undefined : yield* register(books) }
+
+      // Registry changes are lazy: the next read rebuilds and publishes them.
+      // Materialize now so an idle TUI sees the new commands without a prompt.
+      yield* host.command.list().pipe(
+        Effect.catch((error) => Effect.logError("chauffeur: command refresh unavailable", error)),
+      )
     })
 
     yield* sync

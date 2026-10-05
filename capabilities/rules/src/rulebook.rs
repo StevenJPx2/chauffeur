@@ -25,6 +25,10 @@ const MAX_DESCRIPTION_BYTES: usize = 256;
 /// Where a description of the arguments goes: "Jira ticket ADEPT-1",
 /// "Slack thread <url>", or the text itself.
 pub const INPUT: &str = "{input}";
+
+/// Where a turn end's open todos go in a delivered text, one per line, or
+/// `none`. Any rule's text may use it; only a turn end carries todos.
+pub const TODOS: &str = "{todos}";
 const MAX_SCOPES: usize = 8;
 const MAX_SKILLS: usize = 4;
 

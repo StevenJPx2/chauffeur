@@ -50,6 +50,62 @@ pub struct CodeModeNamespace {
 pub const MAX_CODE_MODE_NAMESPACES: usize = 64;
 pub const MAX_CODE_MODE_MATCHES: usize = 8;
 
+/// Items a session's todo list may hold.
+pub const MAX_TODOS: usize = 64;
+/// Bytes one todo's text may hold.
+pub const MAX_TODO_BYTES: usize = 512;
+
+/// Where one todo stands.
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, Eq, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum TodoStatus {
+    Pending,
+    InProgress,
+    Completed,
+    Cancelled,
+}
+
+impl TodoStatus {
+    /// Pending or in progress: work the agent still owes.
+    #[must_use]
+    pub const fn is_open(self) -> bool {
+        matches!(self, Self::Pending | Self::InProgress)
+    }
+}
+
+/// One item of the agent's todo list.
+#[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct Todo {
+    pub content: String,
+    pub status: TodoStatus,
+}
+
+/// What a todo list says about the work, as a rule gate checks it.
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, Eq, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum TodoState {
+    /// The agent keeps no todos.
+    None,
+    /// At least one todo is pending or in progress.
+    Open,
+    /// Every todo is completed or cancelled.
+    Done,
+}
+
+impl TodoState {
+    #[must_use]
+    pub fn of(todos: &[Todo]) -> Self {
+        if todos.is_empty() {
+            Self::None
+        } else if todos.iter().any(|todo| todo.status.is_open()) {
+            Self::Open
+        } else {
+            Self::Done
+        }
+    }
+}
+
 /// A model reference as `provider/model`, optionally at a thinking variant
 /// (`provider/model#variant`), such as `anthropic/claude-opus-5-5#high`.
 #[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq, Hash)]
@@ -175,6 +231,9 @@ pub enum SignalKind {
         /// judging whether work is done.
         #[serde(default)]
         summary: String,
+        /// The session's todo list as the agent last wrote it.
+        #[serde(default)]
+        todos: Vec<Todo>,
     },
     /// The user started, paused, resumed, cleared, or asked about a rulebook
     /// in this session, such as `/goal <objective>`.
@@ -280,10 +339,12 @@ impl SignalKind {
                 workspace,
                 user_request,
                 summary,
+                todos,
                 ..
             } => {
                 all_bounded(&[(workspace, "workspace"), (summary, "summary")])?;
-                prompt_bounded(user_request, "user request")
+                prompt_bounded(user_request, "user request")?;
+                validate_todos(todos)
             }
             SignalKind::Rulebook {
                 rulebook,
@@ -498,6 +559,21 @@ fn validate_model(model: &ModelRef) -> Result<(), String> {
 }
 
 /// Each `(value, field)` within the text bound.
+fn validate_todos(todos: &[Todo]) -> Result<(), String> {
+    if todos.len() > MAX_TODOS {
+        return Err(format!("signal todos exceed {MAX_TODOS} items"));
+    }
+
+    if todos
+        .iter()
+        .any(|todo| todo.content.trim().is_empty() || todo.content.len() > MAX_TODO_BYTES)
+    {
+        return Err(format!("a todo must hold 1 to {MAX_TODO_BYTES} bytes"));
+    }
+
+    Ok(())
+}
+
 fn all_bounded(fields: &[(&String, &str)]) -> Result<(), String> {
     fields
         .iter()

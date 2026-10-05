@@ -35,7 +35,7 @@ async function goalCommand(answer: { delivery: "resume" | "wait"; text: string; 
 
   const host = fakeHost({
     location: { directory: "/work/hpdp" },
-    command: { transform: (edit: (editor: { add: (command: Command) => void }) => void) => Effect.sync(() => {
+    command: { list: () => Effect.succeed({ data: commands }), transform: (edit: (editor: { add: (command: Command) => void }) => void) => Effect.sync(() => {
       edit({ add: (command) => { commands.push(command) } })
 
       return { dispose: Effect.void }
@@ -124,30 +124,36 @@ test("no rulebooks, no commands", async () => {
   await plugin.close()
 })
 
-test("a rulebook added or removed on disk is registered or dropped while running", async () => {
+test("a changed offer materializes lazy command registrations", async () => {
   const goal = { id: "goal", name: "Goal", description: "Keep working.", args_required: true }
   const review = { id: "review", name: "Review", description: "Review the diff.", args_required: false }
   let offer = [goal]
-  // Each registration's command names, while it is still registered.
-  const live = new Map<number, string[]>()
+  let names: string[] = []
+  const live = new Map<number, (editor: { add: (command: Command) => void }) => void>()
   let next = 0
 
   const host = fakeHost({
     location: { directory: "/work" },
     command: { transform: (edit: (editor: { add: (command: Command) => void }) => void) => Effect.sync(() => {
       const id = next++
-      const names: string[] = []
-
-      edit({ add: (command) => { names.push(command.name) } })
-      live.set(id, names)
+      live.set(id, edit)
 
       return { dispose: Effect.sync(() => { live.delete(id) }) }
+    }), list: () => Effect.sync(() => {
+      // Registrations do not update the registry until it is read.
+      names = []
+
+      for (const edit of live.values()) {
+        edit({ add: (command) => { names.push(command.name) } })
+      }
+
+      return { data: names }
     }) },
   })
 
   const daemon: DaemonClient = { rulebooks: () => Effect.sync(() => offer), signal: () => Effect.die("unexpected") }
   const plugin = await install(offerRulebooks("10 millis"), host, daemon)
-  const registered = () => [...live.values()].flat().sort()
+  const registered = () => [...names].sort()
   const settle = () => new Promise((resolve) => setTimeout(resolve, 60))
 
   try {
@@ -159,10 +165,13 @@ test("a rulebook added or removed on disk is registered or dropped while running
     offer = [goal, review]
     await settle()
     expect(registered()).toEqual(["goal", "review"])
+    expect(live.size).toBe(1)
+    expect(next).toBe(2)
 
     offer = []
     await settle()
     expect(registered()).toEqual([])
+    expect(live.size).toBe(0)
   } finally {
     await plugin.close()
   }

@@ -2,18 +2,20 @@ import { expect, test } from "bun:test"
 import { Effect } from "effect"
 import type { DaemonClient } from "../src/daemon.js"
 import { installIdle } from "../src/idle.js"
-import type { Signal } from "../src/protocol.js"
+import type { Signal, Todo } from "../src/protocol.js"
 import { eventStream, fakeHost, install, noRulebooks, settle } from "./support.js"
 
-test("turn end carries the workspace and user instruction, and delivers a confirmed reminder", async () => {
+test("turn end carries the workspace, user instruction and todos, and delivers a confirmed reminder", async () => {
   const sessionID = "ses_hpdp"
   const events = eventStream()
   const sent: Signal[] = []
   const messages: Array<{ readonly text: string; readonly resume?: boolean }> = []
+  const todos: ReadonlyArray<Todo> = [{ content: "Fix the size notice", status: "in_progress" }]
 
   const host = fakeHost({
     location: { directory: "/projects/hpdp-overlay/main" },
     event: { subscribe: events.subscribe },
+    storage: { get: (key: string) => Effect.succeed(key === `todos/${sessionID}` ? todos : undefined) },
     session: {
       get: () => Effect.succeed({ location: { directory: "/projects/hpdp-overlay/main" } }),
       context: () => Effect.succeed([
@@ -43,6 +45,7 @@ test("turn end carries the workspace and user instruction, and delivers a confir
       subagent: false,
       user_request: "Do not open a PR",
       summary: "Changes are local; no PR opened.",
+      todos,
     })
     expect(messages).toEqual([expect.objectContaining({ text: "Check the overlay", resume: true })])
   } finally {
@@ -57,6 +60,7 @@ test("a subagent's turn end says it is a subagent", async () => {
   const host = fakeHost({
     location: { directory: "/projects/app" },
     event: { subscribe: events.subscribe },
+    storage: { get: () => Effect.succeed(undefined) },
     session: {
       get: () => Effect.succeed({ location: { directory: "/projects/app" }, parentID: "ses_parent" }),
       context: () => Effect.succeed([]),
