@@ -152,5 +152,5 @@ fn option<'a>(args: &'a [String], name: &str) -> Option<&'a str> {
 }
 
 fn usage() -> String {
-    "usage: chauffeur daemon [--port PORT] | mcp | health | audit [N] | skill validate PATH | signal --file PATH".into()
+    "usage: chauffeur daemon [--port PORT] | mcp | health | audit [N] [--brief] [--follow] | skill validate PATH | signal --file PATH".into()
 }

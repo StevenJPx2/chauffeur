@@ -18,6 +18,10 @@ back if a later message does.
 
 ![Chauffeur attaching the jira-cli skill to a question about a Jira ticket](docs/media/jira.gif)
 
+![Artifact tools hidden for a rename, then brought back when the next message asks to publish](docs/media/tools.gif)
+
+The decision feed under OpenCode is `chauffeur audit --follow --brief`.
+
 On our longer benchmark tasks, this used 29% fewer input tokens and finished
 19% faster than plain OpenCode, with the same or better pass rate
 ([`bench/`](bench)).
@@ -96,8 +100,9 @@ through unchanged and permission requests fall back to asking you.
 Every decision is logged, with the questions asked and how long they took:
 
 ```sh
-chauffeur audit        # the last 20 decisions
+chauffeur audit                   # the last 20 decisions
 chauffeur audit 100
+chauffeur audit --follow --brief  # new decisions as they happen, one short line each
 ```
 
 ```text
