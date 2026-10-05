@@ -25,7 +25,7 @@
       "steps": [
         {
           "id": "in-review",
-          "question": "The HPDP Overlay task is: {input}. Judging from the agent's report, is its part finished: a PR is open, the covered Jira tickets are In Review, and nothing is left that the agent can do itself, so what remains is only other people's reviews, CI runs or merges? Also answer yes when the agent verified that no repository change is needed and reported that. Answer no when the agent still has work of its own, such as failing checks to fix, a PR to open, tickets to move, or the #hpdp-engineering post to make.",
+          "question": "The HPDP Overlay task is: {input}. Judging from the agent's report, is the agent's own part of this task finished? Count it finished when its PR is open or merged and the covered tickets are In Review or Done; when the user decided where the tickets stay or that no PR is needed; when the agent verified that no repository change is needed; or when the agent reports that everything the task asks for is already done. Answer no when the agent still has work of its own, such as failing checks to fix, a PR to open, tickets to move, or the #hpdp-engineering post to make.",
           "yes_at_or_above": 0.55,
           "minimum_confidence": 0
         }
@@ -34,19 +34,19 @@
     },
     {
       "schema_version": 2,
-      "id": "ticket-blocked",
-      "name": "HPDP task blocked",
+      "id": "ticket-waiting",
+      "name": "HPDP task waiting",
       "on": "turn_end",
       "priority": 15,
       "steps": [
         {
-          "id": "needs-user",
-          "question": "The HPDP Overlay task is: {input}. Did the agent stop because it needs something only the user can provide: an approval such as a browser connection, access, credentials, or a decision because the ticket, merchant, reference, worktree or live result is ambiguous, and say what it needs?",
-          "yes_at_or_above": 0.7,
-          "minimum_confidence": 0.4
+          "id": "waiting",
+          "question": "The HPDP Overlay task is: {input}. Should the agent stop here for now? Answer yes when its next step waits on someone or something else (the user's answer, approval, access or decision, a colleague's reply, a review, CI, or a deploy), or when the user's latest message asked a question or for an explanation and the agent answered it, leaving the next move to the user. Answer no when the workflow still has a step the agent can take itself that nothing blocks, such as fixing checks, opening the PR, posting it in #hpdp-engineering or moving the tickets, even if the agent did not say so.",
+          "yes_at_or_above": 0.65,
+          "minimum_confidence": 0.3
         }
       ],
-      "then": { "delivery": "wait", "text": "HPDP task paused until you answer the agent: {input}\nResume it with /ticket resume.", "end": "pause" }
+      "then": { "delivery": "wait", "text": "HPDP task paused: what is left waits on you or someone else. {input}\nResume it with /ticket resume once it can move again.", "end": "pause" }
     },
     {
       "schema_version": 2,
