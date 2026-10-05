@@ -51,6 +51,8 @@ its `.chauffeur/rules/`.
 
 ![The agent prints two files with cat; Chauffeur steers it to the read tool](docs/media/steer.gif)
 
+![After a browser fetch of an X post, Chauffeur hands over twitter-cli and the agent switches to it](docs/media/drift.gif)
+
 ### Rulebooks: `/goal`, `/ticket`, and your own
 
 A rulebook is a set of rules you switch on for one session with a slash command.
@@ -155,5 +157,6 @@ see [`bench/README.md`](bench/README.md).
 
 The demos above were recorded with
 [terminal-control](https://github.com/anomalyco/terminal-control) in throwaway
-repositories, with stub `jira` and `slackcli` CLIs. The ask demo's `AGENTS.md`
-requires a Slack handoff and supplies the question the agent asks Chauffeur.
+repositories, with stub `jira`, `slackcli` and `twitter` CLIs. Twitter replies
+are fixtures. The ask demo's `AGENTS.md` requires a Slack handoff and supplies
+the question the agent asks Chauffeur.
