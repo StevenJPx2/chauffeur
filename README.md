@@ -69,6 +69,11 @@ A rulebook is a set of rules you switch on for one session with a slash command.
 Add your own in `skills/rulebooks/`, or per project in `.chauffeur/rulebooks/`
 ([format](skills/README.md#rulebooks)).
 
+Here, a project's `release.json` defines `/release`: bump the version, update
+the changelog, run tests, commit and tag locally, then check the evidence.
+
+![A project rulebook becomes /release and checks that a local release is complete](docs/media/release.gif)
+
 ### Ask for what's missing
 
 With **`ask_chauffeur`**, the agent can ask in plain words for a tool or skill
