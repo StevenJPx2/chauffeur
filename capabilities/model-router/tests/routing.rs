@@ -290,12 +290,10 @@ fn a_late_success_from_a_previous_model_does_not_reoffer_a_failed_candidate() {
     if let SignalKind::ModelError { model: failed, .. } = &mut limit.kind {
         *failed = model("openai/luna");
     }
+    // Every frontier model was tried: the next tier is offered, never sol or opus again.
     assert_eq!(
-        router.plan(&Situation::default(), &limit),
-        Plan::Settled(vec![Effect::Model {
-            agent_id: "session".into(),
-            model: None
-        }])
+        options(&router.plan(&Situation::default(), &limit)),
+        vec!["anthropic/haiku", "openai/spark", STAY]
     );
 }
 
@@ -777,6 +775,19 @@ fn recommended_models_come_first_and_fast_or_old_editions_are_never_offered() {
     };
     assert!(options[0].description.contains("recommended"));
     assert!(!options[1].description.contains("recommended"));
+}
+
+#[test]
+fn with_no_same_tier_model_left_another_tier_comes_before_free_models() {
+    // gpt-6-luna at default thinking is the only fast model available.
+    let offered =
+        options(&shipped_router().plan(&Situation::default(), &limit_on("openai/gpt-6-luna")));
+
+    assert!(
+        !offered.iter().any(|key| key.contains("free")),
+        "{offered:?}"
+    );
+    assert_eq!(offered[0], "anthropic/claude-opus-5-5#high");
 }
 
 #[test]

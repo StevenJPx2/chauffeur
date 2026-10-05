@@ -145,20 +145,27 @@ impl ModelRouter {
     }
 
     /// The models to offer: same-tier models on providers you use directly,
-    /// else the configured last resort, such as free gateway models.
+    /// else any rated model there, else the configured last resort, such as
+    /// free gateway models.
     fn candidates(
         &self,
         agent_id: &str,
         current: &ModelRef,
         available: &[chauffeur_core::AvailableModel],
     ) -> Vec<ModelRef> {
-        let ranked = self.ranked(agent_id, current, available);
+        let same_tier = self.ranked(agent_id, current, available, self.current_tier(current));
 
-        if ranked.is_empty() {
-            return self.last_resort(agent_id, current, available);
+        if !same_tier.is_empty() {
+            return same_tier;
         }
 
-        ranked
+        let any_tier = self.ranked(agent_id, current, available, None);
+
+        if !any_tier.is_empty() {
+            return any_tier;
+        }
+
+        self.last_resort(agent_id, current, available)
     }
 
     /// Usable host models not yet tried, other than the one that failed (in
@@ -199,19 +206,18 @@ impl ModelRouter {
         candidates
     }
 
-    /// Same-tier models on providers you use directly (at a thinking
-    /// variant), ordered pins first, then recommended models, then other
-    /// providers, then host order, at most the configured `max_candidates`.
-    /// A model without its own provider's rating is offered only when
-    /// pinned. When the failed model has no tier, any rated model is a
-    /// candidate.
+    /// Models of `tier` (any tier when `None`) on providers you use directly
+    /// (at a thinking variant), ordered pins first, then recommended models,
+    /// then other providers, then host order, at most the configured
+    /// `max_candidates`. A model without its own provider's rating is offered
+    /// only when pinned.
     fn ranked(
         &self,
         agent_id: &str,
         current: &ModelRef,
         available: &[chauffeur_core::AvailableModel],
+        tier: Option<Tier>,
     ) -> Vec<ModelRef> {
-        let tier = self.current_tier(current);
         let mut offered: HashSet<(String, String)> = HashSet::new();
         let mut candidates: Vec<ModelRef> = self
             .untried(agent_id, current, available)

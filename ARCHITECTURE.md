@@ -12,16 +12,15 @@ are capabilities or plugins that hang off that core.
 
 ## Status
 
-| Part | State |
-|---|---|
-| Sense → Classify → Act engine, System One interface, Jev provider (HTTPS via rustls), secret redaction | built |
-| Model router capability, Anthropic and OpenAI provider plugins, OpenCode signal/effect adapter | built |
-| Skill exposure, tool exposure, permission (skill contract), and rules (tool-result steers, idle reminders, personal and project rules) capabilities | built |
-| Irreversible-harm backstop | built |
-| Integration events and the sourcefed event gate, model switch-back, tool-group reveal, rules, persistence across restarts | built |
-| Ephemeral enhancements | not yet built |
-| Code Mode tool surfacing, skill-list removal, audit log, child-session inheritance | built |
-
+| Part                                                                                                                                                | State         |
+| --------------------------------------------------------------------------------------------------------------------------------------------------- | ------------- |
+| Sense → Classify → Act engine, System One interface, Jev provider (HTTPS via rustls), secret redaction                                              | built         |
+| Model router capability, Anthropic and OpenAI provider plugins, OpenCode signal/effect adapter                                                      | built         |
+| Skill exposure, tool exposure, permission (skill contract), and rules (tool-result steers, idle reminders, personal and project rules) capabilities | built         |
+| Irreversible-harm backstop                                                                                                                          | built         |
+| Integration events and the sourcefed event gate, model switch-back, tool-group reveal, rules, persistence across restarts                           | built         |
+| Ephemeral enhancements                                                                                                                              | not yet built |
+| Code Mode tool surfacing, skill-list removal, audit log, child-session inheritance                                                                  | built         |
 
 ## Three planes
 
@@ -112,7 +111,7 @@ are in `docs/plans/judge.md`.
 - **Egress:** shipped token prefixes in `skills/safety/redaction.json` (compiled
   in) and private-key blocks are redacted locally. Optional
   `$CHAUFFEUR_CONFIG_DIR/redaction.json` prefixes add or replace (`"replace":
-  true`) the shipped list. Unknown credential-like strings (24+ characters
+true`) the shipped list. Unknown credential-like strings (24+ characters
   mixing upper case, lower case, and digits, or 32+ hex digits after a key
   or an authorization scheme) are masked locally before state and question
   text reach Jev; Jev judges their shapes, never their values. A bare hex
@@ -131,13 +130,13 @@ Effects are the host's actions, not capabilities' concepts. Core defines five,
 and no effect names the capability that asked, so a new capability needs no
 new effect and no adapter change:
 
-| Effect | What the host does | Used by |
-|---|---|---|
-| `permission` | answers the pending permission request: allow, deny, or ask with a message | permission contracts, the backstop |
-| `model` | switches the model (with its thinking variant) and retries, or keeps it and applies its own retry policy | model router |
-| `tools` | hides or shows named tools in this context | tool exposure |
-| `context` | adds skills (the host resolves their bodies) and text to the conversation, at a `delivery`: `prompt` (with the user message being admitted), `steer` (the running turn), `resume` (wakes an idle agent), or `wait` (for the next turn) | skill exposure, tool exposure (Code Mode notes), rules |
-| `gate` | delivers or withholds the integration event being gated | event gate |
+| Effect       | What the host does                                                                                                                                                                                                                     | Used by                                                |
+| ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------ |
+| `permission` | answers the pending permission request: allow, deny, or ask with a message                                                                                                                                                             | permission contracts, the backstop                     |
+| `model`      | switches the model (with its thinking variant) and retries, or keeps it and applies its own retry policy                                                                                                                               | model router                                           |
+| `tools`      | hides or shows named tools in this context                                                                                                                                                                                             | tool exposure                                          |
+| `context`    | adds skills (the host resolves their bodies) and text to the conversation, at a `delivery`: `prompt` (with the user message being admitted), `steer` (the running turn), `resume` (wakes an idle agent), or `wait` (for the next turn) | skill exposure, tool exposure (Code Mode notes), rules |
+| `gate`       | delivers or withholds the integration event being gated                                                                                                                                                                                | event gate                                             |
 
 Every `context` delivery lands in history at the tail, so the cached prefix
 stays intact. Ephemeral context, appended to one request in the `context` hook,
@@ -237,15 +236,15 @@ come first in that prefix.
 
 ## Capability catalog
 
-| Capability | Question | Triggered by | Effect | Status |
-|---|---|---|---|---|
-| Model router | switch, and to which same-tier model, or stay? has the limit on the model left behind cleared? | model usage-limit error; user message after a switch | decision | built |
-| Permission / skill contract | each matching contract's typed question | permission request | decision | built |
-| Skill exposure | does the request need each offered skill? (fan-out) is the agent using a generic approach where a skill fits? | user message; tool result and turn end; `ask_chauffeur` | persistent | built |
-| Tool exposure | will the task need this tool group? does the latest request need a hidden group now? which hidden groups and Code Mode namespaces cover the agent's request? (fan-out) | first user message of a context; later user messages; `ask_chauffeur` | tool set; Code Mode note | built |
-| Rules | each admitted rule's step, one or two rounds | tool result for a watched tool; turn end | persistent (steer, resume, or wait; skill hand-over) | built |
-| Event gate | does this integration event need the agent to act now? (told what the event's monitor watches) | integration event | decision | built |
-| Monitors | is this PR, Jira issue, or Slack thread the session's own work to follow? | tool result naming one | sourcefed monitor; steer | built |
+| Capability                  | Question                                                                                                                                                               | Triggered by                                                          | Effect                                               | Status |
+| --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- | ---------------------------------------------------- | ------ |
+| Model router                | switch, and to which same-tier model, or stay? has the limit on the model left behind cleared?                                                                         | model usage-limit error; user message after a switch                  | decision                                             | built  |
+| Permission / skill contract | each matching contract's typed question                                                                                                                                | permission request                                                    | decision                                             | built  |
+| Skill exposure              | does the request need each offered skill? (fan-out) is the agent using a generic approach where a skill fits?                                                          | user message; tool result and turn end; `ask_chauffeur`               | persistent                                           | built  |
+| Tool exposure               | will the task need this tool group? does the latest request need a hidden group now? which hidden groups and Code Mode namespaces cover the agent's request? (fan-out) | first user message of a context; later user messages; `ask_chauffeur` | tool set; Code Mode note                             | built  |
+| Rules                       | each admitted rule's step, one or two rounds                                                                                                                           | tool result for a watched tool; turn end                              | persistent (steer, resume, or wait; skill hand-over) | built  |
+| Event gate                  | does this integration event need the agent to act now? (told what the event's monitor watches)                                                                         | integration event                                                     | decision                                             | built  |
+| Monitors                    | is this PR, Jira issue, or Slack thread the session's own work to follow?                                                                                              | tool result naming one                                                | sourcefed monitor; steer                             | built  |
 
 Classification passes run on user message, tool result, turn end, permission
 request, model error, integration event, and agent request.
@@ -418,7 +417,7 @@ capabilities; `CHAUFFEUR_SOURCEFED=off` leaves both out.
   pull request acme/app#42."
 - **Following the agent's own work.** After a tool result, exact facts name
   candidates: a PR link in the output of the call that created it (`gh pr
-  create`, `*create_pr`, `*open_pr`), a Jira key in a Jira call, or a Slack
+create`, `*create_pr`, `*open_pr`), a Jira key in a Jira call, or a Slack
   thread link. A candidate a monitor already watches is dropped. Jev judges
   each of the rest, "is this the session's own work to keep following?", and
   a confident yes (P ≥ 0.7, confidence ≥ 0.4) creates the monitor and steers
@@ -454,13 +453,14 @@ never a failover target unless pinned. An agent already on a gateway copy is
 judged by the maker's tier and moves to that tier on a provider you use
 directly. `last_resort` in `model-router.json` (shipped:
 `opencode/*-free`, `opencode-go/*-free`) names models offered only when no
-rated candidate is left:
+rated candidate is left. The order is: same tier, then any tier on providers
+you use directly, then the last resort:
 
-| Tier | Recommended | Fallbacks |
-|---|---|---|
-| Frontier | `claude-opus-5-5#high`, `gpt-6.1-sol#high` | `claude-opus-*`, `gpt-*-sol*` |
+| Tier     | Recommended                                                  | Fallbacks                            |
+| -------- | ------------------------------------------------------------ | ------------------------------------ |
+| Frontier | `claude-opus-5-5#high`, `gpt-6.1-sol#high`                   | `claude-opus-*`, `gpt-*-sol*`        |
 | Balanced | `claude-opus-5-5#low`, `claude-sonnet-5-5`, `gpt-6-luna#max` | `claude-sonnet-*`, `gpt-*-luna*#max` |
-| Fast | `gpt-6-luna` (other variants) | `claude-haiku-*`, `gpt-*-luna*` |
+| Fast     | `gpt-6-luna` (other variants)                                | `claude-haiku-*`, `gpt-*-luna*`      |
 
 Excluded: `*-fast`, Claude generation 4 (`claude-*-4`, `claude-*-4-*`), and
 `gpt-5*`, `gpt-4*`.
@@ -517,10 +517,10 @@ The adapter sends **Signals** and applies **Effects**; it holds no policy.
   unenhanced. The `context` hook never calls a model.
 - Hosts: designed for many, OpenCode first.
 
-| Method | Purpose |
-|---|---|
+| Method   | Purpose                                     |
+| -------- | ------------------------------------------- |
 | `signal` | report one observation, receive its effects |
-| `health` | readiness |
+| `health` | readiness                                   |
 
 ### OpenCode seams
 
@@ -555,23 +555,23 @@ The adapter sends **Signals** and applies **Effects**; it holds no policy.
 
 ## Workspace
 
-| Path | Role |
-|---|---|
-| `crates/core/src` | `lib.rs`, engine, RPC protocol, optional client, and config helpers at the root; `contracts/` holds the host/capability interfaces; `state/` holds rolling context and traces; `features/` holds backstop, redaction, and learning. No capability concepts |
-| `crates/daemon` | engine thread, Jev wiring, capability composition, HTTP RPC, sourcefed surface |
-| `skills` | permission contracts, shipped rules, the backstop, hand-over skills |
-| `crates/cli`, `crates/mcp` | drive the daemon |
-| `capabilities/model-router` | model-router capability and the provider tier-table contract |
-| `capabilities/skill-exposure` | skill-exposure capability |
-| `capabilities/tool-exposure` | tool-exposure capability |
-| `capabilities/permission` | permission capability and the skill-contract format |
-| `capabilities/rules` | rules capability, the rule format, and shipped, personal, and project rule loading |
-| `capabilities/event-gate` | event-gate capability |
-| `capabilities/monitors` | the `Monitors` trait and following the agent's own PRs, issues, and threads |
-| `plugins/anthropic`, `plugins/openai` | providers for the model router, their tier tables in `skills/config/providers/` |
-| `plugins/sourcefed` | sourcefed's monitors, through its daemon |
-| `judges/jev` | Jev System One provider |
-| `adapters/opencode` | signals in, effects out; an Effect plugin whose hooks share the plugin scope |
+| Path                                  | Role                                                                                                                                                                                                                                                       |
+| ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `crates/core/src`                     | `lib.rs`, engine, RPC protocol, optional client, and config helpers at the root; `contracts/` holds the host/capability interfaces; `state/` holds rolling context and traces; `features/` holds backstop, redaction, and learning. No capability concepts |
+| `crates/daemon`                       | engine thread, Jev wiring, capability composition, HTTP RPC, sourcefed surface                                                                                                                                                                             |
+| `skills`                              | permission contracts, shipped rules, the backstop, hand-over skills                                                                                                                                                                                        |
+| `crates/cli`, `crates/mcp`            | drive the daemon                                                                                                                                                                                                                                           |
+| `capabilities/model-router`           | model-router capability and the provider tier-table contract                                                                                                                                                                                               |
+| `capabilities/skill-exposure`         | skill-exposure capability                                                                                                                                                                                                                                  |
+| `capabilities/tool-exposure`          | tool-exposure capability                                                                                                                                                                                                                                   |
+| `capabilities/permission`             | permission capability and the skill-contract format                                                                                                                                                                                                        |
+| `capabilities/rules`                  | rules capability, the rule format, and shipped, personal, and project rule loading                                                                                                                                                                         |
+| `capabilities/event-gate`             | event-gate capability                                                                                                                                                                                                                                      |
+| `capabilities/monitors`               | the `Monitors` trait and following the agent's own PRs, issues, and threads                                                                                                                                                                                |
+| `plugins/anthropic`, `plugins/openai` | providers for the model router, their tier tables in `skills/config/providers/`                                                                                                                                                                            |
+| `plugins/sourcefed`                   | sourcefed's monitors, through its daemon                                                                                                                                                                                                                   |
+| `judges/jev`                          | Jev System One provider                                                                                                                                                                                                                                    |
+| `adapters/opencode`                   | signals in, effects out; an Effect plugin whose hooks share the plugin scope                                                                                                                                                                               |
 
 ## Failure and bounds
 
@@ -624,15 +624,15 @@ re-registering the slash commands when it changes. Project `.chauffeur/rules/`
 are read per signal already. The shipped defaults in `skills/config/` are
 compiled in and need a rebuild.
 
-| Variable | Default |
-|---|---|
-| `TYPESAFE_API_KEY` | required; the daemon refuses to start without it |
-| `TYPESAFE_BASE_URL` | `https://api.typesafe.ai` |
-| `TYPESAFE_DEFAULT_MODEL` | `jev-latest` |
-| `CHAUFFEUR_CONFIG_DIR` | `~/.config/chauffeur` |
-| `CHAUFFEUR_SKILLS_DIR` | `$CHAUFFEUR_CONFIG_DIR/skills` (a link to `skills/`) |
-| `CHAUFFEUR_STATE_DIR` | `$XDG_STATE_HOME/chauffeur`, else `~/.local/state/chauffeur` |
-| `CHAUFFEUR_DAEMON_URL` | `http://127.0.0.1:18790` |
-| `CHAUFFEUR_DAEMON_TOKEN` | unset |
-| `CHAUFFEUR_IDLE_STEERING` | `false`; `true` enables idle reminders in the daemon |
-| `CHAUFFEUR_BIN` | `chauffeur` |
+| Variable                  | Default                                                      |
+| ------------------------- | ------------------------------------------------------------ |
+| `TYPESAFE_API_KEY`        | required; the daemon refuses to start without it             |
+| `TYPESAFE_BASE_URL`       | `https://api.typesafe.ai`                                    |
+| `TYPESAFE_DEFAULT_MODEL`  | `jev-latest`                                                 |
+| `CHAUFFEUR_CONFIG_DIR`    | `~/.config/chauffeur`                                        |
+| `CHAUFFEUR_SKILLS_DIR`    | `$CHAUFFEUR_CONFIG_DIR/skills` (a link to `skills/`)         |
+| `CHAUFFEUR_STATE_DIR`     | `$XDG_STATE_HOME/chauffeur`, else `~/.local/state/chauffeur` |
+| `CHAUFFEUR_DAEMON_URL`    | `http://127.0.0.1:18790`                                     |
+| `CHAUFFEUR_DAEMON_TOKEN`  | unset                                                        |
+| `CHAUFFEUR_IDLE_STEERING` | `false`; `true` enables idle reminders in the daemon         |
+| `CHAUFFEUR_BIN`           | `chauffeur`                                                  |
