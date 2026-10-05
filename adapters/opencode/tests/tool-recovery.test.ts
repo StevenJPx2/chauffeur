@@ -73,6 +73,44 @@ test("an unserializable output is labelled as output, not input", async () => {
   await plugin.close()
 })
 
+test("a long output keeps both ends in its evidence, so what comes next survives", async () => {
+  const hooks = new Hooks()
+  const sent: Signal[] = []
+  const plugin = await install(installToolResults(fakeExposure()), toolHost(hooks, []), daemon(sent, []))
+
+  const content = `Saved as #3.\n${"#1 2026-10-05 a memory\n".repeat(200)}Not awake yet. Run: memo wake 2 400`
+
+  await hooks.emit("execute.after", { sessionID, tool: "memo_wake", status: "completed", input: {}, result: { content } })
+
+  const kind = sent[0]?.kind
+  const evidence = kind?.type === "tool_result" ? kind.evidence : ""
+
+  expect(Array.from(evidence)).toHaveLength(512)
+  expect(evidence.startsWith("\"Saved as #3.")).toBe(true)
+  expect(evidence.endsWith("Not awake yet. Run: memo wake 2 400\"")).toBe(true)
+  expect(kind).toEqual(expect.objectContaining({ subagent: false }))
+
+  await plugin.close()
+})
+
+test("a subagent's tool result says it is a subagent", async () => {
+  const hooks = new Hooks()
+  const sent: Signal[] = []
+
+  const host = fakeHost({
+    tool: { hook: hooks.register },
+    session: { get: () => Effect.succeed({ location: { directory: "/projects/app" }, parentID: "ses_parent" }) },
+  })
+
+  const plugin = await install(installToolResults(fakeExposure()), host, daemon(sent, []))
+
+  await hooks.emit("execute.after", { sessionID, tool: "read", status: "completed", input: { path: "a" }, result: { content: "x" } })
+
+  expect(sent[0]?.kind).toEqual(expect.objectContaining({ type: "tool_result", workspace: "/projects/app", subagent: true }))
+
+  await plugin.close()
+})
+
 test("a steer after a tool result reaches the running turn; prompt context does not", async () => {
   const hooks = new Hooks()
   const delivered: string[] = []

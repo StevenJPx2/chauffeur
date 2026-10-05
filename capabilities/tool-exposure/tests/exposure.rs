@@ -90,6 +90,7 @@ fn recovery(candidates: &[&str]) -> Signal {
             tool: "execute".into(),
             ok: true,
             workspace: String::new(),
+            subagent: false,
             input: "lookup browser".into(),
             error: String::new(),
             user_request: "open the page".into(),

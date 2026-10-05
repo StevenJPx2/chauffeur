@@ -12,6 +12,20 @@ export function clipStart(value: string, codePoints: number): string {
   return Array.from(value).slice(-codePoints).join("")
 }
 
+/**
+ * Both ends of a long text, whole code points, joined by an ellipsis: tools
+ * report what happened first and what to do next last.
+ */
+export function clipEnds(value: string, codePoints: number): string {
+  const points = Array.from(value)
+
+  if (points.length <= codePoints) return value
+
+  const head = Math.ceil((codePoints - 1) / 2)
+
+  return [...points.slice(0, head), "…", ...points.slice(points.length - (codePoints - 1 - head))].join("")
+}
+
 /** The engine's bound on the user's own words, in UTF-8 bytes. */
 const PROMPT_BYTES = 65_536
 

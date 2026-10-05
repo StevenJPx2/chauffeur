@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use chauffeur_capability_rules::{
-    MAX_DELIVERIES_CAP, Rule, Rules, RulesConfig, load_dir, load_project,
+    MAX_DELIVERIES_CAP, Rule, Rules, RulesConfig, load_dir, load_dirs, load_project,
 };
 use chauffeur_core::{
     Answer, AnswerValue, Delivery, Effect, Engine, Judging, Signal, SignalKind, Step,
@@ -67,26 +67,37 @@ fn signal(at: u64, kind: SignalKind) -> Signal {
 }
 
 fn call(at: u64, tool: &str, workspace: &str) -> Signal {
+    result(at, tool, workspace, "", false)
+}
+
+/// A call whose result reads `evidence`, from a subagent's session or not.
+fn result(at: u64, tool: &str, workspace: &str, evidence: &str, subagent: bool) -> Signal {
     signal(
         at,
         SignalKind::ToolResult {
             tool: tool.into(),
             ok: true,
             workspace: workspace.into(),
+            subagent,
             input: r#"{"command":"python3 patch.py"}"#.into(),
             error: String::new(),
             user_request: String::new(),
-            evidence: String::new(),
+            evidence: evidence.into(),
             candidates: Vec::new(),
         },
     )
 }
 
 fn turn_end(at: u64, workspace: &str, request: &str) -> Signal {
+    turn_end_of(at, workspace, request, false)
+}
+
+fn turn_end_of(at: u64, workspace: &str, request: &str, subagent: bool) -> Signal {
     signal(
         at,
         SignalKind::TurnEnd {
             workspace: workspace.into(),
+            subagent,
             user_request: request.into(),
             summary: String::new(),
         },
@@ -219,6 +230,70 @@ fn a_confirmed_misuse_steers_hands_over_its_skill_and_cools_down() {
 
     assert_eq!(ids, ["rules/hand-rolled-patch/misuse"]);
     assert_eq!(engine.finish(Err("down".into()), 1), Step::Done(vec![]));
+}
+
+#[test]
+fn a_result_rule_is_judged_only_when_the_result_says_so_and_never_shows_it() {
+    let pending = rule(
+        "memo-pending",
+        "tool_result",
+        json!({ "tools": ["memo_note"], "result_includes": ["Compress memories #", "Not awake yet"] }),
+        &["own"],
+        "steer",
+    );
+    let mut engine = engine(&[pending]);
+
+    assert!(
+        asked(
+            &mut engine,
+            &result(1, "memo_note", "", "Saved as #4.", false)
+        )
+        .is_empty()
+    );
+
+    let Step::Ask { questions, .. } = engine
+        .begin(&result(
+            2,
+            "memo_note",
+            "",
+            "Saved as #5. Compress memories #4-5 secret",
+            false,
+        ))
+        .unwrap()
+    else {
+        panic!("expected a question")
+    };
+
+    assert_eq!(questions.len(), 1);
+    assert!(!questions[0].instructions.contains("secret"));
+}
+
+#[test]
+fn a_session_kind_scopes_tool_results_and_turn_ends() {
+    let top = rule(
+        "top-only",
+        "tool_result",
+        json!({ "tools": ["read"], "session_kind": "top_level" }),
+        &["holds"],
+        "steer",
+    );
+    let sub = reminder("sub-only", json!({ "session_kind": "subagent" }));
+    let either = reminder("either", json!({}));
+    let mut engine = engine(&[top, sub, either]);
+
+    assert_eq!(
+        asked(&mut engine, &result(1, "read", "", "", false)),
+        ["rules/top-only/holds"]
+    );
+    assert!(asked(&mut engine, &result(2, "read", "", "", true)).is_empty());
+    assert_eq!(
+        asked(&mut engine, &turn_end_of(3, "", "", false)),
+        ["rules/either/holds"]
+    );
+    assert_eq!(
+        asked(&mut engine, &turn_end_of(4, "", "", true)),
+        ["rules/sub-only/holds", "rules/either/holds"]
+    );
 }
 
 // Turn-end rules over the session.
@@ -455,6 +530,17 @@ fn rules_are_strict() {
     let watched_at_turn_end = reminder("x", json!({ "tools": ["shell"] }));
     let three_steps = rule("x", "turn_end", json!({}), &["a", "b", "c"], "resume");
     let old_schema = with(ok.clone(), "schema_version", json!(1));
+    let result_at_turn_end = reminder("x", json!({ "result_includes": ["done"] }));
+    let empty_result = with(
+        ok.clone(),
+        "when",
+        json!({ "tools": ["shell"], "result_includes": [" "] }),
+    );
+    let unknown_kind = with(
+        ok.clone(),
+        "when",
+        json!({ "tools": ["shell"], "session_kind": "child" }),
+    );
 
     assert!(parsed(&ok).is_ok());
     for bad in [
@@ -466,6 +552,9 @@ fn rules_are_strict() {
         watched_at_turn_end,
         three_steps,
         old_schema,
+        result_at_turn_end,
+        empty_result,
+        unknown_kind,
         misuse("Bad ID"),
     ] {
         assert!(parsed(&bad).is_err(), "{bad}");
@@ -499,6 +588,36 @@ fn the_shipped_rules_load_and_hand_over_shipped_skills() {
     }
 }
 
+#[test]
+fn your_rules_load_after_the_shipped_ones_and_cannot_reuse_their_ids() {
+    let base = std::env::temp_dir().join(format!("chauffeur-rules-dirs-{}", std::process::id()));
+    let (shipped, yours, clash) = (base.join("shipped"), base.join("yours"), base.join("clash"));
+
+    for (directory, id) in [(&shipped, "steer"), (&yours, "remind"), (&clash, "steer")] {
+        std::fs::create_dir_all(directory).unwrap();
+        std::fs::write(
+            directory.join(format!("{id}.json")),
+            serde_json::to_vec(&misuse(id)).unwrap(),
+        )
+        .unwrap();
+    }
+
+    let ids = |rules: Vec<Rule>| rules.into_iter().map(|rule| rule.id).collect::<Vec<_>>();
+    let missing = base.join("missing");
+
+    assert_eq!(
+        ids(load_dirs(&[&shipped, &yours]).unwrap()),
+        ["steer", "remind"]
+    );
+    assert_eq!(ids(load_dirs(&[&shipped, &missing]).unwrap()), ["steer"]);
+    assert!(
+        load_dirs(&[&shipped, &clash])
+            .unwrap_err()
+            .contains("duplicate id steer")
+    );
+    std::fs::remove_dir_all(base).unwrap();
+}
+
 fn shell(at: u64, command: &str) -> Signal {
     signal(
         at,
@@ -506,6 +625,7 @@ fn shell(at: u64, command: &str) -> Signal {
             tool: "shell".into(),
             ok: true,
             workspace: String::new(),
+            subagent: false,
             input: serde_json::to_string(&json!({ "command": command })).unwrap(),
             error: String::new(),
             user_request: String::new(),

@@ -18,13 +18,23 @@ const MAX_PROJECT_RULES: usize = 32;
 /// Every rule in `directory`; a missing directory has none. IDs must be
 /// unique.
 pub fn load_dir(directory: &Path) -> Result<Vec<Rule>, String> {
-    let mut rules = Vec::new();
+    load_dirs(&[directory])
+}
 
-    collect(
-        read_json_files(directory, MAX_RULES, MAX_FILE_BYTES)?,
-        &mut rules,
-        MAX_RULES,
-    )?;
+/// Every rule in `directories`, in order, such as the shipped rules and then
+/// your own; a missing directory has none. IDs must be unique across all of
+/// them, so one folder never silently replaces another's rule.
+pub fn load_dirs(directories: &[&Path]) -> Result<Vec<Rule>, String> {
+    let mut rules = Vec::new();
+    let limit = MAX_RULES.saturating_mul(directories.len());
+
+    for directory in directories {
+        collect(
+            read_json_files(directory, MAX_RULES, MAX_FILE_BYTES)?,
+            &mut rules,
+            limit,
+        )?;
+    }
 
     Ok(rules)
 }

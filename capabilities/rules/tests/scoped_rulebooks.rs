@@ -66,6 +66,7 @@ fn turn_end(at: u64) -> Signal {
         at,
         SignalKind::TurnEnd {
             workspace: String::new(),
+            subagent: false,
             user_request: String::new(),
             summary: String::new(),
         },

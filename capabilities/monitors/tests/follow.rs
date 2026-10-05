@@ -47,6 +47,7 @@ fn call(tool: &str, input: &str, output: &str) -> Signal {
             tool: tool.into(),
             ok: true,
             workspace: String::new(),
+            subagent: false,
             input: input.into(),
             error: String::new(),
             user_request: String::new(),

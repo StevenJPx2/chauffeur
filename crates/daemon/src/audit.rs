@@ -146,6 +146,7 @@ mod tests {
             tool: "shell".into(),
             ok: true,
             workspace: String::new(),
+            subagent: false,
             input: format!("{{\"command\":\"echo {secret} {unknown}\"}}"),
             error: String::new(),
             user_request: String::new(),
@@ -164,6 +165,7 @@ mod tests {
             &path,
             &signal(SignalKind::TurnEnd {
                 workspace: String::new(),
+                subagent: false,
                 user_request: String::new(),
                 summary: String::new(),
             }),

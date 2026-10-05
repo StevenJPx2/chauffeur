@@ -91,6 +91,7 @@ fn asks_whether_an_integration_event_needs_the_agent() {
             &Signal {
                 kind: SignalKind::TurnEnd {
                     workspace: String::new(),
+                    subagent: false,
                     user_request: String::new(),
                     summary: String::new()
                 },

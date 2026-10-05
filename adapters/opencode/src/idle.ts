@@ -49,6 +49,7 @@ function reportTurnEnd(sessionID: SessionID): Effect.Effect<void, never, Host | 
     const effects = yield* daemon.signal(signal(String(sessionID), {
       type: "turn_end",
       workspace: session ? clip(String(session.location.directory), TEXT_CODE_POINTS) : "",
+      subagent: session?.parentID !== undefined,
       user_request: user?.type === "user" ? userText(user.text) : "",
       summary: clip(summary, TEXT_CODE_POINTS),
     }))

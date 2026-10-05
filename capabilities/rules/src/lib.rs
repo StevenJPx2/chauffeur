@@ -25,7 +25,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 
 use book::{Books, Notice, Running};
 use history::Histories;
-pub use rule::{Gate, History, Rule, SCHEMA_VERSION, Step, Then, Trigger};
+pub use rule::{Gate, History, Rule, SCHEMA_VERSION, SessionKind, Step, Then, Trigger};
 pub use rulebook::{
     Args, End, Input, InputSkills, RULEBOOK_SCHEMA_VERSION, Rulebook, load_rulebooks,
 };
@@ -39,7 +39,7 @@ pub use rulebook::{
 pub fn rulebooks_for(shipped: Vec<Rulebook>, workspace: &str) -> Result<Vec<Rulebook>, String> {
     Books::new(shipped, true).available(workspace)
 }
-pub use source::{load_dir, load_project};
+pub use source::{load_dir, load_dirs, load_project};
 
 /// The rules that held for a signal, or a rulebook command's answer.
 pub struct Verdict {
@@ -214,10 +214,6 @@ impl Rules {
         let agent = &signal.agent_id;
         let book = self.books.rules(agent, trigger);
         let tools = self.histories.turn_tools(agent);
-        let input = match &signal.kind {
-            SignalKind::ToolResult { input, .. } => input.as_str(),
-            _ => "",
-        };
         let rules: Vec<Rule> = self
             .rules_for(workspace)
             .into_iter()
@@ -226,13 +222,7 @@ impl Rules {
             .filter(|rule| {
                 tool.is_none_or(|tool| rule.when.tools.iter().any(|watched| watched == tool))
             })
-            .filter(|rule| {
-                !rule
-                    .when
-                    .input_excludes
-                    .iter()
-                    .any(|text| input.contains(text.as_str()))
-            })
+            .filter(|rule| admits_signal(&rule.when, &signal.kind))
             .filter(|rule| self.histories.admits(&rule.when, agent, workspace))
             .filter(|rule| self.may_fire(agent, rule, signal.at))
             .collect();
@@ -455,6 +445,31 @@ fn context(agent: &str, notice: Notice) -> Effect {
         skills: notice.skills,
         text: Some(notice.text),
     }
+}
+
+/// Whether the facts this signal carries itself admit `gate`: the session's
+/// kind, and for a tool call its input and result.
+fn admits_signal(gate: &Gate, kind: &SignalKind) -> bool {
+    let (input, result, subagent) = match kind {
+        SignalKind::ToolResult {
+            input,
+            evidence,
+            subagent,
+            ..
+        } => (input.as_str(), evidence.as_str(), *subagent),
+        SignalKind::TurnEnd { subagent, .. } => ("", "", *subagent),
+        _ => ("", "", false),
+    };
+    let contains = |haystack: &str, text: &String| haystack.contains(text.as_str());
+
+    gate.session_kind
+        .is_none_or(|session| session == SessionKind::of(subagent))
+        && !gate.input_excludes.iter().any(|text| contains(input, text))
+        && (gate.result_includes.is_empty()
+            || gate
+                .result_includes
+                .iter()
+                .any(|text| contains(result, text)))
 }
 
 fn question_id(rule: &Rule, step: &Step) -> String {

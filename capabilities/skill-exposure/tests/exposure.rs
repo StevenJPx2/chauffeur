@@ -42,6 +42,7 @@ fn tool_result(at: u64) -> Signal {
             tool: "shell".into(),
             ok: true,
             workspace: String::new(),
+            subagent: false,
             input: r#"{"command":"browser-harness open https://x.com"}"#.into(),
             error: String::new(),
             user_request: String::new(),
@@ -67,6 +68,7 @@ fn turn_end(at: u64) -> Signal {
         at,
         SignalKind::TurnEnd {
             workspace: String::new(),
+            subagent: false,
             user_request: String::new(),
             summary: String::new(),
         },

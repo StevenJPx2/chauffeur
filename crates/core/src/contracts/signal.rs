@@ -126,15 +126,20 @@ pub enum SignalKind {
         /// The session's current workspace, for project-local contracts.
         #[serde(default)]
         workspace: String,
+        /// The call ran in a subagent's session, not one the user drives.
+        #[serde(default)]
+        subagent: bool,
         /// Clipped summary of the tool's input.
         #[serde(default)]
         input: String,
         /// Clipped error message when the call failed, such as a refusal.
         #[serde(default)]
         error: String,
-        /// Bounded recent user request and evidence of a missing tool.
+        /// Bounded recent user request, for recovering a missing tool.
         #[serde(default)]
         user_request: String,
+        /// The call's error and output as the host reports them, clipped
+        /// with both ends kept.
         #[serde(default)]
         evidence: String,
         /// Registered, currently hidden direct tools with local search matches.
@@ -161,6 +166,9 @@ pub enum SignalKind {
     TurnEnd {
         #[serde(default)]
         workspace: String,
+        /// The turn was a subagent's, not one the user drives.
+        #[serde(default)]
+        subagent: bool,
         #[serde(default)]
         user_request: String,
         /// The agent's closing message for the turn, clipped: evidence for
@@ -272,6 +280,7 @@ impl SignalKind {
                 workspace,
                 user_request,
                 summary,
+                ..
             } => {
                 all_bounded(&[(workspace, "workspace"), (summary, "summary")])?;
                 prompt_bounded(user_request, "user request")

@@ -40,10 +40,42 @@ test("turn end carries the workspace and user instruction, and delivers a confir
     expect(sent[0]?.kind).toEqual({
       type: "turn_end",
       workspace: "/projects/hpdp-overlay/main",
+      subagent: false,
       user_request: "Do not open a PR",
       summary: "Changes are local; no PR opened.",
     })
     expect(messages).toEqual([expect.objectContaining({ text: "Check the overlay", resume: true })])
+  } finally {
+    await plugin.close()
+  }
+})
+
+test("a subagent's turn end says it is a subagent", async () => {
+  const events = eventStream()
+  const sent: Signal[] = []
+
+  const host = fakeHost({
+    location: { directory: "/projects/app" },
+    event: { subscribe: events.subscribe },
+    session: {
+      get: () => Effect.succeed({ location: { directory: "/projects/app" }, parentID: "ses_parent" }),
+      context: () => Effect.succeed([]),
+    },
+  })
+
+  const daemon: DaemonClient = { rulebooks: noRulebooks, signal: (value) => Effect.sync(() => {
+    sent.push(value)
+
+    return []
+  }) }
+
+  const plugin = await install(installIdle, host, daemon)
+
+  try {
+    await events.publish({ type: "session.execution.succeeded", data: { sessionID: "ses_child" } })
+    await settle()
+
+    expect(sent[0]?.kind).toEqual(expect.objectContaining({ type: "turn_end", subagent: true }))
   } finally {
     await plugin.close()
   }

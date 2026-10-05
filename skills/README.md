@@ -28,6 +28,11 @@ an error naming it. For example, to attach a skill only on a surer yes:
 { "needed": { "at": 0.8 } }
 ```
 
+Personal rules live in `$CHAUFFEUR_CONFIG_DIR/rules/` (normally
+`~/.config/chauffeur/rules/`). They load after shipped rules, with unique IDs
+across both folders and at most 64 rules per folder. Edits reload without a
+restart; an invalid or duplicate rule leaves the previous engine running.
+
 A project keeps its own rules, in the same format, under each Git worktree's
 `.chauffeur/rules/`, with optional deeper `.chauffeur/rules/` directories for
 sessions opened there. The current workspace and tool-call history scope them
@@ -69,7 +74,11 @@ every rule a session there would load.
   `tools_called_any`, and `tools_not_called` read the tools the agent ran
   since the latest user message (`"history": "turn"`, the default) or this
   session (`"history": "session"`); `status`, `source`, and `hooks`
-  (`github:merged`) read the session.
+  (`github:merged`) read the session. `input_excludes` skips a call whose
+  input contains any listed text, and `result_includes` admits a call only
+  whose result contains one; the result text itself never goes into Jev's
+  question. `session_kind` limits a rule to `top_level` or `subagent`
+  sessions; without it both are judged.
 - **`steps`**: one or two yes/no questions. A step holds at P(yes) ≥
   `yes_at_or_above` (0.5–1) with at least `minimum_confidence`; the second is
   asked only after the first holds.

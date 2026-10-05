@@ -96,6 +96,34 @@ pub struct Gate {
     /// so a call already using the right command is never judged.
     #[serde(default)]
     pub input_excludes: Vec<String>,
+    /// For `tool_result`: the call's result (its error and output, clipped
+    /// with both ends kept) contains at least one of these. Jev never sees
+    /// the result; it only admits the rule.
+    #[serde(default)]
+    pub result_includes: Vec<String>,
+    /// The kind of session the agent runs in; either when absent.
+    #[serde(default)]
+    pub session_kind: Option<SessionKind>,
+}
+
+/// Whether a session is one the user drives or a subagent's.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SessionKind {
+    TopLevel,
+    Subagent,
+}
+
+impl SessionKind {
+    /// The kind a signal's `subagent` flag reports.
+    #[must_use]
+    pub const fn of(subagent: bool) -> Self {
+        if subagent {
+            Self::Subagent
+        } else {
+            Self::TopLevel
+        }
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -234,23 +262,33 @@ impl Rule {
             }
         }
 
-        // Text inside a call's input, where spaces matter ("gh " is not "ghost").
-        let excludes = &gate.input_excludes;
+        for (field, texts) in [
+            ("input_excludes", &gate.input_excludes),
+            ("result_includes", &gate.result_includes),
+        ] {
+            self.validate_call_texts(field, texts)?;
+        }
+
+        Ok(())
+    }
+
+    /// Text matched inside a call, where spaces matter ("gh " is not "ghost").
+    fn validate_call_texts(&self, field: &str, texts: &[String]) -> Result<(), String> {
         let text = |value: &String| {
             !value.trim().is_empty()
                 && value.len() <= MAX_ID_BYTES
                 && !value.chars().any(char::is_control)
         };
 
-        if excludes.len() > MAX_LIST || !excludes.iter().all(text) {
+        if texts.len() > MAX_LIST || !texts.iter().all(text) {
             return Err(format!(
-                "{}: when.input_excludes lists at most {MAX_LIST} texts of 1-{MAX_ID_BYTES} bytes",
+                "{}: when.{field} lists at most {MAX_LIST} texts of 1-{MAX_ID_BYTES} bytes",
                 self.id
             ));
         }
-        if !excludes.is_empty() && self.on != Trigger::ToolResult {
+        if !texts.is_empty() && self.on != Trigger::ToolResult {
             return Err(format!(
-                "{}: when.input_excludes applies only to tool_result",
+                "{}: when.{field} applies only to tool_result",
                 self.id
             ));
         }

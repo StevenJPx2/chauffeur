@@ -616,6 +616,7 @@ mod tests {
                 tool: "bash".into(),
                 ok: true,
                 workspace: String::new(),
+                subagent: false,
                 input: String::new(),
                 error: String::new(),
                 user_request: String::new(),

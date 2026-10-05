@@ -11,7 +11,7 @@ use chauffeur_capability_model_router::{ModelRouter, ModelRouterConfig, Provider
 use chauffeur_capability_monitors::{FollowWork, Monitors, MonitorsConfig};
 use chauffeur_capability_permission::{Permission, load_skills};
 use chauffeur_capability_rules::{
-    Rulebook, Rules, RulesConfig, Trigger, load_dir, load_rulebooks, rulebooks_for,
+    Rulebook, Rules, RulesConfig, Trigger, load_dirs, load_rulebooks, rulebooks_for,
 };
 use chauffeur_capability_skill_exposure::{SkillExposure, SkillExposureConfig};
 use chauffeur_capability_tool_exposure::{ToolExposure, ToolExposureConfig};
@@ -286,14 +286,15 @@ fn capabilities(
     );
     let skills = SkillExposure::new(SkillExposureConfig::load(&config("skill-exposure.json"))?);
     let tools = ToolExposure::new(ToolExposureConfig::load(&config("tool-exposure.json"))?);
-    // The skills folder: `permission/` contracts and `rules/`.
+    // The skills folder: `permission/` contracts and `rules/`; then your own
+    // `rules/` in the config folder.
     let permission_dir = skills_dir.join("permission");
     let permission = Permission::new(if permission_dir.is_dir() {
         load_skills(&permission_dir)?
     } else {
         Vec::new()
     });
-    let mut rules = load_dir(&skills_dir.join("rules"))?;
+    let mut rules = load_dirs(&[&skills_dir.join("rules"), &config("rules")])?;
 
     if !idle_reminders {
         rules.retain(|rule| rule.on != Trigger::TurnEnd);
@@ -483,6 +484,7 @@ mod tests {
     fn turn_end() -> SignalKind {
         SignalKind::TurnEnd {
             workspace: String::new(),
+            subagent: false,
             user_request: String::new(),
             summary: "first".into(),
         }

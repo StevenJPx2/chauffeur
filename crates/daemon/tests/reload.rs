@@ -39,6 +39,7 @@ fn cat(at: u64) -> Signal {
             tool: "shell".into(),
             ok: true,
             workspace: String::new(),
+            subagent: false,
             input: r#"{"command":"cat src/main.rs"}"#.into(),
             error: String::new(),
             user_request: String::new(),

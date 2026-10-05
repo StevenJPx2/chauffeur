@@ -7,7 +7,7 @@ import type { ExposureControl } from "./exposure.js"
 import { Host } from "./host.js"
 import { signal, TEXT_CODE_POINTS, type CatalogEntry, type HostEffect } from "./protocol.js"
 import { deliverContext } from "./skills.js"
-import { clip, userText } from "./text.js"
+import { clip, clipEnds, userText } from "./text.js"
 
 const ERROR_CODE_POINTS = 240
 
@@ -47,17 +47,17 @@ function report(event: ToolResult, exposure: ExposureControl): Effect.Effect<voi
     const observed = observe(event)
     const recovery = MISSING_TOOL.test(observed.evidence) ? yield* recover(host, exposure, event, observed) : NO_RECOVERY
 
-    // An unreadable session still reports the result, without a workspace.
-    const workspace = yield* host.session.get({ sessionID: event.sessionID }).pipe(
-      Effect.map((session) => clip(String(session.location.directory), TEXT_CODE_POINTS)),
-      Effect.orElseSucceed(() => ""),
+    // An unreadable session still reports the result, as a top-level session without a workspace.
+    const session = yield* host.session.get({ sessionID: event.sessionID }).pipe(
+      Effect.map((info) => ({ workspace: clip(String(info.location.directory), TEXT_CODE_POINTS), subagent: info.parentID !== undefined })),
+      Effect.orElseSucceed(() => ({ workspace: "", subagent: false })),
     )
 
     const effects = yield* daemon.signal(signal(String(event.sessionID), {
       type: "tool_result",
       tool: clip(event.tool, TEXT_CODE_POINTS),
       ok: event.status === "completed",
-      workspace,
+      ...session,
       ...observed,
       user_request: recovery.userRequest,
       candidates: recovery.candidates,
@@ -73,13 +73,13 @@ type Recovery = { readonly userRequest: string; readonly candidates: CatalogEntr
 
 const NO_RECOVERY: Recovery = { userRequest: "", candidates: [] }
 
-/** The call's input, its error, and the bounded evidence both leave. */
+/** The call's input, its error, and the bounded evidence both leave, from each end. */
 function observe(event: ToolResult): Observed {
-  const input = summarize("input", () => JSON.stringify(event.input))
+  const input = summarize("input", () => JSON.stringify(event.input), clip)
   const error = event.status === "error" ? clip(event.error.message, ERROR_CODE_POINTS) : ""
-  const output = event.status === "completed" ? summarize("output", () => JSON.stringify(event.result.content ?? event.result.output)) : ""
+  const output = event.status === "completed" ? summarize("output", () => JSON.stringify(event.result.content ?? event.result.output), clipEnds) : ""
 
-  return { input, error, evidence: clip(`${error} ${output}`.trim(), TEXT_CODE_POINTS) }
+  return { input, error, evidence: clipEnds(`${error} ${output}`.trim(), TEXT_CODE_POINTS) }
 }
 
 /** For a missing tool: the user's latest request and the hidden tools it could mean. */
@@ -125,9 +125,9 @@ function matching(catalog: ReadonlyArray<CatalogEntry>, text: string): CatalogEn
   }).slice(0, MAX_CANDIDATES)
 }
 
-function summarize(part: "input" | "output", encode: () => string | undefined): string {
+function summarize(part: "input" | "output", encode: () => string | undefined, bound: (value: string, codePoints: number) => string): string {
   try {
-    return clip(encode() ?? "", TEXT_CODE_POINTS)
+    return bound(encode() ?? "", TEXT_CODE_POINTS)
   } catch {
     return `unserializable ${part}`
   }

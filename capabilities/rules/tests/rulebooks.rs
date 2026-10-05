@@ -46,6 +46,7 @@ fn turn_end(at: u64, summary: &str) -> Signal {
         at,
         SignalKind::TurnEnd {
             workspace: String::new(),
+            subagent: false,
             user_request: "make the tests pass".into(),
             summary: summary.into(),
         },
@@ -59,6 +60,7 @@ fn tool(at: u64) -> Signal {
             tool: "shell".into(),
             ok: true,
             workspace: String::new(),
+            subagent: false,
             input: "{}".into(),
             error: String::new(),
             user_request: String::new(),
