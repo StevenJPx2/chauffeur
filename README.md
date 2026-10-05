@@ -42,6 +42,8 @@ a recursive `grep` instead of `rg`, a browser for GitHub, Slack, Jira, or X
 where `gh`, `slackcli`, `jira`, or `twitter-cli` does it directly. A project
 can add its own rules in `.chauffeur/rules/`.
 
+![The agent prints two files with cat; Chauffeur steers it to the read tool](docs/media/steer.gif)
+
 ### Rulebooks: `/goal`, `/ticket`, and your own
 
 A rulebook is a set of rules you switch on for one session with a slash command.
