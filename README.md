@@ -144,9 +144,11 @@ covers the design.
 
 Edits apply without a restart. Within a second, the daemon picks up rules,
 rulebooks, and contracts in `skills/` and overrides in `~/.config/chauffeur/`,
-keeping session memory and running rulebooks. A new or removed rulebook's slash
-command appears or disappears in OpenCode within a few seconds. A file that
-fails to load leaves the previous version running and logs why.
+keeping session memory and running rulebooks. A new rulebook's slash command
+appears in OpenCode within a few seconds. Deleted commands leave the server's
+registry, though OpenCode 2.0.23 can retain a stale autocomplete entry until
+restarted. A file that fails to load leaves the previous version running and
+logs why.
 
 ## Develop
 
