@@ -73,6 +73,13 @@ mod tests {
         assert_eq!(provider.tier("gpt-6-luna", Some("low")), Some(Tier::Fast));
         assert_eq!(provider.tier("gpt-6-luna", None), Some(Tier::Fast));
         assert_eq!(provider.variants("gpt-6-luna"), vec![Some("max"), None]);
+        // Family patterns cover new versions and their fast editions.
+        assert_eq!(provider.tier("gpt-6.1-sol", None), Some(Tier::Frontier));
+        assert_eq!(
+            provider.tier("gpt-6.1-sol-fast", Some("high")),
+            Some(Tier::Frontier)
+        );
+        assert_eq!(provider.tier("gpt-6-astra", None), None);
     }
 
     #[test]
@@ -82,9 +89,10 @@ mod tests {
         assert_eq!(
             provider.tiers(),
             [
-                row("gpt-6-sol", None, Tier::Frontier),
-                row("gpt-6-luna", Some("max"), Tier::Balanced),
-                row("gpt-6-luna", None, Tier::Fast),
+                row("gpt-*-sol*", Some("high"), Tier::Frontier),
+                row("gpt-*-sol*", None, Tier::Frontier),
+                row("gpt-*-luna*", Some("max"), Tier::Balanced),
+                row("gpt-*-luna*", None, Tier::Fast),
             ]
         );
     }

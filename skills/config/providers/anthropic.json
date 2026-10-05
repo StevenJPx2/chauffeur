@@ -1,7 +1,10 @@
 {
   "tiers": [
-    { "model": "claude-opus-5-5", "variant": "high", "tier": "frontier" },
-    { "model": "claude-opus-5-5", "variant": "low", "tier": "balanced" },
-    { "model": "claude-sonnet-4-6", "variant": null, "tier": "fast" }
+    { "model": "claude-opus-*", "variant": "high", "tier": "frontier" },
+    { "model": "claude-opus-*", "variant": "low", "tier": "balanced" },
+    { "model": "claude-opus-*", "variant": null, "tier": "frontier" },
+    { "model": "claude-sonnet-*", "variant": "high", "tier": "balanced" },
+    { "model": "claude-sonnet-*", "variant": null, "tier": "balanced" },
+    { "model": "claude-haiku-*", "variant": null, "tier": "fast" }
   ]
 }

@@ -1,7 +1,8 @@
 {
   "tiers": [
-    { "model": "gpt-6-sol", "variant": null, "tier": "frontier" },
-    { "model": "gpt-6-luna", "variant": "max", "tier": "balanced" },
-    { "model": "gpt-6-luna", "variant": null, "tier": "fast" }
+    { "model": "gpt-*-sol*", "variant": "high", "tier": "frontier" },
+    { "model": "gpt-*-sol*", "variant": null, "tier": "frontier" },
+    { "model": "gpt-*-luna*", "variant": "max", "tier": "balanced" },
+    { "model": "gpt-*-luna*", "variant": null, "tier": "fast" }
   ]
 }

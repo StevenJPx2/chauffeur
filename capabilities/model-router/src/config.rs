@@ -27,6 +27,9 @@ pub struct ModelRouterConfig {
     pub max_candidates: usize,
     /// A usage limit that another model avoids.
     pub limit: ErrorWords,
+    /// A limit that waiting does not clear, such as an exhausted quota or
+    /// balance: the router switches without offering to stay.
+    pub lasting: ErrorWords,
     /// A model that cannot serve the agent at all (no access, unknown model),
     /// as opposed to a limit that may clear.
     pub unusable: ErrorWords,
@@ -79,6 +82,7 @@ impl ModelRouterConfig {
         }
 
         self.limit = self.limit.checked("limit")?;
+        self.lasting = self.lasting.checked("lasting")?;
         self.unusable = self.unusable.checked("unusable")?;
 
         Ok(self)
@@ -91,6 +95,13 @@ impl ModelRouterConfig {
         // Some providers report an exhausted balance as a plain invalid request,
         // which the message phrases catch.
         matches!(status, Some(402 | 429 | 503 | 529)) || self.limit.matches(error_type, message)
+    }
+
+    /// Whether the limit lasts: waiting will not clear it.
+    #[must_use]
+    pub fn is_lasting_error(&self, error_type: &str, status: Option<u16>, message: &str) -> bool {
+        // 402 Payment Required is an exhausted balance.
+        matches!(status, Some(402)) || self.lasting.matches(error_type, message)
     }
 
     /// Whether the error means the model cannot serve the agent at all.

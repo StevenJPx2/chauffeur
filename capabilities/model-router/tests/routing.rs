@@ -106,7 +106,7 @@ fn limit(tool_executed: bool) -> Signal {
             model: model("anthropic/opus"),
             error_type: "rate_limit_error".into(),
             status: Some(429),
-            message: "usage limit reached".into(),
+            message: "rate limit reached, retry shortly".into(),
             tool_executed,
             available,
         },
@@ -309,7 +309,7 @@ fn a_proposed_switch_that_never_reached_the_host_can_be_retried() {
 }
 
 #[test]
-fn an_unknown_tier_offers_a_bounded_pinned_first_choice() {
+fn an_unknown_tier_offers_pinned_then_tiered_models_only() {
     let mut router = router(&["google/pinned"]);
     let mut signal = limit(false);
 
@@ -330,9 +330,19 @@ fn an_unknown_tier_offers_a_bounded_pinned_first_choice() {
 
     let offered = options(&router.plan(&Situation::default(), &signal));
 
-    assert_eq!(offered.len(), defaults().max_candidates + 1);
-    assert_eq!(offered[0], "google/pinned");
-    assert_eq!(offered.last().map(String::as_str), Some(STAY));
+    // The 40 untiered models are left out; the pin and the five tiered ones stay.
+    assert_eq!(
+        offered,
+        vec![
+            "google/pinned",
+            "anthropic/opus",
+            "anthropic/haiku",
+            "openai/sol",
+            "openai/luna",
+            "openai/spark",
+            STAY
+        ]
+    );
 }
 
 #[test]
@@ -622,9 +632,12 @@ fn limit_on(current: &str) -> Signal {
         *failed = model(current);
         *available = [
             "anthropic/claude-opus-5-5",
-            "anthropic/claude-sonnet-4-6",
-            "openai/gpt-6-sol",
+            "anthropic/claude-sonnet-5-5",
+            "openai/gpt-6.1-sol",
             "openai/gpt-6-luna",
+            "opencode/claude-sonnet-5-5",
+            "opencode/fledge-alpha-free",
+            "opencode/ling-3.1-flash-free",
         ]
         .into_iter()
         .map(|key| AvailableModel {
@@ -641,29 +654,35 @@ fn limit_on(current: &str) -> Signal {
 fn tiers_follow_thinking_variants_and_never_offer_the_same_model() {
     let mut router = shipped_router();
 
-    // Opus at high thinking is frontier: only gpt-6-sol matches.
+    // Opus at high thinking is frontier: only gpt-6.1-sol matches, at high.
     assert_eq!(
         options(&router.plan(
             &Situation::default(),
             &limit_on("anthropic/claude-opus-5-5#high")
         )),
-        vec!["openai/gpt-6-sol", STAY]
+        vec!["openai/gpt-6.1-sol#high", STAY]
     );
-    // Opus at low thinking is balanced: gpt-6-luna at max thinking.
+    // Opus at its default thinking is frontier too, by the family's any-variant row.
+    assert_eq!(
+        options(&shipped_router().plan(
+            &Situation::default(),
+            &limit_on("anthropic/claude-opus-5-5")
+        )),
+        vec!["openai/gpt-6.1-sol#high", STAY]
+    );
+    // Opus at low thinking is balanced: sonnet, here or through a gateway,
+    // and gpt-6-luna at max thinking.
     assert_eq!(
         options(&shipped_router().plan(
             &Situation::default(),
             &limit_on("anthropic/claude-opus-5-5#low")
         )),
-        vec!["openai/gpt-6-luna#max", STAY]
-    );
-    // Fast: sonnet 4.6 and gpt-6-luna at its default thinking.
-    assert_eq!(
-        options(&shipped_router().plan(
-            &Situation::default(),
-            &limit_on("anthropic/claude-sonnet-4-6")
-        )),
-        vec!["openai/gpt-6-luna", STAY]
+        vec![
+            "openai/gpt-6-luna#max",
+            "opencode/claude-sonnet-5-5#high",
+            "anthropic/claude-sonnet-5-5#high",
+            STAY
+        ]
     );
 
     // A switch carries the variant.
@@ -678,4 +697,86 @@ fn tiers_follow_thinking_variants_and_never_offer_the_same_model() {
         router.decide(&signal, Some(&[pick])).as_slice(),
         [Effect::Model { model: Some(model), .. }] if model.variant.as_deref() == Some("max") && model.model == "gpt-6-luna"
     ));
+}
+
+#[test]
+fn a_gateway_model_takes_its_makers_tier_and_untiered_models_are_never_offered() {
+    // claude-sonnet-5-5 through OpenCode's gateway is balanced, like the original.
+    assert_eq!(
+        options(&shipped_router().plan(
+            &Situation::default(),
+            &limit_on("opencode/claude-sonnet-5-5")
+        )),
+        vec![
+            "anthropic/claude-opus-5-5#low",
+            "anthropic/claude-sonnet-5-5#high",
+            "openai/gpt-6-luna#max",
+            STAY
+        ]
+    );
+
+    // An untiered current model may move to any tiered one, but never to
+    // another untiered free model.
+    let offered = options(&shipped_router().plan(
+        &Situation::default(),
+        &limit_on("opencode/fledge-alpha-free"),
+    ));
+
+    assert!(
+        !offered.iter().any(|key| key.contains("free")),
+        "{offered:?}"
+    );
+    assert!(
+        offered.contains(&"openai/gpt-6.1-sol#high".to_string()),
+        "{offered:?}"
+    );
+}
+
+#[test]
+fn waiting_is_offered_once_then_the_next_limit_switches() {
+    let mut router = router(&[]);
+    let signal = limit(false);
+
+    router.plan(&Situation::default(), &signal);
+    assert_eq!(
+        router.decide(&signal, Some(&[choice(STAY, 0.9)][..])),
+        vec![Effect::Model {
+            agent_id: "session".into(),
+            model: None
+        }]
+    );
+
+    // The same model hits its limit again: stay is no longer offered.
+    let mut again = limit(false);
+    again.at = 2;
+    assert_eq!(
+        options(&router.plan(&Situation::default(), &again)),
+        vec!["openai/sol", "openai/luna"]
+    );
+}
+
+#[test]
+fn a_lasting_limit_never_offers_stay_and_one_candidate_switches_without_asking() {
+    let mut router = router(&[]);
+    let mut signal = limit(false);
+
+    if let SignalKind::ModelError {
+        error_type,
+        status,
+        message,
+        available,
+        ..
+    } = &mut signal.kind
+    {
+        *error_type = "provider.quota".into();
+        *status = None;
+        *message = "You exceeded your current quota".into();
+        available.retain(|entry| entry.model.model != "luna");
+    }
+
+    let Plan::Settled(effects) = router.plan(&Situation::default(), &signal) else {
+        panic!("one candidate and no stay needs no question")
+    };
+
+    assert_eq!(effects, switch("openai/sol"));
 }

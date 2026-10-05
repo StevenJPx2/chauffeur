@@ -80,14 +80,22 @@ mod tests {
             provider.tier("claude-opus-5-5", Some("low")),
             Some(Tier::Balanced)
         );
-        assert_eq!(provider.tier("claude-opus-5-5", Some("max")), None);
+        // Any other thinking variant, and the default, is frontier.
         assert_eq!(
-            provider.tier("claude-sonnet-4-6", Some("high")),
-            Some(Tier::Fast)
+            provider.tier("claude-opus-5-5", Some("max")),
+            Some(Tier::Frontier)
         );
+        assert_eq!(provider.tier("claude-opus-5-5", None), Some(Tier::Frontier));
+        // Family patterns cover versions the table does not name.
+        assert_eq!(
+            provider.tier("claude-sonnet-5-5", Some("medium")),
+            Some(Tier::Balanced)
+        );
+        assert_eq!(provider.tier("claude-haiku-5", None), Some(Tier::Fast));
+        assert_eq!(provider.tier("claude-fable-5-1", None), None);
         assert_eq!(
             provider.variants("claude-opus-5-5"),
-            vec![Some("high"), Some("low")]
+            vec![Some("high"), Some("low"), None]
         );
     }
 
@@ -98,9 +106,12 @@ mod tests {
         assert_eq!(
             provider.tiers(),
             [
-                row("claude-opus-5-5", Some("high"), Tier::Frontier),
-                row("claude-opus-5-5", Some("low"), Tier::Balanced),
-                row("claude-sonnet-4-6", None, Tier::Fast),
+                row("claude-opus-*", Some("high"), Tier::Frontier),
+                row("claude-opus-*", Some("low"), Tier::Balanced),
+                row("claude-opus-*", None, Tier::Frontier),
+                row("claude-sonnet-*", Some("high"), Tier::Balanced),
+                row("claude-sonnet-*", None, Tier::Balanced),
+                row("claude-haiku-*", None, Tier::Fast),
             ]
         );
     }
@@ -117,7 +128,7 @@ mod tests {
             provider.tier("claude-opus-5-5", Some("high")),
             Some(Tier::Fast)
         );
-        assert_eq!(provider.tier("claude-sonnet-4-6", None), None);
+        assert_eq!(provider.tier("claude-sonnet-5-5", None), None);
         std::fs::remove_file(path).unwrap();
     }
 

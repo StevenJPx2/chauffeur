@@ -441,25 +441,34 @@ next candidate. The same error on a model the user chose is left to the host.
 variant (`anthropic/claude-opus-5-5#high`), and each provider plugin's tier
 table (`skills/config/providers/<provider>.json`; your
 `$CHAUFFEUR_CONFIG_DIR/providers/<provider>.json` replaces its `tiers`) maps a
-model, at one variant or at any, to a tier:
+model family, at one variant or at any, to a tier. A row's `model` is an ID or
+a pattern where `*` matches any run of characters, so a new version needs no
+new row; a row naming the model exactly wins over a pattern. A model a gateway
+serves under its maker's ID (`opencode/claude-sonnet-5-5`) takes the maker's
+tier:
 
 | Tier | Anthropic | OpenAI |
 |---|---|---|
-| Frontier | `claude-opus-5-5#high` | `gpt-6-sol` |
-| Balanced | `claude-opus-5-5#low` | `gpt-6-luna#max` |
-| Fast | `claude-sonnet-4-6` | `gpt-6-luna` (other variants) |
+| Frontier | `claude-opus-*` (offered at `#high`) | `gpt-*-sol*` (offered at `#high`) |
+| Balanced | `claude-opus-*#low`, `claude-sonnet-*` | `gpt-*-luna*#max` |
+| Fast | `claude-haiku-*` | `gpt-*-luna*` (other variants) |
 
 The router:
 
 1. declines to switch if a tool already ran in the failed step;
-2. computes candidates: each usable host model at every variant its table
-   names, untried, in the current model's tier (any tier when the current
-   model is unknown), plus every pinned model regardless of tier, ordered by
-   pins, then other providers, then host order, at most 8. Another variant of
-   the current model is never a candidate, because a usage limit applies to
-   the whole model;
-3. asks one choice question over the candidates plus `stay`, stating the error
-   and that an exhausted quota or balance does not clear by waiting;
+2. computes candidates: each usable host model, once, at the first variant its
+   table names, untried, in the current model's tier (any tier when the
+   current model has none), plus every pinned model regardless of tier,
+   ordered by pins, then other providers, then host order, at most 8. A model
+   no table names is never a candidate unless pinned: hosts list many free
+   and preview models that are themselves rate limited. Another variant of the
+   current model is never a candidate, because a usage limit applies to the
+   whole model;
+3. offers `stay` only once per model and never for a lasting limit (402, or
+   the `lasting` phrases and types: an exhausted quota, balance, billing, or
+   usage limit): a second limit on a model the agent waited on, or a lasting
+   one, switches. With a single candidate and no `stay`, it switches without a
+   question; otherwise one choice question states the error;
 4. switches to the chosen model, or keeps the current one. On System One
    failure or confidence below 0.2 it switches to the first candidate, keeping
    the agent unblocked.
@@ -471,7 +480,7 @@ model's thinking variant too. `$CHAUFFEUR_CONFIG_DIR/model-router.json` pins
 preferred fallbacks, with a variant where it matters:
 `{"pins": ["openai/gpt-6-sol", "anthropic/claude-opus-5-5#low"]}`. The same
 file tunes the pick confidence, the switch-back wait and bar, the candidate
-count, and the limit and unusable phrases and error types, all shipped in
+count, and the limit, lasting and unusable phrases and error types, all shipped in
 `skills/config/model-router.json`.
 
 **Switch back.** The router remembers the model the agent left (the first in a

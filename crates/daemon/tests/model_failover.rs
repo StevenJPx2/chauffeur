@@ -13,7 +13,7 @@ fn answer(request: &Value) -> Value {
         .as_object()
         .expect("criteria");
 
-    assert!(criteria.contains_key("openai/gpt-6-sol"));
+    assert!(criteria.contains_key("openai/gpt-6-sol#high"));
     assert!(criteria.contains_key("stay"));
     assert!(
         request["state"]
@@ -22,7 +22,7 @@ fn answer(request: &Value) -> Value {
             .contains("Ran tool edit.")
     );
 
-    json!({"model-router/choice": {"type": "choice", "confidence": 0.8, "choice": "openai/gpt-6-sol"}})
+    json!({"model-router/choice": {"type": "choice", "confidence": 0.8, "choice": "openai/gpt-6-sol#high"}})
 }
 
 fn model(provider: &str, id: &str) -> ModelRef {
@@ -98,7 +98,7 @@ async fn usage_limit_switches_to_the_judged_same_tier_model() {
             },
             error_type: "rate_limit_error".into(),
             status: Some(429),
-            message: "usage limit".into(),
+            message: "rate limit exceeded, retry in 20s".into(),
             tool_executed: false,
             available,
         },
@@ -109,7 +109,10 @@ async fn usage_limit_switches_to_the_judged_same_tier_model() {
         effects,
         vec![Effect::Model {
             agent_id: "ses_test".into(),
-            model: Some(model("openai", "gpt-6-sol"))
+            model: Some(ModelRef {
+                variant: Some("high".into()),
+                ..model("openai", "gpt-6-sol")
+            })
         }]
     );
 

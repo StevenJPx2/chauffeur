@@ -33,6 +33,23 @@
       "usage_limit"
     ]
   },
+  "lasting": {
+    "messages": [
+      "credit balance",
+      "insufficient funds",
+      "insufficient account funds",
+      "insufficient_quota",
+      "quota",
+      "billing",
+      "usage limit"
+    ],
+    "types": [
+      "insufficient_quota",
+      "quota",
+      "quota_exceeded",
+      "usage_limit"
+    ]
+  },
   "unusable": {
     "messages": [
       "api key",

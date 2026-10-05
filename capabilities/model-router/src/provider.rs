@@ -32,6 +32,8 @@ impl Tier {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct TierEntry {
+    /// A model ID, or a family pattern where `*` matches any run of
+    /// characters, such as `claude-opus-*`, so new versions need no new row.
     pub model: String,
     /// `None` covers every variant the table does not name.
     pub variant: Option<String>,
@@ -117,15 +119,16 @@ pub trait Provider: Send + Sync {
 
     fn tiers(&self) -> &[TierEntry];
 
-    /// The exact variant's tier, else the model's any-variant tier.
+    /// The exact variant's tier, else the model's any-variant tier. Rows
+    /// naming the model exactly win over family patterns.
     fn tier(&self, model: &str, variant: Option<&str>) -> Option<Tier> {
-        let rows = self.tiers().iter().filter(|entry| entry.model == model);
+        let rows = rows_for(self.tiers(), model);
         let exact = rows
-            .clone()
+            .iter()
             .find(|entry| variant.is_some() && entry.variant.as_deref() == variant);
 
         exact
-            .or_else(|| rows.clone().find(|entry| entry.variant.is_none()))
+            .or_else(|| rows.iter().find(|entry| entry.variant.is_none()))
             .map(|entry| entry.tier)
     }
 
@@ -134,7 +137,7 @@ pub trait Provider: Send + Sync {
     fn variants(&self, model: &str) -> Vec<Option<&str>> {
         let mut variants: Vec<Option<&str>> = Vec::new();
 
-        for entry in self.tiers().iter().filter(|entry| entry.model == model) {
+        for entry in rows_for(self.tiers(), model) {
             let variant = entry.variant.as_deref();
 
             if !variants.contains(&variant) {
@@ -143,5 +146,64 @@ pub trait Provider: Send + Sync {
         }
 
         variants
+    }
+}
+
+/// The rows for `model`: those naming it exactly, else those whose pattern
+/// matches it.
+fn rows_for<'a>(tiers: &'a [TierEntry], model: &str) -> Vec<&'a TierEntry> {
+    let exact: Vec<&TierEntry> = tiers.iter().filter(|entry| entry.model == model).collect();
+
+    if !exact.is_empty() {
+        return exact;
+    }
+
+    tiers
+        .iter()
+        .filter(|entry| entry.model.contains('*') && glob(&entry.model, model))
+        .collect()
+}
+
+/// Whether `text` matches `pattern`, where `*` matches any run of characters.
+#[must_use]
+pub fn glob(pattern: &str, text: &str) -> bool {
+    let mut parts = pattern.split('*');
+    let first = parts.next().unwrap_or_default();
+
+    let Some(mut rest) = text.strip_prefix(first) else {
+        return false;
+    };
+    let parts: Vec<&str> = parts.collect();
+
+    let Some((last, middle)) = parts.split_last() else {
+        // No `*`: the whole text must have been the prefix.
+        return rest.is_empty();
+    };
+
+    for part in middle {
+        match rest.find(part) {
+            Some(at) => rest = &rest[at + part.len()..],
+            None => return false,
+        }
+    }
+
+    rest.len() >= last.len() && rest.ends_with(last)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::glob;
+
+    #[test]
+    fn patterns_match_model_families() {
+        assert!(glob("claude-opus-*", "claude-opus-5-5"));
+        assert!(glob("claude-opus-*", "claude-opus-5-5-fast"));
+        assert!(!glob("claude-opus-*", "claude-sonnet-5-5"));
+        assert!(glob("gpt-*-sol*", "gpt-6.1-sol"));
+        assert!(glob("gpt-*-sol*", "gpt-6-sol-fast"));
+        assert!(!glob("gpt-*-sol*", "gpt-6-luna"));
+        assert!(glob("exact", "exact"));
+        assert!(!glob("exact", "exactly"));
+        assert!(!glob("a*a", "a"));
     }
 }

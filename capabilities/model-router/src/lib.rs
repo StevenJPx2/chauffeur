@@ -31,6 +31,9 @@ pub struct ModelRouter {
     config: ModelRouterConfig,
     attempted: HashMap<String, HashSet<String>>,
     origins: HashMap<String, Origin>,
+    /// The model each agent chose to wait on after a limit. Waiting is
+    /// offered once per model: hitting the limit again switches.
+    waited: HashMap<String, String>,
 }
 
 /// The model an agent left on a usage limit, and where it went.
@@ -50,12 +53,48 @@ impl ModelRouter {
             config,
             attempted: HashMap::new(),
             origins: HashMap::new(),
+            waited: HashMap::new(),
         }
     }
 
+    /// The model's tier from its provider's table, else from any table that
+    /// names the same model ID: a gateway such as `opencode/claude-sonnet-5-5`
+    /// serves the model its maker tiers.
     fn tier(&self, model: &ModelRef) -> Option<Tier> {
+        let variant = model.variant.as_deref();
+
         self.provider(&model.provider)
-            .and_then(|provider| provider.tier(&model.model, model.variant.as_deref()))
+            .and_then(|provider| provider.tier(&model.model, variant))
+            .or_else(|| {
+                self.providers
+                    .iter()
+                    .find_map(|provider| provider.tier(&model.model, variant))
+            })
+    }
+
+    /// The variants a switch to `model` may choose, from its provider's table,
+    /// else from any table that names the model.
+    fn variants(&self, model: &ModelRef) -> Vec<Option<String>> {
+        let own = self
+            .provider(&model.provider)
+            .map(|provider| provider.variants(&model.model))
+            .filter(|variants| !variants.is_empty());
+
+        own.or_else(|| {
+            self.providers
+                .iter()
+                .map(|provider| provider.variants(&model.model))
+                .find(|variants| !variants.is_empty())
+        })
+        .map_or_else(
+            || vec![None],
+            |variants| {
+                variants
+                    .into_iter()
+                    .map(|variant| variant.map(str::to_string))
+                    .collect()
+            },
+        )
     }
 
     fn provider(&self, id: &str) -> Option<&Arc<dyn Provider>> {
@@ -69,16 +108,12 @@ impl ModelRouter {
             .iter()
             .filter(|entry| entry.usable)
             .flat_map(|entry| {
-                let variants = self
-                    .provider(&entry.model.provider)
-                    .map(|provider| provider.variants(&entry.model.model))
-                    .filter(|variants| !variants.is_empty())
-                    .unwrap_or_else(|| vec![None]);
-
-                variants.into_iter().map(|variant| ModelRef {
-                    variant: variant.map(str::to_string),
-                    ..entry.model.clone()
-                })
+                self.variants(&entry.model)
+                    .into_iter()
+                    .map(|variant| ModelRef {
+                        variant,
+                        ..entry.model.clone()
+                    })
             })
             .collect()
     }
@@ -97,7 +132,10 @@ impl ModelRouter {
     /// Usable same-tier models (at a thinking variant) not yet tried, ordered
     /// pins first, then other providers, then host order, at most the
     /// configured `max_candidates`. Another variant of the current model is
-    /// never a candidate: a usage limit applies to the whole model.
+    /// never a candidate: a usage limit applies to the whole model. A model no
+    /// tier table names is offered only when pinned: hosts list many free or
+    /// preview models that are themselves rate limited. When the current
+    /// model has no tier, any tiered model is a candidate.
     fn candidates(
         &self,
         agent_id: &str,
@@ -106,6 +144,7 @@ impl ModelRouter {
     ) -> Vec<ModelRef> {
         let tried = self.attempted.get(agent_id);
         let tier = self.tier(current);
+        let mut offered: HashSet<(String, String)> = HashSet::new();
         let mut candidates: Vec<ModelRef> = self
             .expanded(available)
             .into_iter()
@@ -113,9 +152,14 @@ impl ModelRouter {
             .filter(|model| tried.is_none_or(|tried| !tried.contains(&model.key())))
             // A pinned model is a declared fallback, so tiers do not constrain it.
             .filter(|model| {
-                tier.is_none()
-                    || self.tier(model) == tier
-                    || self.config.pins.contains(&model.key())
+                let pinned = self.config.pins.contains(&model.key());
+
+                match (tier, self.tier(model)) {
+                    _ if pinned => true,
+                    (_, None) => false,
+                    (None, Some(_)) => true,
+                    (Some(current), Some(other)) => current == other,
+                }
             })
             .collect();
 
@@ -129,13 +173,25 @@ impl ModelRouter {
 
             (pin, model.provider == current.provider)
         });
+        // One variant per model: a pinned one, else the first its table names.
+        candidates.retain(|model| offered.insert((model.provider.clone(), model.model.clone())));
         candidates.truncate(self.config.max_candidates);
 
         candidates
     }
 
+    fn record_wait(&mut self, agent_id: &str, model: &ModelRef) {
+        if !self.waited.contains_key(agent_id) && self.waited.len() >= MAX_TRACKED_AGENTS {
+            self.waited.clear();
+        }
+
+        self.waited.insert(agent_id.to_string(), model.key());
+    }
+
     /// Remember the model left behind; a chain of switches keeps the first.
     fn record_switch(&mut self, signal: &Signal, left: &ModelRef, next: &ModelRef, error: String) {
+        self.waited.remove(&signal.agent_id);
+
         if !self.origins.contains_key(&signal.agent_id) && self.origins.len() >= MAX_TRACKED_AGENTS
         {
             self.origins.clear();
@@ -205,6 +261,7 @@ impl ModelRouter {
         };
 
         self.attempted.remove(agent_id);
+        self.waited.remove(agent_id);
 
         vec![Effect::Model {
             agent_id: agent_id.to_string(),
@@ -263,8 +320,19 @@ impl ModelRouter {
         }
 
         let error = format!("{error_type}: {}", clip(message, MAX_ERROR_CHARS));
-        let question = self.question(model, &error, &candidates);
         let from = model.clone();
+        // Waiting is offered once per model, and never for a limit that does
+        // not clear by waiting, such as an exhausted quota.
+        let may_wait = !self.config.is_lasting_error(error_type, *status, message)
+            && self.waited.get(&signal.agent_id) != Some(&model.key());
+
+        if !may_wait && candidates.len() == 1 {
+            let to = candidates.into_iter().next()?;
+
+            return Some(Judge::done(Verdict::Switch { from, to, error }));
+        }
+
+        let question = self.question(model, &error, &candidates, may_wait);
         let rule = self.config.pick_confidence.pick();
 
         Some(Judge::ask(question, move |answer| {
@@ -272,7 +340,13 @@ impl ModelRouter {
         }))
     }
 
-    fn question(&self, current: &ModelRef, error: &str, candidates: &[ModelRef]) -> Question {
+    fn question(
+        &self,
+        current: &ModelRef,
+        error: &str,
+        candidates: &[ModelRef],
+        may_wait: bool,
+    ) -> Question {
         let mut options: Vec<ChoiceOption> = candidates
             .iter()
             .map(|model| ChoiceOption {
@@ -286,21 +360,32 @@ impl ModelRouter {
             })
             .collect();
 
-        options.push(ChoiceOption {
-            value: STAY.into(),
-            description: format!("Keep {} and wait for the limit to clear.", current.key()),
-        });
+        let instructions = if may_wait {
+            options.push(ChoiceOption {
+                value: STAY.into(),
+                description: format!("Keep {} and wait for the limit to clear.", current.key()),
+            });
+
+            format!(
+                "The coding agent's model {} just failed with a usage limit ({error}). \
+                 Switching discards the prompt cache on the new provider. Choose the model \
+                 that best fits the agent's recent work. Choose stay only if the error says \
+                 the limit resets within a minute or two; a limit with no reset time, or one \
+                 that resets later, keeps the agent blocked, so switch.",
+                current.key()
+            )
+        } else {
+            format!(
+                "The coding agent's model {} failed with a usage limit ({error}) that waiting \
+                 will not clear, so the agent must switch. Switching discards the prompt cache \
+                 on the new provider. Choose the model that best fits the agent's recent work.",
+                current.key()
+            )
+        };
 
         Question {
             id: QUESTION.into(),
-            instructions: format!(
-                "The coding agent's model {} just failed with a usage limit ({error}). \
-                 Switching discards the prompt cache on the new provider. Choose the model \
-                 that best fits the agent's recent work. Choose stay only if this limit will \
-                 clear on its own soon, such as a short rate limit; an exhausted quota or \
-                 balance will not clear by waiting.",
-                current.key()
-            ),
+            instructions,
             kind: QuestionKind::Choice { options },
         }
     }
@@ -308,8 +393,10 @@ impl ModelRouter {
 
 /// What a finished judgment asks the router to do.
 pub enum Verdict {
-    /// Keep the current model: stay, or failover is not possible.
+    /// Keep the current model: failover is not possible.
     Keep,
+    /// Keep the model and wait for its limit to clear; once per model.
+    Wait(ModelRef),
     /// Leave `from`, which failed with `error`, for `to`.
     Switch {
         from: ModelRef,
@@ -329,7 +416,7 @@ fn pick(
     error: String,
 ) -> Verdict {
     let to = match chosen.as_deref() {
-        Some(STAY) => None,
+        Some(STAY) => return Verdict::Wait(from),
         Some(choice) => candidates.into_iter().find(|model| model.key() == choice),
         None => candidates.into_iter().next(),
     };
@@ -341,6 +428,8 @@ fn pick(
 struct Saved {
     attempted: HashMap<String, HashSet<String>>,
     origins: HashMap<String, Origin>,
+    #[serde(default)]
+    waited: HashMap<String, String>,
 }
 
 impl Judged for ModelRouter {
@@ -354,6 +443,7 @@ impl Judged for ModelRouter {
         serde_json::to_value(Saved {
             attempted: self.attempted.clone(),
             origins: self.origins.clone(),
+            waited: self.waited.clone(),
         })
         .ok()
     }
@@ -366,6 +456,7 @@ impl Judged for ModelRouter {
                 .take(MAX_TRACKED_AGENTS)
                 .collect();
             self.origins = saved.origins.into_iter().take(MAX_TRACKED_AGENTS).collect();
+            self.waited = saved.waited.into_iter().take(MAX_TRACKED_AGENTS).collect();
         }
     }
 
@@ -378,6 +469,10 @@ impl Judged for ModelRouter {
                     .is_none_or(|origin| origin.current == *model)
                 {
                     self.attempted.remove(&signal.agent_id);
+                }
+                // A served request clears the limit it waited on.
+                if self.waited.get(&signal.agent_id) == Some(&model.key()) {
+                    self.waited.remove(&signal.agent_id);
                 }
                 None
             }
@@ -404,6 +499,13 @@ impl Judged for ModelRouter {
                 agent_id,
                 model: None,
             }],
+            Verdict::Wait(model) => {
+                self.record_wait(&agent_id, &model);
+                vec![Effect::Model {
+                    agent_id,
+                    model: None,
+                }]
+            }
             Verdict::Switch { from, to, error } => {
                 self.mark_attempted(&agent_id, &to);
                 self.record_switch(signal, &from, &to, error);
