@@ -64,10 +64,15 @@ A rulebook is a set of rules you switch on for one session with a slash command.
 Add your own in `skills/rulebooks/`, or per project in `.chauffeur/rulebooks/`
 ([format](skills/README.md#rulebooks)).
 
+### Ask for what's missing
+
+With **`ask_chauffeur`**, the agent can ask in plain words for a tool or skill
+it lacks, then use what Chauffeur grants to finish the task.
+
+![The agent asks Chauffeur for a Slack-posting skill and uses slackcli to finish the handoff](docs/media/ask.gif)
+
 ### And quietly
 
-- **`ask_chauffeur`**: the agent can ask, in plain words, for a tool or skill
-  it lacks.
 - **Model failover**: on a usage limit, Chauffeur switches to an equivalent
   model and back once the limit has likely cleared.
 - **[sourcefed](https://github.com/StevenJPx2/sourcefed) events**: Chauffeur sets up
@@ -147,4 +152,5 @@ see [`bench/README.md`](bench/README.md).
 
 The demos above were recorded with
 [terminal-control](https://github.com/anomalyco/terminal-control) in throwaway
-repositories, with a stub `jira` CLI.
+repositories, with stub `jira` and `slackcli` CLIs. The ask demo's `AGENTS.md`
+requires a Slack handoff and supplies the question the agent asks Chauffeur.
