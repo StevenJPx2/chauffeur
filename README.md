@@ -36,6 +36,8 @@ On our longer benchmark tasks, this used 29% fewer input tokens and finished
   (`sed -i`, `node -e`, heredocs), pointing the agent at the edit tools, so every
   change stays reviewable. A force-push to `main` always asks.
 
+![Chauffeur approves task-related access outside the project; the edits and tests complete without a permission prompt](docs/media/approvals.gif)
+
 ![Chauffeur denying a sed rewrite; the agent switches to the edit tool](docs/media/guard.gif)
 
 ### Steers when the agent drifts
@@ -43,8 +45,9 @@ On our longer benchmark tasks, this used 29% fewer input tokens and finished
 After a tool call, Chauffeur nudges the agent back on course, and hands over the
 matching skill when there is one: `cat` or `sed -n` instead of the read tool,
 a recursive `grep` instead of `rg`, a browser for GitHub, Slack, Jira, or X
-where `gh`, `slackcli`, `jira`, or `twitter-cli` does it directly. A project
-can add its own rules in `.chauffeur/rules/`.
+where `gh`, `slackcli`, `jira`, or `twitter-cli` does it directly. Add your
+own rules for every session in `~/.config/chauffeur/rules/`, or a project's in
+its `.chauffeur/rules/`.
 
 ![The agent prints two files with cat; Chauffeur steers it to the read tool](docs/media/steer.gif)
 
@@ -121,7 +124,7 @@ chauffeur audit --follow --brief  # new decisions as they happen, one short line
 |---|---|
 | `TYPESAFE_API_KEY` | required |
 | `CHAUFFEUR_IDLE_STEERING` | `false`; `true` lets turn-end rules and rulebooks resume the agent |
-| `CHAUFFEUR_CONFIG_DIR` | `~/.config/chauffeur`; per-capability overrides as JSON |
+| `CHAUFFEUR_CONFIG_DIR` | `~/.config/chauffeur`; per-capability overrides as JSON, and your own `rules/` |
 | `CHAUFFEUR_SKILLS_DIR` | `~/.config/chauffeur/skills` (a link to `skills/`) |
 | `CHAUFFEUR_STATE_DIR` | `~/.local/state/chauffeur` (session memory, audit log) |
 | `CHAUFFEUR_DAEMON_URL` | `http://127.0.0.1:18790` |
