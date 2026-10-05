@@ -16,7 +16,7 @@ are capabilities or plugins that hang off that core.
 |---|---|
 | Sense → Classify → Act engine, System One interface, Jev provider (HTTPS via rustls), secret redaction | built |
 | Model router capability, Anthropic and OpenAI provider plugins, OpenCode signal/effect adapter | built |
-| Skill exposure, tool exposure, permission (skill contract), and rules (tool-result steers, idle reminders, project rules) capabilities | built |
+| Skill exposure, tool exposure, permission (skill contract), and rules (tool-result steers, idle reminders, personal and project rules) capabilities | built |
 | Irreversible-harm backstop | built |
 | Integration events and the sourcefed event gate, model switch-back, tool-group reveal, rules, persistence across restarts | built |
 | Ephemeral enhancements | not yet built |
@@ -336,7 +336,12 @@ follow-through. A rule declares:
   (`implementing`, or `in_review` once a PR was opened or any GitHub event
   arrived), `source` (`jira` or `github`, from tools and events), and `hooks`
   (integration events as `source:kind`, such as `github:merged`) read the
-  session.
+  session. For a `tool_result` rule, `input_excludes` skips a call whose
+  input contains any listed text, and `result_includes` admits a call only
+  when its result (error and output, clipped with both ends kept) contains one;
+  the result text decides admission and never enters Jev's question.
+  `session_kind` (`top_level` or `subagent`) limits a rule to one kind of
+  session; without it both are judged.
 - `steps`: one or two yes/no judgments, each with `yes_at_or_above` (0.5-1)
   and `minimum_confidence`. The second is asked in a later round only after
   the first holds.
@@ -350,16 +355,21 @@ A signal delivers at most two rules, highest priority first, chosen after
 every round. A failed judgment confirms nothing new; rules an earlier round
 confirmed still deliver.
 
-Rules come from two places. `skills/rules/` ships nine: seven steers
+Rules come from three places. `skills/rules/` ships nine: seven steers
 (hand-rolled patch scripts, `grep -r`, `cat` to read files, and X, Slack,
 Jira, or GitHub through a browser, handing over `twitter-cli`, `slack-cli`,
 and `jira-cli`; on 13 labelled calls they made no false nudges and one near
 miss) and two session reminders, `git-conflict-loop` and
 `jira-transition-after-merge`. sourcefed already delivers CI failures and
-review requests, so reminders add follow-through only. Shipped `turn_end`
-rules run only when the daemon has `CHAUFFEUR_IDLE_STEERING=true`. Code Mode
-tools are called through `execute`, so browser use there is caught by
-watching `execute`.
+review requests, so reminders add follow-through only. Code Mode tools are
+called through `execute`, so browser use there is caught by watching
+`execute`.
+
+Your own rules, for every session on the machine, live in
+`$CHAUFFEUR_CONFIG_DIR/rules/` and load after the shipped ones, up to 64 per
+folder. An ID must be unique across both folders, so a personal rule never
+silently replaces a shipped one. Shipped and personal `turn_end` rules run
+only when the daemon has `CHAUFFEUR_IDLE_STEERING=true`.
 
 A project keeps its own in `.chauffeur/rules/*.json`, read at each tool result
 and turn end from the Git worktree root down to the session's directory; a
@@ -495,12 +505,16 @@ The adapter sends **Signals** and applies **Effects**; it holds no policy.
 - **Sense:** `session.hook("prompt")` (user messages, with `skill.list()` and
   `tool.list()` catalogs and `session.context` history), `session.hook("retry")`
   (model errors), `session.hook("model.request")` (per-request tool state),
-  `tool.hook("execute.after")` (tool results), `event.subscribe`
+  `tool.hook("execute.after")` (tool results, whose output keeps both ends
+  within the 512-code-point clip so a closing instruction survives),
+  `event.subscribe`
   (`session.step.ended` reports model success;
   `session.execution.started` resets per-step state;
   `session.execution.succeeded` and `.failed` end a turn; OpenCode 2.0.15
-  emits no `session.status` idle event). Permission resources are file paths
-  for `read`, `edit`, `write`, and `patch`, and command text for `shell`.
+  emits no `session.status` idle event). Tool results and turn ends say
+  whether the session has a parent (`subagent`), from `session.get`.
+  Permission resources are file paths for `read`, `edit`, `write`, and
+  `patch`, and command text for `shell`.
 - **`permission`:** `permission.hook("evaluate")`, answered within 600 ms.
 - **`model`:** `session.switchModel` (with the variant) plus the retry
   decision; the session's model comes from `session.get`.
@@ -529,7 +543,7 @@ The adapter sends **Signals** and applies **Effects**; it holds no policy.
 | `capabilities/skill-exposure` | skill-exposure capability |
 | `capabilities/tool-exposure` | tool-exposure capability |
 | `capabilities/permission` | permission capability and the skill-contract format |
-| `capabilities/rules` | rules capability, the rule format, and shipped and project rule loading |
+| `capabilities/rules` | rules capability, the rule format, and shipped, personal, and project rule loading |
 | `capabilities/event-gate` | event-gate capability |
 | `capabilities/monitors` | the `Monitors` trait and following the agent's own PRs, issues, and threads |
 | `plugins/anthropic`, `plugins/openai` | providers for the model router, their tier tables in `skills/config/providers/` |
@@ -576,8 +590,8 @@ HTTP status codes, and question wording stay in code.
 **Hot reload.** `chauffeur_core::watch` fingerprints files and directories
 (length and modification time per file, and which files exist) and is checked
 on demand, at most once a second. The engine thread checks
-`$CHAUFFEUR_CONFIG_DIR` and the skills folder's `permission/`, `rules/` and
-`rulebooks/` before each signal; on a change it builds a new engine from the
+`$CHAUFFEUR_CONFIG_DIR` (including your `rules/`) and the skills folder's
+`permission/`, `rules/` and `rulebooks/` before each signal; on a change it builds a new engine from the
 files and loads the running engine's saved state and learned patterns into it,
 so sessions, running rulebooks and histories carry over. A running rulebook
 keeps its start-time snapshot. If the new files fail to load, the running
