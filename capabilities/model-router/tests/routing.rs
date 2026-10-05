@@ -671,8 +671,8 @@ fn tiers_follow_thinking_variants_and_never_offer_the_same_model() {
         )),
         vec!["openai/gpt-6.1-sol#high", STAY]
     );
-    // Opus at low thinking is balanced: sonnet, here or through a gateway,
-    // and gpt-6-luna at max thinking.
+    // Opus at low thinking is balanced: sonnet and gpt-6-luna at max
+    // thinking, from the providers used directly, not a gateway copy.
     assert_eq!(
         options(&shipped_router().plan(
             &Situation::default(),
@@ -680,7 +680,6 @@ fn tiers_follow_thinking_variants_and_never_offer_the_same_model() {
         )),
         vec![
             "openai/gpt-6-luna#max",
-            "opencode/claude-sonnet-5-5#high",
             "anthropic/claude-sonnet-5-5#high",
             STAY
         ]
@@ -701,7 +700,7 @@ fn tiers_follow_thinking_variants_and_never_offer_the_same_model() {
 }
 
 #[test]
-fn a_gateway_model_takes_its_makers_tier_and_untiered_models_are_never_offered() {
+fn an_agent_on_a_gateway_moves_to_its_tier_on_a_provider_used_directly() {
     // claude-sonnet-5-5 through OpenCode's gateway is balanced, like the original.
     assert_eq!(
         options(&shipped_router().plan(
@@ -778,6 +777,27 @@ fn recommended_models_come_first_and_fast_or_old_editions_are_never_offered() {
     };
     assert!(options[0].description.contains("recommended"));
     assert!(!options[1].description.contains("recommended"));
+}
+
+#[test]
+fn free_gateway_models_are_offered_only_when_nothing_else_is_left() {
+    let mut signal = limit_on("anthropic/claude-opus-5-5#high");
+
+    // Only the gateway's models remain.
+    if let SignalKind::ModelError { available, .. } = &mut signal.kind {
+        available.retain(|entry| entry.model.provider == "opencode");
+    }
+
+    let offered = options(&shipped_router().plan(&Situation::default(), &signal));
+
+    assert_eq!(
+        offered,
+        vec![
+            "opencode/fledge-alpha-free",
+            "opencode/ling-3.1-flash-free",
+            STAY
+        ]
+    );
 }
 
 #[test]

@@ -57,23 +57,30 @@ impl ModelRouter {
         }
     }
 
-    /// The model's tier from its provider's table, else from any table that
-    /// names the same model ID: a gateway such as `opencode/claude-sonnet-5-5`
-    /// serves the model its maker tiers.
+    /// The model's rating from its own provider's table. Only a provider with
+    /// a plugin is one you use directly, such as a subscription, so a gateway
+    /// copy of the same model (`opencode/gpt-6.1-sol`) has no rating and is
+    /// never a failover target unless pinned.
     fn rating(&self, model: &ModelRef) -> Option<Rating> {
-        let variant = model.variant.as_deref();
-
         self.provider(&model.provider)
-            .and_then(|provider| provider.rating(&model.model, variant))
-            .or_else(|| {
-                self.providers
-                    .iter()
-                    .find_map(|provider| provider.rating(&model.model, variant))
-            })
+            .and_then(|provider| provider.rating(&model.model, model.variant.as_deref()))
     }
 
     fn tier(&self, model: &ModelRef) -> Option<Tier> {
         self.rating(model).map(|rating| rating.tier)
+    }
+
+    /// The tier of the model that failed: its own provider's, else that of
+    /// any table naming the same model ID, so an agent on a gateway copy
+    /// moves to a same-tier model on a provider you use directly.
+    fn current_tier(&self, model: &ModelRef) -> Option<Tier> {
+        let variant = model.variant.as_deref();
+
+        self.tier(model).or_else(|| {
+            self.providers
+                .iter()
+                .find_map(|provider| provider.tier(&model.model, variant))
+        })
     }
 
     fn recommended(&self, model: &ModelRef) -> bool {
@@ -137,27 +144,78 @@ impl ModelRouter {
             .insert(model.key());
     }
 
-    /// Usable same-tier models (at a thinking variant) not yet tried, ordered
-    /// pins first, then other providers, then host order, at most the
-    /// configured `max_candidates`. Another variant of the current model is
-    /// never a candidate: a usage limit applies to the whole model. A model no
-    /// tier table names is offered only when pinned: hosts list many free or
-    /// preview models that are themselves rate limited. When the current
-    /// model has no tier, any tiered model is a candidate.
+    /// The models to offer: same-tier models on providers you use directly,
+    /// else the configured last resort, such as free gateway models.
     fn candidates(
         &self,
         agent_id: &str,
         current: &ModelRef,
         available: &[chauffeur_core::AvailableModel],
     ) -> Vec<ModelRef> {
+        let ranked = self.ranked(agent_id, current, available);
+
+        if ranked.is_empty() {
+            return self.last_resort(agent_id, current, available);
+        }
+
+        ranked
+    }
+
+    /// Usable host models not yet tried, other than the one that failed (in
+    /// any variant: a usage limit applies to the whole model).
+    fn untried(
+        &self,
+        agent_id: &str,
+        current: &ModelRef,
+        available: &[chauffeur_core::AvailableModel],
+    ) -> Vec<ModelRef> {
         let tried = self.attempted.get(agent_id);
-        let tier = self.tier(current);
-        let mut offered: HashSet<(String, String)> = HashSet::new();
-        let mut candidates: Vec<ModelRef> = self
-            .expanded(available)
+
+        self.expanded(available)
             .into_iter()
             .filter(|model| !(model.provider == current.provider && model.model == current.model))
             .filter(|model| tried.is_none_or(|tried| !tried.contains(&model.key())))
+            .collect()
+    }
+
+    /// Usable last-resort models, in host order, once each, at most the
+    /// configured `max_candidates`.
+    fn last_resort(
+        &self,
+        agent_id: &str,
+        current: &ModelRef,
+        available: &[chauffeur_core::AvailableModel],
+    ) -> Vec<ModelRef> {
+        let mut offered: HashSet<String> = HashSet::new();
+        let mut candidates: Vec<ModelRef> = self
+            .untried(agent_id, current, available)
+            .into_iter()
+            .filter(|model| self.config.is_last_resort(model))
+            .collect();
+
+        candidates.retain(|model| offered.insert(format!("{}/{}", model.provider, model.model)));
+        candidates.truncate(self.config.max_candidates);
+
+        candidates
+    }
+
+    /// Same-tier models on providers you use directly (at a thinking
+    /// variant), ordered pins first, then recommended models, then other
+    /// providers, then host order, at most the configured `max_candidates`.
+    /// A model without its own provider's rating is offered only when
+    /// pinned. When the failed model has no tier, any rated model is a
+    /// candidate.
+    fn ranked(
+        &self,
+        agent_id: &str,
+        current: &ModelRef,
+        available: &[chauffeur_core::AvailableModel],
+    ) -> Vec<ModelRef> {
+        let tier = self.current_tier(current);
+        let mut offered: HashSet<(String, String)> = HashSet::new();
+        let mut candidates: Vec<ModelRef> = self
+            .untried(agent_id, current, available)
+            .into_iter()
             // A pinned model is a declared fallback, so tiers do not constrain it.
             .filter(|model| {
                 let pinned = self.config.pins.contains(&model.key());
@@ -370,6 +428,8 @@ impl ModelRouter {
                     model.provider,
                     if self.recommended(model) {
                         "; recommended"
+                    } else if self.config.is_last_resort(model) {
+                        "; last resort, used only when no other model is available"
                     } else {
                         ""
                     }

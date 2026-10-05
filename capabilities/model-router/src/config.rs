@@ -3,8 +3,10 @@
 
 use std::path::Path;
 
-use chauffeur_core::{Confidence, Threshold, load_layered};
+use chauffeur_core::{Confidence, ModelRef, Threshold, load_layered};
 use serde::Deserialize;
+
+use crate::provider::glob;
 
 /// The shipped defaults, compiled in.
 const SHIPPED: &str = include_str!("../../../skills/config/model-router.json");
@@ -19,6 +21,9 @@ const MAX_WORDS: usize = 256;
 #[serde(deny_unknown_fields)]
 pub struct ModelRouterConfig {
     pub pins: Vec<String>,
+    /// `provider/model` patterns, such as `opencode/*-free`, offered only
+    /// when no model on a provider you use directly is left.
+    pub last_resort: Vec<String>,
     /// Below this, a failover choice is treated as unavailable and the
     /// posture applies.
     pub pick_confidence: Confidence,
@@ -73,8 +78,18 @@ impl ModelRouterConfig {
     ///
     /// Names the first field out of bounds.
     pub fn checked(mut self) -> Result<Self, String> {
-        if self.pins.len() > MAX_PINS {
-            return Err(format!("more than {MAX_PINS} pins"));
+        if self.pins.len() > MAX_PINS || self.last_resort.len() > MAX_PINS {
+            return Err(format!("more than {MAX_PINS} pins or last-resort patterns"));
+        }
+
+        if self
+            .last_resort
+            .iter()
+            .any(|pattern| !pattern.contains('/'))
+        {
+            return Err(
+                "a last-resort pattern must be provider/model, such as opencode/*-free".into(),
+            );
         }
 
         if !(1..=MAX_CANDIDATES).contains(&self.max_candidates) {
@@ -95,6 +110,14 @@ impl ModelRouterConfig {
         // Some providers report an exhausted balance as a plain invalid request,
         // which the message phrases catch.
         matches!(status, Some(402 | 429 | 503 | 529)) || self.limit.matches(error_type, message)
+    }
+
+    /// Whether `model` is a last-resort fallback.
+    #[must_use]
+    pub fn is_last_resort(&self, model: &ModelRef) -> bool {
+        let key = format!("{}/{}", model.provider, model.model);
+
+        self.last_resort.iter().any(|pattern| glob(pattern, &key))
     }
 
     /// Whether the limit lasts: waiting will not clear it.

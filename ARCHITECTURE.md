@@ -448,8 +448,13 @@ row may set `"recommended": true`: recommended models are offered right after
 pins and named as recommended to Jev, while models a pattern alone covers are
 same-tier fallbacks. A table's `exclude` patterns (`*-fast` editions, older
 generations) take a model out of every pattern, so it has a tier only through
-an exact row. A model a gateway serves under its maker's ID
-(`opencode/claude-sonnet-5-5`) takes the maker's rating:
+an exact row. Only a provider with a plugin, one you use directly such as a
+subscription, rates its models, so a gateway copy (`opencode/gpt-6.1-sol`) is
+never a failover target unless pinned. An agent already on a gateway copy is
+judged by the maker's tier and moves to that tier on a provider you use
+directly. `last_resort` in `model-router.json` (shipped:
+`opencode/*-free`, `opencode-go/*-free`) names models offered only when no
+rated candidate is left:
 
 | Tier | Recommended | Fallbacks |
 |---|---|---|

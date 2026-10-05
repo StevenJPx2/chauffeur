@@ -1,5 +1,6 @@
 {
   "pins": [],
+  "last_resort": ["opencode/*-free", "opencode-go/*-free"],
   "pick_confidence": 0.2,
   "switch_back": {
     "after_seconds": 300,
