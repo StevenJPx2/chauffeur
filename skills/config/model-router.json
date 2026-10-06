@@ -51,6 +51,15 @@
       "usage_limit"
     ]
   },
+  "texts": {
+    "choice": "The coding agent's model {model} just failed with a usage limit ({error}). Switching discards the prompt cache on the new provider. Choose the model that best fits the agent's recent work, preferring one marked recommended. Choose stay only if the error says the limit resets within a minute or two; a limit with no reset time, or one that resets later, keeps the agent blocked, so switch.",
+    "choice_must_switch": "The coding agent's model {model} failed with a usage limit ({error}) that waiting will not clear, so the agent must switch. Switching discards the prompt cache on the new provider. Choose the model that best fits the agent's recent work, preferring one marked recommended.",
+    "option": "Switch to {model} ({tier} tier, provider {provider}{note}).",
+    "recommended_note": "; recommended",
+    "last_resort_note": "; last resort, used only when no other model is available",
+    "stay": "Keep {model} and wait for the limit to clear.",
+    "switch_back": "About {minutes} minutes ago the coding agent's model {model} failed with this usage limit: {error}. Has that limit most likely cleared by now? Short per-minute rate limits and temporary overloads clear within minutes; limits that reset in hours, and exhausted quotas or balances, have not cleared."
+  },
   "unusable": {
     "messages": [
       "api key",

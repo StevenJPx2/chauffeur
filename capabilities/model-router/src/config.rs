@@ -3,7 +3,7 @@
 
 use std::path::Path;
 
-use chauffeur_core::{Confidence, ModelRef, Threshold, load_layered};
+use chauffeur_core::{Confidence, ModelRef, Template, Threshold, load_layered};
 use serde::Deserialize;
 
 use crate::provider::glob;
@@ -38,6 +38,56 @@ pub struct ModelRouterConfig {
     /// A model that cannot serve the agent at all (no access, unknown model),
     /// as opposed to a limit that may clear.
     pub unusable: ErrorWords,
+    /// The wording of the router's questions and options.
+    pub texts: RouterTexts,
+}
+
+/// The router's questions to System One and the options they offer.
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct RouterTexts {
+    /// Which model to switch to, when staying is offered: `{model}`, `{error}`.
+    pub choice: Template,
+    /// Which model to switch to, when the limit does not clear by waiting.
+    pub choice_must_switch: Template,
+    /// One option: `{model}`, `{tier}`, `{provider}`, `{note}`.
+    pub option: Template,
+    /// `{note}` for a recommended model.
+    pub recommended_note: Template,
+    /// `{note}` for a last-resort model.
+    pub last_resort_note: Template,
+    /// The stay option: `{model}`.
+    pub stay: Template,
+    /// Whether the original limit has cleared: `{minutes}`, `{model}`, `{error}`.
+    pub switch_back: Template,
+}
+
+impl RouterTexts {
+    fn checked(self) -> Result<Self, String> {
+        let error = &["model", "error"][..];
+
+        for (field, template, allowed) in [
+            ("texts.choice", &self.choice, error),
+            ("texts.choice_must_switch", &self.choice_must_switch, error),
+            (
+                "texts.option",
+                &self.option,
+                &["model", "tier", "provider", "note"][..],
+            ),
+            ("texts.recommended_note", &self.recommended_note, &[][..]),
+            ("texts.last_resort_note", &self.last_resort_note, &[][..]),
+            ("texts.stay", &self.stay, &["model"][..]),
+            (
+                "texts.switch_back",
+                &self.switch_back,
+                &["minutes", "model", "error"][..],
+            ),
+        ] {
+            template.check(field, allowed)?;
+        }
+
+        Ok(self)
+    }
 }
 
 /// When to judge returning to the model an agent left.
@@ -99,6 +149,7 @@ impl ModelRouterConfig {
         self.limit = self.limit.checked("limit")?;
         self.lasting = self.lasting.checked("lasting")?;
         self.unusable = self.unusable.checked("unusable")?;
+        self.texts = self.texts.checked()?;
 
         Ok(self)
     }

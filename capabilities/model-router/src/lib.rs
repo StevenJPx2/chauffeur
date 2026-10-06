@@ -342,14 +342,11 @@ impl ModelRouter {
             id: SWITCH_BACK.into(),
             // Asked as a fact about the limit: Jev judges that far better than
             // a trade-off against the cache cost.
-            instructions: format!(
-                "About {minutes} minutes ago the coding agent's model {} failed with this usage \
-                 limit: {}. Has that limit most likely cleared by now? Short per-minute rate \
-                 limits and temporary overloads clear within minutes; limits that reset in hours, \
-                 and exhausted quotas or balances, have not cleared.",
-                origin.model.key(),
-                origin.error,
-            ),
+            instructions: self.config.texts.switch_back.render(&[
+                ("minutes", &minutes.to_string()),
+                ("model", &origin.model.key()),
+                ("error", &origin.error),
+            ]),
             kind: QuestionKind::Noul,
         };
 
@@ -456,49 +453,44 @@ impl ModelRouter {
         candidates: &[ModelRef],
         may_wait: bool,
     ) -> Question {
+        let texts = &self.config.texts;
         let mut options: Vec<ChoiceOption> = candidates
             .iter()
-            .map(|model| ChoiceOption {
-                value: model.key(),
-                description: format!(
-                    "Switch to {} ({} tier, provider {}{}).",
-                    model.key(),
-                    self.tier(model).map_or("unknown", Tier::label),
-                    model.provider,
-                    if self.recommended(model) {
-                        "; recommended"
-                    } else if self.config.is_last_resort(model) {
-                        "; last resort, used only when no other model is available"
-                    } else {
-                        ""
-                    }
-                ),
+            .map(|model| {
+                let note = if self.recommended(model) {
+                    texts.recommended_note.as_str()
+                } else if self.config.is_last_resort(model) {
+                    texts.last_resort_note.as_str()
+                } else {
+                    ""
+                };
+
+                ChoiceOption {
+                    value: model.key(),
+                    description: texts.option.render(&[
+                        ("model", &model.key()),
+                        ("tier", self.tier(model).map_or("unknown", Tier::label)),
+                        ("provider", &model.provider),
+                        ("note", note),
+                    ]),
+                }
             })
+            .collect();
+        let values = [("model", current.key()), ("error", error.to_string())];
+        let values: Vec<(&str, &str)> = values
+            .iter()
+            .map(|(key, value)| (*key, value.as_str()))
             .collect();
 
         let instructions = if may_wait {
             options.push(ChoiceOption {
                 value: STAY.into(),
-                description: format!("Keep {} and wait for the limit to clear.", current.key()),
+                description: texts.stay.render(&values[..1]),
             });
 
-            format!(
-                "The coding agent's model {} just failed with a usage limit ({error}). \
-                 Switching discards the prompt cache on the new provider. Choose the model \
-                 that best fits the agent's recent work, preferring one marked recommended. \
-                 Choose stay only if the error says \
-                 the limit resets within a minute or two; a limit with no reset time, or one \
-                 that resets later, keeps the agent blocked, so switch.",
-                current.key()
-            )
+            texts.choice.render(&values)
         } else {
-            format!(
-                "The coding agent's model {} failed with a usage limit ({error}) that waiting \
-                 will not clear, so the agent must switch. Switching discards the prompt cache \
-                 on the new provider. Choose the model that best fits the agent's recent work, \
-                 preferring one marked recommended.",
-                current.key()
-            )
+            texts.choice_must_switch.render(&values)
         };
 
         Question {

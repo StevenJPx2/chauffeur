@@ -13,6 +13,7 @@ pub mod config;
 pub mod engine;
 pub mod judge;
 pub mod protocol;
+pub mod template;
 pub mod watch;
 
 pub use contracts::{capability, effect, signal, system_one};
@@ -40,5 +41,6 @@ pub use system_one::{
     Answer, AnswerValue, ChoiceOption, Question, QuestionKind, SystemOne, SystemOneError,
     validate_answers,
 };
+pub use template::Template;
 pub use trace::Trace;
 pub use watch::{Reloading, Watch};
