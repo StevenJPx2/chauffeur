@@ -23,6 +23,20 @@ The longest tool definitions are `subagent` (3,000), `shell` (1,484),
 `question` (1,415), `execute` (1,173), `edit` (1,143), `grep` (1,078) and
 `todowrite` (1,001); the six `memo_*` tools add 2,424.
 
+In an isolated bench run (`chauffeur-bench prompt`, no OptMem or sourcefed,
+MCP servers settled), the first request of a one-word task is:
+
+| Model | Without Chauffeur | With Chauffeur |
+| --- | ---: | ---: |
+| `anthropic/claude-opus-5-5` | 18,758 tokens | 10,437 tokens (−44%) |
+| `openai/gpt-6-luna` | 11,293 tokens | 5,882 tokens (−48%) |
+
+Most of the difference is OpenCode's skill list (`<available_skills>`, 24,000
+characters), which Chauffeur removes. Chauffeur adds `todowrite` and
+`ask_chauffeur` (1,700 characters) and the cheaper-subagent note on
+`subagent`. The Code Mode catalog (15 namespaces, 7,900 characters plus MCP
+guidance) is the same in both.
+
 Over a session the history dominates: requests in the last seven days averaged
 396k tokens, 95.6% of them cache reads, so the fixed part is about 3% of an
 average request. Trimming pays most in short sessions, subagents, and the first
