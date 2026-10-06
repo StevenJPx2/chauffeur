@@ -50,8 +50,7 @@ Each scenario is a pair of bench variants that differ in one thing.
 | --- | --- | --- | --- |
 | `codemode-trim` | `full` | `full` + Code Mode namespaces withheld until judged needed | pass rate rises or holds with fewer steps on the namespace tasks; the needed namespace is listed before first use in ≥ 90% of runs |
 | `short-tools` | `full` | `full` + shortened descriptions for the longest direct tools | first-request tokens fall; pass rate holds; subagent and question use stays within noise |
-| `sourcefed-guidance` | `full` + sourcefed | `full` + sourcefed with short guidance | first-request tokens fall; monitor tasks still create the right monitor |
-| `memo-wake` | `full` + OptMem | `full` + OptMem with a capped wake | second-request tokens fall; memory tasks still recall the fixture fact |
+| `sourcefed-guidance` | sourcefed 0.3.4 | sourcefed with agent-facing guidance | first-request tokens fall (prompt measurement only) |
 
 "Pass rate holds" means no task loses a pass across three repeats, and the
 suite's pass rate is within one run of the control.
@@ -94,7 +93,6 @@ New tasks:
 - `tracker-create-issue`: file an issue through a stub `tracker` MCP server; the
   check reads the logged call.
 - `docs-lookup-answer`: answer from a stub `handbook` MCP server's search tool.
-- `memory-recall` (for `memo-wake`): recall a fact from a fixture OptMem store.
 
 **New result fields**, from OpenCode events and the audit log: first-request and
 second-request prompt tokens, Code Mode namespaces revealed and when,
@@ -131,19 +129,35 @@ Trimming saves tokens only if OpenCode ties the listing to the catalog's size;
 its remaining value is a catalog focused on the task, which the outcome suite
 measures. `code_mode.trim` stays off unless that helps.
 
+## sourcefed guidance
+
+sourcefed injects its guidance into every request. Version 0.3.4 adds 1,006
+tokens to a first request on Luna (5,876 to 6,882), mostly transport and
+package notes an agent using monitors never needs. The guidance keeps only when
+to create each monitor, how, how to manage them, and how to treat an event
+(4,133 to 1,074 characters); the transport rule moves to CONTRIBUTING.md. The
+guidance is also recognised by its own first line, so a session whose working
+directory names sourcefed still receives it.
+
+It is measured with `prompt` only: an outcome run with sourcefed loaded could
+create real monitors with the user's credentials. To measure, add a variant
+`{ "id": "monitors", "chauffeur": true, "disable": [], "plugins": ["sourcefed"] }`
+for the run and remove it after; its id must not contain "sourcefed" while
+0.3.4 is installed, since 0.3.4 skips the guidance when the run path names it.
+
+## OptMem's wake
+
+OptMem's `memo_wake` reply (15k characters in one probe) is the user's memory
+itself, so capping it changes what the agent knows at a session's start. It
+is left as is.
+
 ## Order of work
 
-1. Harness: isolation, variant `config` and `plugins`, `prompt` command, new
-   result fields. Record the control's numbers on both models.
+1. Harness: isolation, variant `config` and `plugins`, `prompt` command,
+   request probe, MCP stub tasks. Record the control's numbers on both models.
 2. `short-tools`: description overrides through `hosts/opencode.json`, applied
-   with `tool.transform` updates; bench.
-3. `codemode-trim`: MCP stub tasks, then the feature; bench.
-4. `sourcefed-guidance` and `memo-wake`: changes in those plugins' repos; bench.
-5. README: state what Chauffeur trims, with the measured numbers.
-
-## Open questions
-
-- sourcefed's guidance: whether a short always-on paragraph plus the full text
-  through `sourcefed skills get core` keeps monitor tasks passing.
-- OptMem: a fixture store for bench runs (a memory folder chosen by environment
-  variable), so `memo-wake` never reads the real memory.
+   in the `context` hook; measure.
+3. `codemode-trim`: the feature, off by default; measure.
+4. sourcefed: agent-facing guidance; measure after release.
+5. One outcome suite on Luna: `full`, `short-tools`, `codemode-trim`.
+6. README: state what Chauffeur trims, with the measured numbers.
