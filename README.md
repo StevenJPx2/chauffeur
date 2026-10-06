@@ -144,11 +144,16 @@ covers the design.
 
 Edits apply without a restart. Within a second, the daemon picks up rules,
 rulebooks, and contracts in `skills/` and overrides in `~/.config/chauffeur/`,
-keeping session memory and running rulebooks. A new rulebook's slash command
-appears in OpenCode within a few seconds. Deleted commands leave the server's
-registry, though OpenCode 2.0.23 can retain a stale autocomplete entry until
-restarted. A file that fails to load leaves the previous version running and
-logs why.
+keeping session memory and running rulebooks. A file that fails to load leaves
+the previous version running and logs why.
+
+![Saving a project rulebook makes its slash command appear without restarting](docs/media/reload.gif)
+
+This clip uses a private, patched OpenCode 2.0.23 build. The stock release can
+leave autocomplete stale because background registry updates omit their project
+location. The [patch](docs/patches/opencode-2.0.23-command-location.patch) keeps
+that location on command updates; your installed OpenCode is not modified by
+Chauffeur.
 
 ## Develop
 
