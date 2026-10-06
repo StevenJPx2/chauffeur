@@ -6,5 +6,6 @@
   { "id": "no-rules", "chauffeur": true, "disable": ["rules"] },
   { "id": "no-permission", "chauffeur": true, "disable": ["permission"] },
   { "id": "no-model-router", "chauffeur": true, "disable": ["model-router"] },
-  { "id": "short-tools", "chauffeur": true, "disable": [], "config": "variants/short-tools" }
+  { "id": "short-tools", "chauffeur": true, "disable": [], "config": "variants/short-tools" },
+  { "id": "codemode-trim", "chauffeur": true, "disable": [], "config": "variants/codemode-trim" }
 ]

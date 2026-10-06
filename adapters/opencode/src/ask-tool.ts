@@ -6,6 +6,7 @@ import { Host, type SessionID } from "./host.js"
 import { signal, TEXT_CODE_POINTS, type HostEffect } from "./protocol.js"
 import { hostLoadsSkills, renderContext } from "./skills.js"
 import { clip, isIntegrationMessage, userText } from "./text.js"
+import { applyNamespaces } from "./namespaces.js"
 import { fill, type HostTexts, type Texts, withTexts } from "./texts.js"
 
 /** Chauffeur's own tool; exposure never judges or hides it. */
@@ -72,7 +73,7 @@ function answer({ need }: Input, context: CallContext, exposure: ExposureControl
       need: clipped,
       user_request: lastUser?.type === "user" ? userText(lastUser.text) : "",
       tools: yield* exposure.candidates(context.sessionID),
-      code_mode: yield* exposure.codeMode(String(context.agent), clipped),
+      code_mode: yield* exposure.codeMode(clipped),
     }), ASK_TIMEOUT)
 
     const parts = yield* Effect.forEach(effects, (effect) => granted(context.sessionID, effect, exposure, texts))
@@ -91,6 +92,14 @@ function granted(sessionID: SessionID, effect: HostEffect, exposure: ExposureCon
       if (effect.reveal.length === 0 || !(yield* exposure.reveal(sessionID, effect.reveal))) return ""
 
       return fill(texts.ask_chauffeur.revealed, { tools: effect.reveal.join(", ") })
+    }
+
+    // Restored namespaces join the catalog at the next request; the Code Mode
+    // note in this reply names their tools.
+    if (effect.type === "namespaces") {
+      yield* applyNamespaces(sessionID, effect)
+
+      return ""
     }
 
     if (effect.type !== "context") return ""

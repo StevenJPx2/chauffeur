@@ -18,6 +18,7 @@
   "pick_confidence": 0.4,
   "listed_tools": 6,
   "recovery_candidates": 4,
+  "code_mode": { "trim": false, "always": ["context7", "jina", "opencode"] },
   "texts": {
     "listed_tool": "{tool} ({description})",
     "more_tools": "and {count} more",

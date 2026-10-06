@@ -56,6 +56,49 @@ pub fn fan_out<K: Send + 'static>(
     })
 }
 
+/// [`fan_out`], also reading each answer against `other`: the keys whose own
+/// rule held, most likely first, and the keys `other` held for, in candidate
+/// order. One question per candidate serves both.
+#[must_use]
+pub fn fan_out_with<K: Clone + Send + 'static>(
+    candidates: impl IntoIterator<Item = Candidate<K>>,
+    other: Rule,
+) -> Judge<(Vec<K>, Vec<K>)> {
+    let judges = candidates
+        .into_iter()
+        .map(
+            |Candidate {
+                 key,
+                 question,
+                 rule,
+             }| {
+                Judge::ask(question, move |answer| {
+                    let p = answer.and_then(probability).unwrap_or_default();
+
+                    (key, p, rule.holds(answer), other.holds(answer))
+                })
+            },
+        )
+        .collect();
+
+    Judge::all(judges).map(|read: Vec<(K, f32, bool, bool)>| {
+        let others = read
+            .iter()
+            .filter(|(_, _, _, other)| *other)
+            .map(|(key, ..)| key.clone())
+            .collect();
+        let mut held: Vec<(K, f32)> = read
+            .into_iter()
+            .filter(|(_, _, own, _)| *own)
+            .map(|(key, p, ..)| (key, p))
+            .collect();
+
+        held.sort_by(|a, b| b.1.total_cmp(&a.1));
+
+        (held.into_iter().map(|(key, _)| key).collect(), others)
+    })
+}
+
 /// Every candidate's steps in order, candidates side by side; the keys whose
 /// every step held, in candidate order.
 #[must_use]

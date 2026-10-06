@@ -36,8 +36,21 @@ pub struct ToolExposureConfig {
     pub listed_tools: usize,
     /// Hidden tools offered in a missing-tool recovery choice.
     pub recovery_candidates: usize,
+    /// Whether Code Mode namespaces are withheld, and which never are.
+    pub code_mode: CodeModeConfig,
     /// The wording of the questions to System One and of what is delivered.
     pub texts: ToolTexts,
+}
+
+/// Code Mode trimming. With `trim`, a context's first message withholds every
+/// namespace the task confidently will not need (at the `hide` bar), except
+/// `always`; a later message or the agent's request restores one it needs.
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct CodeModeConfig {
+    pub trim: bool,
+    /// Namespaces never withheld.
+    pub always: Vec<String>,
 }
 
 /// The tool questions to System One, their options, and the Code Mode note.
@@ -175,6 +188,9 @@ impl ToolExposureConfig {
 
         if self.never_exposed.len() > MAX_BASE {
             return Err(format!("more than {MAX_BASE} never-exposed tools"));
+        }
+        if self.code_mode.always.len() > MAX_BASE {
+            return Err(format!("more than {MAX_BASE} always-kept namespaces"));
         }
 
         if !(1..=MAX_LISTED_TOOLS).contains(&self.listed_tools) {

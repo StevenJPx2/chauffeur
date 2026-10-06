@@ -19,8 +19,8 @@ use std::collections::HashSet;
 
 use chauffeur_core::judge::strategy::{self, Candidate};
 use chauffeur_core::{
-    CatalogEntry, ChoiceOption, Delivery, Effect, Judge, Judged, Question, QuestionKind, Rule,
-    Signal, SignalKind, Situation,
+    CatalogEntry, ChoiceOption, CodeModeNamespace, Delivery, Effect, Judge, Judged, Question,
+    QuestionKind, Rule, Signal, SignalKind, Situation,
 };
 
 use code_mode::Surfaced;
@@ -51,6 +51,9 @@ pub enum Verdict {
         heard: bool,
         groups: Vec<String>,
         namespaces: Vec<String>,
+        /// Namespaces the task confidently will not need, judged only at a
+        /// first message while Code Mode trimming is on.
+        unneeded: Vec<String>,
     },
     /// A missing-tool result: the hidden direct tool to reveal, if any.
     Recover(Option<String>),
@@ -187,17 +190,7 @@ impl ToolExposure {
                 rule,
             })
             .collect();
-        let namespaces: Vec<Candidate<String>> = self
-            .surfaced
-            .pending(&signal.agent_id, code_mode)
-            .into_iter()
-            .take(MAX_GROUPS)
-            .map(|namespace| Candidate {
-                key: namespace.name.clone(),
-                question: code_mode::question(namespace, texts),
-                rule: needed,
-            })
-            .collect();
+        let namespaces = self.namespace_candidates(&signal.agent_id, code_mode);
 
         if groups.is_empty() && namespaces.is_empty() {
             return Some(Judge::done(Verdict::Message {
@@ -205,26 +198,65 @@ impl ToolExposure {
                 heard: true,
                 groups: Vec::new(),
                 namespaces: Vec::new(),
+                unneeded: Vec::new(),
             }));
         }
+
+        let namespaces = self.judge_namespaces(namespaces, first);
 
         // Groups and namespaces in one round; a failed call changes nothing.
         Some(
             strategy::fan_out(groups)
-                .zip(strategy::fan_out(namespaces))
+                .zip(namespaces)
                 .unless_failed()
                 .map(move |judged| {
                     let heard = judged.is_some();
-                    let (groups, namespaces) = judged.unwrap_or_default();
+                    let (groups, (namespaces, unneeded)) = judged.unwrap_or_default();
 
                     Verdict::Message {
                         first,
                         heard,
                         groups,
                         namespaces,
+                        unneeded,
                     }
                 }),
         )
+    }
+
+    /// The namespaces not yet surfaced in this context, each asked whether
+    /// the request needs it.
+    fn namespace_candidates(
+        &self,
+        agent_id: &str,
+        code_mode: &[CodeModeNamespace],
+    ) -> Vec<Candidate<String>> {
+        let needed = self.config.reveal.yes();
+
+        self.surfaced
+            .pending(agent_id, code_mode)
+            .into_iter()
+            .take(MAX_GROUPS)
+            .map(|namespace| Candidate {
+                key: namespace.name.clone(),
+                question: code_mode::question(namespace, &self.config.texts),
+                rule: needed,
+            })
+            .collect()
+    }
+
+    /// The namespaces needed, and at a first message with trimming on, the
+    /// ones confidently not needed: one question serves both readings.
+    fn judge_namespaces(
+        &self,
+        candidates: Vec<Candidate<String>>,
+        first: bool,
+    ) -> Judge<(Vec<String>, Vec<String>)> {
+        if first && self.config.code_mode.trim {
+            strategy::fan_out_with(candidates, self.config.hide.no())
+        } else {
+            strategy::fan_out(candidates).map(|needed| (needed, Vec::new()))
+        }
     }
 
     fn recovery_candidates<'a>(&self, signal: &'a Signal) -> Vec<&'a CatalogEntry> {
@@ -357,6 +389,49 @@ impl ToolExposure {
         effects
     }
 
+    /// With Code Mode trimming on: at a first message, withhold the namespaces
+    /// the task will not need and restore the rest it judged or always keeps;
+    /// later, restore the ones it needs. Nothing while trimming is off.
+    fn trim(
+        &self,
+        signal: &Signal,
+        first: bool,
+        needed: &[String],
+        unneeded: &[String],
+    ) -> Option<Effect> {
+        let code_mode = &self.config.code_mode;
+
+        if !code_mode.trim {
+            return None;
+        }
+
+        let always = |name: &String| code_mode.always.contains(name);
+        let hide: Vec<String> = unneeded
+            .iter()
+            .filter(|name| !always(name))
+            .cloned()
+            .collect();
+        let mut reveal = needed.to_vec();
+
+        if first
+            && let SignalKind::UserMessage {
+                code_mode: present, ..
+            } = &signal.kind
+        {
+            for namespace in present {
+                if always(&namespace.name) && !reveal.contains(&namespace.name) {
+                    reveal.push(namespace.name.clone());
+                }
+            }
+        }
+
+        (!hide.is_empty() || !reveal.is_empty()).then(|| Effect::Namespaces {
+            agent_id: signal.agent_id.clone(),
+            hide,
+            reveal,
+        })
+    }
+
     /// Reveal every granted group in one effect, and bring every granted
     /// namespace's matches into the running turn in one note.
     fn granted(&mut self, signal: &Signal, grants: &[Grant]) -> Vec<Effect> {
@@ -381,6 +456,12 @@ impl ToolExposure {
             })
             .collect();
 
+        let granted: Vec<String> = chosen
+            .iter()
+            .map(|namespace| namespace.name.clone())
+            .collect();
+
+        effects.extend(self.trim(signal, false, &granted, &[]));
         effects.extend(self.surfaced.surface(
             &signal.agent_id,
             &chosen,
@@ -424,8 +505,14 @@ impl Judged for ToolExposure {
                 first,
                 groups,
                 namespaces,
+                unneeded,
                 ..
-            } => self.message_effects(signal, first, &groups, &namespaces),
+            } => {
+                let mut effects = self.message_effects(signal, first, &groups, &namespaces);
+
+                effects.extend(self.trim(signal, first, &namespaces, &unneeded));
+                effects
+            }
             Verdict::Recover(tool) => effect(&signal.agent_id, tool.into_iter().collect(), true),
             Verdict::Request(grants) => self.granted(signal, &grants),
         }

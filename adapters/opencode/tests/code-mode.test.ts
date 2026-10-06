@@ -10,19 +10,15 @@ function tools(list: ReadonlyArray<Tool>): ReadonlyArray<HostTool> {
 }
 
 const catalog = tools([
-  { id: "read", description: "Read a file" },
+  { id: "read", description: "Read a file", options: { codemode: false } },
   { id: "browser_open", description: "Open a browser tab", options: { namespace: "browser.tabs" } },
   { id: "browser_type", description: "Type text into the page", options: { namespace: "browser.tabs" } },
   { id: "jira_issue", description: "Read a Jira issue" },
   { id: "native_hidden", description: "Native tool", options: { codemode: false } },
 ])
 
-test("nothing is known before a request shows which tools are sent directly", () => {
-  expect(codeModeNamespaces(catalog, null, "open a tab")).toEqual([])
-})
-
-test("namespaces group tools outside the request and rank the request's matches first", () => {
-  const namespaces = codeModeNamespaces(catalog, new Set(["read"]), "type into the page")
+test("namespaces group every tool not sent directly and rank the request's matches first", () => {
+  const namespaces = codeModeNamespaces(catalog, "type into the page")
 
   expect(namespaces.map((namespace) => [namespace.name, namespace.size])).toEqual([["browser", 2], ["jira", 1]])
   expect(namespaces[0]?.tools.map((tool) => tool.id)).toEqual(["browser_type", "browser_open"])

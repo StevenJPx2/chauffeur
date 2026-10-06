@@ -48,7 +48,7 @@ Each scenario is a pair of bench variants that differ in one thing.
 
 | Scenario | Control | Treatment | Wins when |
 | --- | --- | --- | --- |
-| `codemode-trim` | `full` | `full` + Code Mode namespaces hidden until judged needed | first-request tokens fall ≥ 20%; pass rate holds; namespace tasks reveal the namespace before first use in ≥ 90% of runs |
+| `codemode-trim` | `full` | `full` + Code Mode namespaces withheld until judged needed | pass rate rises or holds with fewer steps on the namespace tasks; the needed namespace is listed before first use in ≥ 90% of runs |
 | `short-tools` | `full` | `full` + shortened descriptions for the longest direct tools | first-request tokens fall; pass rate holds; subagent and question use stays within noise |
 | `sourcefed-guidance` | `full` + sourcefed | `full` + sourcefed with short guidance | first-request tokens fall; monitor tasks still create the right monitor |
 | `memo-wake` | `full` + OptMem | `full` + OptMem with a capped wake | second-request tokens fall; memory tasks still recall the fixture fact |
@@ -101,33 +101,35 @@ second-request prompt tokens, Code Mode namespaces revealed and when,
 `ask_chauffeur` calls, missing-tool recoveries, subagent launches, and
 `question` calls.
 
-## Dynamic Code Mode exposure
+## Code Mode trimming
 
-Code Mode namespaces work like skills: hidden by default, attached when a
-request needs them.
+Code Mode namespaces are withheld like a skill is left unattached: judged at a
+context's first message, restored when a request needs them.
 
-1. **Hidden by default.** The plugin's agent transform adds
-   `{ action: "<namespace>_*", resource: "*", effect: "deny" }` for every Code
-   Mode namespace except `tool-exposure.json`'s `code_mode.always` list
-   (`context7`, `jina`, `opencode`). OpenCode leaves wholly denied tools out of
-   the catalog, `search`, and MCP guidance.
-2. **Revealed per message.** In the `prompt` hook, the engine judges which hidden
-   namespaces the request needs, alongside the skill judgment. The adapter adds
-   an `allow` rule per namespace with
-   `ctx.permission.rules({ sessionID, permissions })`, keeping the session's
-   other rules. Session rules follow agent rules and the last match wins, so the
-   request built next includes the namespace. Child sessions inherit the rules
-   in effect when they start.
-3. **Kept until compaction.** A reveal appends a short "new namespaces" note; a
-   hide mid-epoch would append a removal note while the baseline keeps the full
-   catalog, so revealed namespaces stay. On `session.compaction.ended` the
-   adapter clears its `allow` rules and the next message is judged afresh against
-   the rebuilt baseline.
-4. **Misses recover.** `ask_chauffeur` reveals a namespace mid-turn the same way,
-   and missing-tool recovery covers a call to a hidden tool.
+1. **Withheld at a first message.** Tool exposure already asks, per namespace,
+   whether the request needs it. With `tool-exposure.json` `code_mode.trim` on,
+   the same answer at P ≤ 0.3 withholds the namespace, except
+   `code_mode.always` (`context7`, `jina`, `opencode`). The `namespaces` effect
+   names them; the adapter adds session deny rules (`<namespace>_*`, or one per
+   permission action when that pattern would catch other tools), keeping the
+   session's other rules. OpenCode leaves wholly denied tools out of the
+   catalog, `search`, and MCP guidance. A first message also covers a context
+   after compaction, when OpenCode rebuilds the baseline.
+2. **Restored when needed.** A later message judged to need a withheld
+   namespace, or an `ask_chauffeur` grant, restores it by removing exactly
+   those rules; a short "new namespaces" note joins the next request. Nothing
+   is withheld mid-context, since a removal note would add tokens while the
+   baseline keeps the full catalog.
+3. **Complete catalog.** At a first message the adapter waits (at most 10 s)
+   until no MCP server is connecting, so the judgment covers the namespaces
+   OpenCode's first request will carry.
 
-`tool-exposure.json` carries `code_mode.trim` (off until `codemode-trim` wins)
-and `code_mode.always`.
+**Measured:** withholding 11 of 15 namespaces leaves the first request the same
+size (5,878 vs 5,880 tokens on Luna). OpenCode 2.0.23's catalog lists a fixed
+number of tools (about 28 of 340), so the remaining namespaces fill the space.
+Trimming saves tokens only if OpenCode ties the listing to the catalog's size;
+its remaining value is a catalog focused on the task, which the outcome suite
+measures. `code_mode.trim` stays off unless that helps.
 
 ## Order of work
 

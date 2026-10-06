@@ -52,6 +52,14 @@ pub enum Effect {
         hide: Vec<String>,
         reveal: Vec<String>,
     },
+    /// Withhold or restore whole Code Mode namespaces, by name. A withheld
+    /// namespace is left out of the host's tool catalog and its search until
+    /// restored; a namespace in neither list keeps its state.
+    Namespaces {
+        agent_id: String,
+        hide: Vec<String>,
+        reveal: Vec<String>,
+    },
     /// Add skills (the host resolves their bodies) and text to the agent's
     /// context. `label` names the addition for the user.
     Context {

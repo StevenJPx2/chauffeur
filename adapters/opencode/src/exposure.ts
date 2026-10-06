@@ -5,6 +5,8 @@ import { codeModeNamespaces } from "./code-mode.js"
 import { Daemon } from "./daemon.js"
 import { type HistoryMessage, Host, type HostTool, type SessionID } from "./host.js"
 import { hostModel, ref, sameModel } from "./model-router.js"
+import { mcpSettled } from "./mcp-settle.js"
+import { applyNamespaces } from "./namespaces.js"
 import { ASK_TOOL } from "./ask-tool.js"
 import { Texts, type TextsSource } from "./texts.js"
 import { TODO_TOOL } from "./todos.js"
@@ -36,7 +38,7 @@ export type ExposureControl = {
   readonly candidates: (sessionID: SessionID) => Effect.Effect<CatalogEntry[]>
   readonly reveal: (sessionID: SessionID, names: ReadonlyArray<string>) => Effect.Effect<boolean, unknown>
   /** `agent`'s Code Mode namespaces, each with its best matches for `text`. */
-  readonly codeMode: (agent: string, text: string) => Effect.Effect<CodeModeNamespace[]>
+  readonly codeMode: (text: string) => Effect.Effect<CodeModeNamespace[]>
 }
 
 /**
@@ -146,7 +148,10 @@ export const installExposure: Effect.Effect<ExposureControl, never, Host | Daemo
 
       const current = firstInContext ? null : yield* hidden.current(event.sessionID)
       const tools = yield* toolsToJudge(host, firstInContext, current, requestTools)
-      const codeMode = codeModeNamespaces(yield* host.tool.list(), requestTools, event.prompt.text)
+
+      if (firstInContext) yield* mcpSettled.pipe(Effect.provideService(Host, host))
+
+      const codeMode = codeModeNamespaces(yield* host.tool.list(), event.prompt.text)
 
       const effects = yield* daemon.signal(signal(sessionID, {
         type: "user_message",
@@ -186,7 +191,7 @@ function control(host: Plugin.Context, hidden: HiddenTools, texts: TextsSource):
         .slice(0, MAX_CATALOG)
         .map((tool) => catalogEntry(tool.id, tool.description, ""))
     }),
-    codeMode: (agent, text) => host.tool.list().pipe(Effect.map((tools) => codeModeNamespaces(tools, hidden.requests.forAgent(agent), text))),
+    codeMode: (text) => host.tool.list().pipe(Effect.map((tools) => codeModeNamespaces(tools, text))),
     reveal: (sessionID, names) => Effect.gen(function* () {
       const set = yield* hidden.current(sessionID)
 
@@ -224,6 +229,9 @@ function apply(host: Plugin.Context, event: SessionPrompt, effects: ReadonlyArra
     if (effect.type === "model" && effect.model) return switchModel(host, event, effect.model, applying.expected)
 
     if (effect.type === "tools") return hideTools(host, event, effect, applying)
+
+    // Before admission, so the request this prompt starts already has them.
+    if (effect.type === "namespaces") return applyNamespaces(event.sessionID, effect).pipe(Effect.provideService(Host, host))
 
     if (effect.type === "context" && effect.delivery === "prompt") attach(effect, event)
 

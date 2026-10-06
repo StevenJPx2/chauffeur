@@ -110,6 +110,12 @@ const HostEffect = Schema.Union([
     reveal: Schema.Array(Schema.String),
   }),
   Schema.Struct({
+    type: Schema.Literal("namespaces"),
+    agent_id: Schema.String,
+    hide: Schema.Array(Schema.String),
+    reveal: Schema.Array(Schema.String),
+  }),
+  Schema.Struct({
     type: Schema.Literal("context"),
     agent_id: Schema.String,
     delivery: Delivery,

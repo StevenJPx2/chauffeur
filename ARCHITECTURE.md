@@ -135,6 +135,7 @@ new effect and no adapter change:
 | `permission` | answers the pending permission request: allow, deny, or ask with a message                                                                                                                                                             | permission contracts, the backstop                     |
 | `model`      | switches the model (with its thinking variant) and retries, or keeps it and applies its own retry policy                                                                                                                               | model router                                           |
 | `tools`      | hides or shows named tools in this context                                                                                                                                                                                             | tool exposure                                          |
+| `namespaces` | withholds or restores whole Code Mode namespaces in this session                                                                                                                                                                       | tool exposure (Code Mode trimming)                     |
 | `context`    | adds skills (the host resolves their bodies) and text to the conversation, at a `delivery`: `prompt` (with the user message being admitted), `steer` (the running turn), `resume` (wakes an idle agent), or `wait` (for the next turn) | skill exposure, tool exposure (Code Mode notes), rules |
 | `gate`       | delivers or withholds the integration event being gated                                                                                                                                                                                | event gate                                             |
 
@@ -198,19 +199,33 @@ come first in that prefix.
   hidden. The adapter learns that set from the `context` hook, before anything
   is removed, and offers System One only those tools; before the first request
   it leaves out tools flagged `codemode`. With Code Mode on, plugin and MCP
-  tools reach the model through `execute`, whose catalog shows each namespace
-  only in part (browser: 4 of 45) and is updated by appended messages.
-  Chauffeur never edits the system prompt, so it does not hide Code Mode tools;
-  it **surfaces** them. On each user message the adapter sends every Code Mode
-  namespace with its size and its best matches for the request (up to 8, by
-  word overlap, as Code Mode's own search would find them). Tool exposure asks
-  one question per namespace not yet surfaced in the context (P ≥ 0.7,
-  confidence ≥ 0.4) and, for the chosen ones, writes a note listing those
-  matches with the `search({ namespace })` call for exact paths. It arrives as
-  a `context` effect with `prompt` delivery, a text attachment that reaches
-  the first step and adds nothing to the system prompt. Tool exposure
-  remembers what it surfaced per agent, resets at a new context, and persists
-  it with the rest of its state.
+  tools (every tool not flagged `codemode: false`) reach the model through
+  `execute`, whose catalog shows each namespace only in part (browser: 4 of 45)
+  and is updated by appended messages. Chauffeur **surfaces** them. On each
+  user message the adapter sends every Code Mode namespace with its size and
+  its best matches for the request (up to 8, by word overlap, as Code Mode's
+  own search would find them); at a context's first message it first waits,
+  at most 10 s, until no MCP server is still connecting, since OpenCode builds
+  that request's catalog once they have. Tool exposure asks one question per
+  namespace not yet surfaced in the context (P ≥ 0.7, confidence ≥ 0.4) and,
+  for the chosen ones, writes a note listing those matches with the
+  `search({ namespace })` call for exact paths. It arrives as a `context`
+  effect with `prompt` delivery, a text attachment that reaches the first step
+  and adds nothing to the system prompt. Tool exposure remembers what it
+  surfaced per agent, resets at a new context, and persists it with the rest
+  of its state.
+- **Code Mode trimming** (`tool-exposure.json` `code_mode.trim`, off). The
+  same answers also withhold, at a context's first message, every namespace
+  confidently not needed (P ≤ 0.3), except `code_mode.always` (context7, jina,
+  opencode); a later message or `ask_chauffeur` restores one it needs. The
+  `namespaces` effect names them; the adapter turns each into session deny
+  rules (`<namespace>_*` when that pattern covers exactly the namespace's
+  tools, else one rule per permission action) and removes only those rules to
+  restore, keeping the session's other rules. OpenCode leaves wholly denied
+  tools out of the catalog, `search`, and MCP guidance. It saves no tokens in
+  OpenCode 2.0.23: the catalog lists a fixed number of tools (about 28), so
+  withholding namespaces lets the rest list more. It stays off unless the
+  bench shows the focused catalog helps.
 - **Skill list.** At startup the adapter adds a `skill` deny rule to every
   agent through `agent.transform`. OpenCode then leaves both the `skill` tool
   and its skill list (about 4k tokens with 43 skills) out of every request,

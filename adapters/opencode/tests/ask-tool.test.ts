@@ -82,7 +82,7 @@ test("a request carries the need, the user's words, hidden tools, and Code Mode,
 
       return true
     }),
-    codeMode: (agent, text) => Effect.succeed([{ name: `safari-for-${agent}`, size: 3, tools: [{ id: text.slice(0, 5), description: "", bytes: 0 }] }]),
+    codeMode: (text) => Effect.succeed([{ name: "safari", size: 3, tools: [{ id: text.slice(0, 5), description: "", bytes: 0 }] }]),
   })
 
   const { tool, ask, close } = await registered(replying(sent, [
@@ -99,7 +99,7 @@ test("a request carries the need, the user's words, hidden tools, and Code Mode,
     need: "drive a browser",
     user_request: "Check the landing page renders",
     tools: [{ id: "browser_open", description: "Open a tab", bytes: 0 }],
-    code_mode: [{ name: "safari-for-build", size: 3, tools: [{ id: "drive", description: "", bytes: 0 }] }],
+    code_mode: [{ name: "safari", size: 3, tools: [{ id: "drive", description: "", bytes: 0 }] }],
   })
   expect(revealed).toEqual([["browser_open"]])
   expect(reply).toContain("revealed these tools; they are available from your next step: browser_open")

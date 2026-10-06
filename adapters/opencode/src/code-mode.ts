@@ -9,17 +9,25 @@ const MAX_MATCHES = 8
 /**
  * The host's Code Mode namespaces: tools the model reaches through `execute`
  * rather than the request's tool record. Each carries its size and its best
- * matches for the request, found the way Code Mode's own search would. Empty
- * until the first request shows which tools are sent directly.
+ * matches for the request, found the way Code Mode's own search would.
  */
-export function codeModeNamespaces(tools: ReadonlyArray<HostTool>, inRequests: ReadonlySet<string> | null, request: string): CodeModeNamespace[] {
-  if (inRequests === null) return []
+export function codeModeNamespaces(tools: ReadonlyArray<HostTool>, request: string): CodeModeNamespace[] {
+  return [...namespaceMembers(tools)].map(([name, members]) => ({
+    name: clip(name, TEXT_CODE_POINTS),
+    size: members.length,
+    tools: rank(members, request).slice(0, MAX_MATCHES).map((tool) => catalogEntry(tool.id, tool.description, "")),
+  }))
+}
 
+/**
+ * Code Mode tools by namespace, at most `MAX_NAMESPACES`. OpenCode sends a
+ * tool directly only when it opts out with `codemode: false`.
+ */
+export function namespaceMembers(tools: ReadonlyArray<HostTool>): Map<string, HostTool[]> {
   const byNamespace = new Map<string, HostTool[]>()
 
   for (const tool of tools) {
-    // Native tools missing from requests were hidden or denied, not moved to Code Mode.
-    if (inRequests.has(tool.id) || tool.options?.codemode === false) continue
+    if (tool.options?.codemode === false) continue
 
     const name = namespace(tool)
 
@@ -28,11 +36,7 @@ export function codeModeNamespaces(tools: ReadonlyArray<HostTool>, inRequests: R
     byNamespace.set(name, [...(byNamespace.get(name) ?? []), tool])
   }
 
-  return [...byNamespace].map(([name, members]) => ({
-    name: clip(name, TEXT_CODE_POINTS),
-    size: members.length,
-    tools: rank(members, request).slice(0, MAX_MATCHES).map((tool) => catalogEntry(tool.id, tool.description, "")),
-  }))
+  return byNamespace
 }
 
 /** The tool's top-level Code Mode namespace, or its ID prefix. */

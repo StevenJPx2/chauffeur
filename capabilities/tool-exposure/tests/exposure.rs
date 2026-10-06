@@ -366,3 +366,102 @@ fn a_code_mode_namespace_the_request_needs_gets_a_note_once_per_context() {
         vec!["code-mode:browser", "code-mode:cloudflare"]
     );
 }
+
+fn trimming(always: &[&str]) -> Judging<ToolExposure> {
+    let mut config = ToolExposureConfig::default();
+    config.code_mode.trim = true;
+    config.code_mode.always = names(always);
+
+    Judging::new(ToolExposure::new(config))
+}
+
+fn namespaces(hide: &[&str], reveal: &[&str]) -> Effect {
+    Effect::Namespaces {
+        agent_id: "ses".into(),
+        hide: names(hide),
+        reveal: names(reveal),
+    }
+}
+
+/// `signal` with a third, unsure namespace and `docs`, kept by `always`.
+fn with_more_code_mode(first_in_context: bool) -> Signal {
+    let mut signal = with_code_mode(first_in_context);
+
+    if let SignalKind::UserMessage { code_mode, .. } = &mut signal.kind {
+        for name in ["slack", "docs"] {
+            code_mode.push(CodeModeNamespace {
+                name: name.into(),
+                size: 4,
+                tools: vec![tool(&format!("{name}_search"))],
+            });
+        }
+    }
+
+    signal
+}
+
+#[test]
+fn trimming_off_never_withholds_a_namespace() {
+    let effects = decided(
+        &with_code_mode(true),
+        Some(&[
+            noul("code-mode:browser", 0.9),
+            noul("code-mode:cloudflare", 0.05),
+        ]),
+    );
+
+    assert!(
+        !effects
+            .iter()
+            .any(|effect| matches!(effect, Effect::Namespaces { .. })),
+        "{effects:?}"
+    );
+}
+
+#[test]
+fn a_first_message_withholds_confident_noes_and_a_later_one_restores_what_it_needs() {
+    let mut exposure = trimming(&["docs"]);
+    let first = with_more_code_mode(true);
+    let answers = [
+        noul("code-mode:browser", 0.9),
+        noul("code-mode:cloudflare", 0.05),
+        // Unsure: neither surfaced nor withheld.
+        noul("code-mode:slack", 0.5),
+        noul("code-mode:docs", 0.02),
+    ];
+
+    exposure.plan(&Situation::default(), &first);
+    let effects = exposure.decide(&first, Some(&answers));
+
+    assert!(
+        effects.contains(&namespaces(&["cloudflare"], &["browser", "docs"])),
+        "{effects:?}"
+    );
+
+    // Later, a needed withheld namespace is restored; nothing is withheld.
+    let later = with_more_code_mode(false);
+    exposure.plan(&Situation::default(), &later);
+    let effects = exposure.decide(
+        &later,
+        Some(&[
+            noul("code-mode:cloudflare", 0.9),
+            noul("code-mode:slack", 0.1),
+            noul("code-mode:docs", 0.1),
+        ]),
+    );
+
+    assert!(
+        effects.contains(&namespaces(&[], &["cloudflare"])),
+        "{effects:?}"
+    );
+}
+
+#[test]
+fn a_failed_first_judgment_withholds_nothing() {
+    let mut exposure = trimming(&[]);
+    let first = with_code_mode(true);
+
+    exposure.plan(&Situation::default(), &first);
+
+    assert_eq!(exposure.decide(&first, None), Vec::new());
+}
