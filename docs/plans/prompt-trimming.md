@@ -129,6 +129,26 @@ Trimming saves tokens only if OpenCode ties the listing to the catalog's size;
 its remaining value is a catalog focused on the task, which the outcome suite
 measures. `code_mode.trim` stays off unless that helps.
 
+## Outcome suite
+
+`trim-suite-1`: 15 tasks × 3 repeats on `openai/gpt-6-luna`, 135 runs, no
+harness errors or timeouts.
+
+| | `full` | `short-tools` | `codemode-trim` |
+| --- | ---: | ---: | ---: |
+| Pass rate | 41/45 | 43/45 | 43/45 |
+| Prompt tokens, request 1 | 6,448 | 5,971 (−7.4%) | 6,536 (+1.4%) |
+| Input tokens per run | 13,567 | 13,462 (−0.8%) | 13,891 (+2.4%) |
+| Cache reads per run | 47,775 | 42,746 (−10.5%) | 48,162 (+0.8%) |
+| Wall time per run | 46.9 s | 47.3 s | 51.2 s |
+| Steps per run | 7.0 | 6.8 | 7.2 |
+
+Every failure is a hidden test in `debug-misleading-error` (all three
+variants) or a `full` run, so neither treatment cost a pass beyond the
+task's own variance. `short-tools` wins: about 480 fewer tokens on every
+request at the same or better pass rate. `codemode-trim` saves nothing and
+adds a few seconds, so it stays off.
+
 ## sourcefed guidance
 
 sourcefed injects its guidance into every request. Version 0.3.4 adds 1,006
