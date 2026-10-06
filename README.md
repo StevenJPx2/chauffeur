@@ -113,8 +113,7 @@ it lacks, then use what Chauffeur grants to finish the task.
 
   ![The agent opens a PR, Chauffeur has sourcefed watch it, and a real CI failure resumes the agent to fix and push](docs/media/monitor.gif)
 
-  The repository and its CI failure are real; the throwaway repository has
-  since been deleted. Delivery of monitors Chauffeur creates mid-session needs
+  The repository (a throwaway private one) and its CI failure are real. Delivery of monitors Chauffeur creates mid-session needs
   sourcefed after 0.3.4
   ([28f4464](https://github.com/StevenJPx2/sourcefed/commit/28f4464)), which
   this clip runs.
