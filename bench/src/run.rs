@@ -9,10 +9,11 @@ use std::time::{Duration, Instant};
 use crate::clock::Utc;
 use crate::daemon::{Daemon, DaemonDirs};
 use crate::fsutil;
-use crate::inputs::Setup;
+use crate::inputs::{Setup, Task};
 use crate::jobs::Job;
 use crate::process::{ChildGuard, Exit};
 use crate::result::RunResult;
+use crate::workspace::{Extras, McpStub};
 use crate::{audit, events, requests, session, workspace};
 
 /// The probe's record of each agent request, in the run folder.
@@ -77,8 +78,7 @@ fn attempt(
 ) -> Result<(), String> {
     let repo = dir.join("repo");
     let task = job.task;
-    let probe = workspace::write_probe(&dir.join("probe"))?;
-    workspace::prepare(task, job.variant, &repo, Some(&probe))?;
+    workspace::prepare(task, job.variant, &repo, &extras(task, dir)?)?;
     let env = workspace::task_env(task, &dir.join("bench.log"))?;
 
     let daemon = match &job.variant.setup {
@@ -113,6 +113,32 @@ fn attempt(
     result.passed = check == Exit::Code(Some(0));
 
     Ok(())
+}
+
+/// The probe, and the task's stub MCP servers logging to the run's
+/// `bench.log`, all written into the run folder.
+fn extras(task: &Task, dir: &Path) -> Result<Extras, String> {
+    let servers = task.mcp_servers()?;
+    let mcp = if servers.is_empty() {
+        Vec::new()
+    } else {
+        let script = workspace::write_mcp_stub(&dir.join("mcp"))?;
+
+        servers
+            .into_iter()
+            .map(|(name, spec)| McpStub {
+                name,
+                script: script.clone(),
+                spec,
+                log: dir.join("bench.log"),
+            })
+            .collect()
+    };
+
+    Ok(Extras {
+        probe: Some(workspace::write_probe(&dir.join("probe"))?),
+        mcp,
+    })
 }
 
 /// The run's own config folder, holding only the variant's overrides, so the

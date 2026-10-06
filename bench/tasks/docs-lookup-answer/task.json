@@ -1,0 +1,6 @@
+{
+  "prompt": "What does our team handbook say about escalating a sev-1 incident when the primary on-call doesn't acknowledge the page? Write the answer to ANSWER.md.",
+  "check": ["python3", ".bench/check_answer.py"],
+  "timeout_seconds": 600,
+  "tags": ["mcp", "codemode"]
+}

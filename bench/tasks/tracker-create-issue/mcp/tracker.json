@@ -1,0 +1,29 @@
+{
+  "tools": [
+    {
+      "name": "create_issue",
+      "description": "Create an issue in the team tracker. Returns the new issue's key.",
+      "input": {
+        "type": "object",
+        "properties": {
+          "project": { "type": "string", "description": "Project key, such as WEB." },
+          "title": { "type": "string" },
+          "description": { "type": "string" },
+          "type": { "type": "string", "enum": ["bug", "task", "story"] }
+        },
+        "required": ["project", "title"]
+      },
+      "reply": "Created WEB-418: {title}"
+    },
+    {
+      "name": "search_issues",
+      "description": "Search the team tracker's issues by text.",
+      "input": {
+        "type": "object",
+        "properties": { "query": { "type": "string" } },
+        "required": ["query"]
+      },
+      "reply": "No issues match {query}."
+    }
+  ]
+}

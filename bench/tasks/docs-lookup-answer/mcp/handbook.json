@@ -1,0 +1,20 @@
+{
+  "tools": [
+    {
+      "name": "search",
+      "description": "Search the team handbook. Returns matching passages.",
+      "input": {
+        "type": "object",
+        "properties": { "query": { "type": "string" } },
+        "required": ["query"]
+      },
+      "reply": "Incident response, sev-1: page the primary on-call. If the primary has not acknowledged within 10 minutes, page the secondary on-call. If neither has acknowledged within 20 minutes, call the engineering manager directly. Post every escalation in #incidents."
+    },
+    {
+      "name": "list_pages",
+      "description": "List the handbook's page titles.",
+      "input": { "type": "object", "properties": {} },
+      "reply": "On-call; Incident response; Releases; Code review; Onboarding"
+    }
+  ]
+}

@@ -36,15 +36,71 @@ pub fn plugin_list(variant: &Variant, probe: Option<&Path>) -> Vec<String> {
         .collect()
 }
 
-/// The project config text written into the repo copy.
+/// What a run adds to the repo's OpenCode config beyond its variant.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Extras {
+    /// The probe plugin's folder, loaded last.
+    pub probe: Option<PathBuf>,
+    /// The task's stub MCP servers.
+    pub mcp: Vec<McpStub>,
+}
+
+/// One stub MCP server: the stub script serving the task's spec, logging
+/// calls to the run's `BENCH_LOG`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct McpStub {
+    pub name: String,
+    pub script: PathBuf,
+    pub spec: PathBuf,
+    pub log: PathBuf,
+}
+
+/// The project config text written into the repo copy: the plugin list,
+/// and the stub MCP servers under `mcp.servers`.
 ///
 /// # Errors
-/// Never in practice; serialization of a string list cannot fail.
-pub fn opencode_config(variant: &Variant, probe: Option<&Path>) -> Result<String, String> {
-    let config = serde_json::json!({ "plugins": plugin_list(variant, probe) });
+/// Never in practice; serialization of strings cannot fail.
+pub fn opencode_config(variant: &Variant, extras: &Extras) -> Result<String, String> {
+    let mut config =
+        serde_json::json!({ "plugins": plugin_list(variant, extras.probe.as_deref()) });
+
+    if !extras.mcp.is_empty() {
+        let servers: serde_json::Map<String, serde_json::Value> = extras
+            .mcp
+            .iter()
+            .map(|stub| {
+                let command = [Path::new("python3"), &stub.script, &stub.spec]
+                    .map(|part| part.display().to_string());
+                let server = serde_json::json!({
+                    "type": "local",
+                    "command": command,
+                    "environment": { "BENCH_LOG": stub.log.display().to_string() },
+                });
+
+                (stub.name.clone(), server)
+            })
+            .collect();
+        config["mcp"] = serde_json::json!({ "servers": servers });
+    }
 
     serde_json::to_string_pretty(&config).map_err(|error| format!("render config: {error}"))
 }
+
+/// Write the stub MCP server script into `dir` and return its path.
+///
+/// # Errors
+/// A folder or file that cannot be written.
+pub fn write_mcp_stub(dir: &Path) -> Result<PathBuf, String> {
+    std::fs::create_dir_all(dir).map_err(|error| format!("create {}: {error}", dir.display()))?;
+    let script = dir.join("mcp_stub.py");
+    std::fs::write(&script, MCP_STUB)
+        .map_err(|error| format!("write {}: {error}", script.display()))?;
+
+    Ok(script)
+}
+
+/// The stub MCP server tasks' `mcp/<name>.json` specs run on.
+const MCP_STUB: &str = include_str!("../stubs/mcp_stub.py");
 
 /// Write the probe plugin into `dir` (outside the repo, so the agent never
 /// sees it) and return the folder to load it from.
@@ -69,17 +125,12 @@ pub fn write_probe(dir: &Path) -> Result<PathBuf, String> {
     Ok(dir.to_path_buf())
 }
 
-/// Copy the task's repo to `dest`, write the variant's OpenCode config (with
-/// the probe, when given), and commit it all in a fresh git repository.
+/// Copy the task's repo to `dest`, write the variant's OpenCode config with
+/// the run's extras, and commit it all in a fresh git repository.
 ///
 /// # Errors
 /// A failed copy, write, or git command.
-pub fn prepare(
-    task: &Task,
-    variant: &Variant,
-    dest: &Path,
-    probe: Option<&Path>,
-) -> Result<(), String> {
+pub fn prepare(task: &Task, variant: &Variant, dest: &Path, extras: &Extras) -> Result<(), String> {
     fsutil::overlay(&task.repo(), dest, &[])?;
     if let Some(outside) = task.outside() {
         fsutil::overlay(&outside, &outside_dir(dest), &[])?;
@@ -88,7 +139,7 @@ pub fn prepare(
     std::fs::create_dir_all(&config_dir)
         .map_err(|error| format!("create {}: {error}", config_dir.display()))?;
     let config = config_dir.join("opencode.jsonc");
-    std::fs::write(&config, opencode_config(variant, probe)?)
+    std::fs::write(&config, opencode_config(variant, extras)?)
         .map_err(|error| format!("write {}: {error}", config.display()))?;
 
     for args in [

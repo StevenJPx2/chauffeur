@@ -127,6 +127,38 @@ impl Task {
     pub fn solution(&self) -> Option<PathBuf> {
         existing_dir(self.dir.join("solution"))
     }
+
+    /// Stub MCP servers as `(name, spec)`: each `mcp/<name>.json`, sorted.
+    ///
+    /// # Errors
+    /// An unreadable `mcp/` folder or a server name that is not a plain id.
+    pub fn mcp_servers(&self) -> Result<Vec<(String, PathBuf)>, String> {
+        let Some(dir) = existing_dir(self.dir.join("mcp")) else {
+            return Ok(Vec::new());
+        };
+        let entries =
+            std::fs::read_dir(&dir).map_err(|error| format!("read {}: {error}", dir.display()))?;
+        let mut servers = Vec::new();
+
+        for entry in entries {
+            let path = entry
+                .map_err(|error| format!("read {}: {error}", dir.display()))?
+                .path();
+            let Some(name) = path
+                .file_stem()
+                .filter(|_| path.extension().is_some_and(|ext| ext == "json"))
+                .and_then(|stem| stem.to_str())
+            else {
+                continue;
+            };
+
+            check_id(name, "mcp server")?;
+            servers.push((name.to_string(), path.clone()));
+        }
+        servers.sort();
+
+        Ok(servers)
+    }
 }
 
 fn existing_dir(path: PathBuf) -> Option<PathBuf> {

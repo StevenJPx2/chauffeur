@@ -192,13 +192,28 @@ fn plugin_lists_per_variant() {
         vec!["-ntfy-notify", "-optmem"]
     );
 
-    // The probe loads last, by absolute path.
-    let probe = std::path::Path::new("/run/probe");
+    // The probe loads last, by absolute path; stub MCP servers log to the run.
+    let extras = workspace::Extras {
+        probe: Some("/run/probe".into()),
+        mcp: vec![workspace::McpStub {
+            name: "tracker".into(),
+            script: "/run/mcp/mcp_stub.py".into(),
+            spec: "/task/mcp/tracker.json".into(),
+            log: "/run/bench.log".into(),
+        }],
+    };
     let config: serde_json::Value =
-        serde_json::from_str(&workspace::opencode_config(&base, Some(probe)).unwrap()).unwrap();
+        serde_json::from_str(&workspace::opencode_config(&base, &extras).unwrap()).unwrap();
     assert_eq!(
         config,
-        serde_json::json!({ "plugins": ["-chauffeur", "-ntfy-notify", "-optmem", "-sourcefed", "/run/probe"] })
+        serde_json::json!({
+            "plugins": ["-chauffeur", "-ntfy-notify", "-optmem", "-sourcefed", "/run/probe"],
+            "mcp": { "servers": { "tracker": {
+                "type": "local",
+                "command": ["python3", "/run/mcp/mcp_stub.py", "/task/mcp/tracker.json"],
+                "environment": { "BENCH_LOG": "/run/bench.log" },
+            } } },
+        })
     );
 }
 

@@ -1,0 +1,6 @@
+{
+  "prompt": "Users can't log in when their password contains a plus sign. File this as a bug in our tracker (project WEB) and write the new issue's key to ISSUE.md.",
+  "check": ["python3", ".bench/check_issue.py"],
+  "timeout_seconds": 600,
+  "tags": ["mcp", "codemode"]
+}

@@ -44,6 +44,14 @@ steers, permission decisions) from the daemon's audit log.
   - `bin/` (optional): stubs prepended to `PATH` for the agent and the check; they append their argv to `$BENCH_LOG`.
   - `solution/` (optional): an overlay that makes the check pass, with an optional `.solve.sh` run in the repo copy.
   - `outside/` (optional): copied beside the repo; the prompt's `{outside}` names it and commands see `BENCH_OUTSIDE`.
+  - `mcp/<server>.json` (optional): a stub MCP server registered in the run's
+    `.opencode/opencode.jsonc`, so the task can need a Code Mode namespace. The
+    file lists the server's tools with canned replies (`{field}` filled from the
+    call's string arguments): `{ "tools": [{ "name": "search", "description":
+    "…", "input": { …JSON schema… }, "reply": "…" }] }`. The stub
+    (`stubs/mcp_stub.py`) appends each call to `$BENCH_LOG` as
+    `["mcp", "<server>", "<tool>", {arguments}]`, beside the `bin/` stubs' argv
+    lines.
 
 Both files are parsed strictly: unknown fields are errors.
 
@@ -168,9 +176,9 @@ completed runs; harness errors are counted separately.
 
 ## Cost and time
 
-The full suite is 8 tasks × 7 variants × 3 repeats = **168 runs**. With the
+The full suite is 15 tasks × 7 variants × 3 repeats = **315 runs**. With the
 default `--parallel 2` and runs of a few minutes each, expect several hours;
-the model cost is roughly 168 × one run's cost (see the Cost column of a smoke
+the model cost is roughly 315 × one run's cost (see the Cost column of a smoke
 run). Start with a smoke run, check `report.md`, then launch the suite with an
 explicit `--out` so it can be resumed. Raise `--parallel` only as far as the
 provider's rate limits allow: throttled runs inflate wall time and retries.
