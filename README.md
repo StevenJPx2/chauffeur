@@ -65,12 +65,15 @@ its `.chauffeur/rules/`.
 
 A rulebook is a set of rules you switch on for one session with a slash command.
 
-- **`/goal <objective>`** keeps the agent working across turns until the
-  evidence shows the goal is met, pauses when only you can unblock it, and stops
-  after 20 continuations with a progress summary.
+- **`/goal <objective>`** has the agent break the objective into todos with
+  Chauffeur's `todowrite` tool, then keeps it working across turns, naming the
+  open todos each time. It cannot finish while a todo is open, and it ends once
+  the evidence shows the goal is met. It pauses when only you can unblock it,
+  and stops after 20 continuations with a progress summary.
 - **`/ticket <Jira key | Slack link | request>`** takes an HPDP Overlay task
-  from intake to a PR in review. It is scoped to those folders, so it only
-  appears there.
+  from intake to a PR in review, and pauses when the next step waits on you, a
+  colleague, a review, or CI. It is scoped to those folders, so it only appears
+  there.
 
 ![/goal resumes unfinished work after one test fix, then verifies the complete passing suite](docs/media/goal.gif)
 
@@ -91,8 +94,14 @@ it lacks, then use what Chauffeur grants to finish the task.
 
 ### And quietly
 
-- **Model failover**: on a usage limit, Chauffeur switches to an equivalent
-  model and back once the limit has likely cleared.
+- **Model failover**: a usage limit covers the whole provider account, so
+  Chauffeur switches to the same tier on another provider you use directly
+  (your Anthropic or OpenAI subscription, recommended models first, never an
+  OpenCode copy of them), uses OpenCode's free models only when nothing else is
+  left, and switches back once the limit has likely cleared.
+- **Cheaper subagents**: when the agent hands routine work such as searching,
+  reading or mechanical edits to a subagent, Chauffeur steers it to a cheaper
+  model from the same provider, such as Sonnet under Opus.
 - **[sourcefed](https://github.com/StevenJPx2/sourcefed) events**: Chauffeur sets up
   monitors for the PR, Jira issue, or Slack thread you are working on, and lets
   through only the events the agent needs to act on.
@@ -152,10 +161,23 @@ Rules, rulebooks, and permission contracts are strict JSON in [`skills/`](skills
 `chauffeur skill validate PATH` checks a file. [`ARCHITECTURE.md`](ARCHITECTURE.md)
 covers the design.
 
+The words are config too. Every question Chauffeur asks Jev and every message
+it shows lives in a `texts` object in [`skills/config/`](skills/config), and the
+plugin's tool descriptions and replies live in
+[`skills/config/hosts/opencode.json`](skills/config/hosts/opencode.json). To
+reword one, name only that text in your file of the same name:
+
+```json
+// ~/.config/chauffeur/hosts/opencode.json
+{ "todowrite": { "empty": "No todos yet." } }
+```
+
 Edits apply without a restart. Within a second, the daemon picks up rules,
-rulebooks, and contracts in `skills/` and overrides in `~/.config/chauffeur/`,
-keeping session memory and running rulebooks. A file that fails to load leaves
-the previous version running and logs why.
+rulebooks, contracts, and wording in `skills/` and overrides in
+`~/.config/chauffeur/`, keeping session memory and running rulebooks; the plugin
+re-registers its tools with new wording within five seconds. A file that fails
+to load, such as one naming a placeholder its text does not accept, leaves the
+previous version running and logs why.
 
 ![Saving a project rulebook makes its slash command appear without restarting](docs/media/reload.gif)
 
