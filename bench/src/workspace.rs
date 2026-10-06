@@ -7,7 +7,7 @@ use std::process::{Command, Stdio};
 use std::time::Duration;
 
 use crate::fsutil;
-use crate::inputs::{Setup, Task};
+use crate::inputs::{OPTIONAL_PLUGINS, Setup, Task, Variant};
 use crate::process::{self, Exit};
 
 /// Upper bound on one check (or `.solve.sh`) run.
@@ -15,22 +15,31 @@ pub const CHECK_TIMEOUT: Duration = Duration::from_secs(600);
 const GIT_TIMEOUT: Duration = Duration::from_secs(60);
 const SOLVE_SCRIPT: &str = ".solve.sh";
 
-/// The plugin list for `.opencode/opencode.jsonc`. Chauffeur loads from the
-/// user's global plugin, so base disables it by name.
+/// The plugin list for `.opencode/opencode.jsonc`. Plugins load from the
+/// user's global config, so base disables Chauffeur by name, and every
+/// optional plugin the variant does not keep is disabled too.
 #[must_use]
-pub fn plugin_list(setup: &Setup) -> Vec<&'static str> {
-    match setup {
-        Setup::Base => vec!["-chauffeur", "-ntfy-notify", "-sourcefed"],
-        Setup::Chauffeur { .. } => vec!["-ntfy-notify", "-sourcefed"],
-    }
+pub fn plugin_list(variant: &Variant) -> Vec<String> {
+    let chauffeur = (variant.setup == Setup::Base).then_some("chauffeur");
+
+    chauffeur
+        .into_iter()
+        .chain(
+            OPTIONAL_PLUGINS
+                .iter()
+                .copied()
+                .filter(|plugin| !variant.plugins.iter().any(|kept| kept == plugin)),
+        )
+        .map(|plugin| format!("-{plugin}"))
+        .collect()
 }
 
 /// The project config text written into the repo copy.
 ///
 /// # Errors
 /// Never in practice; serialization of a string list cannot fail.
-pub fn opencode_config(setup: &Setup) -> Result<String, String> {
-    let config = serde_json::json!({ "plugins": plugin_list(setup) });
+pub fn opencode_config(variant: &Variant) -> Result<String, String> {
+    let config = serde_json::json!({ "plugins": plugin_list(variant) });
 
     serde_json::to_string_pretty(&config).map_err(|error| format!("render config: {error}"))
 }
@@ -40,7 +49,7 @@ pub fn opencode_config(setup: &Setup) -> Result<String, String> {
 ///
 /// # Errors
 /// A failed copy, write, or git command.
-pub fn prepare(task: &Task, setup: &Setup, dest: &Path) -> Result<(), String> {
+pub fn prepare(task: &Task, variant: &Variant, dest: &Path) -> Result<(), String> {
     fsutil::overlay(&task.repo(), dest, &[])?;
     if let Some(outside) = task.outside() {
         fsutil::overlay(&outside, &outside_dir(dest), &[])?;
@@ -49,7 +58,7 @@ pub fn prepare(task: &Task, setup: &Setup, dest: &Path) -> Result<(), String> {
     std::fs::create_dir_all(&config_dir)
         .map_err(|error| format!("create {}: {error}", config_dir.display()))?;
     let config = config_dir.join("opencode.jsonc");
-    std::fs::write(&config, opencode_config(setup)?)
+    std::fs::write(&config, opencode_config(variant)?)
         .map_err(|error| format!("write {}: {error}", config.display()))?;
 
     for args in [

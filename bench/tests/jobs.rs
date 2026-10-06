@@ -1,14 +1,10 @@
 use std::path::PathBuf;
 
-use chauffeur_bench::inputs::{Setup, Task, TaskSpec, Variant};
+use chauffeur_bench::inputs::{Task, TaskSpec, Variant};
 use chauffeur_bench::jobs;
 
 fn variant(id: &str) -> Variant {
-    Variant {
-        id: id.into(),
-        setup: Setup::Base,
-        env: Default::default(),
-    }
+    Variant::base(id)
 }
 
 fn task(id: &str) -> Task {

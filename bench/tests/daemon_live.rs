@@ -2,7 +2,7 @@
 //! `TYPESAFE_API_KEY`; asks no model): `cargo test -p chauffeur-bench --test
 //! daemon_live -- --ignored`.
 
-use chauffeur_bench::daemon::{self, Daemon};
+use chauffeur_bench::daemon::{self, Daemon, DaemonDirs};
 use chauffeur_bench::which;
 
 #[test]
@@ -12,7 +12,12 @@ fn real_daemon_starts_healthy_and_dies_with_its_guard() {
     let _ = std::fs::remove_dir_all(&dir);
     let bin = which::resolve("chauffeur").unwrap();
 
-    let daemon = Daemon::start(&bin, &dir.join("state"), "rules", &dir.join("daemon.log"))
+    let dirs = DaemonDirs {
+        state: dir.join("state"),
+        config: dir.join("config"),
+        skills: chauffeur_bench::runner::skills_dir().unwrap(),
+    };
+    let daemon = Daemon::start(&bin, &dirs, "rules", &dir.join("daemon.log"))
         .unwrap_or_else(|error| panic!("{error}"));
     let url = daemon.url();
     let port: u16 = url.rsplit(':').next().unwrap().parse().unwrap();

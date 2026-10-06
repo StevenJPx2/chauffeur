@@ -7,7 +7,7 @@ use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
 use crate::clock::Utc;
-use crate::daemon::Daemon;
+use crate::daemon::{Daemon, DaemonDirs};
 use crate::fsutil;
 use crate::inputs::Setup;
 use crate::jobs::Job;
@@ -22,6 +22,9 @@ pub struct RunConfig {
     pub model: String,
     pub opencode: PathBuf,
     pub chauffeur: PathBuf,
+    /// The shipped skills folder each daemon loads: `CHAUFFEUR_SKILLS_DIR`,
+    /// else this repo's `skills/`.
+    pub skills: PathBuf,
     /// Every variant id in `variants.json` order, recorded per result so the
     /// report keeps that order.
     pub variant_ids: Vec<String>,
@@ -71,14 +74,14 @@ fn attempt(
 ) -> Result<(), String> {
     let repo = dir.join("repo");
     let task = job.task;
-    workspace::prepare(task, &job.variant.setup, &repo)?;
+    workspace::prepare(task, job.variant, &repo)?;
     let env = workspace::task_env(task, &dir.join("bench.log"))?;
 
     let daemon = match &job.variant.setup {
         Setup::Base => None,
         Setup::Chauffeur { .. } => Some(Daemon::start(
             &config.chauffeur,
-            &dir.join("state"),
+            &daemon_dirs(job, config, dir)?,
             &job.variant.disable_csv(),
             &dir.join("daemon.log"),
         )?),
@@ -104,6 +107,22 @@ fn attempt(
     result.passed = check == Exit::Code(Some(0));
 
     Ok(())
+}
+
+/// The run's own config folder, holding only the variant's overrides, so the
+/// user's personal rules and settings stay out of the benchmark.
+fn daemon_dirs(job: &Job<'_>, config: &RunConfig, dir: &Path) -> Result<DaemonDirs, String> {
+    let config_dir = dir.join("config");
+
+    if let Some(overlay) = &job.variant.config {
+        fsutil::overlay(overlay, &config_dir, &[])?;
+    }
+
+    Ok(DaemonDirs {
+        state: dir.join("state"),
+        config: config_dir,
+        skills: config.skills.clone(),
+    })
 }
 
 fn run_agent(

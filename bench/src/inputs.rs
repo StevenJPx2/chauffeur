@@ -15,6 +15,10 @@ pub enum Setup {
     Chauffeur { disable: Vec<String> },
 }
 
+/// Global OpenCode plugins a run disables unless its variant keeps them: they
+/// change the prompt or read personal state.
+pub const OPTIONAL_PLUGINS: &[&str] = &["ntfy-notify", "optmem", "sourcefed"];
+
 /// One OpenCode setup under comparison.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Variant {
@@ -22,9 +26,26 @@ pub struct Variant {
     pub setup: Setup,
     /// Extra environment for OpenCode, such as `CHAUFFEUR_HOST_SKILLS=keep`.
     pub env: BTreeMap<String, String>,
+    /// A folder of Chauffeur config overrides (`hosts/opencode.json`, …),
+    /// relative to the suite root, copied into the run's config folder.
+    pub config: Option<PathBuf>,
+    /// Plugins from [`OPTIONAL_PLUGINS`] this variant keeps.
+    pub plugins: Vec<String>,
 }
 
 impl Variant {
+    /// Plain OpenCode with no extras, as `verify` lays out a repo.
+    #[must_use]
+    pub fn base(id: &str) -> Self {
+        Self {
+            id: id.into(),
+            setup: Setup::Base,
+            env: BTreeMap::new(),
+            config: None,
+            plugins: Vec::new(),
+        }
+    }
+
     /// The `CHAUFFEUR_DISABLE` value for this variant; empty for base.
     #[must_use]
     pub fn disable_csv(&self) -> String {
@@ -43,6 +64,9 @@ struct RawVariant {
     disable: Option<Vec<String>>,
     #[serde(default)]
     env: BTreeMap<String, String>,
+    config: Option<PathBuf>,
+    #[serde(default)]
+    plugins: Vec<String>,
 }
 
 /// A task's `task.json`.
@@ -109,24 +133,26 @@ fn existing_dir(path: PathBuf) -> Option<PathBuf> {
     path.is_dir().then_some(path)
 }
 
-/// Parse `variants.json` text.
+/// Parse `variants.json` text. A `config` path stays relative to the suite
+/// root until [`load_variants`] resolves it.
 ///
 /// # Errors
 /// Unknown fields, a Chauffeur variant without `disable`, a base variant
-/// with a non-empty `disable`, or a missing, unsafe, or duplicate id.
+/// with a non-empty `disable` or a `config`, a `config` outside the suite, a
+/// kept plugin that is not optional, or a missing, unsafe, or duplicate id.
 pub fn parse_variants(text: &str) -> Result<Vec<Variant>, String> {
     let raw: Vec<RawVariant> =
         serde_json::from_str(text).map_err(|error| format!("parse variants: {error}"))?;
     let mut seen = BTreeSet::new();
     let mut variants = Vec::with_capacity(raw.len());
 
-    for variant in raw {
+    for mut variant in raw {
         check_id(&variant.id, "variant")?;
         if !seen.insert(variant.id.clone()) {
             return Err(format!("variant {} is listed twice", variant.id));
         }
 
-        let setup = match (variant.chauffeur, variant.disable) {
+        let setup = match (variant.chauffeur, variant.disable.take()) {
             (true, Some(disable)) => Setup::Chauffeur { disable },
             (true, None) => {
                 return Err(format!(
@@ -142,14 +168,58 @@ pub fn parse_variants(text: &str) -> Result<Vec<Variant>, String> {
             }
             (false, _) => Setup::Base,
         };
+        check_extras(&variant, &setup)?;
         variants.push(Variant {
             id: variant.id,
             setup,
             env: variant.env,
+            config: variant.config,
+            plugins: variant.plugins,
         });
     }
 
     Ok(variants)
+}
+
+/// A config overlay needs Chauffeur and must stay inside the suite; kept
+/// plugins must be optional ones.
+fn check_extras(variant: &RawVariant, setup: &Setup) -> Result<(), String> {
+    if let Some(unknown) = variant
+        .plugins
+        .iter()
+        .find(|plugin| !OPTIONAL_PLUGINS.contains(&plugin.as_str()))
+    {
+        return Err(format!(
+            "variant {} keeps plugin {unknown}; optional plugins are {}",
+            variant.id,
+            OPTIONAL_PLUGINS.join(", ")
+        ));
+    }
+
+    let Some(config) = &variant.config else {
+        return Ok(());
+    };
+
+    if *setup == Setup::Base {
+        return Err(format!(
+            "variant {} has a config without chauffeur",
+            variant.id
+        ));
+    }
+
+    let inside = config
+        .components()
+        .all(|part| matches!(part, std::path::Component::Normal(_)));
+
+    if inside && config.components().next().is_some() {
+        Ok(())
+    } else {
+        Err(format!(
+            "variant {} config {} must be a relative folder inside the suite",
+            variant.id,
+            config.display()
+        ))
+    }
 }
 
 /// Parse one `task.json`.
@@ -177,8 +247,24 @@ pub fn load_variants(root: &Path) -> Result<Vec<Variant>, String> {
     let path = root.join("variants.json");
     let text = std::fs::read_to_string(&path)
         .map_err(|error| format!("read {}: {error}", path.display()))?;
+    let mut variants =
+        parse_variants(&text).map_err(|error| format!("{}: {error}", path.display()))?;
 
-    parse_variants(&text).map_err(|error| format!("{}: {error}", path.display()))
+    for variant in &mut variants {
+        if let Some(config) = &variant.config {
+            let folder = root.join(config);
+            if !folder.is_dir() {
+                return Err(format!(
+                    "variant {} config {} is not a folder",
+                    variant.id,
+                    folder.display()
+                ));
+            }
+            variant.config = Some(folder);
+        }
+    }
+
+    Ok(variants)
 }
 
 /// Read every `<root>/tasks/<id>/task.json`, sorted by id.

@@ -69,6 +69,7 @@ fn config(
     variants: &[Variant],
     all_variants: &[Variant],
 ) -> Result<RunConfig, String> {
+    let skills = skills_dir()?;
     let opencode = which::resolve(&options.opencode)?;
     let needs_chauffeur = variants
         .iter()
@@ -93,11 +94,33 @@ fn config(
         model: options.model.clone(),
         opencode,
         chauffeur,
+        skills,
         variant_ids: all_variants
             .iter()
             .map(|variant| variant.id.clone())
             .collect(),
     })
+}
+
+/// `CHAUFFEUR_SKILLS_DIR`, else the `skills/` folder of the checkout this
+/// harness was built from: the shipped skills under test.
+///
+/// # Errors
+/// The folder does not exist.
+pub fn skills_dir() -> Result<PathBuf, String> {
+    let skills = std::env::var_os("CHAUFFEUR_SKILLS_DIR").map_or_else(
+        || Path::new(env!("CARGO_MANIFEST_DIR")).join("../skills"),
+        PathBuf::from,
+    );
+
+    if skills.is_dir() {
+        Ok(skills)
+    } else {
+        Err(format!(
+            "no skills folder at {}; set CHAUFFEUR_SKILLS_DIR",
+            skills.display()
+        ))
+    }
 }
 
 /// `$XDG_STATE_HOME/chauffeur/bench`, else `~/.local/state/chauffeur/bench`.

@@ -19,8 +19,9 @@ the daemon's audit log.
 - The Chauffeur OpenCode plugin installed globally. Base runs disable it per
   project with `"-chauffeur"`.
 - `TYPESAFE_API_KEY` in the environment: each Chauffeur run starts its own
-  daemon, which needs it for Jev. `CHAUFFEUR_CONFIG_DIR` and
-  `CHAUFFEUR_SKILLS_DIR` are passed through when set.
+  daemon, which needs it for Jev. The daemon loads this checkout's `skills/`
+  (or `CHAUFFEUR_SKILLS_DIR`) and a config folder of the run's own, so your
+  `~/.config/chauffeur` rules and overrides never reach a benchmark.
 - Credentials for the model provider (the default model is `openai/gpt-6-luna`).
 - `git`, `sh`, `pgrep`, and `kill`.
 
@@ -30,7 +31,12 @@ the daemon's audit log.
   `disable` is required when `chauffeur` is true. An optional `env` object adds
   environment variables for OpenCode, such as `hybrid`'s
   `"CHAUFFEUR_HOST_SKILLS": "keep"`: Chauffeur attaches skills and OpenCode keeps
-  its own skill tool and skill list.
+  its own skill tool and skill list. An optional `config` names a folder of
+  Chauffeur overrides, relative to the suite root, copied into the run's config
+  folder: `{ "id": "short-tools", "chauffeur": true, "disable": [], "config":
+  "variants/short-tools" }` with `variants/short-tools/hosts/opencode.json`. An
+  optional `plugins` list keeps global plugins a run otherwise disables
+  (`ntfy-notify`, `optmem`, `sourcefed`): `"plugins": ["sourcefed"]`.
 - `tasks/<id>/task.json`: `{ "prompt", "check": [argv…], "timeout_seconds", "tags" }`, beside:
   - `repo/`: starting files.
   - `hidden/` (optional): copied over the agent's work before the check.
@@ -89,13 +95,15 @@ with `pgrep -fl "chauffeur daemon"` after one.
 
 ## One run
 
-1. Copy `repo/`, write `.opencode/opencode.jsonc` with the plugin list
-   (base: `["-chauffeur", "-ntfy-notify", "-sourcefed"]`; Chauffeur variants:
-   `["-ntfy-notify", "-sourcefed"]`), and commit it in a fresh git repo.
-2. Chauffeur variants: start `chauffeur daemon --port <free port>` with
-   `CHAUFFEUR_STATE_DIR=<run>/state`, `CHAUFFEUR_DISABLE=<csv>`,
-   `CHAUFFEUR_SOURCEFED=off`, `CHAUFFEUR_IDLE_STEERING=true`, and wait up to 15 s
-   for `health`.
+1. Copy `repo/`, write `.opencode/opencode.jsonc` with the plugin list, and
+   commit it in a fresh git repo. The list disables every optional plugin the
+   variant does not keep, and Chauffeur for base: base is
+   `["-chauffeur", "-ntfy-notify", "-optmem", "-sourcefed"]`.
+2. Chauffeur variants: copy the variant's `config` into `<run>/config`, start
+   `chauffeur daemon --port <free port>` with `CHAUFFEUR_STATE_DIR=<run>/state`,
+   `CHAUFFEUR_CONFIG_DIR=<run>/config`, `CHAUFFEUR_SKILLS_DIR=<skills>`,
+   `CHAUFFEUR_DISABLE=<csv>`, `CHAUFFEUR_SOURCEFED=off`,
+   `CHAUFFEUR_IDLE_STEERING=true`, and wait up to 15 s for `health`.
 3. `opencode run --standalone --format json -m <model> <prompt>`, without
    `--auto`: headless OpenCode rejects every request that would ask the user,
    unless Chauffeur's permission capability allows it. Run with
@@ -119,6 +127,7 @@ with `pgrep -fl "chauffeur daemon"` after one.
     check.log            the check's output
     bench.log            $BENCH_LOG: calls to the task's stub commands
     daemon.log           the daemon's output (Chauffeur variants)
+    config/              the daemon's config folder: the variant's overrides
     state/               the daemon's state, including audit.jsonl
     result.json
 ```

@@ -2,7 +2,7 @@
 
 use std::io::{Read, Write};
 use std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
@@ -13,6 +13,16 @@ const POLL: Duration = Duration::from_millis(200);
 const IO_TIMEOUT: Duration = Duration::from_secs(2);
 const MAX_RESPONSE_BYTES: u64 = 64 * 1024;
 
+/// Where a run's daemon keeps state and reads its config and skills.
+#[derive(Clone, Debug)]
+pub struct DaemonDirs {
+    pub state: PathBuf,
+    /// The run's own config folder, holding the variant's overrides.
+    pub config: PathBuf,
+    /// The shipped skills under test.
+    pub skills: PathBuf,
+}
+
 /// A running daemon. Dropping it kills the process.
 pub struct Daemon {
     _child: ChildGuard,
@@ -20,16 +30,20 @@ pub struct Daemon {
 }
 
 impl Daemon {
-    /// Start `<bin> daemon --port <free port>` with its state in `state_dir`
-    /// and output in `log`, and wait until it answers `health`.
+    /// Start `<bin> daemon --port <free port>` with its state in `dirs.state`,
+    /// config and skills from `dirs` only, and output in `log`, and wait until
+    /// it answers `health`.
     ///
     /// # Errors
     /// No free port, a daemon that cannot start, exits early, or is not
     /// healthy within 15 seconds.
-    pub fn start(bin: &Path, state_dir: &Path, disable: &str, log: &Path) -> Result<Self, String> {
+    pub fn start(bin: &Path, dirs: &DaemonDirs, disable: &str, log: &Path) -> Result<Self, String> {
+        let state_dir = &dirs.state;
         let port = free_port()?;
-        std::fs::create_dir_all(state_dir)
-            .map_err(|error| format!("create {}: {error}", state_dir.display()))?;
+        for folder in [state_dir, &dirs.config] {
+            std::fs::create_dir_all(folder)
+                .map_err(|error| format!("create {}: {error}", folder.display()))?;
+        }
         let out = std::fs::File::create(log)
             .map_err(|error| format!("create {}: {error}", log.display()))?;
         let err = out
@@ -39,6 +53,8 @@ impl Daemon {
             Command::new(bin)
                 .args(["daemon", "--port", &port.to_string()])
                 .env("CHAUFFEUR_STATE_DIR", state_dir)
+                .env("CHAUFFEUR_CONFIG_DIR", &dirs.config)
+                .env("CHAUFFEUR_SKILLS_DIR", &dirs.skills)
                 .env("CHAUFFEUR_DISABLE", disable)
                 .env("CHAUFFEUR_SOURCEFED", "off")
                 .env("CHAUFFEUR_IDLE_STEERING", "true")
