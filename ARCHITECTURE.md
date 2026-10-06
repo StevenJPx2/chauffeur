@@ -549,9 +549,21 @@ The adapter sends **Signals** and applies **Effects**; it holds no policy.
 | Method   | Purpose                                     |
 | -------- | ------------------------------------------- |
 | `signal` | report one observation, receive its effects |
-| `health` | readiness                                   |
+| `health` | readiness and the daemon's version (`{ "ok": true, "version": "0.1.0" }`) |
 | `rulebooks` | the rulebooks a host offers as commands in a workspace |
 | `texts` | the wording a host shows the agent (`{ "host": "opencode" }`) |
+| `shutdown` | stop once in-flight requests finish |
+
+**Startup.** The OpenCode plugin asks `health` when it loads. With no daemon
+answering, it starts one; with a daemon of another version, it sends
+`shutdown`, waits for the port to free, and starts its own, so plugin and
+daemon always speak the same protocol. A daemon at `CHAUFFEUR_DAEMON_URL` is
+the user's: the plugin never starts or replaces it and logs a version
+mismatch. The plugin starts `CHAUFFEUR_BIN`, else the binary from its
+`@fdcn/chauffeur-<platform>` package, else `chauffeur` on `PATH`, with
+`CHAUFFEUR_SKILLS_DIR` set to the package's `skills/` unless the user set it.
+Installed as a package, it also registers the hand-over skills in
+`skills/handoff` with OpenCode, unless the user has a skill by the same name.
 
 ### OpenCode seams
 
@@ -692,9 +704,9 @@ compiled in and need a rebuild.
 | `TYPESAFE_BASE_URL`       | `https://api.typesafe.ai`                                    |
 | `TYPESAFE_DEFAULT_MODEL`  | `jev-latest`                                                 |
 | `CHAUFFEUR_CONFIG_DIR`    | `~/.config/chauffeur`                                        |
-| `CHAUFFEUR_SKILLS_DIR`    | `$CHAUFFEUR_CONFIG_DIR/skills` (a link to `skills/`)         |
+| `CHAUFFEUR_SKILLS_DIR`    | the plugin package's `skills/`, else `$CHAUFFEUR_CONFIG_DIR/skills` |
 | `CHAUFFEUR_STATE_DIR`     | `$XDG_STATE_HOME/chauffeur`, else `~/.local/state/chauffeur` |
 | `CHAUFFEUR_DAEMON_URL`    | `http://127.0.0.1:18790`                                     |
 | `CHAUFFEUR_DAEMON_TOKEN`  | unset                                                        |
 | `CHAUFFEUR_IDLE_STEERING` | `false`; `true` enables idle reminders in the daemon         |
-| `CHAUFFEUR_BIN`           | `chauffeur`                                                  |
+| `CHAUFFEUR_BIN`           | the plugin package's binary, else `chauffeur` on `PATH`      |

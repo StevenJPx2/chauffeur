@@ -19,8 +19,8 @@ use axum::routing::post;
 use axum::{Json, Router};
 use chauffeur_capability_rules::Rulebook;
 use chauffeur_core::{
-    DaemonRequest, DaemonResponse, Effect, METHOD_HEALTH, METHOD_RULEBOOKS, METHOD_SIGNAL,
-    METHOD_TEXTS, Reloading, RulebooksResult, SignalParams, SignalResult, Watch,
+    DaemonRequest, DaemonResponse, Effect, METHOD_HEALTH, METHOD_RULEBOOKS, METHOD_SHUTDOWN,
+    METHOD_SIGNAL, METHOD_TEXTS, Reloading, RulebooksResult, SignalParams, SignalResult, Watch,
 };
 use chauffeur_judge_jev::JevConfig;
 pub use chauffeur_plugin_sourcefed::SourcefedConfig;
@@ -38,7 +38,12 @@ struct AppState {
     rulebooks: Option<Arc<Mutex<Reloading<Vec<Rulebook>>>>>,
     /// The wording each host shows the agent, reloaded when your file changes.
     texts: Arc<Mutex<HostTexts>>,
+    /// Raised by the `shutdown` method; the server stops once requests finish.
+    shutdown: Arc<tokio::sync::Notify>,
 }
+
+/// The daemon's version, which the host compares with its own.
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// The texts of the host named in `params.host`.
 fn host_texts(state: &AppState, params: &serde_json::Value) -> Result<serde_json::Value, String> {
@@ -149,11 +154,13 @@ pub async fn serve(options: DaemonOptions) -> Result<(), String> {
         audit_file: options.audit_file,
     })
     .await?;
+    let shutdown = Arc::new(tokio::sync::Notify::new());
     let state = AppState {
         engine,
         token: options.token,
         rulebooks,
         texts,
+        shutdown: Arc::clone(&shutdown),
     };
     let app = Router::new()
         // A permission request quotes up to eight whole user messages.
@@ -168,6 +175,7 @@ pub async fn serve(options: DaemonOptions) -> Result<(), String> {
         .map_err(|error| format!("bind daemon to {address}: {error}"))?;
 
     axum::serve(listener, app)
+        .with_graceful_shutdown(async move { shutdown.notified().await })
         .await
         .map_err(|error| format!("serve daemon: {error}"))
 }
@@ -183,7 +191,13 @@ async fn rpc(
 
     let id = request.id;
     let result = match request.method.as_str() {
-        METHOD_HEALTH => Ok(json!({ "ok": true })),
+        METHOD_HEALTH => Ok(json!({ "ok": true, "version": VERSION })),
+        METHOD_SHUTDOWN => {
+            // A stored permit: the server stops even if it is not yet waiting.
+            state.shutdown.notify_one();
+
+            Ok(json!({ "ok": true }))
+        }
         METHOD_SIGNAL => signal(&state.engine, request.params).await,
         METHOD_RULEBOOKS => offered(&state, &request.params),
         METHOD_TEXTS => host_texts(&state, &request.params),

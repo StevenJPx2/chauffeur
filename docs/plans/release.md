@@ -14,7 +14,7 @@ by CI from a tag; it goes public when you approve it with 2FA.
 
 | Package | Contents |
 | --- | --- |
-| `@fdcn/chauffeur` | The plugin bundle (`dist/index.js`), the shipped `skills/` folder, `README.md`, `LICENSE`, `CHANGELOG.md` |
+| `@fdcn/chauffeur` | The plugin bundle (`dist/index.mjs`), the shipped `skills/` folder, `README.md`, `LICENSE`, `CHANGELOG.md` |
 | `@fdcn/chauffeur-darwin-arm64` | The `chauffeur` binary for Apple silicon |
 | `@fdcn/chauffeur-darwin-x64` | The binary for Intel Macs |
 | `@fdcn/chauffeur-linux-x64` | A static (musl) binary for x86-64 Linux |

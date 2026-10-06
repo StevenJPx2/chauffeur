@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process"
-import { Context, type Duration, Effect, Schema } from "effect"
+import { Context, type Duration, Effect, Option, Schema } from "effect"
+import { daemonLaunch, PLUGIN_VERSION } from "./package.js"
 import { RpcReply, RulebooksReply, SignalReply, type HostEffect, type RulebookEntry, type Signal } from "./protocol.js"
 
 const DEFAULT_URL = "http://127.0.0.1:18790"
@@ -10,6 +11,9 @@ const RPC_TIMEOUT: Duration.Input = "30 seconds"
 const SIGNAL_TIMEOUT: Duration.Input = "20 seconds"
 
 const START_ATTEMPTS = 40
+
+/** Checks, 250 ms apart, for a replaced daemon to stop answering. */
+const STOP_ATTEMPTS = 20
 
 export class DaemonError extends Schema.TaggedError<DaemonError>()("DaemonError", { message: Schema.String }) {}
 
@@ -39,18 +43,11 @@ const connect = Effect.gen(function* () {
 
   const endpoint: Endpoint = { url: (configured ?? DEFAULT_URL).replace(/\/$/, ""), headers }
 
-  const healthy = request(endpoint, "health", {}, Schema.Unknown, RPC_TIMEOUT).pipe(
-    Effect.as(true),
-    Effect.orElseSucceed(() => false),
-  )
+  const found = request(endpoint, "health", {}, Health, RPC_TIMEOUT).pipe(Effect.option, Effect.map(Option.getOrUndefined))
+  const healthy = found.pipe(Effect.map((daemon) => daemon !== undefined))
+  const daemon = yield* found
 
-  if (!(yield* healthy)) {
-    if (configured) {
-      yield* Effect.logError(`chauffeur: daemon unavailable at ${endpoint.url}`)
-    } else if (!(yield* start(healthy))) {
-      yield* Effect.logError("chauffeur: daemon did not become healthy within 10 seconds")
-    }
-  }
+  yield* settle(endpoint, startupStep(daemon, configured !== undefined), daemon?.version, healthy)
 
   return {
     signal: (value, timeout = SIGNAL_TIMEOUT) =>
@@ -65,13 +62,72 @@ export class Daemon extends Context.Service<Daemon, DaemonClient>()("chauffeur/D
   static readonly connect: Effect.Effect<DaemonClient> = connect
 }
 
+/** A daemon's `health` reply; daemons before versioned releases send no version. */
+const Health = Schema.Struct({ ok: Schema.Boolean, version: Schema.optional(Schema.String) })
+
+/**
+ * What the plugin does with the daemon it finds at startup. It starts one when
+ * none answers and replaces one of another version, but never touches a daemon
+ * the user runs at `CHAUFFEUR_DAEMON_URL`.
+ */
+export type StartupStep = "use" | "start" | "replace" | "unavailable" | "mismatch"
+
+export function startupStep(found: { readonly version?: string | undefined } | undefined, configured: boolean, version: string = PLUGIN_VERSION): StartupStep {
+  if (found === undefined) return configured ? "unavailable" : "start"
+
+  if (found.version === version) return "use"
+
+  return configured ? "mismatch" : "replace"
+}
+
+function settle(endpoint: Endpoint, step: StartupStep, found: string | undefined, healthy: Effect.Effect<boolean>): Effect.Effect<void> {
+  const versions = `the daemon at ${endpoint.url} is ${found ?? "unversioned"}; this plugin is ${PLUGIN_VERSION}`
+
+  if (step === "unavailable") return Effect.logError(`chauffeur: daemon unavailable at ${endpoint.url}`)
+
+  if (step === "mismatch") return Effect.logWarning(`chauffeur: ${versions}. Update the daemon you run, or unset CHAUFFEUR_DAEMON_URL.`)
+
+  if (step === "replace") return replace(endpoint, healthy, versions)
+
+  if (step === "start") return started(healthy)
+
+  return Effect.void
+}
+
+/** Stop a daemon of another version, wait for it to go, and start this plugin's own. */
+function replace(endpoint: Endpoint, healthy: Effect.Effect<boolean>, versions: string): Effect.Effect<void> {
+  return Effect.gen(function* () {
+    const stopping = yield* request(endpoint, "shutdown", {}, Schema.Unknown, RPC_TIMEOUT).pipe(
+      Effect.as(true),
+      Effect.orElseSucceed(() => false),
+    )
+
+    // A daemon too old to stop on request keeps serving.
+    if (!stopping) return yield* Effect.logWarning(`chauffeur: ${versions}, and it cannot be replaced; using it.`)
+
+    yield* Effect.logInfo(`chauffeur: ${versions}; replacing it.`)
+
+    for (let attempt = 0; attempt < STOP_ATTEMPTS && (yield* healthy); attempt += 1) yield* Effect.sleep("250 millis")
+
+    yield* started(healthy)
+  })
+}
+
+function started(healthy: Effect.Effect<boolean>): Effect.Effect<void> {
+  return start(healthy).pipe(
+    Effect.flatMap((up) => up ? Effect.void : Effect.logError("chauffeur: daemon did not become healthy within 10 seconds")),
+  )
+}
+
 function start(healthy: Effect.Effect<boolean>): Effect.Effect<boolean> {
   return Effect.gen(function* () {
     yield* Effect.sync(() => {
-      const child = spawn(process.env.CHAUFFEUR_BIN ?? "chauffeur", ["daemon"], {
+      const launch = daemonLaunch(process.env)
+
+      const child = spawn(launch.bin, ["daemon"], {
         detached: true,
         stdio: "ignore",
-        env: process.env,
+        env: launch.env,
       })
 
       // A missing binary is reported by the health checks below.

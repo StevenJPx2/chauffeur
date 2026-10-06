@@ -14,6 +14,9 @@ pub const METHOD_RULEBOOKS: &str = "rulebooks";
 /// The wording a host shows the agent: `{ "host": "opencode" }` returns the
 /// host's texts, shipped and overlaid by the user's file.
 pub const METHOD_TEXTS: &str = "texts";
+/// Stop the daemon once in-flight requests finish, so a host can replace a
+/// daemon of another version with its own.
+pub const METHOD_SHUTDOWN: &str = "shutdown";
 
 /// One rulebook as a host offers it, such as the `/goal` command.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]

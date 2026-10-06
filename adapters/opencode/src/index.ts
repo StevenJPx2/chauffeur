@@ -4,6 +4,7 @@ import { installAskTool } from "./ask-tool.js"
 import { Daemon } from "./daemon.js"
 import { installExposure } from "./exposure.js"
 import { installGate } from "./gate.js"
+import { installHandoffSkills } from "./handoff.js"
 import { Host } from "./host.js"
 import { installIdle } from "./idle.js"
 import { installModelRouter } from "./model-router.js"
@@ -29,6 +30,7 @@ const capabilities = Effect.gen(function* () {
   yield* installAskTool(exposure)
   yield* installTodos
   yield* installToolDescriptions
+  yield* installHandoffSkills
   yield* installGate
   yield* installIdle
   yield* installRulebooks
