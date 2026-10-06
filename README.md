@@ -61,19 +61,15 @@ its `.chauffeur/rules/`.
 
 ![After a browser fetch of an X post, Chauffeur hands over twitter-cli and the agent switches to it](docs/media/drift.gif)
 
-### Rulebooks: `/goal`, `/ticket`, and your own
+### Rulebooks: `/goal` and your own
 
 A rulebook is a set of rules you switch on for one session with a slash command.
 
-- **`/goal <objective>`** has the agent break the objective into todos with
-  Chauffeur's `todowrite` tool, then keeps it working across turns, naming the
-  open todos each time. It cannot finish while a todo is open, and it ends once
-  the evidence shows the goal is met. It pauses when only you can unblock it,
-  and stops after 20 continuations with a progress summary.
-- **`/ticket <Jira key | Slack link | request>`** takes an HPDP Overlay task
-  from intake to a PR in review, and pauses when the next step waits on you, a
-  colleague, a review, or CI. It is scoped to those folders, so it only appears
-  there.
+**`/goal <objective>`** has the agent break the objective into todos with
+Chauffeur's `todowrite` tool, then keeps it working across turns, naming the
+open todos each time. It cannot finish while a todo is open, and it ends once
+the evidence shows the goal is met. It pauses when only you can unblock it, and
+stops after 20 continuations with a progress summary.
 
 ![/goal resumes unfinished work after one test fix, then verifies the complete passing suite](docs/media/goal.gif)
 
