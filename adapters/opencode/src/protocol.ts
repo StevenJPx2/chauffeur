@@ -8,7 +8,7 @@ export type { Todo } from "./todos.js"
 export const TEXT_CODE_POINTS = 512
 
 /** The engine's description bound. A skill's "use when…" line often comes late. */
-const DESCRIPTION_BYTES = 400
+export const DESCRIPTION_BYTES = 400
 
 /** A model as Chauffeur names it; `variant` is the host's thinking variant, absent for the default. */
 const ModelRef = Schema.Struct({

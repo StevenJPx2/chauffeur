@@ -162,7 +162,10 @@ involve this project's work?" and attached unless Jev confidently says no
 (P ≤ 0.3), since work in a repo is usually that repo's. A skill whose leading
 word the request says (`slack` in `adeptmind.slack.com` for `slack-cli`) is
 asked whether the agent needs it; every other skill whether the request needs
-it; both attach at P ≥ 0.7. Each question says where the session works. One
+it; both attach at P ≥ 0.7. Each question says where the session works, and
+quotes the skill's description up to 400 bytes, the signal's bound; the
+adapter logs a warning naming each skill whose description runs longer, since
+whatever comes after the cut never reaches the judgment. One
 signal attaches at most four skills and 64 KiB, which bounds what a wrong pick
 costs without refusing any single skill up front; a skill over what is left
 is skipped for a smaller one. The drift hand-over after a tool result stays a

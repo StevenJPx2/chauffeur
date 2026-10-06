@@ -1,6 +1,7 @@
 import { type Plugin, Skill } from "@opencode/plugin/effect"
 import type { SessionPrompt } from "@opencode/plugin/effect/session"
 import { Effect, Schema, type Scope } from "effect"
+import { warnClippedSkills } from "./clipped-skills.js"
 import { codeModeNamespaces } from "./code-mode.js"
 import { Daemon } from "./daemon.js"
 import { type HistoryMessage, Host, type HostTool, type SessionID } from "./host.js"
@@ -152,6 +153,8 @@ export const installExposure: Effect.Effect<ExposureControl, never, Host | Daemo
       if (firstInContext) yield* mcpSettled.pipe(Effect.provideService(Host, host))
 
       const codeMode = codeModeNamespaces(yield* host.tool.list(), event.prompt.text)
+
+      yield* warnClippedSkills(skills)
 
       const effects = yield* daemon.signal(signal(sessionID, {
         type: "user_message",
