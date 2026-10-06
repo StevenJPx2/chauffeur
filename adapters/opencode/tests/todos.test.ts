@@ -2,10 +2,10 @@ import { expect, test } from "bun:test"
 import { Effect, type Schema } from "effect"
 import type { DaemonClient } from "../src/daemon.js"
 import { Host } from "../src/host.js"
-import { installSubagentGuidance } from "../src/subagents.js"
+import { installToolDescriptions, rewriteDescriptions } from "../src/tool-descriptions.js"
 import { fixedTexts, type HostTexts, SHIPPED_TEXTS, type TextsSource, withTexts } from "../src/texts.js"
 import { installTodos, readTodos, render, TODO_TOOL, type Todo } from "../src/todos.js"
-import { fakeHost, install, noRulebooks, shippedTexts } from "./support.js"
+import { fakeHost, Hooks, install, noRulebooks, shippedTexts } from "./support.js"
 
 const SUBAGENT_GUIDANCE = SHIPPED_TEXTS.subagent.guidance
 
@@ -117,70 +117,32 @@ test("edited wording re-registers the tool while the plugin runs", async () => {
   }
 })
 
-test("the subagent tool's description carries the cheaper-model guidance once", async () => {
-  type Described = { description: string }
+const tool = (description: string) => ({ description, input: {} })
 
-  type Editor = { update: (id: string, change: (tool: Described) => void) => void }
+test("the subagent tool's description carries the cheaper-model guidance once", () => {
+  const tools = { subagent: tool("Spawns an agent in a child session.") }
 
-  const subagent: Described = { description: "Spawns an agent in a child session." }
-  const editor: Editor = { update: (id, change) => { if (id === "subagent") change(subagent) } }
+  // A hook may see the same definitions twice; the guidance appears once.
+  rewriteDescriptions(tools, SHIPPED_TEXTS)
+  rewriteDescriptions(tools, SHIPPED_TEXTS)
 
-  const host = fakeHost({
-    tool: {
-      transform: (edit: (editor: Editor) => void) => Effect.sync(() => {
-        // The host may run a transform more than once; the guidance appears once.
-        edit(editor)
-        edit(editor)
-
-        return { dispose: Effect.void }
-      }),
-    },
-  })
-
-  const plugin = await install(installSubagentGuidance, host, daemon)
-
-  try {
-    expect(subagent.description).toBe(`Spawns an agent in a child session.\n\n${SUBAGENT_GUIDANCE}`)
-    expect(SUBAGENT_GUIDANCE).toContain("anthropic/claude-sonnet-5-5")
-    expect(SUBAGENT_GUIDANCE).toContain("openai/gpt-6-luna")
-  } finally {
-    await plugin.close()
-  }
+  expect(tools.subagent.description).toBe(`Spawns an agent in a child session.\n\n${SUBAGENT_GUIDANCE}`)
+  expect(SUBAGENT_GUIDANCE).toContain("anthropic/claude-sonnet-5-5")
+  expect(SUBAGENT_GUIDANCE).toContain("openai/gpt-6-luna")
 })
 
-test("configured tool descriptions replace the host's, and the subagent guidance follows its new text", async () => {
-  type Described = { description: string }
-
-  type Editor = { update: (id: string, change: (tool: Described) => void) => void }
-
-  const shell: Described = { description: "A long description of the shell tool." }
-  const subagent: Described = { description: "A long description of the subagent tool." }
-  const tools = new Map([["shell", shell], ["subagent", subagent]])
-
-  const editor: Editor = {
-    update: (id, change) => {
-      const tool = tools.get(id)
-
-      if (tool) change(tool)
-    },
-  }
-
-  const host = fakeHost({
-    tool: {
-      transform: (edit: (editor: Editor) => void) => Effect.sync(() => {
-        edit(editor)
-
-        return { dispose: Effect.void }
-      }),
-    },
-  })
-
-  const texts = fixedTexts({ ...SHIPPED_TEXTS, tool_descriptions: { shell: "Run a command.", subagent: "Start a subagent.", missing: "Ignored." } })
-  const plugin = await install(installSubagentGuidance, host, daemon, texts)
+test("each request's tools take the configured descriptions, and the guidance follows the new subagent text", async () => {
+  const hooks = new Hooks()
+  const texts = fixedTexts({ ...SHIPPED_TEXTS, tool_descriptions: { execute: "Run code.", subagent: "Start a subagent.", missing: "Ignored." } })
+  const plugin = await install(installToolDescriptions, fakeHost({ session: { hook: hooks.register } }), daemon, texts)
+  const event = { tools: { execute: tool("A long Code Mode description."), read: tool("Read a file."), subagent: tool("A long subagent description.") } }
 
   try {
-    expect(shell.description).toBe("Run a command.")
-    expect(subagent.description).toBe(`Start a subagent.\n\n${SUBAGENT_GUIDANCE}`)
+    await hooks.emit("context", event)
+
+    expect(event.tools.execute.description).toBe("Run code.")
+    expect(event.tools.read.description).toBe("Read a file.")
+    expect(event.tools.subagent.description).toBe(`Start a subagent.\n\n${SUBAGENT_GUIDANCE}`)
   } finally {
     await plugin.close()
   }

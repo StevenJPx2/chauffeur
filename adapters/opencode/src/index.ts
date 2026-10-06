@@ -10,7 +10,7 @@ import { installModelRouter } from "./model-router.js"
 import { installPermission } from "./permission.js"
 import { installRulebooks } from "./rulebooks.js"
 import { claimSkillLoading, hostLoadsSkills } from "./skills.js"
-import { installSubagentGuidance } from "./subagents.js"
+import { installToolDescriptions } from "./tool-descriptions.js"
 import { followDaemonTexts, Texts } from "./texts.js"
 import { installTodos } from "./todos.js"
 import { installToolResults } from "./tool-results.js"
@@ -28,7 +28,7 @@ const capabilities = Effect.gen(function* () {
   yield* installToolResults(exposure)
   yield* installAskTool(exposure)
   yield* installTodos
-  yield* installSubagentGuidance
+  yield* installToolDescriptions
   yield* installGate
   yield* installIdle
   yield* installRulebooks
