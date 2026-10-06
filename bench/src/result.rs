@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::audit::ChauffeurMetrics;
 use crate::events::EventMetrics;
+use crate::requests::RequestMetrics;
 
 /// Everything measured for one (variant, task, repeat).
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
@@ -28,6 +29,9 @@ pub struct RunResult {
     /// Why the harness could not complete the run, if it could not.
     pub error: Option<String>,
     pub events: EventMetrics,
+    /// What the requests were made of, from the probe plugin.
+    #[serde(default)]
+    pub requests: Option<RequestMetrics>,
     /// Present for Chauffeur variants.
     pub chauffeur: Option<ChauffeurMetrics>,
 }

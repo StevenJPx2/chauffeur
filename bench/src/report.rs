@@ -36,6 +36,7 @@ pub fn render(results: &[RunResult]) -> String {
     report.push_str(&pass_matrix(results, &variants));
     report.push_str(&activity_table(results, &variants));
     report.push_str(&versus_base(&summaries));
+    report.push_str(&crate::prompt_report::section(results, &variants));
 
     report
 }
@@ -352,7 +353,7 @@ fn versus_base(summaries: &[(&str, Summary)]) -> String {
 }
 
 /// Percentage change from `base` to `value`.
-fn change(value: f64, base: f64) -> String {
+pub(crate) fn change(value: f64, base: f64) -> String {
     if base.abs() < f64::EPSILON {
         return "n/a".into();
     }

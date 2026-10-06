@@ -65,7 +65,7 @@ fn check_copy(task: &Task, dir: &Path, solve: bool) -> Outcome {
         std::fs::create_dir_all(dir)
             .map_err(|error| format!("create {}: {error}", dir.display()))?;
         let repo = dir.join("repo");
-        workspace::prepare(task, &Variant::base("verify"), &repo)?;
+        workspace::prepare(task, &Variant::base("verify"), &repo, None)?;
         let env = workspace::task_env(task, &dir.join("bench.log"))?;
         if solve {
             workspace::apply_solution(task, &repo, &env, &dir.join("solve.log"))?;

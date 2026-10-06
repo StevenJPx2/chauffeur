@@ -8,10 +8,11 @@ Compares OpenCode setups on a suite of coding tasks:
 
 Each run gives one task's prompt to `opencode run` in a fresh copy of the task
 repo, then runs the task's hidden check. The harness records whether the check
-passed, the tokens, cost, wall time, steps, and tool calls from OpenCode's JSON
-events, and for Chauffeur variants what Chauffeur did (Jev calls and latency,
-skills attached, tools hidden or revealed, steers, permission decisions) from
-the daemon's audit log.
+passed, wall time and tool calls from OpenCode's JSON events, tokens, cost and
+steps from the session it created (OpenCode 2's events carry no usage), what
+each request was made of from a probe plugin, and for Chauffeur variants what
+Chauffeur did (Jev calls and latency, skills attached, tools hidden or revealed,
+steers, permission decisions) from the daemon's audit log.
 
 ## Prerequisites
 
@@ -65,7 +66,18 @@ cargo run -q -p chauffeur-bench --release -- run --out ~/.local/state/chauffeur/
 
 # Rebuild the report from results.jsonl
 cargo run -q -p chauffeur-bench -- report ~/.local/state/chauffeur/bench/suite-1
+
+# What each variant's requests are made of: a one-word task per variant, then
+# the "First request" table (the first variant is the control)
+cargo run -q -p chauffeur-bench --release -- prompt --variants full,short-tools --model anthropic/claude-opus-5-5
+
+# Delete the OpenCode sessions a results folder's runs created
+cargo run -q -p chauffeur-bench -- clean ~/.local/state/chauffeur/bench/suite-1
 ```
+
+**Clean up** with `clean` before deleting a results folder: the sessions live in
+OpenCode's database and the folder holds their ids. OpenCode keeps each run's
+project (it has no API to remove one).
 
 `run` flags: `--tasks a,b`, `--variants a,b`, `--repeats N`, `--parallel N`
 (1–16), `--model provider/model`, `--out DIR` (default
@@ -110,9 +122,24 @@ with `pgrep -fl "chauffeur daemon"` after one.
    `BENCH_LOG`, the task's `bin/` on `PATH`, and for
    Chauffeur variants `CHAUFFEUR_DAEMON_URL` and `CHAUFFEUR_DISABLE`. Killed at
    `timeout_seconds`. The daemon is stopped when OpenCode exits.
-4. Copy `hidden/` over the repo and run the check (at most 10 minutes); exit 0
+4. Read the session's tokens, cost and steps with `opencode api get
+   /api/session/<id>` and `.../context` (saved as `session.json` and
+   `context.json`).
+5. Copy `hidden/` over the repo and run the check (at most 10 minutes); exit 0
    passes. The check runs even when the agent timed out.
-5. Write `result.json` and append it to `results.jsonl`.
+6. Write `result.json` and append it to `results.jsonl`.
+
+**The probe.** Every run loads `probe/index.js` from `<run>/probe/` (listed last
+in the plugin list, outside the repo). It appends one line per agent request,
+as sent to the provider over HTTP or WebSocket, to `<run>/requests.jsonl`: the
+size of each system section (split at `#` and `##` headings and top-level tags
+such as `<available_skills>`), each tool definition, and the history. Before
+the first request it waits until no MCP server is pending and the tool list has
+been stable for a second (at most 30 s), so the Code Mode catalog does not
+depend on how fast servers connect. `BENCH_PROBE_BODY=1` also saves the first
+request body as `requests.jsonl.first.json`. Provider plugins that rewrite the
+body inside their own `fetch` (the Anthropic auth plugin) act after the probe;
+the provider's token counts include their additions.
 
 ## Output
 
@@ -129,6 +156,10 @@ with `pgrep -fl "chauffeur daemon"` after one.
     daemon.log           the daemon's output (Chauffeur variants)
     config/              the daemon's config folder: the variant's overrides
     state/               the daemon's state, including audit.jsonl
+    probe/               the probe plugin
+    requests.jsonl       the probe's record of each agent request
+    session.json         the session's totals, from OpenCode's API
+    context.json         the session's messages with each step's tokens
     result.json
 ```
 

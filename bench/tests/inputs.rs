@@ -180,23 +180,25 @@ fn plugin_lists_per_variant() {
     };
 
     assert_eq!(
-        workspace::plugin_list(&base),
+        workspace::plugin_list(&base, None),
         vec!["-chauffeur", "-ntfy-notify", "-optmem", "-sourcefed"]
     );
     assert_eq!(
-        workspace::plugin_list(&full),
+        workspace::plugin_list(&full, None),
         vec!["-ntfy-notify", "-optmem", "-sourcefed"]
     );
     assert_eq!(
-        workspace::plugin_list(&sourcefed),
+        workspace::plugin_list(&sourcefed, None),
         vec!["-ntfy-notify", "-optmem"]
     );
 
+    // The probe loads last, by absolute path.
+    let probe = std::path::Path::new("/run/probe");
     let config: serde_json::Value =
-        serde_json::from_str(&workspace::opencode_config(&base).unwrap()).unwrap();
+        serde_json::from_str(&workspace::opencode_config(&base, Some(probe)).unwrap()).unwrap();
     assert_eq!(
         config,
-        serde_json::json!({ "plugins": ["-chauffeur", "-ntfy-notify", "-optmem", "-sourcefed"] })
+        serde_json::json!({ "plugins": ["-chauffeur", "-ntfy-notify", "-optmem", "-sourcefed", "/run/probe"] })
     );
 }
 

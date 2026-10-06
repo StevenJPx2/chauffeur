@@ -5,7 +5,7 @@ use std::process::ExitCode;
 
 use chauffeur_bench::cli::{self, Command};
 use chauffeur_bench::inputs::{self, Setup, Task};
-use chauffeur_bench::{judges, report, runner, verify};
+use chauffeur_bench::{judges, report, runner, session, verify, which};
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -34,9 +34,20 @@ fn dispatch(root: &Path, command: Command) -> Result<ExitCode, String> {
         Command::List => list(&root).map(|()| ExitCode::SUCCESS),
         Command::Verify { tasks } => run_verify(&root, tasks.as_deref()),
         Command::Run(options) => runner::run(&root, &options).map(|()| ExitCode::SUCCESS),
+        Command::Prompt(options) => {
+            print!("{}", runner::prompt(&root, &options)?);
+
+            Ok(ExitCode::SUCCESS)
+        }
         Command::Report { dir } => {
             let path = report::write(&dir)?;
             println!("{}", path.display());
+
+            Ok(ExitCode::SUCCESS)
+        }
+        Command::Clean { dir, opencode } => {
+            let removed = session::remove_all(&dir, &which::resolve(&opencode)?)?;
+            println!("removed {removed} sessions; OpenCode keeps their projects");
 
             Ok(ExitCode::SUCCESS)
         }

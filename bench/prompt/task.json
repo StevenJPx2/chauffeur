@@ -1,0 +1,6 @@
+{
+  "prompt": "Reply with the single word OK.",
+  "check": ["true"],
+  "timeout_seconds": 180,
+  "tags": ["prompt"]
+}

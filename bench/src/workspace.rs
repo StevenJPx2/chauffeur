@@ -6,9 +6,9 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
-use crate::fsutil;
 use crate::inputs::{OPTIONAL_PLUGINS, Setup, Task, Variant};
 use crate::process::{self, Exit};
+use crate::{fsutil, requests};
 
 /// Upper bound on one check (or `.solve.sh`) run.
 pub const CHECK_TIMEOUT: Duration = Duration::from_secs(600);
@@ -17,9 +17,10 @@ const SOLVE_SCRIPT: &str = ".solve.sh";
 
 /// The plugin list for `.opencode/opencode.jsonc`. Plugins load from the
 /// user's global config, so base disables Chauffeur by name, and every
-/// optional plugin the variant does not keep is disabled too.
+/// optional plugin the variant does not keep is disabled too. The probe, when
+/// given, loads last, so it sees each request after every other plugin.
 #[must_use]
-pub fn plugin_list(variant: &Variant) -> Vec<String> {
+pub fn plugin_list(variant: &Variant, probe: Option<&Path>) -> Vec<String> {
     let chauffeur = (variant.setup == Setup::Base).then_some("chauffeur");
 
     chauffeur
@@ -31,6 +32,7 @@ pub fn plugin_list(variant: &Variant) -> Vec<String> {
                 .filter(|plugin| !variant.plugins.iter().any(|kept| kept == plugin)),
         )
         .map(|plugin| format!("-{plugin}"))
+        .chain(probe.map(|probe| probe.display().to_string()))
         .collect()
 }
 
@@ -38,18 +40,46 @@ pub fn plugin_list(variant: &Variant) -> Vec<String> {
 ///
 /// # Errors
 /// Never in practice; serialization of a string list cannot fail.
-pub fn opencode_config(variant: &Variant) -> Result<String, String> {
-    let config = serde_json::json!({ "plugins": plugin_list(variant) });
+pub fn opencode_config(variant: &Variant, probe: Option<&Path>) -> Result<String, String> {
+    let config = serde_json::json!({ "plugins": plugin_list(variant, probe) });
 
     serde_json::to_string_pretty(&config).map_err(|error| format!("render config: {error}"))
 }
 
-/// Copy the task's repo to `dest`, write the variant's OpenCode config, and
-/// commit it all in a fresh git repository.
+/// Write the probe plugin into `dir` (outside the repo, so the agent never
+/// sees it) and return the folder to load it from.
+///
+/// # Errors
+/// A folder or file that cannot be written.
+pub fn write_probe(dir: &Path) -> Result<PathBuf, String> {
+    std::fs::create_dir_all(dir).map_err(|error| format!("create {}: {error}", dir.display()))?;
+
+    for (name, text) in [
+        ("index.js", requests::PROBE_JS),
+        (
+            "package.json",
+            r#"{ "name": "chauffeur-bench-probe", "type": "module" }"#,
+        ),
+    ] {
+        let path = dir.join(name);
+        std::fs::write(&path, text)
+            .map_err(|error| format!("write {}: {error}", path.display()))?;
+    }
+
+    Ok(dir.to_path_buf())
+}
+
+/// Copy the task's repo to `dest`, write the variant's OpenCode config (with
+/// the probe, when given), and commit it all in a fresh git repository.
 ///
 /// # Errors
 /// A failed copy, write, or git command.
-pub fn prepare(task: &Task, variant: &Variant, dest: &Path) -> Result<(), String> {
+pub fn prepare(
+    task: &Task,
+    variant: &Variant,
+    dest: &Path,
+    probe: Option<&Path>,
+) -> Result<(), String> {
     fsutil::overlay(&task.repo(), dest, &[])?;
     if let Some(outside) = task.outside() {
         fsutil::overlay(&outside, &outside_dir(dest), &[])?;
@@ -58,7 +88,7 @@ pub fn prepare(task: &Task, variant: &Variant, dest: &Path) -> Result<(), String
     std::fs::create_dir_all(&config_dir)
         .map_err(|error| format!("create {}: {error}", config_dir.display()))?;
     let config = config_dir.join("opencode.jsonc");
-    std::fs::write(&config, opencode_config(variant)?)
+    std::fs::write(&config, opencode_config(variant, probe)?)
         .map_err(|error| format!("write {}: {error}", config.display()))?;
 
     for args in [

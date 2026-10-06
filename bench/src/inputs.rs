@@ -291,7 +291,11 @@ pub fn load_tasks(root: &Path) -> Result<Vec<Task>, String> {
     Ok(tasks)
 }
 
-fn load_task(dir: &Path) -> Result<Task, String> {
+/// Read one task folder (`task.json` and `repo/`); its id is the folder name.
+///
+/// # Errors
+/// An unreadable or invalid task, or one without `repo/`.
+pub fn load_task(dir: &Path) -> Result<Task, String> {
     let id = dir
         .file_name()
         .and_then(|name| name.to_str())

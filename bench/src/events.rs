@@ -7,6 +7,9 @@ use serde_json::Value;
 
 const MAX_TEXT_CHARS: usize = 500;
 
+/// Steps whose prompt size is kept per step.
+pub const PROMPT_STEPS: usize = 3;
+
 /// Token counts summed over every `step_finish`.
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
@@ -24,11 +27,19 @@ pub struct Tokens {
 pub struct EventMetrics {
     /// Parsed events, of any type.
     pub events: u64,
+    /// The session the run created, from the first event that names one.
+    #[serde(default)]
+    pub session_id: Option<String>,
     /// Lines that were not JSON objects.
     pub bad_lines: u64,
     /// `step_finish` events.
     pub steps: u64,
     pub tokens: Tokens,
+    /// The prompt size (input plus cache read and write) of the first
+    /// [`PROMPT_STEPS`] steps: the first is the fixed prompt plus the user's
+    /// message.
+    #[serde(default)]
+    pub step_prompts: Vec<u64>,
     pub cost: f64,
     /// Finished tool calls (completed or error).
     pub tool_calls: u64,
@@ -54,6 +65,13 @@ pub fn parse(text: &str) -> EventMetrics {
         };
         metrics.events = metrics.events.saturating_add(1);
         let part = event.get("part").unwrap_or(&Value::Null);
+        if metrics.session_id.is_none() {
+            metrics.session_id = part
+                .get("sessionID")
+                .or_else(|| event.get("sessionID"))
+                .and_then(Value::as_str)
+                .map(str::to_string);
+        }
 
         match event.get("type").and_then(Value::as_str) {
             Some("step_finish") => add_step(&mut metrics, part),
@@ -83,6 +101,13 @@ fn add_step(metrics: &mut EventMetrics, part: &Value) {
     let sum = &mut metrics.tokens;
 
     metrics.steps = metrics.steps.saturating_add(1);
+    if metrics.step_prompts.len() < PROMPT_STEPS {
+        metrics.step_prompts.push(
+            count(tokens, "input")
+                .saturating_add(count(cache, "read"))
+                .saturating_add(count(cache, "write")),
+        );
+    }
     sum.input = sum.input.saturating_add(count(tokens, "input"));
     sum.output = sum.output.saturating_add(count(tokens, "output"));
     sum.reasoning = sum.reasoning.saturating_add(count(tokens, "reasoning"));

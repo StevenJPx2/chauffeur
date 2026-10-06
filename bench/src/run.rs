@@ -13,7 +13,10 @@ use crate::inputs::Setup;
 use crate::jobs::Job;
 use crate::process::{ChildGuard, Exit};
 use crate::result::RunResult;
-use crate::{audit, events, workspace};
+use crate::{audit, events, requests, session, workspace};
+
+/// The probe's record of each agent request, in the run folder.
+const REQUESTS: &str = "requests.jsonl";
 
 /// Programs and settings shared by every run.
 #[derive(Clone, Debug)]
@@ -74,7 +77,8 @@ fn attempt(
 ) -> Result<(), String> {
     let repo = dir.join("repo");
     let task = job.task;
-    workspace::prepare(task, job.variant, &repo)?;
+    let probe = workspace::write_probe(&dir.join("probe"))?;
+    workspace::prepare(task, job.variant, &repo, Some(&probe))?;
     let env = workspace::task_env(task, &dir.join("bench.log"))?;
 
     let daemon = match &job.variant.setup {
@@ -97,6 +101,8 @@ fn attempt(
         Exit::TimedOut => None,
     };
     result.events = events::parse(&read_optional(&dir.join("events.jsonl"))?);
+    session::fill_usage(&mut result.events, &config.opencode, dir)?;
+    result.requests = Some(requests::parse(&read_optional(&dir.join(REQUESTS))?));
     if matches!(job.variant.setup, Setup::Chauffeur { .. }) {
         let audit_log = read_optional(&dir.join("state").join("audit.jsonl"))?;
         result.chauffeur = Some(audit::parse(&audit_log));
@@ -147,6 +153,7 @@ fn run_agent(
         // A private OPENCODE_DB loses the provider logins, so `-m` falls back
         // to the default model; runs share the user's session database.
         .envs(env.iter().cloned())
+        .env("BENCH_PROBE", dir.join(REQUESTS))
         .env_remove("CHAUFFEUR_DAEMON_TOKEN")
         .stdin(Stdio::null())
         .stdout(Stdio::from(stdout))

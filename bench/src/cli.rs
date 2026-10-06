@@ -18,7 +18,11 @@ commands:
   verify [--tasks a,b]                   check fails unsolved, passes solved
   run [--tasks a,b] [--variants a,b] [--repeats 3] [--parallel 2]
       [--model openai/gpt-6-luna] [--out DIR] [--chauffeur BIN] [--opencode BIN]
+  prompt [--variants a,b] [--repeats 1] [--model M] [--out DIR] [--parallel 2]
+                                         what each variant's requests are made of:
+                                         one-word task, per-section sizes and tokens
   report DIR                             rebuild DIR/report.md from DIR/results.jsonl
+  clean DIR [--opencode BIN]             delete the OpenCode sessions DIR's runs created
   judges CORPUS [--judges FILE] [--only a,b] [--out DIR] [--limit N]
                                          replay judgments recorded with
                                          CHAUFFEUR_RECORD_JUDGMENTS against each judge
@@ -42,8 +46,15 @@ pub enum Command {
         tasks: Option<Vec<String>>,
     },
     Run(RunOptions),
+    /// A `run` of the built-in `prompt/` task; `tasks` is unused.
+    Prompt(RunOptions),
     Report {
         dir: PathBuf,
+    },
+    /// Delete the OpenCode sessions a results folder's runs created.
+    Clean {
+        dir: PathBuf,
+        opencode: String,
     },
     Judges(JudgeOptions),
     JudgesReport {
@@ -75,12 +86,23 @@ pub fn parse(args: &[String]) -> Result<Cli, String> {
             },
             &["tasks"],
         ),
-        ("run", []) => (Command::Run(run_options(&flags)?), RUN_FLAGS),
+        ("run", []) => (Command::Run(run_options(&flags, 3)?), RUN_FLAGS),
+        ("prompt", []) => (Command::Prompt(run_options(&flags, 1)?), &RUN_FLAGS[1..]),
         ("report", [dir]) => (
             Command::Report {
                 dir: PathBuf::from(dir),
             },
             &[],
+        ),
+        ("clean", [dir]) => (
+            Command::Clean {
+                dir: PathBuf::from(dir),
+                opencode: flags
+                    .get("opencode")
+                    .cloned()
+                    .unwrap_or_else(|| "opencode".into()),
+            },
+            &["opencode"],
         ),
         ("judges", [corpus]) => (
             Command::Judges(judge_options(&root, corpus, &flags)?),
@@ -114,8 +136,8 @@ const RUN_FLAGS: &[&str] = &[
     "opencode",
 ];
 
-fn run_options(flags: &BTreeMap<String, String>) -> Result<RunOptions, String> {
-    let repeats = number(flags, "repeats", 3)?;
+fn run_options(flags: &BTreeMap<String, String>, repeats: usize) -> Result<RunOptions, String> {
+    let repeats = number(flags, "repeats", repeats)?;
     let parallel = number(flags, "parallel", 2)?;
 
     if repeats == 0 {

@@ -31,6 +31,39 @@ pub struct RunOptions {
 /// # Errors
 /// Invalid inputs, a missing program, or a result that cannot be recorded.
 pub fn run(root: &Path, options: &RunOptions) -> Result<(), String> {
+    let tasks = inputs::select(
+        &inputs::load_tasks(root)?,
+        options.tasks.as_deref(),
+        |task: &Task| &task.id,
+        "task",
+    )?;
+
+    run_tasks(root, options, &tasks).map(|_| ())
+}
+
+/// Measure what each variant's requests are made of: run the built-in
+/// `prompt/` task, a one-word reply, and print the report's first-request
+/// section.
+///
+/// # Errors
+/// As [`run`].
+pub fn prompt(root: &Path, options: &RunOptions) -> Result<String, String> {
+    let task = inputs::load_task(&root.join("prompt"))?;
+    let out = run_tasks(root, options, &[task])?;
+    let results = crate::result::read_jsonl(&out.join("results.jsonl"))?;
+    let variants = inputs::select(
+        &inputs::load_variants(root)?,
+        options.variants.as_deref(),
+        |variant: &Variant| &variant.id,
+        "variant",
+    )?;
+    let order: Vec<&str> = variants.iter().map(|variant| variant.id.as_str()).collect();
+
+    Ok(crate::prompt_report::section(&results, &order))
+}
+
+/// Run every pending job of `tasks` and write `report.md`; the output folder.
+fn run_tasks(root: &Path, options: &RunOptions, tasks: &[Task]) -> Result<PathBuf, String> {
     let all_variants = inputs::load_variants(root)?;
     let variants = inputs::select(
         &all_variants,
@@ -38,14 +71,8 @@ pub fn run(root: &Path, options: &RunOptions) -> Result<(), String> {
         |variant: &Variant| &variant.id,
         "variant",
     )?;
-    let tasks = inputs::select(
-        &inputs::load_tasks(root)?,
-        options.tasks.as_deref(),
-        |task: &Task| &task.id,
-        "task",
-    )?;
     let config = config(options, &variants, &all_variants)?;
-    let all = jobs::plan(&variants, &tasks, options.repeats);
+    let all = jobs::plan(&variants, tasks, options.repeats);
     let pending = jobs::pending(&all, &config.out);
     eprintln!(
         "chauffeur-bench: {} jobs, {} already done, results in {}",
@@ -61,7 +88,7 @@ pub fn run(root: &Path, options: &RunOptions) -> Result<(), String> {
         eprintln!("chauffeur-bench: report at {}", path.display());
     }
 
-    outcome
+    outcome.map(|()| config.out)
 }
 
 fn config(
