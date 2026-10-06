@@ -2,13 +2,26 @@ import { Model, type Plugin, Provider } from "@opencode/plugin/effect"
 import type { SessionRetry } from "@opencode/plugin/effect/session"
 import { Effect, Stream } from "effect"
 import { Daemon } from "./daemon.js"
-import { Host } from "./host.js"
+import { Host, type SessionID } from "./host.js"
 import { signal, TEXT_CODE_POINTS, type ModelRef } from "./protocol.js"
+import { deliverContext } from "./skills.js"
 import { clip } from "./text.js"
+import { fill, type HostTexts, Texts } from "./texts.js"
 
 const MAX_SESSIONS = 256
 
 const MAX_MODELS = 256
+
+type HostEvent = Stream.Success<ReturnType<Plugin.Context["event"]["subscribe"]>>
+
+type ExecutionEnd = Extract<HostEvent, { readonly type: "session.execution.interrupted" | "session.execution.failed" | "session.execution.succeeded" }>
+
+const EXECUTION_ENDED = new Set(["session.execution.interrupted", "session.execution.failed", "session.execution.succeeded"])
+
+const executionEnded = (event: HostEvent): event is ExecutionEnd => EXECUTION_ENDED.has(event.type)
+
+/** How much of a model's error a note to the agent quotes. */
+const ERROR_CODE_POINTS = 300
 
 type HostModel = { readonly providerID: string; readonly id: string; readonly variant?: string | undefined }
 
@@ -20,6 +33,14 @@ class Sessions {
   private readonly generations = new Map<string, number>()
   private readonly active = new Set<string>()
   readonly requested = new Map<string, ModelRef>()
+  /** The model Chauffeur switched a session to, until it completes a step. */
+  readonly switched = new Map<string, ModelRef>()
+
+  switchedTo(sessionID: string, model: ModelRef): void {
+    if (!this.switched.has(sessionID) && this.switched.size >= MAX_SESSIONS) this.switched.clear()
+
+    this.switched.set(sessionID, model)
+  }
 
   advance(sessionID: string, running: boolean): void {
     if (!this.generations.has(sessionID) && this.generations.size >= MAX_SESSIONS) this.generations.clear()
@@ -44,6 +65,24 @@ class Sessions {
     this.requested.set(sessionID, model)
   }
 
+  /** The execution ended; the model Chauffeur switched it to, if no step completed on it. */
+  end(sessionID: string): ModelRef | undefined {
+    const switched = this.switched.get(sessionID)
+
+    this.advance(sessionID, false)
+    this.requested.delete(sessionID)
+    this.switched.delete(sessionID)
+
+    return switched
+  }
+
+  /** A step completed: the model it ran on, now proven to serve the session. */
+  stepEnded(sessionID: string): ModelRef | undefined {
+    this.switched.delete(sessionID)
+
+    return this.requested.get(sessionID)
+  }
+
   toolExecuted(sessionID: string): boolean {
     return this.toolRan.get(sessionID) ?? false
   }
@@ -63,13 +102,20 @@ class Sessions {
 export const installModelRouter = Effect.gen(function* () {
   const host = yield* Host
   const daemon = yield* Daemon
+  const texts = yield* Texts
   const sessions = new Sessions()
 
-  yield* host.session.hook("retry", (event) =>
-    route(event, sessions.toolExecuted(String(event.sessionID)), sessions.current(String(event.sessionID))).pipe(
+  yield* host.session.hook("retry", (event) => {
+    const sessionID = String(event.sessionID)
+
+    // The hook reports this failure itself; a later end of the execution is not news.
+    sessions.switched.delete(sessionID)
+
+    return route(event, sessions.toolExecuted(sessionID), sessions.current(sessionID), (next) => sessions.switchedTo(sessionID, next)).pipe(
       Effect.provideService(Host, host),
       Effect.provideService(Daemon, daemon),
-    ))
+    )
+  })
 
   // A tool in an earlier model request is already settled. Only tools run
   // during this request can make retrying its failed step unsafe.
@@ -91,16 +137,27 @@ export const installModelRouter = Effect.gen(function* () {
         })
       }
 
-      if (event.type === "session.execution.interrupted" || event.type === "session.execution.failed" || event.type === "session.execution.succeeded") {
-        return Effect.sync(() => {
-          sessions.advance(event.data.sessionID, false)
-          sessions.requested.delete(event.data.sessionID)
-        })
+      if (executionEnded(event)) {
+        const sessionID = event.data.sessionID
+        const switched = sessions.end(sessionID)
+
+        // The model Chauffeur switched to failed before any step completed,
+        // in a way the retry hook never saw: report it, or the agent stops.
+        if (event.type !== "session.execution.failed" || !switched) return Effect.void
+
+        return followUp(sessionID, switched, event.data.error, texts.current(), (next) => sessions.switchedTo(sessionID, next)).pipe(
+          Effect.provideService(Host, host),
+          Effect.provideService(Daemon, daemon),
+          Effect.forkScoped,
+          Effect.asVoid,
+        )
       }
 
-      const model = event.type === "session.step.ended" ? sessions.requested.get(event.data.sessionID) : undefined
+      if (event.type !== "session.step.ended") return Effect.void
 
-      if (event.type !== "session.step.ended" || !model) return Effect.void
+      const model = sessions.stepEnded(event.data.sessionID)
+
+      if (!model) return Effect.void
 
       return daemon.signal(signal(event.data.sessionID, { type: "model_succeeded", model })).pipe(
         Effect.catch((error) => Effect.logError("chauffeur: signal dropped", error)),
@@ -114,34 +171,86 @@ export const installModelRouter = Effect.gen(function* () {
 })
 
 /** Report a failed model request and apply the engine's model decision. */
-function route(event: SessionRetry, toolExecuted: boolean, valid: () => boolean): Effect.Effect<void, never, Host | Daemon> {
-  const sessionID = String(event.sessionID)
+function route(event: SessionRetry, toolExecuted: boolean, valid: () => boolean, switched: (next: ModelRef) => void): Effect.Effect<void, never, Host | Daemon> {
+  return Effect.gen(function* () {
+    if (!valid()) return
 
+    const next = yield* report(String(event.sessionID), ref(event.model), event.error, toolExecuted, valid)
+
+    // Keeping the model (`model: null`) leaves the host's own retry decision in place.
+    if (next) yield* failover(event, next, valid, switched)
+  }).pipe(
+    // The host's own retry decision stands when the engine is unavailable.
+    Effect.catch((error) => Effect.logError("chauffeur: model routing unavailable", error)),
+  )
+}
+
+type ModelFailure = { readonly type: string; readonly status?: number | undefined; readonly message: string }
+
+/**
+ * Report a failed model to the engine. The model to move to; `null` when the
+ * engine keeps the model; `undefined` when the failure is not the router's.
+ */
+function report(sessionID: string, model: ModelRef, error: ModelFailure, toolExecuted: boolean, valid: () => boolean = () => true): Effect.Effect<ModelRef | null | undefined, unknown, Host | Daemon> {
   return Effect.gen(function* () {
     const host = yield* Host
     const daemon = yield* Daemon
     const models = (yield* host.model.list()).data
 
-    if (!valid()) return
+    if (!valid()) return undefined
 
     const effects = yield* daemon.signal(signal(sessionID, {
       type: "model_error",
-      model: ref(event.model),
-      error_type: clip(event.error.type, TEXT_CODE_POINTS),
-      status: event.error.status ?? null,
-      message: clip(event.error.message, TEXT_CODE_POINTS),
+      model,
+      error_type: clip(error.type, TEXT_CODE_POINTS),
+      status: error.status ?? null,
+      message: clip(error.message, TEXT_CODE_POINTS),
       tool_executed: toolExecuted,
       available: available(models),
     }))
 
-    // Keeping the model (`model: null`) leaves the host's own retry decision in place.
-    const [next] = effects.flatMap((effect) => (effect.agent_id === sessionID && effect.type === "model" && effect.model ? [effect.model] : []))
+    const decision = effects.find((effect) => effect.agent_id === sessionID && effect.type === "model")
 
-    if (next) yield* failover(host, event, next, valid)
-  }).pipe(
-    // The host's own retry decision stands when the engine is unavailable.
-    Effect.catch((error) => Effect.logError("chauffeur: model routing unavailable", error)),
-  )
+    return decision?.type === "model" ? decision.model : undefined
+  })
+}
+
+/**
+ * The model Chauffeur switched to failed and ended the execution. Move on to
+ * the engine's next choice and wake the agent, or say that none is left.
+ */
+function followUp(sessionID: SessionID, failed: ModelRef, error: ModelFailure, texts: HostTexts, switched: (next: ModelRef) => void): Effect.Effect<void, never, Host | Daemon> {
+  return Effect.gen(function* () {
+    const host = yield* Host
+    // A new turn starts from the session's history, so no step is repeated.
+    const next = yield* report(String(sessionID), failed, error, false)
+    const current = (yield* host.session.get({ sessionID })).model
+
+    // Not the router's failure, or the user already chose another model.
+    if (next === undefined || (current && !sameModel(ref(current), failed))) return
+
+    const reason = clip(`${error.type}: ${error.message}`, ERROR_CODE_POINTS)
+
+    if (next) {
+      yield* host.session.switchModel({ sessionID, model: hostModel(next) })
+      switched(next)
+    }
+
+    yield* deliverContext(sessionID, {
+      type: "context",
+      agent_id: String(sessionID),
+      delivery: next ? "resume" : "wait",
+      label: texts.model_router.label,
+      skills: [],
+      text: next
+        ? fill(texts.model_router.continue, { model: modelKey(next), failed: modelKey(failed), error: reason })
+        : fill(texts.model_router.stranded, { model: modelKey(failed), error: reason }),
+    }, texts)
+  }).pipe(Effect.catch((error) => Effect.logError("chauffeur: model follow-up failed", error)))
+}
+
+function modelKey(model: ModelRef): string {
+  return `${model.provider}/${model.model}${model.variant ? `#${model.variant}` : ""}`
 }
 
 /** Usable models first; the engine accepts at most MAX_MODELS. */
@@ -153,8 +262,10 @@ function available(models: ReadonlyArray<HostModel & { readonly enabled: boolean
 }
 
 /** Switch to `next` and retry now, unless the execution ended or the selection moved on. */
-function failover(host: Plugin.Context, event: SessionRetry, next: ModelRef, valid: () => boolean): Effect.Effect<void, unknown> {
+function failover(event: SessionRetry, next: ModelRef, valid: () => boolean, switched: (next: ModelRef) => void): Effect.Effect<void, unknown, Host> {
   return Effect.gen(function* () {
+    const host = yield* Host
+
     if (!valid()) return
 
     const current = (yield* host.session.get({ sessionID: event.sessionID })).model
@@ -165,6 +276,7 @@ function failover(host: Plugin.Context, event: SessionRetry, next: ModelRef, val
     if (!valid() || (current && !sameModel(ref(current), ref(event.model)))) return
 
     yield* host.session.switchModel({ sessionID: event.sessionID, model: hostModel(next) })
+    switched(next)
 
     if (valid()) event.decision = { retry: true, delay: 0 }
   })

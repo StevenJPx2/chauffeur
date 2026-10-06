@@ -38,7 +38,10 @@ export class Hooks {
   }
 }
 
-type HostEvent = { readonly type: string; readonly data: { readonly sessionID: string } }
+type HostEvent = {
+  readonly type: string
+  readonly data: { readonly sessionID: string; readonly error?: { readonly type: string; readonly message: string } }
+}
 
 /** A host event stream the test publishes to. */
 export function eventStream() {

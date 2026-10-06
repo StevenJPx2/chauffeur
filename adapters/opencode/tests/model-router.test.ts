@@ -160,6 +160,67 @@ test("stopping while the daemon decides never switches a cancelled execution", a
   }
 })
 
+test("a switched-to model that fails outside the retry hook is reported, and the agent is woken on the next one", async () => {
+  const sessionID = "ses_follow"
+  const hooks = new Hooks()
+  const events = eventStream()
+  const signals: Signal[] = []
+  const synthetic: Array<{ readonly text: string; readonly resume?: boolean }> = []
+  let selection: typeof failed = failed
+  const opus = { provider: "anthropic", model: "claude-opus-5-5", variant: "high" }
+
+  const host = fakeHost({
+    session: {
+      hook: hooks.register,
+      switchModel: (input: { readonly model: typeof failed }) => Effect.sync(() => { selection = input.model }),
+      get: () => Effect.sync(() => ({ model: selection })),
+      synthetic: (input: { readonly text: string; readonly resume?: boolean }) => Effect.sync(() => { synthetic.push(input) }),
+    },
+    model: { list: () => Effect.succeed(models) },
+    skill: { list: () => Effect.succeed({ data: [] }) },
+    tool: { hook: hooks.register },
+    event: { subscribe: events.subscribe },
+  })
+
+  // First choice: opus; then opus is too big for this context, so gpt-6-sol.
+  const daemon: DaemonClient = { rulebooks: noRulebooks, texts: shippedTexts, signal: (value) => Effect.sync(() => {
+    signals.push(value)
+    const from = value.kind.type === "model_error" ? value.kind.model.provider : ""
+
+    return [{ type: "model", agent_id: value.agent_id, model: from === "openai" ? opus : { provider: "openai", model: "gpt-6-sol" } }]
+  }) }
+
+  const plugin = await install(installModelRouter, host, daemon)
+
+  try {
+    selection = { providerID: "openai", id: "gpt-6.1-sol", variant: "high" }
+    await events.publish({ type: "session.execution.started", data: { sessionID } })
+    await settle()
+
+    const quota = { ...retry(sessionID), model: selection, error: { type: "provider.quota", message: "quota" } }
+
+    await hooks.emit("retry", quota)
+    expect(selection.id).toBe("claude-opus-5-5")
+
+    await events.publish({ type: "session.execution.failed", data: { sessionID, error: { type: "unknown", message: "BodyLimitError: Anthropic request body exceeds 10485760 byte limit" } } })
+    await settle()
+
+    expect(signals.at(-1)?.kind).toMatchObject({ type: "model_error", model: opus, message: expect.stringContaining("request body exceeds") })
+    expect(selection.id).toBe("gpt-6-sol")
+    expect(synthetic).toHaveLength(1)
+    expect(synthetic[0]).toMatchObject({ resume: true, text: expect.stringContaining("moved this session to openai/gpt-6-sol because anthropic/claude-opus-5-5#high failed") })
+
+    // A failure with no switch before it is the host's to show.
+    await events.publish({ type: "session.execution.started", data: { sessionID: "ses_other" } })
+    await events.publish({ type: "session.execution.failed", data: { sessionID: "ses_other", error: { type: "unknown", message: "boom" } } })
+    await settle()
+
+    expect(signals.filter((value) => value.agent_id === "ses_other")).toHaveLength(0)
+  } finally {
+    await plugin.close()
+  }
+})
+
 test("running sessions past the cap are forgotten, and a forgotten one keeps the host's retry decision", async () => {
   const hooks = new Hooks()
   const events = eventStream()

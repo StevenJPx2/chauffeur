@@ -477,7 +477,9 @@ The router:
    and preview models that are themselves rate limited. A usage limit belongs
    to the account behind a provider, so no model of the failed model's
    provider, or of any provider the agent already hit a limit on, is a
-   candidate, pinned or not, until a model serves the agent again. A model
+   candidate, pinned or not, until a model serves the agent again. A request
+   the provider will not take at this size ("request body exceeds",
+   `request_too_large`) counts as a lasting limit of that provider. A model
    that cannot serve (401, 403, 404) rules out only itself;
 3. offers `stay` only once per model and never for a lasting limit (402, or
    the `lasting` phrases and types: an exhausted quota, balance, billing, or
@@ -489,7 +491,14 @@ The router:
    the agent unblocked.
 
 A completed model step clears the session's tried set; an HTTP 200 alone does
-not. A cancelled execution invalidates pending model effects, and an
+not. Some failures never reach OpenCode's retry hook: a provider plugin that
+rejects the request before sending it ends the execution instead. When an
+execution fails on a model Chauffeur switched to before any step completed on
+it, and the retry hook never saw that failure, the OpenCode adapter reports it
+as a model error. If the router picks another model, the adapter switches and
+wakes the agent with a note saying why. If the router keeps the model, a note
+says no other model is left. Context overflows skip the retry hook too, so
+OpenCode compacts the session as usual. A cancelled execution invalidates pending model effects, and an
 abandoned daemon reply restores the router's prior state. A switch sets the
 model's thinking variant too. `$CHAUFFEUR_CONFIG_DIR/model-router.json` pins
 preferred fallbacks, with a variant where it matters:

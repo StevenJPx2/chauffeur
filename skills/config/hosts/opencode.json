@@ -26,6 +26,11 @@
     "too_long": "/{id} text is {kib} KiB; the limit is 64 KiB. Nothing was started: shorten it and try again.",
     "failed": "/{id} failed: {error}"
   },
+  "model_router": {
+    "label": "model failover",
+    "continue": "Chauffeur moved this session to {model} because {failed} failed: {error}. Continue where you left off.",
+    "stranded": "Chauffeur moved this session to {model}, but it failed too ({error}), and no other model is left to try. Choose a model, then send a message to continue."
+  },
   "permission": {
     "failed": "Chauffeur could not evaluate this request: {error}"
   },

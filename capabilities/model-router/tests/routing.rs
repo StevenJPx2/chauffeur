@@ -191,6 +191,28 @@ fn a_limit_covers_every_model_of_its_provider() {
 }
 
 #[test]
+fn a_request_too_large_for_a_provider_moves_on_without_waiting() {
+    // The context outgrew what the provider accepts: no model behind it can
+    // take the request, and waiting will not shrink it.
+    let mut signal = limit(false);
+    if let SignalKind::ModelError {
+        error_type,
+        status,
+        message,
+        ..
+    } = &mut signal.kind
+    {
+        *error_type = "unknown".into();
+        *status = None;
+        *message = "BodyLimitError: Anthropic request body exceeds 10485760 byte limit".into();
+    }
+
+    let plan = router(&["anthropic/haiku"]).plan(&Situation::default(), &signal);
+
+    assert_eq!(options(&plan), vec!["openai/sol", "openai/luna"]);
+}
+
+#[test]
 fn a_model_that_cannot_serve_leaves_the_rest_of_its_provider() {
     let mut router = switched_router();
 

@@ -18,7 +18,10 @@
       "billing",
       "high demand",
       "overloaded",
-      "capacity"
+      "capacity",
+      "request body exceeds",
+      "request too large",
+      "request_too_large"
     ],
     "types": [
       "capacity_exhausted",
@@ -29,6 +32,7 @@
       "quota_exceeded",
       "rate_limit",
       "rate_limit_error",
+      "request_too_large",
       "resource_exhausted",
       "too_many_requests",
       "usage_limit"
@@ -42,12 +46,16 @@
       "insufficient_quota",
       "quota",
       "billing",
-      "usage limit"
+      "usage limit",
+      "request body exceeds",
+      "request too large",
+      "request_too_large"
     ],
     "types": [
       "insufficient_quota",
       "quota",
       "quota_exceeded",
+      "request_too_large",
       "usage_limit"
     ]
   },

@@ -253,8 +253,8 @@ mod tests {
         assert!((config.pick_confidence.value() - 0.2).abs() < f32::EPSILON);
         assert_eq!(config.switch_back.after_seconds, 300);
         assert_eq!(config.max_candidates, 8);
-        assert_eq!(config.limit.messages.len(), 10);
-        assert_eq!(config.limit.types.len(), 11);
+        assert_eq!(config.limit.messages.len(), 13);
+        assert_eq!(config.limit.types.len(), 12);
         assert_eq!(config.unusable.messages.len(), 6);
         assert_eq!(config.unusable.types.len(), 10);
         assert_eq!(config.limit.types[0], "capacity_exhausted");

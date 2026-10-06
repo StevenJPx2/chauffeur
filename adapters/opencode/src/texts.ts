@@ -36,6 +36,7 @@ const HostTextsSchema = Schema.Struct({
     too_long: Schema.String,
     failed: Schema.String,
   }),
+  model_router: Schema.Struct({ label: Schema.String, continue: Schema.String, stranded: Schema.String }),
   permission: Schema.Struct({ failed: Schema.String }),
   labels: Schema.Struct({ context: Schema.String, exposure: Schema.String }),
 })
