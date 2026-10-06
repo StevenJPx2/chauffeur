@@ -111,6 +111,14 @@ it lacks, then use what Chauffeur grants to finish the task.
   monitors for the PR, Jira issue, or Slack thread you are working on, and lets
   through only the events the agent needs to act on.
 
+  ![The agent opens a PR, Chauffeur has sourcefed watch it, and a real CI failure resumes the agent to fix and push](docs/media/monitor.gif)
+
+  The repository and its CI failure are real; the throwaway repository has
+  since been deleted. Delivery of monitors Chauffeur creates mid-session needs
+  sourcefed after 0.3.4
+  ([28f4464](https://github.com/StevenJPx2/sourcefed/commit/28f4464)), which
+  this clip runs.
+
 ## Install
 
 You need Rust, Node.js, OpenCode 2, and a TypeSafe API key.
