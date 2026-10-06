@@ -1,0 +1,28 @@
+{
+  "schema_version": 2,
+  "id": "docs-before-source",
+  "name": "Docs before dependency source",
+  "on": "tool_result",
+  "when": {
+    "tools": ["read", "grep", "glob", "shell"]
+  },
+  "steps": [
+    {
+      "id": "dependency-source",
+      "question": "Does this call read or search a third-party dependency's installed source or type definitions (for example in node_modules, ~/.cargo/registry, site-packages, a Go module cache, or a vendored copy) to learn how that library's API behaves? Answer no for the project's own code, its config, lockfiles, or reading a dependency's version.",
+      "yes_at_or_above": 0.7,
+      "minimum_confidence": 0.4
+    },
+    {
+      "id": "docs-unread",
+      "question": "Judging by the recent activity, has the agent not yet looked up this library's documentation in this session (its docs site, a docs tool such as context7, or a web search)?",
+      "yes_at_or_above": 0.7,
+      "minimum_confidence": 0.4
+    }
+  ],
+  "then": {
+    "delivery": "steer",
+    "text": "Chauffeur: Check the library's documentation before its source: a docs tool such as context7 if you have one, the official docs through a web search or fetch, or its changelog for version changes. Read the source when the docs leave the question open."
+  },
+  "once": true
+}

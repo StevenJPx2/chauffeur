@@ -60,7 +60,9 @@ right pane shows the user message extracted from the recorded Jev request.
 After a tool call, Chauffeur nudges the agent back on course, and hands over the
 matching skill when there is one: `cat` or `sed -n` instead of the read tool,
 a recursive `grep` instead of `rg`, a browser for GitHub, Slack, Jira, or X
-where `gh`, `slackcli`, `jira`, or `twitter-cli` does it directly. Add your
+where `gh`, `slackcli`, `jira`, or `twitter-cli` does it directly, or digging
+through a dependency's installed source (`node_modules`, the Cargo registry)
+before reading its documentation. Add your
 own rules for every session in `~/.config/chauffeur/rules/`, or a project's in
 its `.chauffeur/rules/`.
 
