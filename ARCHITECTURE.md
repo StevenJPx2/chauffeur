@@ -662,7 +662,10 @@ HTTP status codes, and validation errors stay in code.
 in config. Each file's `texts` object holds that owner's questions to Jev,
 option descriptions, and the notices and labels it delivers:
 `skills/config/<capability>.json`, `skills/config/situation.json` (the state
-Jev sees), `skills/safety/learning.json` and `backstop.json` (core's harm and
+Jev sees, and its `clip` rule: how much of each activity line is kept from
+the start and the end; the agent's closing message keeps its first 80 and
+last 320 characters, since it often ends on the question the user's next
+message answers), `skills/safety/learning.json` and `backstop.json` (core's harm and
 secret questions, block and confirm messages). A text is a
 `chauffeur_core::Template` with named `{placeholders}`; each field accepts only
 the placeholders its code fills, checked when the file loads, so a typo is an

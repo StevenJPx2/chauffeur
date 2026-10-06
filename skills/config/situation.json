@@ -18,6 +18,6 @@
   "rulebook": "User ran rulebook {rulebook} {command}: {args}",
   "clip": {
     "line": { "head": 240, "tail": 0 },
-    "turn_end": { "head": 240, "tail": 0 }
+    "turn_end": { "head": 80, "tail": 320 }
   }
 }
