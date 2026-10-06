@@ -40,6 +40,14 @@ On our longer benchmark tasks, this used 29% fewer input tokens and finished
 
 ![Chauffeur denying a sed rewrite; the agent switches to the edit tool](docs/media/guard.gif)
 
+### Secrets stay out of the judge's context
+
+Chauffeur redacts credential-shaped strings before sending context to Jev.
+This protects the judge request, not OpenCode's own transcript. Here, the
+right pane shows the user message extracted from the recorded Jev request.
+
+![A fake key in the OpenCode prompt is replaced with REDACTED in the request sent to Jev](docs/media/redaction.gif)
+
 ### Steers when the agent drifts
 
 After a tool call, Chauffeur nudges the agent back on course, and hands over the
@@ -119,6 +127,8 @@ chauffeur audit                   # the last 20 decisions
 chauffeur audit 100
 chauffeur audit --follow --brief  # new decisions as they happen, one short line each
 ```
+
+![The live audit feed shows permission decisions and judgment times while OpenCode works](docs/media/audit.gif)
 
 ```text
 00:16:40 UTC ses_f32a1b… user_message Check my latest Twitter mentions → attach_skills ["twitter-cli"] | 1 asked, 493 ms
