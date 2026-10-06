@@ -1,9 +1,12 @@
 # Chauffeur
 
 Chauffeur rides along with your OpenCode agent. It watches what the agent is
-about to do and steps in when it matters: it hands the agent the right skill,
-approves the permission prompts you would have approved anyway, stops the
-shortcuts you would have stopped, and keeps a goal running until it is done.
+about to do and steps in when it matters:
+
+- It hands the agent the right skill.
+- It approves the permission prompts you would have approved anyway.
+- It stops the shortcuts you would have stopped.
+- It keeps a goal running until it is done.
 
 Each decision is a quick yes/no judgment by [Jev](https://typesafe.ai), a small
 fast model, so it adds about a third of a second, not another agent turn.
@@ -12,12 +15,16 @@ fast model, so it adds about a third of a second, not another agent turn.
 
 ### The right skill, without the token bill
 
-Chauffeur reads your message and attaches only the skills it needs. It hides
-OpenCode's full skill list and the directly sent tools a task won't use, brings
-them back if a later message does, and replaces the longest built-in tool
-descriptions with shorter ones. With Code Mode on, plugin and MCP tools stay in
-OpenCode's catalog, which lists a fixed number of tools; Chauffeur points the
-agent to the ones a request needs.
+Chauffeur reads your message and attaches only the skills it needs. It also
+keeps the rest of the prompt lean:
+
+- It hides OpenCode's full skill list.
+- It hides the directly sent tools a task won't use, and brings them back if a
+  later message needs them.
+- It replaces the longest built-in tool descriptions with shorter ones.
+- With Code Mode on, plugin and MCP tools stay in OpenCode's catalog, which
+  lists a fixed number of tools; Chauffeur points the agent to the ones a
+  request needs.
 
 ![Chauffeur attaching the jira-cli skill to a question about a Jira ticket](docs/media/jira.gif)
 
@@ -25,13 +32,15 @@ agent to the ones a request needs.
 
 The decision feed under OpenCode is `chauffeur audit --follow --brief`.
 
-On our longer benchmark tasks, this used 29% fewer input tokens and finished
-19% faster than plain OpenCode, with the same or better pass rate
-([`bench/`](bench)). The first request of a session is 44–48% smaller (Opus
-18.8k → 10.4k tokens, GPT-6 Luna 11.3k → 5.9k), and the shorter tool
-descriptions take about 480 more tokens off every request with no loss in
-pass rate across 135 runs
-([`docs/plans/prompt-trimming.md`](docs/plans/prompt-trimming.md)).
+What it saves, measured with [`bench/`](bench) and
+[`docs/plans/prompt-trimming.md`](docs/plans/prompt-trimming.md):
+
+- **Longer benchmark tasks:** 29% fewer input tokens and 19% faster than plain
+  OpenCode, with the same or better pass rate.
+- **A session's first request:** 44–48% smaller (Opus 18.8k → 10.4k tokens,
+  GPT-6 Luna 11.3k → 5.9k).
+- **Every request:** about 480 tokens fewer from the shorter tool descriptions,
+  with no loss in pass rate across 135 runs.
 
 ### Fewer permission prompts, and the right ones
 
@@ -58,13 +67,19 @@ right pane shows the user message extracted from the recorded Jev request.
 ### Steers when the agent drifts
 
 After a tool call, Chauffeur nudges the agent back on course, and hands over the
-matching skill when there is one: `cat` or `sed -n` instead of the read tool,
-a recursive `grep` instead of `rg`, a browser for GitHub, Slack, Jira, or X
-where `gh`, `slackcli`, `jira`, or `twitter-cli` does it directly, or digging
-through a dependency's installed source (`node_modules`, the Cargo registry)
-before reading its documentation. Add your
-own rules for every session in `~/.config/chauffeur/rules/`, or a project's in
-its `.chauffeur/rules/`.
+matching skill when there is one. It steers away from:
+
+- `cat` or `sed -n` instead of the read tool
+- a recursive `grep` instead of `rg`
+- a browser for GitHub, Slack, Jira, or X, where `gh`, `slackcli`, `jira`, or
+  `twitter-cli` does it directly
+- digging through a dependency's installed source (`node_modules`, the Cargo
+  registry) before reading its documentation
+
+Add your own rules:
+
+- for every session, in `~/.config/chauffeur/rules/`
+- for one project, in its `.chauffeur/rules/`
 
 ![The agent prints two files with cat; Chauffeur steers it to the read tool](docs/media/steer.gif)
 
@@ -74,19 +89,27 @@ its `.chauffeur/rules/`.
 
 A rulebook is a set of rules you switch on for one session with a slash command.
 
-**`/goal <objective>`** has the agent break the objective into todos with
-Chauffeur's `todowrite` tool, then keeps it working across turns, naming the
-open todos each time. It cannot finish while a todo is open, and it ends once
-the evidence shows the goal is met. It pauses when only you can unblock it, and
-stops after 20 continuations with a progress summary.
+**`/goal <objective>`** keeps the agent working until the objective is met:
+
+- The agent breaks the objective into todos with Chauffeur's `todowrite` tool.
+- Each turn, Chauffeur continues it and names the open todos.
+- It cannot finish while a todo is open, and it ends once the evidence shows
+  the goal is met.
+- It pauses when only you can unblock it.
+- It stops after 20 continuations with a progress summary.
 
 ![/goal resumes unfinished work after one test fix, then verifies the complete passing suite](docs/media/goal.gif)
 
 Add your own in `skills/rulebooks/`, or per project in `.chauffeur/rulebooks/`
 ([format](skills/README.md#rulebooks)).
 
-Here, a project's `release.json` defines `/release`: bump the version, update
-the changelog, run tests, commit and tag locally, then check the evidence.
+Here, a project's `release.json` defines `/release`:
+
+1. Bump the version.
+2. Update the changelog.
+3. Run the tests.
+4. Commit and tag locally.
+5. Check the evidence.
 
 ![A project rulebook becomes /release and checks that a local release is complete](docs/media/release.gif)
 
@@ -99,33 +122,40 @@ it lacks, then use what Chauffeur grants to finish the task.
 
 ### And quietly
 
-- **Model failover**: a usage limit covers the whole provider account, so
-  Chauffeur switches to the same tier on another provider you use directly
-  (your Anthropic or OpenAI subscription, recommended models first, never an
-  OpenCode copy of them), uses OpenCode's free models only when nothing else is
-  left, and switches back once the limit has likely cleared.
+- **Model failover.** A usage limit covers the whole provider account, so on a
+  limit Chauffeur:
+  - switches to the same tier on another provider you use directly (your
+    Anthropic or OpenAI subscription), recommended models first, never an
+    OpenCode copy of them;
+  - uses OpenCode's free models only when nothing else is left;
+  - switches back once the limit has likely cleared.
 
   ![Opus hits a usage limit, then GPT-6.1 Sol does; Chauffeur switches each time and the task finishes on a free model](docs/media/failover.gif)
 
   In this clip, a local endpoint stands in for Anthropic and returns a usage
   limit. The GPT-6.1 Sol limit that follows is a real one.
-- **Cheaper subagents**: when the agent hands routine work such as searching,
-  reading or mechanical edits to a subagent, Chauffeur steers it to a cheaper
-  model from the same provider, such as Sonnet under Opus.
-- **[sourcefed](https://github.com/StevenJPx2/sourcefed) events**: Chauffeur sets up
-  monitors for the PR, Jira issue, or Slack thread you are working on, and lets
-  through only the events the agent needs to act on.
+- **Cheaper subagents.** When the agent hands routine work (searching, reading,
+  mechanical edits) to a subagent, Chauffeur steers it to a cheaper model from
+  the same provider, such as Sonnet under Opus.
+- **[sourcefed](https://github.com/StevenJPx2/sourcefed) events.** Chauffeur
+  sets up monitors for the PR, Jira issue, or Slack thread you are working on,
+  and lets through only the events the agent needs to act on.
 
   ![The agent opens a PR, Chauffeur has sourcefed watch it, and a real CI failure resumes the agent to fix and push](docs/media/monitor.gif)
 
-  The repository (a throwaway private one) and its CI failure are real. Delivery of monitors Chauffeur creates mid-session needs
-  sourcefed after 0.3.4
-  ([28f4464](https://github.com/StevenJPx2/sourcefed/commit/28f4464)), which
-  this clip runs.
+  The repository (a throwaway private one) and its CI failure are real.
+  Delivery of monitors Chauffeur creates mid-session needs sourcefed after
+  0.3.4 ([28f4464](https://github.com/StevenJPx2/sourcefed/commit/28f4464)),
+  which this clip runs.
 
 ## Install
 
-You need Rust, Node.js, OpenCode 2, and a TypeSafe API key.
+You need:
+
+- Rust
+- Node.js
+- OpenCode 2
+- a TypeSafe API key
 
 ```sh
 export TYPESAFE_API_KEY=...          # Jev; the daemon will not start without it
@@ -141,8 +171,12 @@ opencode service restart
 
 `npm run deploy` checks and builds the plugin, then installs it as
 `~/.config/opencode/plugins/chauffeur.js`. The plugin starts the daemon when
-none is running. If Jev is unreachable, Chauffeur stands aside: prompts go
-through unchanged and permission requests fall back to asking you.
+none is running.
+
+If Jev is unreachable, Chauffeur stands aside:
+
+- Prompts go through unchanged.
+- Permission requests fall back to asking you.
 
 ## See what it decided
 
@@ -173,28 +207,34 @@ chauffeur audit --follow --brief  # new decisions as they happen, one short line
 | `CHAUFFEUR_DAEMON_URL` | `http://127.0.0.1:18790` |
 | `CHAUFFEUR_SOURCEFED` | on; `off` leaves sourcefed alone |
 
-Rules, rulebooks, and permission contracts are strict JSON in [`skills/`](skills);
-[`skills/README.md`](skills/README.md) documents each format, and
-`chauffeur skill validate PATH` checks a file. [`ARCHITECTURE.md`](ARCHITECTURE.md)
-covers the design.
+Rules, rulebooks, and permission contracts are strict JSON in [`skills/`](skills):
 
-The words are config too. Every question Chauffeur asks Jev and every message
-it shows lives in a `texts` object in [`skills/config/`](skills/config), and the
-plugin's tool descriptions and replies live in
-[`skills/config/hosts/opencode.json`](skills/config/hosts/opencode.json). To
-reword one, name only that text in your file of the same name:
+- [`skills/README.md`](skills/README.md) documents each format.
+- `chauffeur skill validate PATH` checks a file.
+- [`ARCHITECTURE.md`](ARCHITECTURE.md) covers the design.
+
+The words are config too:
+
+- Every question Chauffeur asks Jev and every message it shows lives in a
+  `texts` object in [`skills/config/`](skills/config).
+- The plugin's tool descriptions and replies live in
+  [`skills/config/hosts/opencode.json`](skills/config/hosts/opencode.json).
+
+To reword one, name only that text in your file of the same name:
 
 ```json
 // ~/.config/chauffeur/hosts/opencode.json
 { "todowrite": { "empty": "No todos yet." } }
 ```
 
-Edits apply without a restart. Within a second, the daemon picks up rules,
-rulebooks, contracts, and wording in `skills/` and overrides in
-`~/.config/chauffeur/`, keeping session memory and running rulebooks; the plugin
-re-registers its tools with new wording within five seconds. A file that fails
-to load, such as one naming a placeholder its text does not accept, leaves the
-previous version running and logs why.
+Edits apply without a restart:
+
+- Within a second, the daemon picks up rules, rulebooks, contracts, and wording
+  in `skills/`, and your overrides in `~/.config/chauffeur/`. It keeps session
+  memory and running rulebooks.
+- Within five seconds, the plugin re-registers its tools with new wording.
+- A file that fails to load, such as one naming a placeholder its text does not
+  accept, leaves the previous version running and logs why.
 
 ![Saving a project rulebook makes its slash command appear without restarting](docs/media/reload.gif)
 
@@ -218,8 +258,11 @@ see [`bench/README.md`](bench/README.md).
 
 The demos above were recorded with
 [terminal-control](https://github.com/anomalyco/terminal-control) in throwaway
-repositories, with stub `jira`, `slackcli` and `twitter` CLIs. Twitter replies
-are fixtures. The ask demo's `AGENTS.md` requires a Slack handoff and supplies
-the question the agent asks Chauffeur.
-The `/goal` demo's project policy allows one failing test file to be fixed per
-turn, making its real automatic continuation visible.
+repositories:
+
+- The `jira`, `slackcli` and `twitter` CLIs are stubs, and Twitter replies are
+  fixtures.
+- The ask demo's `AGENTS.md` requires a Slack handoff and supplies the question
+  the agent asks Chauffeur.
+- The `/goal` demo's project policy allows one failing test file to be fixed per
+  turn, making its real automatic continuation visible.
