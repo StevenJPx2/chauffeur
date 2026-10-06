@@ -99,6 +99,11 @@ it lacks, then use what Chauffeur grants to finish the task.
   (your Anthropic or OpenAI subscription, recommended models first, never an
   OpenCode copy of them), uses OpenCode's free models only when nothing else is
   left, and switches back once the limit has likely cleared.
+
+  ![Opus hits a usage limit, then GPT-6.1 Sol does; Chauffeur switches each time and the task finishes on a free model](docs/media/failover.gif)
+
+  In this clip, a local endpoint stands in for Anthropic and returns a usage
+  limit. The GPT-6.1 Sol limit that follows is a real one.
 - **Cheaper subagents**: when the agent hands routine work such as searching,
   reading or mechanical edits to a subagent, Chauffeur steers it to a cheaper
   model from the same provider, such as Sonnet under Opus.
