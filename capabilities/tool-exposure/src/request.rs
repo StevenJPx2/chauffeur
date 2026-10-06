@@ -7,6 +7,7 @@
 use chauffeur_core::judge::strategy::Candidate;
 use chauffeur_core::{CodeModeNamespace, Question, QuestionKind, Rule};
 
+use crate::config::ToolTexts;
 use crate::{Grant, code_mode};
 
 /// Candidates judged, in host order: hidden groups first, then namespaces.
@@ -22,20 +23,20 @@ pub fn candidates(
     need: &str,
     user_request: &str,
     needed: Rule,
+    texts: &ToolTexts,
 ) -> Vec<Candidate<Grant>> {
-    let asked = format!(
-        "The coding agent asked for a tool it lacks: \"{need}\". The user's latest request: \
-         {user_request}."
-    );
+    let asked = texts
+        .request_asked
+        .render(&[("need", need), ("user_request", user_request)]);
     let groups = groups.iter().map(|(name, listing)| Candidate {
         key: Grant::Group(name.clone()),
         question: Question {
             id: format!("tools:{name}"),
-            instructions: format!(
-                "{asked} Would the hidden \"{name}\" tools let the agent do any part of what it \
-                 asked for? Answer yes when they cover at least one thing it needs, even if other \
-                 tools cover the rest. Tools: {listing}"
-            ),
+            instructions: texts.request_group.render(&[
+                ("asked", &asked),
+                ("group", name),
+                ("tools", listing),
+            ]),
             kind: QuestionKind::Noul,
         },
         rule: needed,
@@ -44,15 +45,12 @@ pub fn candidates(
         key: Grant::Namespace(namespace.name.clone()),
         question: Question {
             id: code_mode::question_id(&namespace.name),
-            instructions: format!(
-                "{asked} Would the \"{}\" tools, reached through Code Mode's execute tool, let \
-                 the agent do any part of what it asked for? Answer yes when they cover at least \
-                 one thing it needs, even if other tools cover the rest. It has {} tools, such as: \
-                 {}",
-                namespace.name,
-                namespace.size,
-                code_mode::examples(namespace)
-            ),
+            instructions: texts.request_namespace.render(&[
+                ("asked", &asked),
+                ("namespace", &namespace.name),
+                ("size", &namespace.size.to_string()),
+                ("examples", &code_mode::examples(namespace)),
+            ]),
             kind: QuestionKind::Noul,
         },
         rule: needed,

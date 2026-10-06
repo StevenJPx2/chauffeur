@@ -11,6 +11,9 @@ pub const METHOD_HEALTH: &str = "health";
 pub const METHOD_SIGNAL: &str = "signal";
 /// The rulebooks a user can start, for a host to offer as commands.
 pub const METHOD_RULEBOOKS: &str = "rulebooks";
+/// The wording a host shows the agent: `{ "host": "opencode" }` returns the
+/// host's texts, shipped and overlaid by the user's file.
+pub const METHOD_TEXTS: &str = "texts";
 
 /// One rulebook as a host offers it, such as the `/goal` command.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]

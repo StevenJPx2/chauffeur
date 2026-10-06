@@ -9,7 +9,7 @@ use std::time::Duration;
 use chauffeur_capability_event_gate::{EventGate, EventGateConfig};
 use chauffeur_capability_model_router::{ModelRouter, ModelRouterConfig, Provider};
 use chauffeur_capability_monitors::{FollowWork, Monitors, MonitorsConfig};
-use chauffeur_capability_permission::{Permission, load_skills};
+use chauffeur_capability_permission::{Permission, PermissionConfig, load_skills};
 use chauffeur_capability_rules::{
     Rulebook, Rules, RulesConfig, Trigger, load_dirs, load_rulebooks, rulebooks_for,
 };
@@ -17,7 +17,7 @@ use chauffeur_capability_skill_exposure::{SkillExposure, SkillExposureConfig};
 use chauffeur_capability_tool_exposure::{ToolExposure, ToolExposureConfig};
 use chauffeur_core::{
     Backstop, Capability, Effect, Engine, Judging, LearnedShapes, LearningConfig, RedactionConfig,
-    Redactor, Reloading, Signal, SignalKind, Watch, load_config,
+    Redactor, Reloading, Signal, SignalKind, SituationTexts, Watch, load_config,
 };
 use chauffeur_judge_jev::{JevClient, JevConfig};
 use chauffeur_plugin_anthropic::AnthropicProvider;
@@ -293,7 +293,8 @@ fn capabilities(
         load_skills(&permission_dir)?
     } else {
         Vec::new()
-    });
+    })
+    .with_config(PermissionConfig::load(&config("permission.json"))?);
     let mut rules = load_dirs(&[&skills_dir.join("rules"), &config("rules")])?;
 
     if !idle_reminders {
@@ -418,11 +419,13 @@ fn build_engine(
     let redactor = Redactor::new(config, learned_shapes)
         .map_err(|error| format!("{}: {error}", redaction_path.display()))?;
     let learning = LearningConfig::load(&options.config_dir.join("learning.json"))?;
+    let situation = SituationTexts::load(&options.config_dir.join("situation.json"))?;
 
     Ok(Engine::new(system_one, capabilities)?
         .with_backstop(backstop.with_learned(learned_backstop))
         .with_redactor(redactor)
-        .with_learning(learning))
+        .with_learning(learning)
+        .with_situation_texts(situation))
 }
 
 #[cfg(test)]

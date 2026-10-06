@@ -7,6 +7,8 @@ use std::collections::{HashMap, HashSet};
 
 use chauffeur_core::{CodeModeNamespace, Delivery, Effect, Question, QuestionKind};
 
+use crate::config::ToolTexts;
+
 const MAX_AGENTS: usize = 256;
 const MAX_DESCRIPTION_CHARS: usize = 160;
 
@@ -63,6 +65,7 @@ impl Surfaced {
         agent_id: &str,
         chosen: &[&CodeModeNamespace],
         delivery: Delivery,
+        texts: &ToolTexts,
     ) -> Option<Effect> {
         if chosen.is_empty() {
             return None;
@@ -76,9 +79,9 @@ impl Surfaced {
         Some(Effect::Context {
             agent_id: agent_id.to_string(),
             delivery,
-            label: "Code Mode tools".into(),
+            label: texts.code_mode_label.as_str().to_string(),
             skills: Vec::new(),
-            text: Some(note(chosen)),
+            text: Some(note(chosen, texts)),
         })
     }
 }
@@ -99,22 +102,19 @@ pub fn examples(namespace: &CodeModeNamespace) -> String {
     examples.join(", ")
 }
 
-pub fn question(namespace: &CodeModeNamespace) -> Question {
+pub fn question(namespace: &CodeModeNamespace, texts: &ToolTexts) -> Question {
     Question {
         id: question_id(&namespace.name),
-        instructions: format!(
-            "Will the coding agent need the \"{}\" tools, reached through Code Mode's execute \
-             tool, for the user's latest request? Its catalog shows only some of them. It has {} \
-             tools, such as: {}",
-            namespace.name,
-            namespace.size,
-            examples(namespace)
-        ),
+        instructions: texts.namespace.render(&[
+            ("namespace", &namespace.name),
+            ("size", &namespace.size.to_string()),
+            ("examples", &examples(namespace)),
+        ]),
         kind: QuestionKind::Noul,
     }
 }
 
-fn note(chosen: &[&CodeModeNamespace]) -> String {
+fn note(chosen: &[&CodeModeNamespace], texts: &ToolTexts) -> String {
     let sections: Vec<String> = chosen
         .iter()
         .map(|namespace| {
@@ -122,24 +122,27 @@ fn note(chosen: &[&CodeModeNamespace]) -> String {
                 .tools
                 .iter()
                 .map(|tool| {
-                    let description: String = tool.description.chars().take(MAX_DESCRIPTION_CHARS).collect();
+                    let description: String = tool
+                        .description
+                        .chars()
+                        .take(MAX_DESCRIPTION_CHARS)
+                        .collect();
 
-                    format!("- {}: {description}", tool.id)
+                    texts
+                        .code_mode_tool
+                        .render(&[("tool", &tool.id), ("description", &description)])
                 })
                 .collect();
 
-            format!(
-                "## {} ({} tools)\n{}\nFind exact paths with `search({{ namespace: \"{}\", query: \"…\" }})` inside `execute`.",
-                namespace.name,
-                namespace.size,
-                lines.join("\n"),
-                namespace.name
-            )
+            texts.code_mode_section.render(&[
+                ("namespace", &namespace.name),
+                ("size", &namespace.size.to_string()),
+                ("tools", &lines.join("\n")),
+            ])
         })
         .collect();
 
-    format!(
-        "Chauffeur: Code Mode tools that fit this request. The catalog shows these namespaces only in part.\n\n{}\n",
-        sections.join("\n\n")
-    )
+    texts
+        .code_mode_note
+        .render(&[("sections", &sections.join("\n\n"))])
 }

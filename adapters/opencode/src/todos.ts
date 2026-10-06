@@ -1,6 +1,7 @@
 import { Effect, Option, Schema, type Scope } from "effect"
 import { Host } from "./host.js"
 import { clipBytes } from "./text.js"
+import { fill, type HostTexts, Texts, withTexts } from "./texts.js"
 
 /** Chauffeur's own todo tool, in place of V1's `todowrite`; exposure never hides it. */
 export const TODO_TOOL = "todowrite"
@@ -12,52 +13,49 @@ const TODO_BYTES = 512
 
 const Status = Schema.Literals(["pending", "in_progress", "completed", "cancelled"])
 
-const Todo = Schema.Struct({
-  content: Schema.String.annotate({ description: "One distinct step, in a short sentence." }),
-  status: Status.annotate({ description: "pending, in_progress (one at a time), completed once its evidence is in, or cancelled." }),
-})
+const Todo = Schema.Struct({ content: Schema.String, status: Status })
 
 /** One item of a session's todo list, as the engine reads it. */
 export type Todo = typeof Todo.Type
 
 const Todos = Schema.Array(Todo)
 
-const Input = Schema.Struct({
-  todos: Todos.annotate({ description: "The whole list, in order. Each call replaces the previous list." }),
-})
+/** The tool's input, its fields described in the texts' words. */
+function inputSchema(texts: HostTexts) {
+  const item = Schema.Struct({
+    content: Schema.String.annotate({ description: texts.todowrite.content }),
+    status: Status.annotate({ description: texts.todowrite.status }),
+  })
 
-const DESCRIPTION = [
-  "Write the todo list for this session: the distinct steps of the current task and where each stands.",
-  "Use it for work with several steps: write the list before starting, keep one todo in_progress, mark each completed only when its evidence is in, and cancel any that no longer apply.",
-  "Each call replaces the whole list. Chauffeur keeps a /goal going while any todo is pending or in progress.",
-].join(" ")
+  return Schema.Struct({ todos: Schema.Array(item).annotate({ description: texts.todowrite.todos }) })
+}
 
 const storageKey = (sessionID: string): string => `todos/${sessionID}`
 
 /** Register `todowrite`: the list is kept per session and reported at each turn end. */
-export const installTodos: Effect.Effect<void, never, Host | Scope.Scope> = Effect.gen(function* () {
+export const installTodos: Effect.Effect<void, never, Host | Texts | Scope.Scope> = Effect.gen(function* () {
   const host = yield* Host
 
-  yield* host.tool.transform((editor) => {
+  yield* withTexts((texts) => host.tool.transform((editor) => {
     editor.add({
       name: TODO_TOOL,
-      description: DESCRIPTION,
-      input: Input,
+      description: texts.todowrite.description,
+      input: inputSchema(texts),
       options: { codemode: false },
       execute: ({ todos }, context) =>
-        write(String(context.sessionID), todos).pipe(
+        write(String(context.sessionID), todos, texts).pipe(
           Effect.provideService(Host, host),
           Effect.map((content) => ({ content })),
         ),
     })
-  })
+  }))
 })
 
-function write(sessionID: string, todos: ReadonlyArray<Todo>): Effect.Effect<string, never, Host> {
+function write(sessionID: string, todos: ReadonlyArray<Todo>, texts: HostTexts): Effect.Effect<string, never, Host> {
   return Effect.gen(function* () {
     const host = yield* Host
 
-    if (todos.length > MAX_TODOS) return `A todo list holds at most ${MAX_TODOS} items; merge some and write it again.`
+    if (todos.length > MAX_TODOS) return fill(texts.todowrite.too_many, { max: String(MAX_TODOS) })
 
     // Blank items are dropped; long ones are clipped to the engine's bound.
     const kept = todos.flatMap((todo) => {
@@ -68,7 +66,7 @@ function write(sessionID: string, todos: ReadonlyArray<Todo>): Effect.Effect<str
 
     yield* host.storage.set(storageKey(sessionID), kept)
 
-    return render(kept)
+    return render(kept, texts)
   })
 }
 
@@ -90,11 +88,11 @@ const MARKS: Record<Todo["status"], string> = {
 }
 
 /** The list as the agent reads it back. */
-export function render(todos: ReadonlyArray<Todo>): string {
-  if (todos.length === 0) return "The todo list is empty."
+export function render(todos: ReadonlyArray<Todo>, texts: HostTexts): string {
+  if (todos.length === 0) return texts.todowrite.empty
 
   const open = todos.filter((todo) => todo.status === "pending" || todo.status === "in_progress").length
   const lines = todos.map((todo) => `${MARKS[todo.status]} ${todo.content}`)
 
-  return [`Todos (${open} open):`, ...lines].join("\n")
+  return [fill(texts.todowrite.heading, { open: String(open) }), ...lines].join("\n")
 }

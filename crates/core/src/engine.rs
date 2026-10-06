@@ -8,7 +8,7 @@ use crate::effect::{Effect, PermissionDecision};
 use crate::learning::{self, LearningConfig, Probe};
 use crate::redact::{LearnedShapes, Masking, RedactionConfig, Redactor};
 use crate::signal::Signal;
-use crate::situation::Situation;
+use crate::situation::{Situation, SituationTexts};
 use crate::system_one::{Answer, Question, QuestionKind, SystemOne, validate_answers};
 use crate::trace::{Trace, TracedAnswer, TracedQuestion};
 
@@ -26,6 +26,7 @@ pub struct Engine {
     redactor: Redactor,
     /// The backstop or redactor learned something since the host last asked.
     learning: LearningConfig,
+    situation_texts: SituationTexts,
     learned_changed: bool,
     trace: Trace,
     pending: Option<Pending>,
@@ -85,6 +86,7 @@ impl Engine {
             backstop: Backstop::new(Vec::new()),
             redactor: Redactor::new(RedactionConfig::default(), LearnedShapes::default())?,
             learning: LearningConfig::default(),
+            situation_texts: SituationTexts::default(),
             learned_changed: false,
             pending: None,
         })
@@ -94,6 +96,14 @@ impl Engine {
     #[must_use]
     pub fn with_learning(mut self, learning: LearningConfig) -> Self {
         self.learning = learning;
+        self
+    }
+
+    /// Replace the shipped wording of the state System One reads, for example
+    /// with your `situation.json`.
+    #[must_use]
+    pub fn with_situation_texts(mut self, texts: SituationTexts) -> Self {
+        self.situation_texts = texts;
         self
     }
 
@@ -207,9 +217,7 @@ impl Engine {
             return Ok(Step::Done(vec![Effect::Permission {
                 agent_id: signal.agent_id.clone(),
                 decision: PermissionDecision::Deny,
-                message: Some(format!(
-                    "Chauffeur blocked an irreversible action (matched \"{pattern}\")."
-                )),
+                message: Some(self.backstop.blocked_message(pattern)),
             }]));
         }
 
@@ -220,9 +228,7 @@ impl Engine {
             return Ok(Step::Done(vec![Effect::Permission {
                 agent_id: signal.agent_id.clone(),
                 decision: PermissionDecision::Ask,
-                message: Some(format!(
-                    "Chauffeur asks you to confirm this (matched \"{pattern}\")."
-                )),
+                message: Some(self.backstop.confirm_message(pattern)),
             }]));
         }
 
@@ -232,7 +238,7 @@ impl Engine {
             .cloned()
             .unwrap_or_default();
         let (settled, asks) = self.plan(&situation, signal);
-        let harm = learning::harm(signal);
+        let harm = learning::harm(signal, &self.learning.texts);
 
         if asks.is_empty() && harm.is_none() {
             return Ok(Step::Done(settled));
@@ -245,10 +251,12 @@ impl Engine {
 
         // One numbering across state and questions, so a value keeps its label.
         let mut masking = Masking::default();
-        let state = self.redactor.redact(&situation.render(), &mut masking);
+        let state = self
+            .redactor
+            .redact(&situation.render(&self.situation_texts), &mut masking);
         let mut questions = self.redacted(questions, &mut masking);
 
-        questions.extend(learning::secrets(&masking));
+        questions.extend(learning::secrets(&masking, &self.learning.texts));
         self.trace.questions = questions
             .iter()
             .map(|question| TracedQuestion::new(question, 1))
@@ -341,7 +349,9 @@ impl Engine {
                 .get(&pending.signal.agent_id)
                 .cloned()
                 .unwrap_or_default();
-            let state = self.redactor.redact(&situation.render(), &mut masking);
+            let state = self
+                .redactor
+                .redact(&situation.render(&self.situation_texts), &mut masking);
             let questions = self.redacted(self.namespaced(&pending.asks), &mut masking);
             self.trace.questions.extend(
                 questions
@@ -361,10 +371,7 @@ impl Engine {
             pending.settled.push(Effect::Permission {
                 agent_id: pending.signal.agent_id.clone(),
                 decision: PermissionDecision::Deny,
-                message: Some(
-                    "Chauffeur blocked an irreversible action; it is now on the backstop list."
-                        .into(),
-                ),
+                message: Some(self.backstop.learned_message()),
             });
         }
 
@@ -395,7 +402,7 @@ impl Engine {
         self.situations
             .entry(signal.agent_id.clone())
             .or_default()
-            .record(signal);
+            .record(signal, &self.situation_texts);
     }
 
     fn evict_oldest(&mut self) {
@@ -670,9 +677,10 @@ mod tests {
         let saved = before.save();
         let mut after = engine(false, &calls);
         after.load(saved.clone());
+        let texts = SituationTexts::default();
         assert_eq!(
-            after.situations["agent"].render(),
-            before.situations["agent"].render()
+            after.situations["agent"].render(&texts),
+            before.situations["agent"].render(&texts)
         );
 
         let mut stale = saved;

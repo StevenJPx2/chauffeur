@@ -25,7 +25,7 @@ use chauffeur_core::{
 
 use code_mode::Surfaced;
 
-pub use config::ToolExposureConfig;
+pub use config::{ToolExposureConfig, ToolTexts};
 
 pub const ID: &str = "tool-exposure";
 /// Groups judged per message, in host order.
@@ -70,6 +70,9 @@ pub struct ToolExposure {
     base: HashSet<String>,
     surfaced: Surfaced,
 }
+
+/// Builds a group's question from its listed-tool count and the texts.
+type AskGroup = fn(&Group<'_>, usize, &ToolTexts) -> Question;
 
 /// One group of judgeable tools, in host order.
 struct Group<'a> {
@@ -169,17 +172,18 @@ impl ToolExposure {
         // A group the task confidently will not need is hidden; a hidden
         // group or namespace clearly needed is brought in.
         let needed = self.config.reveal.yes();
-        let (ask, rule): (fn(&Group<'_>, usize) -> Question, Rule) = if first {
+        let (ask, rule): (AskGroup, Rule) = if first {
             (hide_question, self.config.hide.no())
         } else {
             (reveal_question, needed)
         };
+        let texts = &self.config.texts;
         let groups: Vec<Candidate<String>> = self
             .groups(tools)
             .iter()
             .map(|group| Candidate {
                 key: group.name.to_string(),
-                question: ask(group, self.config.listed_tools),
+                question: ask(group, self.config.listed_tools, texts),
                 rule,
             })
             .collect();
@@ -190,7 +194,7 @@ impl ToolExposure {
             .take(MAX_GROUPS)
             .map(|namespace| Candidate {
                 key: namespace.name.clone(),
-                question: code_mode::question(namespace),
+                question: code_mode::question(namespace, texts),
                 rule: needed,
             })
             .collect();
@@ -257,9 +261,10 @@ impl ToolExposure {
             return None;
         }
 
-        let choose = choose_question(&candidates, user_request, evidence);
+        let choose = choose_question(&candidates, user_request, evidence, &self.config.texts);
         let (user_request, evidence) = (user_request.clone(), evidence.clone());
         let pick = self.config.pick_confidence.pick();
+        let texts = self.config.texts.clone();
 
         Some(
             Judge::ask(choose, move |answer| pick.chosen(answer)).then(move |chosen| {
@@ -268,7 +273,8 @@ impl ToolExposure {
                 else {
                     return Judge::done(Verdict::Recover(None));
                 };
-                let confirm = confirm_question(&tool, &description, &user_request, &evidence);
+                let confirm =
+                    confirm_question(&tool, &description, &user_request, &evidence, &texts);
 
                 Judge::ask(confirm, move |answer| {
                     Verdict::Recover(
@@ -297,7 +303,7 @@ impl ToolExposure {
             .map(|group| {
                 (
                     group.name.to_string(),
-                    listing(group, self.config.listed_tools),
+                    listing(group, self.config.listed_tools, &self.config.texts),
                 )
             })
             .collect();
@@ -307,6 +313,7 @@ impl ToolExposure {
             need,
             user_request,
             self.config.reveal.yes(),
+            &self.config.texts,
         );
 
         (!candidates.is_empty()).then(|| strategy::fan_out(candidates).map(Verdict::Request))
@@ -340,10 +347,12 @@ impl ToolExposure {
             .filter(|namespace| namespaces.contains(&namespace.name))
             .collect();
 
-        effects.extend(
-            self.surfaced
-                .surface(&signal.agent_id, &chosen, Delivery::Prompt),
-        );
+        effects.extend(self.surfaced.surface(
+            &signal.agent_id,
+            &chosen,
+            Delivery::Prompt,
+            &self.config.texts,
+        ));
 
         effects
     }
@@ -372,10 +381,12 @@ impl ToolExposure {
             })
             .collect();
 
-        effects.extend(
-            self.surfaced
-                .surface(&signal.agent_id, &chosen, Delivery::Steer),
-        );
+        effects.extend(self.surfaced.surface(
+            &signal.agent_id,
+            &chosen,
+            Delivery::Steer,
+            &self.config.texts,
+        ));
 
         effects
     }
@@ -440,44 +451,47 @@ fn effect(agent_id: &str, tools: Vec<String>, reveal: bool) -> Vec<Effect> {
 }
 
 /// The group's first `max` tools, and how many more it has.
-fn listing(group: &Group<'_>, max: usize) -> String {
+fn listing(group: &Group<'_>, max: usize, texts: &ToolTexts) -> String {
     let mut listed: Vec<String> = group
         .tools
         .iter()
         .take(max)
-        .map(|tool| format!("{} ({})", tool.id, tool.description))
+        .map(|tool| {
+            texts
+                .listed_tool
+                .render(&[("tool", &tool.id), ("description", &tool.description)])
+        })
         .collect();
 
     if group.tools.len() > max {
-        listed.push(format!("and {} more", group.tools.len() - max));
+        listed.push(
+            texts
+                .more_tools
+                .render(&[("count", &(group.tools.len() - max).to_string())]),
+        );
     }
 
     listed.join("; ")
 }
 
-fn hide_question(group: &Group<'_>, listed: usize) -> Question {
+fn hide_question(group: &Group<'_>, listed: usize, texts: &ToolTexts) -> Question {
     Question {
         id: group.name.to_string(),
-        instructions: format!(
-            "Will the coding agent need any of the \"{}\" tools to carry out the user's task? \
-             Tools: {}",
-            group.name,
-            listing(group, listed)
-        ),
+        instructions: texts.hide.render(&[
+            ("group", group.name),
+            ("tools", &listing(group, listed, texts)),
+        ]),
         kind: QuestionKind::Noul,
     }
 }
 
-fn reveal_question(group: &Group<'_>, listed: usize) -> Question {
+fn reveal_question(group: &Group<'_>, listed: usize, texts: &ToolTexts) -> Question {
     Question {
         id: group.name.to_string(),
-        instructions: format!(
-            "The \"{}\" tools were hidden from the coding agent earlier in this conversation. \
-             Does the user's latest request need them now? Showing them again re-reads the whole \
-             conversation once, so answer yes only when they are clearly needed. Tools: {}",
-            group.name,
-            listing(group, listed)
-        ),
+        instructions: texts.reveal.render(&[
+            ("group", group.name),
+            ("tools", &listing(group, listed, texts)),
+        ]),
         kind: QuestionKind::Noul,
     }
 }
@@ -487,6 +501,7 @@ fn choose_question(
     candidates: &[(String, String)],
     user_request: &str,
     evidence: &str,
+    texts: &ToolTexts,
 ) -> Question {
     let mut options: Vec<ChoiceOption> = candidates
         .iter()
@@ -498,31 +513,46 @@ fn choose_question(
 
     options.push(ChoiceOption {
         value: chauffeur_core::judge::NONE.into(),
-        description: "No hidden tool fits".into(),
+        description: texts.no_tool.as_str().to_string(),
     });
 
     Question {
         id: "recover/choose".into(),
-        instructions: format!(
-            "Which registered, hidden direct tool fits the user's request and the tool result? Request: {user_request}. Evidence: {evidence}. Choose none if no offered tool fits."
-        ),
+        instructions: texts
+            .choose
+            .render(&[("user_request", user_request), ("evidence", evidence)]),
         kind: QuestionKind::Choice { options },
     }
 }
 
 /// Whether the agent clearly needs the chosen tool.
-fn confirm_question(tool: &str, description: &str, user_request: &str, evidence: &str) -> Question {
+fn confirm_question(
+    tool: &str,
+    description: &str,
+    user_request: &str,
+    evidence: &str,
+    texts: &ToolTexts,
+) -> Question {
+    let options = [
+        (REVEAL_NEEDED, &texts.reveal_option),
+        ("keep_not_needed", &texts.keep_option),
+        ("keep_uncertain", &texts.uncertain_option),
+    ];
+
     Question {
         id: format!("recover/{tool}"),
-        instructions: format!(
-            "Does the agent need the hidden direct tool {tool} ({description}) to complete the user's request? Request: {user_request}. Tool result evidence: {evidence}. Reveal only if clearly needed."
-        ),
+        instructions: texts.confirm.render(&[
+            ("tool", tool),
+            ("description", description),
+            ("user_request", user_request),
+            ("evidence", evidence),
+        ]),
         kind: QuestionKind::Choice {
-            options: [REVEAL_NEEDED, "keep_not_needed", "keep_uncertain"]
+            options: options
                 .into_iter()
-                .map(|value| ChoiceOption {
+                .map(|(value, text)| ChoiceOption {
                     value: value.into(),
-                    description: value.replace('_', " "),
+                    description: text.as_str().to_string(),
                 })
                 .collect(),
         },

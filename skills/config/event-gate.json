@@ -1,3 +1,10 @@
 {
-  "withhold": { "at": 0.3, "confidence": 0.4 }
+  "withhold": { "at": 0.3, "confidence": 0.4 },
+  "texts": {
+    "question": "A {source} {kind} event arrived for the coding agent's session: {summary}{body}{origin}\nsourcefed marks it {marked}. Should the agent be shown this event now? Show events that need the agent to do something: CI failures, requested changes, questions or requests addressed to it, merge conflicts, and a merged pull request with follow-up work. Withhold noise: bot comments, approvals, status or assignee changes nobody asked it to act on, thanks, and anything it has already handled.",
+    "body": "\n{body}",
+    "origin": "\nIt comes from this session's monitor on {watch}.",
+    "marked_actionable": "actionable",
+    "marked_informational": "informational"
+  }
 }

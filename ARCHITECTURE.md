@@ -523,6 +523,8 @@ The adapter sends **Signals** and applies **Effects**; it holds no policy.
 | -------- | ------------------------------------------- |
 | `signal` | report one observation, receive its effects |
 | `health` | readiness                                   |
+| `rulebooks` | the rulebooks a host offers as commands in a workspace |
+| `texts` | the wording a host shows the agent (`{ "host": "opencode" }`) |
 
 ### OpenCode seams
 
@@ -615,7 +617,25 @@ same name in `$CHAUFFEUR_CONFIG_DIR` overlays them through
 replace whole, and an unknown field or an out-of-range value stops the daemon
 with an error naming it. Structural bounds (per-agent maps, text and file
 sizes, rounds), protocol names (capability and question IDs, schema versions),
-HTTP status codes, and question wording stay in code.
+HTTP status codes, and validation errors stay in code.
+
+**Wording is data too.** Code decides when something is said; the words live
+in config. Each file's `texts` object holds that owner's questions to Jev,
+option descriptions, and the notices and labels it delivers:
+`skills/config/<capability>.json`, `skills/config/situation.json` (the state
+Jev sees), `skills/safety/learning.json` and `backstop.json` (core's harm and
+secret questions, block and confirm messages). A text is a
+`chauffeur_core::Template` with named `{placeholders}`; each field accepts only
+the placeholders its code fills, checked when the file loads, so a typo is an
+error, not a stray brace in a question. Override one text by naming it in your
+file of the same name; the rest stay shipped. The host's own wording (tool
+descriptions, replies, labels) ships in `skills/config/hosts/<host>.json`: the
+daemon layers your `$CHAUFFEUR_CONFIG_DIR/hosts/<host>.json` over it, rejects
+keys the shipped file lacks, and serves it through the `texts` RPC method; the
+OpenCode adapter reads it every five seconds and registers its tools again when
+it changes, falling back to the shipped copy bundled into the plugin while the
+daemon is down. Rule, rulebook, and permission-contract wording already lives
+in their own files.
 
 **Hot reload.** `chauffeur_core::watch` fingerprints files and directories
 (length and modification time per file, and which files exist) and is checked

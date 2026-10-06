@@ -1,5 +1,9 @@
 {
   "irreversible": { "at": 0.9, "confidence": 0.6 },
   "secret": { "at": 0.7, "confidence": 0.6 },
-  "safe": { "at": 0.3, "confidence": 0.6 }
+  "safe": { "at": 0.3, "confidence": 0.6 },
+  "texts": {
+    "irreversible": "Would running this exact command cause irreversible harm, such as deleting data that cannot be recovered, wiping or overwriting a disk, rewriting shared history (force-pushing over a shared branch), or dropping a production database? Command: {command}",
+    "secret": "The state shows {shape} in place of a string. Going by its shape and where it appears, is that string a secret credential such as an API key, access token, or password, rather than an ID, hash, or name?"
+  }
 }

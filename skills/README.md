@@ -11,7 +11,7 @@ rejected, and `chauffeur skill validate PATH` checks one.
 | `rules/` | Rules: steers after a tool call, with an optional skill to hand over, and idle reminders at a turn end. |
 | `rulebooks/` | Rulebooks: named sets of rules the user starts in a session with a slash command, such as `/goal <objective>`. |
 | `safety/` | The backstop's deny and confirm patterns, redaction shapes, and the bars for learning from them. |
-| `config/` | Each capability's tunable defaults: judgment bars, budgets, timing, and word lists, plus `providers/` model tier tables. |
+| `config/` | Each capability's tunable defaults: judgment bars, budgets, timing, word lists, and the `texts` it asks and says, plus `situation.json` (the state Jev sees), `providers/` model tier tables, and `hosts/` (each host's tool descriptions and replies). |
 | `handoff/` | Skills Chauffeur hands over, in OpenCode's `SKILL.md` format: `slack-cli`, `jira-cli`, and `twitter-cli`. Link them into a skills directory OpenCode reads, such as `~/.agents/skills`. |
 
 The files in `safety/` and `config/` are compiled into the daemon as its
@@ -27,6 +27,18 @@ an error naming it. For example, to attach a skill only on a surer yes:
 ```json
 { "needed": { "at": 0.8 } }
 ```
+
+Wording works the same way. Each file's `texts` holds its questions to Jev and
+the messages it delivers, with `{placeholders}` the code fills in; a
+placeholder the field does not accept stops the daemon with an error naming
+it. To reword the todo tool's empty reply, `~/.config/chauffeur/hosts/opencode.json`:
+
+```json
+{ "todowrite": { "empty": "No todos yet." } }
+```
+
+Edits to your files reload within a second, and the OpenCode plugin picks up
+new host wording within five seconds, without a restart.
 
 Personal rules live in `$CHAUFFEUR_CONFIG_DIR/rules/` (normally
 `~/.config/chauffeur/rules/`). They load after shipped rules, with unique IDs

@@ -6,5 +6,17 @@
     "cooldown_seconds": 60,
     "browser_only": ["browser-harness"]
   },
-  "budget": { "bytes": 65536, "skills": 4 }
+  "budget": { "bytes": 65536, "skills": 4 },
+  "texts": {
+    "request": "The coding agent asked for: \"{need}\" (the user's latest request: {user_request}). Does the {skill} skill ({description}) serve what it asked for? Answer yes only when it clearly does.",
+    "project": "The coding session works inside the {skill} project ({workspace}). The {skill} skill: {description}. Does the user's latest request involve work in this project that the skill covers? Answer no only when the request is clearly about something else.",
+    "named": "The user's latest request mentions {word}. The {skill} skill: {description}. Does the agent need this skill to act on the request?",
+    "offered": "The coding session works in {workspace}. Does the user's latest request need the {skill} skill ({description}) for the agent to act on it? Answer yes only when the skill clearly helps with this request.",
+    "unknown_workspace": "an unknown directory",
+    "drift": "Which offered skill, if any, directly improves the exact action in the agent's recent tool result? Choose none if the approach already works. A skill covering the same topic is not evidence of misuse; successful gh use for GitHub does not call for a browser or browser-harness hand-over. Latest tool action: {action}",
+    "unknown_action": "unknown",
+    "no_skill": "No skill clearly helps.",
+    "drift_notice": "Chauffeur: the {skill} skill fits this work better than the current approach.",
+    "label": "skill {skill}"
+  }
 }

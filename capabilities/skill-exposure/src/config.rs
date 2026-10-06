@@ -5,7 +5,7 @@ use std::path::Path;
 
 use serde::Deserialize;
 
-use chauffeur_core::{Confidence, Threshold, load_layered};
+use chauffeur_core::{Confidence, Template, Threshold, load_layered};
 
 use crate::MAX_OPTIONS;
 
@@ -26,6 +26,77 @@ pub struct SkillExposureConfig {
     pub drift: Drift,
     /// What one signal may attach.
     pub budget: Budget,
+    /// The wording of the questions to System One and of what is delivered.
+    pub texts: SkillTexts,
+}
+
+/// The skill questions to System One and the messages delivered with a skill.
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct SkillTexts {
+    /// Whether a skill serves what the agent asked for: `{need}`,
+    /// `{user_request}`, `{skill}`, `{description}`.
+    pub request: Template,
+    /// Whether a skill of the session's own project applies: `{skill}`,
+    /// `{description}`, `{workspace}`.
+    pub project: Template,
+    /// Whether the agent needs a skill the request names: `{word}` (the skill's
+    /// leading word), `{skill}`, `{description}`.
+    pub named: Template,
+    /// Whether the request needs a skill nothing points at: `{skill}`,
+    /// `{description}`, `{workspace}`.
+    pub offered: Template,
+    /// `{workspace}` when the session reports no directory.
+    pub unknown_workspace: Template,
+    /// Which skill, if any, improves the agent's latest tool action: `{action}`.
+    pub drift: Template,
+    /// `{action}` when no tool action is known.
+    pub unknown_action: Template,
+    /// The choice that hands over nothing.
+    pub no_skill: Template,
+    /// The message delivered with a mid-turn hand-over: `{skill}`.
+    pub drift_notice: Template,
+    /// Names an attached skill for the user: `{skill}`.
+    pub label: Template,
+}
+
+impl SkillTexts {
+    fn checked(self) -> Result<Self, String> {
+        let skill = &["skill"][..];
+
+        for (field, template, allowed) in [
+            (
+                "texts.request",
+                &self.request,
+                &["need", "user_request", "skill", "description"][..],
+            ),
+            (
+                "texts.project",
+                &self.project,
+                &["skill", "description", "workspace"][..],
+            ),
+            (
+                "texts.named",
+                &self.named,
+                &["word", "skill", "description"][..],
+            ),
+            (
+                "texts.offered",
+                &self.offered,
+                &["skill", "description", "workspace"][..],
+            ),
+            ("texts.unknown_workspace", &self.unknown_workspace, &[][..]),
+            ("texts.drift", &self.drift, &["action"][..]),
+            ("texts.unknown_action", &self.unknown_action, &[][..]),
+            ("texts.no_skill", &self.no_skill, &[][..]),
+            ("texts.drift_notice", &self.drift_notice, skill),
+            ("texts.label", &self.label, skill),
+        ] {
+            template.check(field, allowed)?;
+        }
+
+        Ok(self)
+    }
 }
 
 /// Mid-turn hand-overs need stronger evidence than prompt admission.
@@ -67,9 +138,10 @@ impl SkillExposureConfig {
     ///
     /// # Errors
     ///
-    /// When `budget.skills` is not in `1..=64` or `drift.browser_only` lists
-    /// more than 64 skills.
-    pub fn checked(self) -> Result<Self, String> {
+    /// When `budget.skills` is not in `1..=64`, `drift.browser_only` lists
+    /// more than 64 skills, or a text is empty, oversized, or names an unknown
+    /// placeholder.
+    pub fn checked(mut self) -> Result<Self, String> {
         if !(1..=MAX_OPTIONS).contains(&self.budget.skills) {
             return Err(format!("budget.skills must be in 1..={MAX_OPTIONS}"));
         }
@@ -80,13 +152,18 @@ impl SkillExposureConfig {
             ));
         }
 
+        self.texts = self.texts.checked()?;
+
         Ok(self)
     }
 }
 
 impl Default for SkillExposureConfig {
     fn default() -> Self {
-        serde_json::from_str(SHIPPED).expect("shipped skill-exposure config is valid")
+        serde_json::from_str::<Self>(SHIPPED)
+            .map_err(|error| error.to_string())
+            .and_then(Self::checked)
+            .expect("shipped skill-exposure config is valid")
     }
 }
 
@@ -143,6 +220,19 @@ mod tests {
         assert_eq!(config.drift.confidence.value(), 0.7);
         assert_eq!(config.drift.browser_only, ["browser-harness"]);
         assert_eq!(config.budget.skills, 4);
+    }
+
+    #[test]
+    fn your_text_replaces_one_wording_and_an_unknown_placeholder_is_an_error() {
+        let config = load("text", r#"{ "texts": { "no_skill": "None of these." } }"#).unwrap();
+        let unknown = load("unknown", r#"{ "texts": { "label": "skill {skil}" } }"#).unwrap_err();
+
+        assert_eq!(config.texts.no_skill.as_str(), "None of these.");
+        assert_eq!(
+            config.texts.label,
+            SkillExposureConfig::default().texts.label
+        );
+        assert!(unknown.contains("texts.label names {skil}"));
     }
 
     #[test]

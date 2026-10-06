@@ -3,7 +3,7 @@ import { Effect } from "effect"
 import { type DaemonClient, DaemonError } from "../src/daemon.js"
 import { installGate } from "../src/gate.js"
 import type { HostEffect, Signal } from "../src/protocol.js"
-import { fakeHost, install, noRulebooks } from "./support.js"
+import { fakeHost, install, noRulebooks, shippedTexts } from "./support.js"
 
 type Gate = (input: Readonly<Record<string, string | boolean>>) => Effect.Effect<{ readonly deliver: boolean }>
 
@@ -32,7 +32,7 @@ async function gate(daemon: DaemonClient, input: Readonly<Record<string, string 
 const event = { sessionID: "ses_gate", source: "github", kind: "ci", summary: "CI passed", actionable: false }
 
 function answering(effects: ReadonlyArray<HostEffect>): DaemonClient {
-  return { rulebooks: noRulebooks, signal: () => Effect.succeed(effects) }
+  return { rulebooks: noRulebooks, texts: shippedTexts, signal: () => Effect.succeed(effects) }
 }
 
 test("only a gate effect that withholds keeps an event out", async () => {
@@ -43,7 +43,7 @@ test("only a gate effect that withholds keeps an event out", async () => {
 test("the event's monitor reaches the engine, and older callers send none", async () => {
   const sent: Signal[] = []
 
-  const recording: DaemonClient = { rulebooks: noRulebooks, signal: (value) => Effect.sync(() => {
+  const recording: DaemonClient = { rulebooks: noRulebooks, texts: shippedTexts, signal: (value) => Effect.sync(() => {
     sent.push(value)
 
     return []
@@ -60,5 +60,5 @@ test("the event's monitor reaches the engine, and older callers send none", asyn
 
 test("an invalid request or an unavailable engine delivers", async () => {
   expect(await gate(answering([{ type: "gate", agent_id: "ses_gate", deliver: false }]), { sessionID: "ses_gate" })).toBe(true)
-  expect(await gate({ rulebooks: noRulebooks, signal: () => Effect.fail(new DaemonError({ message: "daemon down" })) }, event)).toBe(true)
+  expect(await gate({ rulebooks: noRulebooks, texts: shippedTexts, signal: () => Effect.fail(new DaemonError({ message: "daemon down" })) }, event)).toBe(true)
 })

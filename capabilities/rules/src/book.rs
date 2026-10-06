@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::rule::{Rule, Trigger};
 use crate::rulebook::{End, Rulebook, load_project_rulebooks};
+use crate::texts::RulesTexts;
 
 const MAX_SESSIONS: usize = 256;
 /// Books one session runs at once, such as a goal inside a ticket.
@@ -229,31 +230,35 @@ impl Books {
         id: &str,
         args: &str,
         workspace: &str,
+        texts: &RulesTexts,
     ) -> Notice {
         if command == RulebookCommand::Start {
-            return self.start(agent, id, args, workspace);
+            return self.start(agent, id, args, workspace, texts);
         }
 
         let Some(running) = self.find(agent, id).map(|running| running.clone()) else {
-            return notice(
-                Delivery::Wait,
-                id,
-                format!("/{id} is not running. Start it with /{id} <what>."),
-            );
+            return notice(Delivery::Wait, id, texts.not_running.render(&[("id", id)]));
         };
         let name = running.book.name.clone();
 
         match command {
             RulebookCommand::Status => {
-                let state = if running.paused { "paused" } else { "running" };
+                let state = if running.paused {
+                    &texts.state_paused
+                } else {
+                    &texts.state_running
+                };
 
                 notice(
                     Delivery::Wait,
                     &name,
-                    format!(
-                        "{name} is {state}: {}\n{} of {} continuations used.",
-                        running.args, running.deliveries, running.book.budget
-                    ),
+                    texts.status.render(&[
+                        ("name", &name),
+                        ("state", &state.render(&[])),
+                        ("args", &running.args),
+                        ("used", &running.deliveries.to_string()),
+                        ("budget", &running.book.budget.to_string()),
+                    ]),
                 )
             }
             RulebookCommand::Pause => {
@@ -261,7 +266,7 @@ impl Books {
                 notice(
                     Delivery::Wait,
                     &name,
-                    format!("{name} paused. Resume it with /{id} resume."),
+                    texts.paused.render(&[("name", &name), ("id", id)]),
                 )
             }
             RulebookCommand::Resume => {
@@ -273,19 +278,30 @@ impl Books {
             }
             RulebookCommand::Clear | RulebookCommand::Start => {
                 self.stop(agent, id);
-                notice(Delivery::Wait, &name, format!("{name} cleared."))
+                notice(
+                    Delivery::Wait,
+                    &name,
+                    texts.cleared.render(&[("name", &name)]),
+                )
             }
         }
     }
 
-    fn start(&mut self, agent: &str, id: &str, args: &str, workspace: &str) -> Notice {
+    fn start(
+        &mut self,
+        agent: &str,
+        id: &str,
+        args: &str,
+        workspace: &str,
+        texts: &RulesTexts,
+    ) -> Notice {
         let books = match self.available(workspace) {
             Ok(books) => books,
             Err(error) => {
                 return notice(
                     Delivery::Wait,
                     id,
-                    format!("Rulebooks here are unreadable: {error}"),
+                    texts.unreadable.render(&[("error", &error)]),
                 );
             }
         };
@@ -295,10 +311,9 @@ impl Books {
             return notice(
                 Delivery::Wait,
                 id,
-                format!(
-                    "No rulebook named {id} here. Rulebooks: {}.",
-                    known.join(", ")
-                ),
+                texts
+                    .unknown_book
+                    .render(&[("id", id), ("known", &known.join(", "))]),
             );
         };
         let args = match book.accept(args) {
@@ -311,7 +326,9 @@ impl Books {
             return notice(
                 Delivery::Wait,
                 &book.name,
-                format!("A session runs at most {MAX_RUNNING} rulebooks; clear one first."),
+                texts
+                    .session_full
+                    .render(&[("max", &MAX_RUNNING.to_string())]),
             );
         }
         if !self.sessions.contains_key(agent) && self.sessions.len() >= MAX_SESSIONS {
@@ -320,11 +337,11 @@ impl Books {
 
         let blocked = if self.continues || book.rules.iter().all(|rule| rule.on != Trigger::TurnEnd)
         {
-            ""
+            String::new()
         } else {
-            "\n(Chauffeur's idle steering is off, so this rulebook cannot continue the agent between turns.)"
+            texts.idle_steering_off.render(&[])
         };
-        let answer = started(&book, &args, blocked);
+        let answer = started(&book, &args, &blocked);
 
         self.sessions
             .entry(agent.to_string())

@@ -2,6 +2,7 @@
 //! permission request checks its deterministic evidence, asks its one typed
 //! question, and the most restrictive outcome answers the host.
 
+mod config;
 pub mod contract;
 mod evidence;
 
@@ -9,9 +10,10 @@ use std::collections::HashMap;
 
 use chauffeur_core::{
     Answer, Capability, ChoiceOption, Effect, PermissionDecision, Plan, Question, QuestionKind,
-    Signal, SignalKind, Situation,
+    Signal, SignalKind, Situation, Template,
 };
 
+pub use config::{PermissionConfig, PermissionTexts};
 use contract::{Branch, DecisionQuestion, Effect as OutcomeEffect, Outcome, QuestionType};
 pub use contract::{Skill, load_skill, load_skills};
 
@@ -22,6 +24,7 @@ const MAX_COOLDOWNS: usize = 4_096;
 
 pub struct Permission {
     contracts: Vec<Skill>,
+    config: PermissionConfig,
     /// Last evaluation time per (agent, contract).
     cooldowns: HashMap<(String, String), u64>,
 }
@@ -35,12 +38,21 @@ enum Judgment<'a> {
 }
 
 impl Permission {
+    /// Enforce `contracts`, wording questions as shipped.
     #[must_use]
     pub fn new(contracts: Vec<Skill>) -> Self {
         Self {
             contracts,
+            config: PermissionConfig::default(),
             cooldowns: HashMap::new(),
         }
+    }
+
+    /// This capability with `config`'s wording.
+    #[must_use]
+    pub fn with_config(mut self, config: PermissionConfig) -> Self {
+        self.config = config;
+        self
     }
 
     /// Contracts for `action` that judge what the host decided: most judge
@@ -148,7 +160,7 @@ impl Capability for Permission {
             .into_iter()
             .filter(|skill| contract::missing_evidence(skill, &evidence).is_empty())
             .filter(|skill| !self.cooling(&signal.agent_id, skill, signal.at))
-            .map(|skill| question(skill, &signal.kind))
+            .map(|skill| question(&self.config.texts.question, skill, &signal.kind))
             .collect();
 
         if questions.is_empty() {
@@ -242,7 +254,7 @@ fn rank(effect: OutcomeEffect) -> u8 {
 /// The contract's question about this request. The request itself comes
 /// first: Jev otherwise looks for it in the recent activity, where an earlier
 /// request can pass for this one.
-fn question(skill: &Skill, request: &SignalKind) -> Question {
+fn question(template: &Template, skill: &Skill, request: &SignalKind) -> Question {
     let decision: &DecisionQuestion = &skill.decision;
     let kind = match decision.kind {
         QuestionType::Choice => QuestionKind::Choice {
@@ -265,28 +277,31 @@ fn question(skill: &Skill, request: &SignalKind) -> Question {
         QuestionType::Noul => QuestionKind::Noul,
     };
 
+    let (action, resources) = this_request(request);
+
     Question {
         id: skill.identity.id.clone(),
-        instructions: format!(
-            "{}\nJudge only this request; earlier activity in the session is context.\n{}",
-            this_request(request),
-            decision.instructions
-        ),
+        instructions: template.render(&[
+            ("action", action),
+            ("resources", &resources),
+            ("instructions", &decision.instructions),
+        ]),
         kind,
     }
 }
 
-fn this_request(request: &SignalKind) -> String {
+/// The request's action and its resolved resources, comma separated.
+fn this_request(request: &SignalKind) -> (&str, String) {
     let SignalKind::PermissionRequest {
         action, resources, ..
     } = request
     else {
-        return String::new();
+        return ("", String::new());
     };
     let targets: Vec<&str> = resources
         .iter()
         .map(|resource| resource.resolved.as_str())
         .collect();
 
-    format!("The request to judge: {action} {}", targets.join(", "))
+    (action.as_str(), targets.join(", "))
 }

@@ -17,11 +17,13 @@ export type DaemonClient = {
   readonly signal: (signal: Signal, timeout?: Duration.Input) => Effect.Effect<ReadonlyArray<HostEffect>, DaemonError>
   /** The rulebooks the user can start in `workspace`, offered as slash commands. */
   readonly rulebooks: (workspace: string) => Effect.Effect<ReadonlyArray<RulebookEntry>, DaemonError>
+  /** The wording `host` shows the agent, as the daemon serves it; the caller decodes it. */
+  readonly texts: (host: string) => Effect.Effect<unknown, DaemonError>
 }
 
 type Endpoint = { readonly url: string; readonly headers: Headers }
 
-type RpcParams = { readonly signal?: Signal; readonly workspace?: string }
+type RpcParams = { readonly signal?: Signal; readonly workspace?: string; readonly host?: string }
 
 /**
  * Connect to the configured daemon, or start a local one when none answers.
@@ -55,6 +57,7 @@ const connect = Effect.gen(function* () {
       request(endpoint, "signal", { signal: value }, SignalReply, timeout).pipe(Effect.map((reply) => reply.effects)),
     rulebooks: (workspace) =>
       request(endpoint, "rulebooks", { workspace }, RulebooksReply, RPC_TIMEOUT).pipe(Effect.map((reply) => reply.rulebooks)),
+    texts: (host) => request(endpoint, "texts", { host }, Schema.Unknown, RPC_TIMEOUT),
   } satisfies DaemonClient
 })
 

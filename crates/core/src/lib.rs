@@ -18,11 +18,11 @@ pub mod watch;
 
 pub use contracts::{capability, effect, signal, system_one};
 pub(crate) use features::learning;
-pub use features::learning::LearningConfig;
+pub use features::learning::{LearningConfig, LearningTexts};
 pub use features::{backstop, redact};
 pub use state::{situation, trace};
 
-pub use backstop::{Backstop, BackstopConfig};
+pub use backstop::{Backstop, BackstopConfig, BackstopTexts};
 pub use capability::{Capability, PipeStep, Plan};
 #[cfg(feature = "client")]
 pub use client::{DEFAULT_DAEMON_URL, DaemonClient};
@@ -36,7 +36,7 @@ pub use signal::{
     AvailableModel, CatalogEntry, CodeModeNamespace, MAX_PROMPT_BYTES, MAX_TEXT_BYTES, MAX_TODOS,
     ModelRef, Resource, RulebookCommand, Signal, SignalKind, Todo, TodoState, TodoStatus,
 };
-pub use situation::Situation;
+pub use situation::{Situation, SituationTexts};
 pub use system_one::{
     Answer, AnswerValue, ChoiceOption, Question, QuestionKind, SystemOne, SystemOneError,
     validate_answers,

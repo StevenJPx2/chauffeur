@@ -17,5 +17,25 @@
   "reveal": { "at": 0.7, "confidence": 0.4 },
   "pick_confidence": 0.4,
   "listed_tools": 6,
-  "recovery_candidates": 4
+  "recovery_candidates": 4,
+  "texts": {
+    "listed_tool": "{tool} ({description})",
+    "more_tools": "and {count} more",
+    "hide": "Will the coding agent need any of the \"{group}\" tools to carry out the user's task? Tools: {tools}",
+    "reveal": "The \"{group}\" tools were hidden from the coding agent earlier in this conversation. Does the user's latest request need them now? Showing them again re-reads the whole conversation once, so answer yes only when they are clearly needed. Tools: {tools}",
+    "namespace": "Will the coding agent need the \"{namespace}\" tools, reached through Code Mode's execute tool, for the user's latest request? Its catalog shows only some of them. It has {size} tools, such as: {examples}",
+    "request_asked": "The coding agent asked for a tool it lacks: \"{need}\". The user's latest request: {user_request}.",
+    "request_group": "{asked} Would the hidden \"{group}\" tools let the agent do any part of what it asked for? Answer yes when they cover at least one thing it needs, even if other tools cover the rest. Tools: {tools}",
+    "request_namespace": "{asked} Would the \"{namespace}\" tools, reached through Code Mode's execute tool, let the agent do any part of what it asked for? Answer yes when they cover at least one thing it needs, even if other tools cover the rest. It has {size} tools, such as: {examples}",
+    "choose": "Which registered, hidden direct tool fits the user's request and the tool result? Request: {user_request}. Evidence: {evidence}. Choose none if no offered tool fits.",
+    "no_tool": "No hidden tool fits",
+    "confirm": "Does the agent need the hidden direct tool {tool} ({description}) to complete the user's request? Request: {user_request}. Tool result evidence: {evidence}. Reveal only if clearly needed.",
+    "reveal_option": "reveal needed",
+    "keep_option": "keep not needed",
+    "uncertain_option": "keep uncertain",
+    "code_mode_label": "Code Mode tools",
+    "code_mode_tool": "- {tool}: {description}",
+    "code_mode_section": "## {namespace} ({size} tools)\n{tools}\nFind exact paths with `search({ namespace: \"{namespace}\", query: \"…\" })` inside `execute`.",
+    "code_mode_note": "Chauffeur: Code Mode tools that fit this request. The catalog shows these namespaces only in part.\n\n{sections}\n"
+  }
 }

@@ -5,6 +5,7 @@ import { Host, type SessionID } from "./host.js"
 import { signal, type RulebookCommand, type RulebookEntry } from "./protocol.js"
 import { deliverContext } from "./skills.js"
 import { userText } from "./text.js"
+import { fill, type HostTexts, Texts } from "./texts.js"
 
 const COMMANDS: ReadonlyArray<RulebookCommand> = ["pause", "resume", "clear", "status"]
 
@@ -43,7 +44,7 @@ const REFRESH: Duration.Input = "5 seconds"
  * again whenever it changes, so a rulebook added, edited or removed on disk
  * shows up without restarting OpenCode.
  */
-export const installRulebooks: Effect.Effect<void, never, Host | Daemon | Scope.Scope> = Effect.suspend(() => offerRulebooks(REFRESH))
+export const installRulebooks: Effect.Effect<void, never, Host | Daemon | Texts | Scope.Scope> = Effect.suspend(() => offerRulebooks(REFRESH))
 
 /** The offer the registered commands came from, as JSON, and their registration. */
 interface Installed {
@@ -52,12 +53,15 @@ interface Installed {
 }
 
 /** [`installRulebooks`], re-reading the offer every `refresh`. */
-export function offerRulebooks(refresh: Duration.Input): Effect.Effect<void, never, Host | Daemon | Scope.Scope> {
+export function offerRulebooks(refresh: Duration.Input): Effect.Effect<void, never, Host | Daemon | Texts | Scope.Scope> {
   return Effect.gen(function* () {
     const host = yield* Host
     const daemon = yield* Daemon
+    const texts = yield* Texts
     const workspace = String(host.location.directory)
-    let installed: Installed = { offer: "[]", registration: undefined }
+    // New wording re-registers the commands like a new offer does.
+    const offerKey = (books: ReadonlyArray<RulebookEntry>) => `${texts.version()}:${JSON.stringify(books)}`
+    let installed: Installed = { offer: offerKey([]), registration: undefined }
 
     const sync = Effect.gen(function* () {
       // An unreachable daemon keeps the commands already registered.
@@ -65,13 +69,15 @@ export function offerRulebooks(refresh: Duration.Input): Effect.Effect<void, nev
         Effect.catch((error) => Effect.logError("chauffeur: rulebooks unavailable", error).pipe(Effect.as(undefined))),
       )
 
-      const offer = JSON.stringify(books)
+      if (books === undefined) return
 
-      if (books === undefined || offer === installed.offer) return
+      const offer = offerKey(books)
+
+      if (offer === installed.offer) return
 
       if (installed.registration) yield* installed.registration.dispose
 
-      installed = { offer, registration: books.length === 0 ? undefined : yield* register(books) }
+      installed = { offer, registration: books.length === 0 ? undefined : yield* register(books, texts.current()) }
 
       // Registry changes are lazy: the next read rebuilds and publishes them.
       // Materialize now so an idle TUI sees the new commands without a prompt.
@@ -86,7 +92,7 @@ export function offerRulebooks(refresh: Duration.Input): Effect.Effect<void, nev
 }
 
 /** One command per rulebook, registered together so they are removed together. */
-function register(books: ReadonlyArray<RulebookEntry>): Effect.Effect<Registration, never, Host | Daemon | Scope.Scope> {
+function register(books: ReadonlyArray<RulebookEntry>, texts: HostTexts): Effect.Effect<Registration, never, Host | Daemon | Scope.Scope> {
   return Effect.gen(function* () {
     const host = yield* Host
     const daemon = yield* Daemon
@@ -95,9 +101,9 @@ function register(books: ReadonlyArray<RulebookEntry>): Effect.Effect<Registrati
       for (const book of books) {
         editor.add({
           name: book.id,
-          description: description(book),
+          description: description(book, texts),
           execute: ({ sessionID, prompt }) =>
-            run(sessionID, book.id, prompt.text).pipe(
+            run(sessionID, book.id, prompt.text, texts).pipe(
               Effect.provideService(Host, host),
               Effect.provideService(Daemon, daemon),
             ),
@@ -107,10 +113,10 @@ function register(books: ReadonlyArray<RulebookEntry>): Effect.Effect<Registrati
   })
 }
 
-function description(book: RulebookEntry): string {
-  const usage = book.args_required ? `/${book.id} <what>` : `/${book.id}`
+function description(book: RulebookEntry, texts: HostTexts): string {
+  const usage = fill(book.args_required ? texts.rulebook.usage_with_args : texts.rulebook.usage, { id: book.id })
 
-  return `${book.description} ${usage}, or pause | resume | clear.`
+  return fill(texts.rulebook.description, { description: book.description, usage })
 }
 
 /**
@@ -118,14 +124,16 @@ function description(book: RulebookEntry): string {
  * agent (a start or resume, carrying the goal) becomes a visible prompt;
  * every other answer is a Chauffeur note.
  */
-function run(sessionID: SessionID, rulebook: string, text: string): Effect.Effect<void, never, Host | Daemon> {
+function run(sessionID: SessionID, rulebook: string, text: string, texts: HostTexts): Effect.Effect<void, never, Host | Daemon> {
   return Effect.gen(function* () {
     const host = yield* Host
     const daemon = yield* Daemon
     const { command, args } = parseRulebookInput(text)
 
     if (userText(args) !== args) {
-      yield* note(sessionID, rulebook, `/${rulebook} text is ${Math.ceil(Buffer.byteLength(args, "utf8") / 1_024)} KiB; the limit is 64 KiB. Nothing was started: shorten it and try again.`)
+      const kib = String(Math.ceil(Buffer.byteLength(args, "utf8") / 1_024))
+
+      yield* note(sessionID, rulebook, fill(texts.rulebook.too_long, { id: rulebook, kib }), texts)
 
       return
     }
@@ -145,9 +153,9 @@ function run(sessionID: SessionID, rulebook: string, text: string): Effect.Effec
           skills: effect.skills.map((id) => ({ id: Skill.ID.make(id) })),
           metadata: { [RULEBOOK_METADATA_KEY]: rulebook },
         }).pipe(Effect.asVoid)
-        : deliverContext(sessionID, effect), { discard: true })
+        : deliverContext(sessionID, effect, texts), { discard: true })
   }).pipe(
-    Effect.catch((error) => note(sessionID, rulebook, `/${rulebook} failed: ${String(error)}`).pipe(
+    Effect.catch((error) => note(sessionID, rulebook, fill(texts.rulebook.failed, { id: rulebook, error: String(error) }), texts).pipe(
       Effect.catch(() => Effect.logError(`chauffeur: /${rulebook} failed`, error)),
     )),
   )
@@ -156,6 +164,6 @@ function run(sessionID: SessionID, rulebook: string, text: string): Effect.Effec
 /** Visible rulebook prompts record the rulebook here. */
 const RULEBOOK_METADATA_KEY = "chauffeur.rulebook"
 
-function note(sessionID: SessionID, rulebook: string, text: string): Effect.Effect<void, unknown, Host> {
-  return deliverContext(sessionID, { type: "context", agent_id: String(sessionID), delivery: "wait", label: `/${rulebook}`, skills: [], text })
+function note(sessionID: SessionID, rulebook: string, text: string, texts: HostTexts): Effect.Effect<void, unknown, Host> {
+  return deliverContext(sessionID, { type: "context", agent_id: String(sessionID), delivery: "wait", label: `/${rulebook}`, skills: [], text }, texts)
 }

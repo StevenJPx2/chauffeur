@@ -6,6 +6,7 @@ import { Host, type SessionID } from "./host.js"
 import { signal, TEXT_CODE_POINTS, type HostEffect } from "./protocol.js"
 import { hostLoadsSkills, renderContext } from "./skills.js"
 import { clip, isIntegrationMessage, userText } from "./text.js"
+import { fill, type HostTexts, type Texts, withTexts } from "./texts.js"
 
 /** Chauffeur's own tool; exposure never judges or hides it. */
 export const ASK_TOOL = "ask_chauffeur"
@@ -14,61 +15,51 @@ export const ASK_TOOL = "ask_chauffeur"
 const ASK_TIMEOUT = "8 seconds"
 
 /** The reply when nothing was granted; the host's skill tool is named while the host keeps it. */
-export function nothingFound(hostSkills: boolean): string {
-  const tools = "Your listed tools are available as usual and nothing restricts them: do it with them."
-
-  return hostSkills
-    ? `Chauffeur has no extra tool for that. If a skill fits, load it with the skill tool. ${tools}`
-    : `Chauffeur has no extra tool or skill for that. ${tools}`
+export function nothingFound(texts: HostTexts, hostSkills: boolean): string {
+  return hostSkills ? texts.ask_chauffeur.nothing_found_skill_tool : texts.ask_chauffeur.nothing_found
 }
 
 /** The host decodes the call's input with this schema before `execute` sees it. */
-const Input = Schema.Struct({
-  need: Schema.String.annotate({ description: "What you need to do, in plain words." }),
-})
+function inputSchema(texts: HostTexts) {
+  return Schema.Struct({
+    need: Schema.String.annotate({ description: texts.ask_chauffeur.need }),
+  })
+}
 
-type Input = typeof Input.Type
+type Input = { readonly need: string }
 
 /** What the host tells a tool about the call. */
 type CallContext = Parameters<Parameters<ToolEditor["add"]>[0]["execute"]>[1]
-
-const DESCRIPTION = [
-  "Ask Chauffeur for a tool or skill you lack.",
-  "Your listed tools work as usual, including on files outside the project: use them first, and ask only when none of them can do the job.",
-  "Describe what you need to do in plain words, such as \"drive a browser to check a page\" or \"create a Jira issue from the command line\".",
-  "Chauffeur may reveal hidden tools, point you to Code Mode tools, or hand over a skill; the reply says what you got.",
-  "Ask before improvising a workaround.",
-].join(" ")
 
 /**
  * Register `ask_chauffeur`: the agent says what it lacks, the engine picks
  * the hidden tools, Code Mode tools, or skill that serve it, and the reply
  * carries what it granted. Revealed tools join the agent's next step.
  */
-export function installAskTool(exposure: ExposureControl): Effect.Effect<void, never, Host | Daemon | Scope.Scope> {
+export function installAskTool(exposure: ExposureControl): Effect.Effect<void, never, Host | Daemon | Texts | Scope.Scope> {
   return Effect.gen(function* () {
     const host = yield* Host
     const daemon = yield* Daemon
 
-    yield* host.tool.transform((editor) => {
+    yield* withTexts((texts) => host.tool.transform((editor) => {
       editor.add({
         name: ASK_TOOL,
-        description: DESCRIPTION,
-        input: Input,
+        description: texts.ask_chauffeur.description,
+        input: inputSchema(texts),
         options: { codemode: false },
         execute: (input, context) =>
-          answer(input, context, exposure).pipe(
+          answer(input, context, exposure, texts).pipe(
             Effect.provideService(Host, host),
             Effect.provideService(Daemon, daemon),
-            Effect.catch((error) => Effect.succeed(`Chauffeur could not answer: ${String(error)}. Continue with the tools you have.`)),
+            Effect.catch((error) => Effect.succeed(fill(texts.ask_chauffeur.failed, { error: String(error) }))),
             Effect.map((content) => ({ content })),
           ),
       })
-    })
+    }))
   })
 }
 
-function answer({ need }: Input, context: CallContext, exposure: ExposureControl): Effect.Effect<string, unknown, Host | Daemon> {
+function answer({ need }: Input, context: CallContext, exposure: ExposureControl, texts: HostTexts): Effect.Effect<string, unknown, Host | Daemon> {
   return Effect.gen(function* () {
     const host = yield* Host
     const daemon = yield* Daemon
@@ -84,22 +75,22 @@ function answer({ need }: Input, context: CallContext, exposure: ExposureControl
       code_mode: yield* exposure.codeMode(String(context.agent), clipped),
     }), ASK_TIMEOUT)
 
-    const parts = yield* Effect.forEach(effects, (effect) => granted(context.sessionID, effect, exposure))
+    const parts = yield* Effect.forEach(effects, (effect) => granted(context.sessionID, effect, exposure, texts))
     const reply = parts.filter((part) => part !== "").join("\n\n")
 
-    return reply === "" ? nothingFound(hostLoadsSkills()) : reply
+    return reply === "" ? nothingFound(texts, hostLoadsSkills()) : reply
   })
 }
 
 /** What one effect grants the agent, as reply text. */
-function granted(sessionID: SessionID, effect: HostEffect, exposure: ExposureControl): Effect.Effect<string, unknown, Host> {
+function granted(sessionID: SessionID, effect: HostEffect, exposure: ExposureControl, texts: HostTexts): Effect.Effect<string, unknown, Host> {
   return Effect.gen(function* () {
     if (effect.agent_id !== String(sessionID)) return ""
 
     if (effect.type === "tools") {
       if (effect.reveal.length === 0 || !(yield* exposure.reveal(sessionID, effect.reveal))) return ""
 
-      return `Chauffeur revealed these tools; they are available from your next step: ${effect.reveal.join(", ")}.`
+      return fill(texts.ask_chauffeur.revealed, { tools: effect.reveal.join(", ") })
     }
 
     if (effect.type !== "context") return ""

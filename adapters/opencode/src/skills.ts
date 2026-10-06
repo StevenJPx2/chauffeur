@@ -1,6 +1,7 @@
 import { Effect } from "effect"
 import { Host, type SessionID } from "./host.js"
 import type { ContextEffect } from "./protocol.js"
+import { fill, type HostTexts } from "./texts.js"
 
 /** Synthetic messages carrying skills record their IDs here. */
 export const SKILLS_METADATA_KEY = "chauffeur.skills"
@@ -22,7 +23,7 @@ export function hostLoadsSkills(env: Record<string, string | undefined> = proces
  * the running turn, `resume` wakes an idle agent, and `wait` stays for the
  * next turn.
  */
-export function deliverContext(sessionID: SessionID, effect: ContextEffect): Effect.Effect<void, unknown, Host> {
+export function deliverContext(sessionID: SessionID, effect: ContextEffect, texts: HostTexts): Effect.Effect<void, unknown, Host> {
   return Effect.gen(function* () {
     const host = yield* Host
     const { text, skills } = yield* renderContext(effect)
@@ -32,7 +33,7 @@ export function deliverContext(sessionID: SessionID, effect: ContextEffect): Eff
     yield* host.session.synthetic({
       sessionID,
       text,
-      description: `Chauffeur ${effect.label}`,
+      description: fill(texts.labels.context, { label: effect.label }),
       metadata: { [SKILLS_METADATA_KEY]: skills },
       ...(effect.delivery === "steer" ? { delivery: "steer" as const } : { resume: effect.delivery === "resume" }),
     })

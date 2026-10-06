@@ -1,0 +1,19 @@
+{
+  "empty": "No recent agent activity is recorded.",
+  "header": "Recent agent activity, oldest first:",
+  "user": "User: {text}",
+  "agent_request": "Agent asks Chauffeur for: {need}",
+  "permission": "Agent asks to {action} {targets}{project}. Its reason: {reason} (latest user request: {asked})",
+  "permission_project": " from the project {workspace}",
+  "permission_no_reason": "no reason given",
+  "permission_no_request": "none recorded",
+  "tool_ran": "Ran tool {tool}.",
+  "tool_ran_with_input": "Ran tool {tool} {input}",
+  "tool_failed": "Tool failed: {tool}.",
+  "tool_failed_with_input": "Tool failed: {tool} {input}",
+  "tool_error": " (error: {error})",
+  "model_error": "Model {model} failed with {error_type}: {message}",
+  "integration_event": "{source} {kind} event: {summary}",
+  "turn_end": "Agent ended its turn: {summary}",
+  "rulebook": "User ran rulebook {rulebook} {command}: {args}"
+}

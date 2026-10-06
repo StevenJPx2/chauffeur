@@ -5,7 +5,7 @@
 use chauffeur_core::judge::strategy::Candidate;
 use chauffeur_core::{CatalogEntry, Question, QuestionKind, Rule, Signal, SignalKind};
 
-use crate::SkillExposureConfig;
+use crate::{SkillExposureConfig, SkillTexts};
 
 /// Why a skill is asked about the way it is.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -57,7 +57,7 @@ pub fn candidates(
                 key: skill.id.clone(),
                 question: Question {
                     id: format!("{}{}", basis.prefix(), skill.id),
-                    instructions: instructions(signal, skill, basis),
+                    instructions: instructions(signal, skill, basis, &config.texts),
                     kind: QuestionKind::Noul,
                 },
                 rule: basis.rule(config),
@@ -110,8 +110,8 @@ fn words(value: &str) -> Vec<String> {
         .collect()
 }
 
-fn instructions(signal: &Signal, skill: &CatalogEntry, basis: Basis) -> String {
-    let (id, description) = (&skill.id, &skill.description);
+fn instructions(signal: &Signal, skill: &CatalogEntry, basis: Basis, texts: &SkillTexts) -> String {
+    let (id, description) = (skill.id.as_str(), skill.description.as_str());
 
     match (&signal.kind, basis) {
         (
@@ -119,34 +119,33 @@ fn instructions(signal: &Signal, skill: &CatalogEntry, basis: Basis) -> String {
                 need, user_request, ..
             },
             _,
-        ) => format!(
-            "The coding agent asked for: \"{need}\" (the user's latest request: {user_request}). \
-             Does the {id} skill ({description}) serve what it asked for? Answer yes only when \
-             it clearly does."
-        ),
-        (_, Basis::Project) => format!(
-            "The coding session works inside the {id} project ({}). The {id} skill: \
-             {description}. Does the user's latest request involve work in this project that \
-             the skill covers? Answer no only when the request is clearly about something else.",
-            workspace(signal)
-        ),
-        (_, Basis::Named) => format!(
-            "The user's latest request mentions {}. The {id} skill: {description}. Does the \
-             agent need this skill to act on the request?",
-            id.split('-').next().unwrap_or_default()
-        ),
-        (_, Basis::Offered) => format!(
-            "The coding session works in {}. Does the user's latest request need the {id} skill \
-             ({description}) for the agent to act on it? Answer yes only when the skill clearly \
-             helps with this request.",
-            workspace(signal)
-        ),
+        ) => texts.request.render(&[
+            ("need", need),
+            ("user_request", user_request),
+            ("skill", id),
+            ("description", description),
+        ]),
+        (_, Basis::Project) => texts.project.render(&[
+            ("skill", id),
+            ("description", description),
+            ("workspace", workspace(signal, texts)),
+        ]),
+        (_, Basis::Named) => texts.named.render(&[
+            ("word", id.split('-').next().unwrap_or_default()),
+            ("skill", id),
+            ("description", description),
+        ]),
+        (_, Basis::Offered) => texts.offered.render(&[
+            ("skill", id),
+            ("description", description),
+            ("workspace", workspace(signal, texts)),
+        ]),
     }
 }
 
-fn workspace(signal: &Signal) -> &str {
+fn workspace<'a>(signal: &'a Signal, texts: &'a SkillTexts) -> &'a str {
     match &signal.kind {
         SignalKind::UserMessage { workspace, .. } if !workspace.is_empty() => workspace,
-        _ => "an unknown directory",
+        _ => texts.unknown_workspace.as_str(),
     }
 }

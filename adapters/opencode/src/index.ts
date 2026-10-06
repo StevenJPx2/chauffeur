@@ -11,6 +11,7 @@ import { installPermission } from "./permission.js"
 import { installRulebooks } from "./rulebooks.js"
 import { claimSkillLoading, hostLoadsSkills } from "./skills.js"
 import { installSubagentGuidance } from "./subagents.js"
+import { followDaemonTexts, Texts } from "./texts.js"
 import { installTodos } from "./todos.js"
 import { installToolResults } from "./tool-results.js"
 
@@ -33,9 +34,16 @@ const capabilities = Effect.gen(function* () {
   yield* installRulebooks
 })
 
+/** The daemon's wording first, so every capability registers with it. */
+const plugin = Effect.gen(function* () {
+  const texts = yield* followDaemonTexts
+
+  yield* capabilities.pipe(Effect.provideService(Texts, texts))
+})
+
 export default Plugin.define({
   id: "chauffeur",
   effect: (ctx) =>
     Daemon.connect.pipe(Effect.flatMap((daemon) =>
-      capabilities.pipe(Effect.provideService(Host, ctx), Effect.provideService(Daemon, daemon)))),
+      plugin.pipe(Effect.provideService(Host, ctx), Effect.provideService(Daemon, daemon)))),
 })

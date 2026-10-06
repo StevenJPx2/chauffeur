@@ -8,6 +8,7 @@ import { Host } from "./host.js"
 import { signal, TEXT_CODE_POINTS, type CatalogEntry, type HostEffect } from "./protocol.js"
 import { deliverContext } from "./skills.js"
 import { clip, clipEnds, userText } from "./text.js"
+import { type HostTexts, Texts } from "./texts.js"
 
 const ERROR_CODE_POINTS = 240
 
@@ -25,14 +26,15 @@ type ToolResult = ToolHooks["execute.after"]
  * Report tool results, deliver mid-turn context into the running turn, and
  * apply verified hidden-tool reveals.
  */
-export function installToolResults(exposure: ExposureControl): Effect.Effect<void, never, Host | Daemon | Scope.Scope> {
+export function installToolResults(exposure: ExposureControl): Effect.Effect<void, never, Host | Daemon | Texts | Scope.Scope> {
   return Effect.gen(function* () {
     const host = yield* Host
     const daemon = yield* Daemon
+    const texts = yield* Texts
 
     // Chauffeur's own tool already told the engine what the agent needs.
     yield* host.tool.hook("execute.after", (event) => event.tool === ASK_TOOL ? Effect.void :
-      report(event, exposure).pipe(
+      report(event, exposure, texts.current()).pipe(
         Effect.provideService(Host, host),
         Effect.provideService(Daemon, daemon),
         Effect.catch((error) => Effect.logError("chauffeur: tool result not reported", error)),
@@ -40,7 +42,7 @@ export function installToolResults(exposure: ExposureControl): Effect.Effect<voi
   })
 }
 
-function report(event: ToolResult, exposure: ExposureControl): Effect.Effect<void, unknown, Host | Daemon> {
+function report(event: ToolResult, exposure: ExposureControl, texts: HostTexts): Effect.Effect<void, unknown, Host | Daemon> {
   return Effect.gen(function* () {
     const host = yield* Host
     const daemon = yield* Daemon
@@ -63,7 +65,7 @@ function report(event: ToolResult, exposure: ExposureControl): Effect.Effect<voi
       candidates: recovery.candidates,
     }), recovery.candidates.length > 0 ? RECOVERY_TIMEOUT : TOOL_RESULT_TIMEOUT)
 
-    yield* applyEffects(event, effects, exposure)
+    yield* applyEffects(event, effects, exposure, texts)
   })
 }
 
@@ -94,7 +96,7 @@ function recover(host: Plugin.Context, exposure: ExposureControl, event: ToolRes
 }
 
 /** Reveal confirmed tools; deliver context into this turn, each skill once. */
-function applyEffects(event: ToolResult, effects: ReadonlyArray<HostEffect>, exposure: ExposureControl): Effect.Effect<void, unknown, Host> {
+function applyEffects(event: ToolResult, effects: ReadonlyArray<HostEffect>, exposure: ExposureControl, texts: HostTexts): Effect.Effect<void, unknown, Host> {
   const delivered = new Set<string>()
 
   return Effect.forEach(effects, (effect) => {
@@ -109,7 +111,7 @@ function applyEffects(event: ToolResult, effects: ReadonlyArray<HostEffect>, exp
 
     for (const skill of skills) delivered.add(skill)
 
-    return deliverContext(event.sessionID, { ...effect, skills })
+    return deliverContext(event.sessionID, { ...effect, skills }, texts)
   }, { discard: true })
 }
 

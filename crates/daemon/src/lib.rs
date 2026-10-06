@@ -4,6 +4,7 @@ mod audit;
 mod engine;
 mod learned;
 mod sourcefed;
+mod texts;
 
 pub use engine::{EngineHandle, EngineOptions};
 
@@ -19,11 +20,12 @@ use axum::{Json, Router};
 use chauffeur_capability_rules::Rulebook;
 use chauffeur_core::{
     DaemonRequest, DaemonResponse, Effect, METHOD_HEALTH, METHOD_RULEBOOKS, METHOD_SIGNAL,
-    Reloading, RulebooksResult, SignalParams, SignalResult, Watch,
+    METHOD_TEXTS, Reloading, RulebooksResult, SignalParams, SignalResult, Watch,
 };
 use chauffeur_judge_jev::JevConfig;
 pub use chauffeur_plugin_sourcefed::SourcefedConfig;
 use serde_json::json;
+use texts::HostTexts;
 
 pub const DEFAULT_PORT: u16 = 18_790;
 
@@ -34,6 +36,19 @@ struct AppState {
     /// The shipped rulebooks, reloaded when their folder changes; each
     /// request adds the workspace's own. `None` when rules are disabled.
     rulebooks: Option<Arc<Mutex<Reloading<Vec<Rulebook>>>>>,
+    /// The wording each host shows the agent, reloaded when your file changes.
+    texts: Arc<Mutex<HostTexts>>,
+}
+
+/// The texts of the host named in `params.host`.
+fn host_texts(state: &AppState, params: &serde_json::Value) -> Result<serde_json::Value, String> {
+    let host = params["host"].as_str().ok_or("texts needs params.host")?;
+
+    state
+        .texts
+        .lock()
+        .map_err(|_| "texts lock poisoned".to_string())?
+        .current(host)
 }
 
 /// The rulebooks offered in the request's `workspace`, or none when rules
@@ -122,6 +137,7 @@ pub async fn serve(options: DaemonOptions) -> Result<(), String> {
             Box::new(move |_| engine::shipped_rulebooks(&skills_dir)),
         ))))
     };
+    let texts = Arc::new(Mutex::new(HostTexts::load(&options.config_dir)?));
     let engine = EngineHandle::spawn(EngineOptions {
         config_dir: options.config_dir,
         skills_dir: options.skills_dir,
@@ -137,6 +153,7 @@ pub async fn serve(options: DaemonOptions) -> Result<(), String> {
         engine,
         token: options.token,
         rulebooks,
+        texts,
     };
     let app = Router::new()
         // A permission request quotes up to eight whole user messages.
@@ -169,6 +186,7 @@ async fn rpc(
         METHOD_HEALTH => Ok(json!({ "ok": true })),
         METHOD_SIGNAL => signal(&state.engine, request.params).await,
         METHOD_RULEBOOKS => offered(&state, &request.params),
+        METHOD_TEXTS => host_texts(&state, &request.params),
         method => Err(format!("unknown method {method}")),
     };
     let (status, response) = match result {

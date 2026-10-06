@@ -2,13 +2,16 @@ import { expect, test } from "bun:test"
 import { Effect, type Schema } from "effect"
 import type { DaemonClient } from "../src/daemon.js"
 import { Host } from "../src/host.js"
-import { installSubagentGuidance, SUBAGENT_GUIDANCE } from "../src/subagents.js"
+import { installSubagentGuidance } from "../src/subagents.js"
+import { type HostTexts, SHIPPED_TEXTS, type TextsSource, withTexts } from "../src/texts.js"
 import { installTodos, readTodos, render, TODO_TOOL, type Todo } from "../src/todos.js"
-import { fakeHost, install, noRulebooks } from "./support.js"
+import { fakeHost, install, noRulebooks, shippedTexts } from "./support.js"
+
+const SUBAGENT_GUIDANCE = SHIPPED_TEXTS.subagent.guidance
 
 type Execute = (input: { readonly todos: ReadonlyArray<Todo> }, context: { readonly sessionID: string }) => Effect.Effect<{ content: string }>
 
-const daemon: DaemonClient = { rulebooks: noRulebooks, signal: () => Effect.die("unexpected") }
+const daemon: DaemonClient = { rulebooks: noRulebooks, texts: shippedTexts, signal: () => Effect.die("unexpected") }
 
 /** A host whose storage is a map, and whose added tools are captured. */
 function hostWithStorage() {
@@ -83,7 +86,35 @@ test("an oversized list is refused and a corrupt stored list reads as empty", as
 })
 
 test("an empty list renders as empty", () => {
-  expect(render([])).toBe("The todo list is empty.")
+  expect(render([], SHIPPED_TEXTS)).toBe("The todo list is empty.")
+})
+
+test("edited wording re-registers the tool while the plugin runs", async () => {
+  let texts: HostTexts = SHIPPED_TEXTS
+  let version = 0
+  const source: TextsSource = { current: () => texts, version: () => version }
+  const live: string[] = []
+
+  const register = (current: HostTexts) => Effect.sync(() => {
+    live.push(current.todowrite.empty)
+
+    return { dispose: Effect.sync(() => { live.shift() }) }
+  })
+
+  const plugin = await install(withTexts(register, "10 millis"), fakeHost({}), daemon, source)
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 60))
+
+  try {
+    expect(live).toEqual(["The todo list is empty."])
+
+    texts = { ...SHIPPED_TEXTS, todowrite: { ...SHIPPED_TEXTS.todowrite, empty: "Nothing to do." } }
+    version += 1
+    await settle()
+
+    expect(live).toEqual(["Nothing to do."])
+  } finally {
+    await plugin.close()
+  }
 })
 
 test("the subagent tool's description carries the cheaper-model guidance once", async () => {

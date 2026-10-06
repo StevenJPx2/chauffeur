@@ -5,7 +5,7 @@ use std::path::Path;
 
 use serde::Deserialize;
 
-use chauffeur_core::{Confidence, Threshold, load_layered};
+use chauffeur_core::{Confidence, Template, Threshold, load_layered};
 
 /// The shipped config (`skills/config/tool-exposure.json`), compiled in.
 const SHIPPED: &str = include_str!("../../../skills/config/tool-exposure.json");
@@ -36,6 +36,116 @@ pub struct ToolExposureConfig {
     pub listed_tools: usize,
     /// Hidden tools offered in a missing-tool recovery choice.
     pub recovery_candidates: usize,
+    /// The wording of the questions to System One and of what is delivered.
+    pub texts: ToolTexts,
+}
+
+/// The tool questions to System One, their options, and the Code Mode note.
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct ToolTexts {
+    /// One tool in a group's listing: `{tool}`, `{description}`.
+    pub listed_tool: Template,
+    /// Ends a listing cut short: `{count}` tools not named.
+    pub more_tools: Template,
+    /// Whether a group is needed at a context's first message: `{group}`,
+    /// `{tools}`.
+    pub hide: Template,
+    /// Whether a hidden group is needed now: `{group}`, `{tools}`.
+    pub reveal: Template,
+    /// Whether a Code Mode namespace is needed: `{namespace}`, `{size}`,
+    /// `{examples}`.
+    pub namespace: Template,
+    /// What the agent asked for, opening each request question: `{need}`,
+    /// `{user_request}`.
+    pub request_asked: Template,
+    /// Whether a hidden group serves the agent's request: `{asked}` (the
+    /// rendered `request_asked`), `{group}`, `{tools}`.
+    pub request_group: Template,
+    /// Whether a namespace serves the agent's request: `{asked}`,
+    /// `{namespace}`, `{size}`, `{examples}`.
+    pub request_namespace: Template,
+    /// Which hidden direct tool fits a missing-tool result: `{user_request}`,
+    /// `{evidence}`.
+    pub choose: Template,
+    /// The recovery choice that reveals nothing.
+    pub no_tool: Template,
+    /// Whether the chosen tool is clearly needed: `{tool}`, `{description}`,
+    /// `{user_request}`, `{evidence}`.
+    pub confirm: Template,
+    /// The confirmation option that reveals the tool.
+    pub reveal_option: Template,
+    /// The confirmation option that keeps it hidden as not needed.
+    pub keep_option: Template,
+    /// The confirmation option that keeps it hidden as uncertain.
+    pub uncertain_option: Template,
+    /// Names the Code Mode note for the user.
+    pub code_mode_label: Template,
+    /// One tool in the note: `{tool}`, `{description}`.
+    pub code_mode_tool: Template,
+    /// One namespace in the note: `{namespace}`, `{size}`, `{tools}` (the
+    /// rendered `code_mode_tool` lines).
+    pub code_mode_section: Template,
+    /// The note delivered to the agent: `{sections}`.
+    pub code_mode_note: Template,
+}
+
+impl ToolTexts {
+    fn checked(self) -> Result<Self, String> {
+        let group = &["group", "tools"][..];
+        let namespace = &["namespace", "size", "examples"][..];
+        let recovery = &["user_request", "evidence"][..];
+        let tool = &["tool", "description"][..];
+
+        for (field, template, allowed) in [
+            ("texts.listed_tool", &self.listed_tool, tool),
+            ("texts.more_tools", &self.more_tools, &["count"][..]),
+            ("texts.hide", &self.hide, group),
+            ("texts.reveal", &self.reveal, group),
+            ("texts.namespace", &self.namespace, namespace),
+            (
+                "texts.request_asked",
+                &self.request_asked,
+                &["need", "user_request"][..],
+            ),
+            (
+                "texts.request_group",
+                &self.request_group,
+                &["asked", "group", "tools"][..],
+            ),
+            (
+                "texts.request_namespace",
+                &self.request_namespace,
+                &["asked", "namespace", "size", "examples"][..],
+            ),
+            ("texts.choose", &self.choose, recovery),
+            ("texts.no_tool", &self.no_tool, &[][..]),
+            (
+                "texts.confirm",
+                &self.confirm,
+                &["tool", "description", "user_request", "evidence"][..],
+            ),
+            ("texts.reveal_option", &self.reveal_option, &[][..]),
+            ("texts.keep_option", &self.keep_option, &[][..]),
+            ("texts.uncertain_option", &self.uncertain_option, &[][..]),
+            ("texts.code_mode_label", &self.code_mode_label, &[][..]),
+            ("texts.code_mode_tool", &self.code_mode_tool, tool),
+            (
+                "texts.code_mode_section",
+                &self.code_mode_section,
+                &["namespace", "size", "tools"][..],
+            ),
+            (
+                "texts.code_mode_note",
+                &self.code_mode_note,
+                &["sections"][..],
+            ),
+        ] {
+            template.check(field, allowed)?;
+        }
+
+        Ok(self)
+    }
 }
 
 impl ToolExposureConfig {
@@ -55,9 +165,10 @@ impl ToolExposureConfig {
     ///
     /// # Errors
     ///
-    /// When `base` or `never_exposed` holds more than 64 tools, or a count
-    /// is zero or above its bound.
-    pub fn checked(self) -> Result<Self, String> {
+    /// When `base` or `never_exposed` holds more than 64 tools, a count is
+    /// zero or above its bound, or a text is empty, oversized, or names an
+    /// unknown placeholder.
+    pub fn checked(mut self) -> Result<Self, String> {
         if self.base.len() > MAX_BASE {
             return Err(format!("more than {MAX_BASE} base tools"));
         }
@@ -76,13 +187,18 @@ impl ToolExposureConfig {
             ));
         }
 
+        self.texts = self.texts.checked()?;
+
         Ok(self)
     }
 }
 
 impl Default for ToolExposureConfig {
     fn default() -> Self {
-        serde_json::from_str(SHIPPED).expect("shipped tool-exposure config is valid")
+        serde_json::from_str::<Self>(SHIPPED)
+            .map_err(|error| error.to_string())
+            .and_then(Self::checked)
+            .expect("shipped tool-exposure config is valid")
     }
 }
 
@@ -145,6 +261,16 @@ mod tests {
         assert_eq!(config.reveal.yes(), Rule::yes(0.9, 0.4));
         assert_eq!(config.hide.no(), Rule::no(0.3, 0.4));
         assert_eq!(config.never_exposed, ["skill"]);
+    }
+
+    #[test]
+    fn your_text_replaces_one_wording_and_an_unknown_placeholder_is_an_error() {
+        let config = load("text", r#"{ "texts": { "no_tool": "Nothing fits." } }"#).unwrap();
+        let unknown = load("unknown", r#"{ "texts": { "hide": "Need {grup}?" } }"#).unwrap_err();
+
+        assert_eq!(config.texts.no_tool.as_str(), "Nothing fits.");
+        assert_eq!(config.texts.hide, ToolExposureConfig::default().texts.hide);
+        assert!(unknown.contains("texts.hide names {grup}"));
     }
 
     #[test]

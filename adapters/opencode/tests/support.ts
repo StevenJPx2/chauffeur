@@ -3,6 +3,7 @@ import { Effect, Exit, Queue, Scope, Stream } from "effect"
 import { Daemon, type DaemonClient } from "../src/daemon.js"
 import type { ExposureControl } from "../src/exposure.js"
 import { Host, type SessionID } from "../src/host.js"
+import { fixedTexts, SHIPPED_TEXTS, Texts, type TextsSource } from "../src/texts.js"
 
 type Callback = (event: never) => Effect.Effect<void>
 
@@ -49,17 +50,19 @@ export function eventStream() {
   }
 }
 
-/** Run a capability's install in its own scope, as the plugin scope would. */
+/** Run a capability's install in its own scope, as the plugin scope would, with the shipped texts unless `texts` is given. */
 export async function install<A>(
-  program: Effect.Effect<A, never, Host | Daemon | Scope.Scope>,
+  program: Effect.Effect<A, never, Host | Daemon | Texts | Scope.Scope>,
   host: Plugin.Context,
   daemon: DaemonClient,
+  texts: TextsSource = fixedTexts(),
 ): Promise<{ readonly value: A; readonly close: () => Promise<void> }> {
   const scope = await Effect.runPromise(Scope.make())
 
   const value = await Effect.runPromise(program.pipe(
     Effect.provideService(Host, host),
     Effect.provideService(Daemon, daemon),
+    Effect.provideService(Texts, texts),
     Scope.provide(scope),
   ))
 
@@ -74,7 +77,10 @@ export function settle(): Promise<void> {
 /** A daemon offering no rulebooks, for fakes that only answer signals. */
 export const noRulebooks: DaemonClient["rulebooks"] = () => Effect.succeed([])
 
-export const noDaemon: DaemonClient = { rulebooks: noRulebooks, signal: () => Effect.die("unexpected daemon signal") }
+/** A daemon serving the shipped texts. */
+export const shippedTexts: DaemonClient["texts"] = () => Effect.succeed(SHIPPED_TEXTS)
+
+export const noDaemon: DaemonClient = { rulebooks: noRulebooks, texts: shippedTexts, signal: () => Effect.die("unexpected daemon signal") }
 
 /** Exposure with nothing hidden and no Code Mode; a test overrides what it reads. */
 export function fakeExposure(overrides: Partial<ExposureControl> = {}): ExposureControl {

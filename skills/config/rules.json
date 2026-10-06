@@ -1,3 +1,24 @@
 {
-  "max_deliveries": 2
+  "max_deliveries": 2,
+  "texts": {
+    "tool_call": "The agent's latest {tool} call {outcome} with input: {input}\n{question}\nA call the user explicitly asked for, exactly as asked, does not count.",
+    "outcome_succeeded": "succeeded",
+    "outcome_failed": "failed",
+    "user_request_note": " Latest user request: {user_request}. Respect explicit user instructions.",
+    "closing_message_note": "\nThe agent's closing message this turn: {summary}",
+    "tools_note": "\nTools it called since that request: {tools}.",
+    "todo_item": "- {content}",
+    "todo_item_in_progress": "- {content} (in progress)",
+    "todos_none": "none",
+    "not_running": "/{id} is not running. Start it with /{id} <what>.",
+    "status": "{name} is {state}: {args}\n{used} of {budget} continuations used.",
+    "state_running": "running",
+    "state_paused": "paused",
+    "paused": "{name} paused. Resume it with /{id} resume.",
+    "cleared": "{name} cleared.",
+    "unknown_book": "No rulebook named {id} here. Rulebooks: {known}.",
+    "session_full": "A session runs at most {max} rulebooks; clear one first.",
+    "idle_steering_off": "\n(Chauffeur's idle steering is off, so this rulebook cannot continue the agent between turns.)",
+    "unreadable": "Rulebooks here are unreadable: {error}"
+  }
 }

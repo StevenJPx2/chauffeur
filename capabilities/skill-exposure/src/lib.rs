@@ -19,7 +19,7 @@ use chauffeur_core::{
     SignalKind, Situation,
 };
 
-pub use config::{Budget, Drift, SkillExposureConfig};
+pub use config::{Budget, Drift, SkillExposureConfig, SkillTexts};
 
 pub const ID: &str = "skill-exposure";
 /// The drift option that hands over nothing.
@@ -154,15 +154,18 @@ impl SkillExposure {
             return None;
         }
 
-        let instructions = format!(
-            "{DRIFT_INSTRUCTIONS} Latest tool action: {}",
-            agent.last_tool.as_deref().unwrap_or("unknown")
-        );
+        let texts = &self.config.texts;
+        let action = agent
+            .last_tool
+            .clone()
+            .unwrap_or_else(|| texts.unknown_action.as_str().to_string());
+        let instructions = texts.drift.render(&[("action", &action)]);
 
         Some(
-            Judge::ask(choice(DRIFT, &instructions, &offerable), move |answer| {
-                pick.chosen(answer)
-            })
+            Judge::ask(
+                choice(DRIFT, &instructions, &offerable, texts),
+                move |answer| pick.chosen(answer),
+            )
             .map(|skill| skill.into_iter().collect()),
         )
     }
@@ -234,40 +237,35 @@ impl Judged for SkillExposure {
 
         agent.attached.extend(chosen.iter().cloned());
 
-        chosen.iter().map(|skill| context(signal, skill)).collect()
+        chosen
+            .iter()
+            .map(|skill| context(signal, skill, &self.config.texts))
+            .collect()
     }
 }
 
 /// A prompt's skills join the user's message; a skill the agent asked for
 /// answers it in the running turn; a drift hand-over reaches the running
 /// turn, or waits for the next one once the turn has ended.
-fn context(signal: &Signal, skill: &str) -> Effect {
+fn context(signal: &Signal, skill: &str, texts: &SkillTexts) -> Effect {
+    let notice = || texts.drift_notice.render(&[("skill", skill)]);
     let (delivery, text) = match signal.kind {
         SignalKind::UserMessage { .. } => (Delivery::Prompt, None),
         SignalKind::AgentRequest { .. } => (Delivery::Steer, None),
-        SignalKind::TurnEnd { .. } => (Delivery::Wait, Some(drift_text(skill))),
-        _ => (Delivery::Steer, Some(drift_text(skill))),
+        SignalKind::TurnEnd { .. } => (Delivery::Wait, Some(notice())),
+        _ => (Delivery::Steer, Some(notice())),
     };
 
     Effect::Context {
         agent_id: signal.agent_id.clone(),
         delivery,
-        label: format!("skill {skill}"),
+        label: texts.label.render(&[("skill", skill)]),
         skills: vec![skill.to_string()],
         text,
     }
 }
 
-fn drift_text(skill: &str) -> String {
-    format!("Chauffeur: the {skill} skill fits this work better than the current approach.")
-}
-
-const DRIFT_INSTRUCTIONS: &str = "Which offered skill, if any, directly improves the exact \
-    action in the agent's recent tool result? Choose none if the approach already works. \
-    A skill covering the same topic is not evidence of misuse; successful gh use for GitHub \
-    does not call for a browser or browser-harness hand-over.";
-
-fn choice(id: &str, instructions: &str, skills: &[&CatalogEntry]) -> Question {
+fn choice(id: &str, instructions: &str, skills: &[&CatalogEntry], texts: &SkillTexts) -> Question {
     let mut options: Vec<ChoiceOption> = skills
         .iter()
         .map(|skill| ChoiceOption {
@@ -278,7 +276,7 @@ fn choice(id: &str, instructions: &str, skills: &[&CatalogEntry]) -> Question {
 
     options.push(ChoiceOption {
         value: NONE.into(),
-        description: "No skill clearly helps.".into(),
+        description: texts.no_skill.as_str().to_string(),
     });
 
     Question {

@@ -1,26 +1,24 @@
 import { Effect, type Scope } from "effect"
 import { Host } from "./host.js"
+import { type Texts, withTexts } from "./texts.js"
 
 /** OpenCode's tool that starts a child session. */
 const SUBAGENT_TOOL = "subagent"
 
 /**
- * The user's standing instruction, so the host's own "only when the user
- * asks" rule on `model` does not hold the agent back.
+ * Append the user's standing instruction about subagent models to the
+ * host's `subagent` description, so the agent reads it before launching one.
+ * Worded as the user's instruction: the host's own text says to set a
+ * subagent's model only when the user asks.
  */
-export const SUBAGENT_GUIDANCE = [
-  "The user asks that subagents doing routine work, such as searching, reading and summarising, or mechanical edits, run on a cheaper model from your own provider:",
-  "pass model \"anthropic/claude-sonnet-5-5\" when you run on Claude Opus, or \"openai/gpt-6-luna\" when you run on GPT-6.1 Sol.",
-  "Keep your own model for hard design, debugging or review.",
-].join(" ")
-
-/** Tell the agent, before it launches one, which model a routine subagent should use. */
-export const installSubagentGuidance: Effect.Effect<void, never, Host | Scope.Scope> = Effect.gen(function* () {
+export const installSubagentGuidance: Effect.Effect<void, never, Host | Texts | Scope.Scope> = Effect.gen(function* () {
   const host = yield* Host
 
-  yield* host.tool.transform((editor) => {
+  yield* withTexts((texts) => host.tool.transform((editor) => {
+    const guidance = texts.subagent.guidance
+
     editor.update(SUBAGENT_TOOL, (tool) => {
-      if (!tool.description.includes(SUBAGENT_GUIDANCE)) tool.description = `${tool.description}\n\n${SUBAGENT_GUIDANCE}`
+      if (!tool.description.includes(guidance)) tool.description = `${tool.description}\n\n${guidance}`
     })
-  })
+  }))
 })

@@ -415,6 +415,25 @@ fn a_misspelled_field_or_an_out_of_range_count_is_an_error() {
 }
 
 #[test]
+fn your_text_replaces_one_wording_and_an_unknown_placeholder_is_an_error() {
+    let mine = yours("text", r#"{ "texts": { "todos_none": "nothing open" } }"#);
+    let stray = yours("stray", r#"{ "texts": { "cleared": "{book} cleared." } }"#);
+    let config = RulesConfig::load(&mine).unwrap();
+
+    assert_eq!(config.texts.todos_none.as_str(), "nothing open");
+    assert_eq!(config.texts.cleared, RulesConfig::default().texts.cleared);
+    assert!(
+        RulesConfig::load(&stray)
+            .unwrap_err()
+            .contains("texts.cleared names {book}")
+    );
+
+    for path in [mine, stray] {
+        std::fs::remove_file(path).unwrap();
+    }
+}
+
+#[test]
 fn a_limit_of_one_delivers_only_the_highest_priority_rule() {
     let path = yours("one", r#"{ "max_deliveries": 1 }"#);
     let config = RulesConfig::load(&path).unwrap();

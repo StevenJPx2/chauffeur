@@ -4,6 +4,7 @@ import { Host, type SessionID } from "./host.js"
 import { signal, TEXT_CODE_POINTS } from "./protocol.js"
 import { deliverContext } from "./skills.js"
 import { clip, isIntegrationMessage, userText } from "./text.js"
+import { type HostTexts, Texts } from "./texts.js"
 import { readTodos } from "./todos.js"
 
 /**
@@ -13,19 +14,20 @@ import { readTodos } from "./todos.js"
  */
 export const installIdle = Effect.gen(function* () {
   const host = yield* Host
+  const texts = yield* Texts
 
   yield* host.event.subscribe().pipe(
     // A finished turn; an interrupted one means the user stopped the agent.
     Stream.runForEach((event) =>
       event.type === "session.execution.succeeded" || event.type === "session.execution.failed"
-        ? reportTurnEnd(event.data.sessionID)
+        ? reportTurnEnd(event.data.sessionID, texts.current())
         : Effect.void),
     Effect.catch((error) => Effect.logError("chauffeur: idle events ended", error)),
     Effect.forkScoped,
   )
 })
 
-function reportTurnEnd(sessionID: SessionID): Effect.Effect<void, never, Host | Daemon> {
+function reportTurnEnd(sessionID: SessionID, texts: HostTexts): Effect.Effect<void, never, Host | Daemon> {
   return Effect.gen(function* () {
     const host = yield* Host
     const daemon = yield* Daemon
@@ -61,7 +63,7 @@ function reportTurnEnd(sessionID: SessionID): Effect.Effect<void, never, Host | 
         ? [effect]
         : [])
 
-    yield* Effect.forEach(deliveries, (effect) => deliverContext(sessionID, effect), { discard: true })
+    yield* Effect.forEach(deliveries, (effect) => deliverContext(sessionID, effect, texts), { discard: true })
   }).pipe(
     // Fails open: nothing is delivered.
     Effect.catch((error) => Effect.logError("chauffeur: turn end not reported", error)),

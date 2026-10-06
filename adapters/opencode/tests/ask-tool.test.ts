@@ -5,7 +5,8 @@ import { type DaemonClient, DaemonError } from "../src/daemon.js"
 import type { ExposureControl } from "../src/exposure.js"
 import type { HostEffect, Signal } from "../src/protocol.js"
 import { hostLoadsSkills } from "../src/skills.js"
-import { fakeExposure, fakeHost, install, noRulebooks } from "./support.js"
+import { SHIPPED_TEXTS } from "../src/texts.js"
+import { fakeExposure, fakeHost, install, noRulebooks, shippedTexts } from "./support.js"
 
 const sessionID = "ses_ask"
 
@@ -17,8 +18,8 @@ test("the host keeps skill loading when skill exposure is off or kept on request
 })
 
 test("an empty answer points at the skill tool only while the host keeps it", () => {
-  expect(nothingFound(true)).toContain("load it with the skill tool")
-  expect(nothingFound(false)).not.toContain("skill tool")
+  expect(nothingFound(SHIPPED_TEXTS, true)).toContain("load it with the skill tool")
+  expect(nothingFound(SHIPPED_TEXTS, false)).not.toContain("skill tool")
 })
 
 /** The host has decoded the call's input by the time `execute` runs. */
@@ -63,7 +64,7 @@ async function registered(daemon: DaemonClient, exposure: ExposureControl) {
 }
 
 function replying(sent: Signal[], effects: ReadonlyArray<HostEffect>): DaemonClient {
-  return { rulebooks: noRulebooks, signal: (value) => Effect.sync(() => {
+  return { rulebooks: noRulebooks, texts: shippedTexts, signal: (value) => Effect.sync(() => {
     sent.push(value)
 
     return effects
@@ -111,7 +112,7 @@ test("a request carries the need, the user's words, hidden tools, and Code Mode,
 test("nothing granted, a failed reveal, or a daemon failure still replies", async () => {
   const nothing = await registered(replying([], []), fakeExposure())
   const unrevealed = await registered(replying([], [{ type: "tools", agent_id: sessionID, hide: [], reveal: ["browser_open"] }]), fakeExposure())
-  const down = await registered({ rulebooks: noRulebooks, signal: () => Effect.fail(new DaemonError({ message: "daemon down" })) }, fakeExposure())
+  const down = await registered({ rulebooks: noRulebooks, texts: shippedTexts, signal: () => Effect.fail(new DaemonError({ message: "daemon down" })) }, fakeExposure())
 
   expect(await nothing.ask({ need: "a time machine" })).toContain("nothing restricts them")
   expect(await unrevealed.ask({ need: "a browser" })).toContain("nothing restricts them")

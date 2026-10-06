@@ -1,0 +1,5 @@
+{
+  "texts": {
+    "question": "The request to judge: {action} {resources}\nJudge only this request; earlier activity in the session is context.\n{instructions}"
+  }
+}

@@ -17,7 +17,7 @@ use std::sync::Arc;
 use chauffeur_core::judge::strategy::{self, Candidate};
 use chauffeur_core::{
     Delivery, Effect, Judge, Judged, Question, QuestionKind, Signal, SignalKind, Situation,
-    Threshold, load_layered,
+    Template, Threshold, load_layered,
 };
 use serde::Deserialize;
 
@@ -30,29 +30,63 @@ const MAX_JUDGED: usize = 64;
 /// The shipped bar (`skills/config/monitors.json`), compiled in.
 const SHIPPED: &str = include_str!("../../../skills/config/monitors.json");
 
-/// When a candidate is followed.
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
+/// When a candidate is followed, and how the question and the notice read.
+#[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct MonitorsConfig {
     /// A confident yes at or above this bar that the work is the session's
     /// own gets a monitor.
     pub follow: Threshold,
+    /// The wording of the question to System One and the notice to the agent.
+    pub texts: MonitorsTexts,
+}
+
+/// The question System One answers about a candidate, and what the agent is told.
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct MonitorsTexts {
+    /// Whether the session should follow it: `{tool}`, `{input}`, `{watch}`.
+    pub question: Template,
+    /// The notice to the agent once it is followed: `{watch}`.
+    pub followed: Template,
+}
+
+impl MonitorsTexts {
+    fn checked(self) -> Result<Self, String> {
+        self.question
+            .check("texts.question", &["tool", "input", "watch"])?;
+        self.followed.check("texts.followed", &["watch"])?;
+
+        Ok(self)
+    }
 }
 
 impl MonitorsConfig {
-    /// The shipped bar overlaid by your `monitors.json` at `path`.
+    /// The shipped config overlaid by your `monitors.json` at `path`.
     ///
     /// # Errors
     ///
-    /// When your file is unreadable, invalid, or a bar is outside `[0, 1]`.
+    /// When your file is unreadable, invalid, a bar is outside `[0, 1]`, or a
+    /// text is empty or names a placeholder it may not use.
     pub fn load(path: &Path) -> Result<Self, String> {
-        load_layered(SHIPPED, path)
+        load_layered::<Self>(SHIPPED, path)?
+            .checked()
+            .map_err(|error| format!("{}: {error}", path.display()))
+    }
+
+    fn checked(mut self) -> Result<Self, String> {
+        self.texts = self.texts.checked()?;
+
+        Ok(self)
     }
 }
 
 impl Default for MonitorsConfig {
     fn default() -> Self {
-        serde_json::from_str(SHIPPED).expect("shipped monitors bar is valid")
+        serde_json::from_str::<Self>(SHIPPED)
+            .map_err(|error| error.to_string())
+            .and_then(Self::checked)
+            .expect("shipped monitors defaults are valid")
     }
 }
 
@@ -109,11 +143,12 @@ impl FollowWork {
                 delivery: Delivery::Steer,
                 label: format!("watching {}", watch.name()),
                 skills: Vec::new(),
-                text: Some(format!(
-                    "Chauffeur: sourcefed now watches {} for this session; new reviews, CI \
-                     results, and comments will arrive here. Do not create another monitor for it.",
-                    watch.describe()
-                )),
+                text: Some(
+                    self.config
+                        .texts
+                        .followed
+                        .render(&[("watch", &watch.describe())]),
+                ),
             }),
             Err(error) => {
                 eprintln!(
@@ -191,7 +226,7 @@ impl Judged for FollowWork {
             .enumerate()
             .map(|(index, watch)| Candidate {
                 key: index,
-                question: question(index, watch, tool, input),
+                question: question(&self.config.texts.question, index, watch, (tool, input)),
                 rule: self.config.follow.yes(),
             })
             .collect();
@@ -230,16 +265,16 @@ impl Judged for FollowWork {
     }
 }
 
-fn question(index: usize, watch: &Watch, tool: &str, input: &str) -> Question {
+fn question(template: &Template, index: usize, watch: &Watch, call: (&str, &str)) -> Question {
+    let (tool, input) = call;
+
     Question {
         id: format!("follow/{index}"),
-        instructions: format!(
-            "The agent's latest {tool} call, with input {input}, involves {}. Is it the coding \
-             session's own work, which the session should keep following so new reviews, CI \
-             results, and comments reach the agent? Yes when the agent created it or is working \
-             on it for the user's task; no when it only looked it up or it is someone else's work.",
-            watch.describe()
-        ),
+        instructions: template.render(&[
+            ("tool", tool),
+            ("input", input),
+            ("watch", &watch.describe()),
+        ]),
         kind: QuestionKind::Noul,
     }
 }

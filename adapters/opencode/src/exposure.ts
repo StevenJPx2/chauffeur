@@ -6,6 +6,7 @@ import { Daemon } from "./daemon.js"
 import { type HistoryMessage, Host, type HostTool, type SessionID } from "./host.js"
 import { hostModel, ref, sameModel } from "./model-router.js"
 import { ASK_TOOL } from "./ask-tool.js"
+import { Texts, type TextsSource } from "./texts.js"
 import { TODO_TOOL } from "./todos.js"
 import { catalogEntry, signal, TEXT_CODE_POINTS, type CatalogEntry, type CodeModeNamespace, type ContextEffect, type HostEffect, type ModelRef } from "./protocol.js"
 import { hostLoadsSkills, SKILLS_METADATA_KEY } from "./skills.js"
@@ -107,9 +108,10 @@ class HiddenTools {
  * unneeded for the context, bringing them back when the engine says so.
  * Everything is derived from session history, so a restart loses nothing.
  */
-export const installExposure: Effect.Effect<ExposureControl, never, Host | Daemon | Scope.Scope> = Effect.gen(function* () {
+export const installExposure: Effect.Effect<ExposureControl, never, Host | Daemon | Texts | Scope.Scope> = Effect.gen(function* () {
   const host = yield* Host
   const daemon = yield* Daemon
+  const texts = yield* Texts
   const hidden = new HiddenTools(host)
 
   yield* host.session.hook("context", (event) => Effect.gen(function* () {
@@ -168,11 +170,11 @@ export const installExposure: Effect.Effect<ExposureControl, never, Host | Daemo
     )
   })
 
-  return control(host, hidden)
+  return control(host, hidden, texts)
 })
 
 /** Hidden tools other capabilities may offer the engine, and reveal once it confirms them. */
-function control(host: Plugin.Context, hidden: HiddenTools): ExposureControl {
+function control(host: Plugin.Context, hidden: HiddenTools, texts: TextsSource): ExposureControl {
   return {
     candidates: (sessionID) => Effect.gen(function* () {
       const set = yield* hidden.current(sessionID)
@@ -199,7 +201,7 @@ function control(host: Plugin.Context, hidden: HiddenTools): ExposureControl {
       yield* host.session.synthetic({
         sessionID,
         text: " ",
-        description: "Chauffeur tool exposure",
+        description: texts.current().labels.exposure,
         metadata: { [HIDDEN_METADATA_KEY]: remaining },
         delivery: "steer",
         resume: false,

@@ -10,6 +10,7 @@ mod history;
 mod rule;
 mod rulebook;
 mod source;
+mod texts;
 
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
@@ -30,6 +31,7 @@ pub use rule::{Gate, History, Rule, SCHEMA_VERSION, SessionKind, Step, Then, Tri
 pub use rulebook::{
     Args, End, Input, InputSkills, RULEBOOK_SCHEMA_VERSION, Rulebook, TODOS, load_rulebooks,
 };
+pub use texts::RulesTexts;
 
 /// The rulebooks offered in `workspace`: `shipped` ones whose scope covers it,
 /// then the project's own. `home` expands `~/` in a scope.
@@ -58,25 +60,35 @@ const MAX_FIRED: usize = 4_096;
 /// The shipped limits (`skills/config/rules.json`), compiled in.
 const SHIPPED: &str = include_str!("../../../skills/config/rules.json");
 
-/// How much the rules deliver.
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+/// How much the rules deliver, and the wording they add.
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct RulesConfig {
     /// Contexts one signal delivers, at most; from 1 to
     /// [`MAX_DELIVERIES_CAP`].
     #[serde(deserialize_with = "deliveries")]
     max_deliveries: usize,
+    /// The wording of the questions and notices.
+    pub texts: RulesTexts,
 }
 
 impl RulesConfig {
-    /// The shipped limits overlaid by your `rules.json` at `path`.
+    /// The shipped limits and texts overlaid by your `rules.json` at `path`.
     ///
     /// # Errors
     ///
-    /// When your file is unreadable, invalid, or `max_deliveries` is outside
-    /// `1..=`[`MAX_DELIVERIES_CAP`].
+    /// When your file is unreadable, invalid, `max_deliveries` is outside
+    /// `1..=`[`MAX_DELIVERIES_CAP`], or a text names a placeholder it may not.
     pub fn load(path: &Path) -> Result<Self, String> {
-        load_layered(SHIPPED, path)
+        load_layered::<Self>(SHIPPED, path)?
+            .checked()
+            .map_err(|error| format!("{}: {error}", path.display()))
+    }
+
+    fn checked(mut self) -> Result<Self, String> {
+        self.texts = self.texts.checked()?;
+
+        Ok(self)
     }
 
     /// Contexts one signal delivers, at most.
@@ -88,7 +100,10 @@ impl RulesConfig {
 
 impl Default for RulesConfig {
     fn default() -> Self {
-        serde_json::from_str(SHIPPED).expect("shipped rules limits are valid")
+        serde_json::from_str::<Self>(SHIPPED)
+            .map_err(|error| error.to_string())
+            .and_then(Self::checked)
+            .expect("shipped rules defaults are valid")
     }
 }
 
@@ -227,13 +242,14 @@ impl Rules {
             .filter(|rule| self.histories.admits(&rule.when, agent, workspace))
             .filter(|rule| self.may_fire(agent, rule, signal.at))
             .collect();
+        let texts = &self.config.texts;
         let candidates = rules.into_iter().map(|rule| Chained {
             steps: rule
                 .steps
                 .iter()
                 .map(|step| {
                     (
-                        question(&rule, step, &signal.kind, &tools),
+                        question(texts, &rule, step, &signal.kind, &tools),
                         judge::Rule::yes(step.yes_at_or_above, step.minimum_confidence),
                     )
                 })
@@ -353,10 +369,14 @@ impl Judged for Rules {
                 workspace,
             } => Some(Judge::done(Verdict {
                 rules: Vec::new(),
-                notice: Some(
-                    self.books
-                        .command(agent, *command, rulebook, args, workspace),
-                ),
+                notice: Some(self.books.command(
+                    agent,
+                    *command,
+                    rulebook,
+                    args,
+                    workspace,
+                    &self.config.texts,
+                )),
                 book_turn: Vec::new(),
             })),
             _ => None,
@@ -414,6 +434,7 @@ impl Judged for Rules {
         }
 
         let todos = todos_of(&signal.kind);
+        let texts = &self.config.texts;
 
         effects
             .into_iter()
@@ -429,7 +450,7 @@ impl Judged for Rules {
                     delivery,
                     label,
                     skills,
-                    text: text.map(|text| with_todos(text, todos)),
+                    text: text.map(|text| with_todos(texts, text, todos)),
                 },
                 other => other,
             })
@@ -468,7 +489,7 @@ fn todos_of(kind: &SignalKind) -> &[Todo] {
 
 /// `text` with the open todos, one per line, in place of [`TODOS`]; `none`
 /// when nothing is open.
-fn with_todos(text: String, todos: &[Todo]) -> String {
+fn with_todos(texts: &RulesTexts, text: String, todos: &[Todo]) -> String {
     if !text.contains(TODOS) {
         return text;
     }
@@ -476,13 +497,17 @@ fn with_todos(text: String, todos: &[Todo]) -> String {
     let open: Vec<String> = todos
         .iter()
         .filter(|todo| todo.status.is_open())
-        .map(|todo| match todo.status {
-            TodoStatus::InProgress => format!("- {} (in progress)", todo.content),
-            _ => format!("- {}", todo.content),
+        .map(|todo| {
+            let item = match todo.status {
+                TodoStatus::InProgress => &texts.todo_item_in_progress,
+                _ => &texts.todo_item,
+            };
+
+            item.render(&[("content", &todo.content)])
         })
         .collect();
     let list = if open.is_empty() {
-        "none".to_string()
+        texts.todos_none.render(&[])
     } else {
         open.join("\n")
     };
@@ -534,25 +559,36 @@ fn question_id(rule: &Rule, step: &Step) -> String {
 /// A step's question with what it is about: the call a tool-result rule
 /// judges, or at a turn end the user's latest request, the agent's closing
 /// message, and the tools it called since that request.
-fn question(rule: &Rule, step: &Step, kind: &SignalKind, tools: &[String]) -> Question {
+fn question(
+    texts: &RulesTexts,
+    rule: &Rule,
+    step: &Step,
+    kind: &SignalKind,
+    tools: &[String],
+) -> Question {
     let instructions = match kind {
         SignalKind::ToolResult {
             tool, ok, input, ..
         } => {
-            let outcome = if *ok { "succeeded" } else { "failed" };
+            let outcome = if *ok {
+                &texts.outcome_succeeded
+            } else {
+                &texts.outcome_failed
+            };
 
             // The call comes first so the rule can ask about "this call".
-            format!(
-                "The agent's latest {tool} call {outcome} with input: {input}\n{}\nA call the \
-                 user explicitly asked for, exactly as asked, does not count.",
-                step.question
-            )
+            texts.tool_call.render(&[
+                ("tool", tool),
+                ("outcome", &outcome.render(&[])),
+                ("input", input),
+                ("question", &step.question),
+            ])
         }
         SignalKind::TurnEnd {
             user_request,
             summary,
             ..
-        } => turn_end_question(&step.question, user_request, summary, tools),
+        } => turn_end_question(texts, &step.question, user_request, summary, tools),
         _ => step.question.clone(),
     };
 
@@ -564,6 +600,7 @@ fn question(rule: &Rule, step: &Step, kind: &SignalKind, tools: &[String]) -> Qu
 }
 
 fn turn_end_question(
+    texts: &RulesTexts,
     question: &str,
     user_request: &str,
     summary: &str,
@@ -572,20 +609,17 @@ fn turn_end_question(
     let mut text = question.to_string();
 
     if !user_request.trim().is_empty() {
-        text.push_str(&format!(
-            " Latest user request: {user_request}. Respect explicit user instructions."
-        ));
+        text.push_str(
+            &texts
+                .user_request_note
+                .render(&[("user_request", user_request)]),
+        );
     }
     if !summary.trim().is_empty() {
-        text.push_str(&format!(
-            "\nThe agent's closing message this turn: {summary}"
-        ));
+        text.push_str(&texts.closing_message_note.render(&[("summary", summary)]));
     }
     if !tools.is_empty() {
-        text.push_str(&format!(
-            "\nTools it called since that request: {}.",
-            tools.join(", ")
-        ));
+        text.push_str(&texts.tools_note.render(&[("tools", &tools.join(", "))]));
     }
 
     text

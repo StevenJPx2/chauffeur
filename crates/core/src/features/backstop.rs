@@ -11,6 +11,7 @@ use serde::Deserialize;
 
 use crate::config::load_config;
 use crate::signal::{Signal, SignalKind};
+use crate::template::Template;
 
 /// The shipped defaults, compiled in.
 const DEFAULTS: &str = include_str!("../../../../skills/safety/backstop.json");
@@ -36,12 +37,66 @@ pub struct BackstopConfig {
     /// contract would decide. Each must end at a word boundary.
     #[serde(default)]
     pub confirm: Vec<String>,
+    /// Wording to replace, whatever `replace` says; unset texts keep the
+    /// shipped ones.
+    #[serde(default)]
+    pub texts: BackstopTexts,
+}
+
+/// The backstop's messages to the agent and the user; each one you set
+/// replaces the shipped text.
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct BackstopTexts {
+    /// A request a pattern vetoed: `{pattern}`.
+    #[serde(default)]
+    pub blocked: Option<Template>,
+    /// A request the user must confirm: `{pattern}`.
+    #[serde(default)]
+    pub confirm: Option<Template>,
+    /// A command System One judged irreversible, now on the list.
+    #[serde(default)]
+    pub learned: Option<Template>,
+}
+
+/// [`BackstopTexts`] with every text present.
+#[derive(Clone, Debug)]
+struct Messages {
+    blocked: Template,
+    confirm: Template,
+    learned: Template,
+}
+
+impl Messages {
+    fn resolved(yours: BackstopTexts, shipped: BackstopTexts) -> Result<Self, String> {
+        let messages = Self {
+            blocked: yours
+                .blocked
+                .or(shipped.blocked)
+                .ok_or("texts.blocked is missing")?,
+            confirm: yours
+                .confirm
+                .or(shipped.confirm)
+                .ok_or("texts.confirm is missing")?,
+            learned: yours
+                .learned
+                .or(shipped.learned)
+                .ok_or("texts.learned is missing")?,
+        };
+
+        messages.blocked.check("texts.blocked", &["pattern"])?;
+        messages.confirm.check("texts.confirm", &["pattern"])?;
+        messages.learned.check("texts.learned", &[])?;
+
+        Ok(messages)
+    }
 }
 
 pub struct Backstop {
     patterns: Vec<String>,
     confirm: Vec<String>,
     learned: Vec<String>,
+    messages: Messages,
 }
 
 impl Backstop {
@@ -67,6 +122,7 @@ impl Backstop {
             patterns: bounded(patterns)?,
             confirm: bounded(confirm)?,
             learned: Vec::new(),
+            messages: Messages::resolved(config.texts, defaults.texts)?,
         })
     }
 
@@ -74,9 +130,8 @@ impl Backstop {
     #[must_use]
     pub fn new(extra: Vec<String>) -> Self {
         Self::from_config(BackstopConfig {
-            replace: false,
             patterns: extra,
-            confirm: Vec::new(),
+            ..BackstopConfig::default()
         })
         .unwrap_or_else(|_| {
             Self::from_config(BackstopConfig::default())
@@ -139,6 +194,24 @@ impl Backstop {
             .iter()
             .find(|pattern| matches(&facts, pattern, true))
             .map(String::as_str)
+    }
+
+    /// The denial for a request `pattern` vetoed.
+    #[must_use]
+    pub fn blocked_message(&self, pattern: &str) -> String {
+        self.messages.blocked.render(&[("pattern", pattern)])
+    }
+
+    /// The question to the user for a request `pattern` asks about.
+    #[must_use]
+    pub fn confirm_message(&self, pattern: &str) -> String {
+        self.messages.confirm.render(&[("pattern", pattern)])
+    }
+
+    /// The denial for a command judged irreversible and now learned.
+    #[must_use]
+    pub fn learned_message(&self) -> String {
+        self.messages.learned.render(&[])
     }
 }
 
@@ -272,6 +345,7 @@ mod tests {
             replace: true,
             patterns: vec!["git push --force origin main".into()],
             confirm: Vec::new(),
+            texts: BackstopTexts::default(),
         })
         .unwrap();
 
@@ -286,6 +360,7 @@ mod tests {
             replace: true,
             patterns: vec![],
             confirm: Vec::new(),
+            texts: BackstopTexts::default(),
         })
         .unwrap()
         .with_learned(backstop.learned().to_vec());
@@ -293,6 +368,39 @@ mod tests {
         assert_eq!(
             restored.veto(&request("shell", "drop database production", "")),
             Some("drop database production")
+        );
+    }
+
+    #[test]
+    fn your_text_replaces_one_message_and_a_stray_placeholder_is_an_error() {
+        let backstop = Backstop::from_config(BackstopConfig {
+            texts: BackstopTexts {
+                blocked: Some(Template::new("No: {pattern}")),
+                ..BackstopTexts::default()
+            },
+            ..BackstopConfig::default()
+        })
+        .unwrap();
+
+        assert_eq!(backstop.blocked_message("mkfs"), "No: mkfs");
+        assert_eq!(
+            backstop.confirm_message("origin +main"),
+            "Chauffeur asks you to confirm this (matched \"origin +main\")."
+        );
+        assert_eq!(
+            backstop.learned_message(),
+            "Chauffeur blocked an irreversible action; it is now on the backstop list."
+        );
+        assert!(
+            Backstop::from_config(BackstopConfig {
+                texts: BackstopTexts {
+                    learned: Some(Template::new("Matched {pattern}")),
+                    ..BackstopTexts::default()
+                },
+                ..BackstopConfig::default()
+            })
+            .err()
+            .is_some_and(|error| error.contains("texts.learned"))
         );
     }
 

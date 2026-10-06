@@ -11,8 +11,8 @@ use std::sync::Arc;
 use chauffeur_capability_monitors::Monitors;
 use chauffeur_core::judge::strategy;
 use chauffeur_core::{
-    Effect, Judge, Judged, Question, QuestionKind, Signal, SignalKind, Situation, Threshold,
-    load_layered,
+    Effect, Judge, Judged, Question, QuestionKind, Signal, SignalKind, Situation, Template,
+    Threshold, load_layered,
 };
 use serde::Deserialize;
 
@@ -22,29 +22,84 @@ const MAX_BODY_CHARS: usize = 600;
 /// The shipped bar (`skills/config/event-gate.json`), compiled in.
 const SHIPPED: &str = include_str!("../../../skills/config/event-gate.json");
 
-/// When an event is withheld.
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
+/// When an event is withheld, and how the question about it reads.
+#[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct EventGateConfig {
     /// A confident no at or below this bar withholds the event; anything
     /// else delivers it.
     pub withhold: Threshold,
+    /// The wording of the question to System One.
+    pub texts: EventGateTexts,
+}
+
+/// The question System One answers about an event, and its fragments.
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct EventGateTexts {
+    /// Whether to show the event: `{source}`, `{kind}`, `{summary}`, `{body}`,
+    /// `{origin}`, `{marked}`.
+    pub question: Template,
+    /// `{body}` for an event with a body: `{body}`.
+    pub body: Template,
+    /// `{origin}` for an event whose monitor is known: `{watch}`.
+    pub origin: Template,
+    /// `{marked}` for an event sourcefed marks actionable.
+    pub marked_actionable: Template,
+    /// `{marked}` for an event sourcefed marks informational.
+    pub marked_informational: Template,
+}
+
+impl EventGateTexts {
+    fn checked(self) -> Result<Self, String> {
+        for (field, template, allowed) in [
+            (
+                "texts.question",
+                &self.question,
+                &["source", "kind", "summary", "body", "origin", "marked"][..],
+            ),
+            ("texts.body", &self.body, &["body"][..]),
+            ("texts.origin", &self.origin, &["watch"][..]),
+            ("texts.marked_actionable", &self.marked_actionable, &[][..]),
+            (
+                "texts.marked_informational",
+                &self.marked_informational,
+                &[][..],
+            ),
+        ] {
+            template.check(field, allowed)?;
+        }
+
+        Ok(self)
+    }
 }
 
 impl EventGateConfig {
-    /// The shipped bar overlaid by your `event-gate.json` at `path`.
+    /// The shipped config overlaid by your `event-gate.json` at `path`.
     ///
     /// # Errors
     ///
-    /// When your file is unreadable, invalid, or a bar is outside `[0, 1]`.
+    /// When your file is unreadable, invalid, a bar is outside `[0, 1]`, or a
+    /// text is empty or names a placeholder it may not use.
     pub fn load(path: &Path) -> Result<Self, String> {
-        load_layered(SHIPPED, path)
+        load_layered::<Self>(SHIPPED, path)?
+            .checked()
+            .map_err(|error| format!("{}: {error}", path.display()))
+    }
+
+    fn checked(mut self) -> Result<Self, String> {
+        self.texts = self.texts.checked()?;
+
+        Ok(self)
     }
 }
 
 impl Default for EventGateConfig {
     fn default() -> Self {
-        serde_json::from_str(SHIPPED).expect("shipped event-gate bar is valid")
+        serde_json::from_str::<Self>(SHIPPED)
+            .map_err(|error| error.to_string())
+            .and_then(Self::checked)
+            .expect("shipped event-gate defaults are valid")
     }
 }
 
@@ -66,7 +121,7 @@ impl EventGate {
 
     /// This gate at `config`'s bar.
     #[must_use]
-    pub const fn with_config(mut self, config: EventGateConfig) -> Self {
+    pub fn with_config(mut self, config: EventGateConfig) -> Self {
         self.config = config;
         self
     }
@@ -83,10 +138,10 @@ impl EventGate {
             .and_then(|found| found.watch);
 
         watch.map_or_else(String::new, |watch| {
-            format!(
-                "\nIt comes from this session's monitor on {}.",
-                watch.describe()
-            )
+            self.config
+                .texts
+                .origin
+                .render(&[("watch", &watch.describe())])
         })
     }
 }
@@ -113,27 +168,28 @@ impl Judged for EventGate {
         };
         let origin = self.origin(&signal.agent_id, monitor);
         let body: String = body.chars().take(MAX_BODY_CHARS).collect();
+        let texts = &self.config.texts;
         let body = if body.is_empty() {
             String::new()
         } else {
-            format!("\n{body}")
+            texts.body.render(&[("body", &body)])
         };
         let marked = if *actionable {
-            "actionable"
+            &texts.marked_actionable
         } else {
-            "informational"
-        };
+            &texts.marked_informational
+        }
+        .render(&[]);
         let question = Question {
             id: QUESTION.into(),
-            instructions: format!(
-                "A {source} {kind} event arrived for the coding agent's session: {summary}{body}{origin}\n\
-                 sourcefed marks it {marked}. Should the agent be shown this event now? Show \
-                 events that need the agent to do something: CI failures, requested changes, \
-                 questions or requests addressed to it, merge conflicts, and a merged pull \
-                 request with follow-up work. Withhold noise: bot comments, approvals, status or \
-                 assignee changes nobody asked it to act on, thanks, and anything it has already \
-                 handled."
-            ),
+            instructions: texts.question.render(&[
+                ("source", source),
+                ("kind", kind),
+                ("summary", summary),
+                ("body", &body),
+                ("origin", &origin),
+                ("marked", &marked),
+            ]),
             kind: QuestionKind::Noul,
         };
 

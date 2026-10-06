@@ -6,6 +6,7 @@ import { Daemon } from "./daemon.js"
 import { type HistoryMessage, Host } from "./host.js"
 import { signal, TEXT_CODE_POINTS, type Resource, type SignalKind } from "./protocol.js"
 import { clip, clipStart, isIntegrationMessage, userText } from "./text.js"
+import { fill, Texts } from "./texts.js"
 
 // Permission is synchronous for the host; past this the request asks. The
 // engine runs permission first, but may still finish a Jev call already under
@@ -28,6 +29,7 @@ const FILE_ACTIONS = new Set(["read", "edit", "write", "patch"])
 export const installPermission = Effect.gen(function* () {
   const host = yield* Host
   const daemon = yield* Daemon
+  const texts = yield* Texts
 
   yield* host.permission.hook("evaluate", (event) => {
     if (event.effect === "deny") return Effect.void
@@ -50,7 +52,7 @@ export const installPermission = Effect.gen(function* () {
       }
     }).pipe(Effect.catch((error) => Effect.sync(() => {
       event.effect = "ask"
-      event.message = clip(`Chauffeur could not evaluate this request: ${String(error)}`, TEXT_CODE_POINTS)
+      event.message = clip(fill(texts.current().permission.failed, { error: String(error) }), TEXT_CODE_POINTS)
     })))
   })
 })

@@ -25,5 +25,10 @@
     "origin master --force-with-lease",
     "origin +main",
     "origin +master"
-  ]
+  ],
+  "texts": {
+    "blocked": "Chauffeur blocked an irreversible action (matched \"{pattern}\").",
+    "confirm": "Chauffeur asks you to confirm this (matched \"{pattern}\").",
+    "learned": "Chauffeur blocked an irreversible action; it is now on the backstop list."
+  }
 }

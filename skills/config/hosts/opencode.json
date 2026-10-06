@@ -1,0 +1,36 @@
+{
+  "ask_chauffeur": {
+    "description": "Ask Chauffeur for a tool or skill you lack. Your listed tools work as usual, including on files outside the project: use them first, and ask only when none of them can do the job. Describe what you need to do in plain words, such as \"drive a browser to check a page\" or \"create a Jira issue from the command line\". Chauffeur may reveal hidden tools, point you to Code Mode tools, or hand over a skill; the reply says what you got. Ask before improvising a workaround.",
+    "need": "What you need to do, in plain words.",
+    "nothing_found": "Chauffeur has no extra tool or skill for that. Your listed tools are available as usual and nothing restricts them: do it with them.",
+    "nothing_found_skill_tool": "Chauffeur has no extra tool for that. If a skill fits, load it with the skill tool. Your listed tools are available as usual and nothing restricts them: do it with them.",
+    "revealed": "Chauffeur revealed these tools; they are available from your next step: {tools}.",
+    "failed": "Chauffeur could not answer: {error}. Continue with the tools you have."
+  },
+  "todowrite": {
+    "description": "Write the todo list for this session: the distinct steps of the current task and where each stands. Use it for work with several steps: write the list before starting, keep one todo in_progress, mark each completed only when its evidence is in, and cancel any that no longer apply. Each call replaces the whole list. Chauffeur keeps a /goal going while any todo is pending or in progress.",
+    "todos": "The whole list, in order. Each call replaces the previous list.",
+    "content": "One distinct step, in a short sentence.",
+    "status": "pending, in_progress (one at a time), completed once its evidence is in, or cancelled.",
+    "too_many": "A todo list holds at most {max} items; merge some and write it again.",
+    "empty": "The todo list is empty.",
+    "heading": "Todos ({open} open):"
+  },
+  "subagent": {
+    "guidance": "The user asks that subagents doing routine work, such as searching, reading and summarising, or mechanical edits, run on a cheaper model from your own provider: pass model \"anthropic/claude-sonnet-5-5\" when you run on Claude Opus, or \"openai/gpt-6-luna\" when you run on GPT-6.1 Sol. Keep your own model for hard design, debugging or review."
+  },
+  "rulebook": {
+    "description": "{description} {usage}, or pause | resume | clear.",
+    "usage": "/{id}",
+    "usage_with_args": "/{id} <what>",
+    "too_long": "/{id} text is {kib} KiB; the limit is 64 KiB. Nothing was started: shorten it and try again.",
+    "failed": "/{id} failed: {error}"
+  },
+  "permission": {
+    "failed": "Chauffeur could not evaluate this request: {error}"
+  },
+  "labels": {
+    "context": "Chauffeur {label}",
+    "exposure": "Chauffeur tool exposure"
+  }
+}

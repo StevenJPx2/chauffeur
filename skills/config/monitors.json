@@ -1,3 +1,7 @@
 {
-  "follow": { "at": 0.7, "confidence": 0.4 }
+  "follow": { "at": 0.7, "confidence": 0.4 },
+  "texts": {
+    "question": "The agent's latest {tool} call, with input {input}, involves {watch}. Is it the coding session's own work, which the session should keep following so new reviews, CI results, and comments reach the agent? Yes when the agent created it or is working on it for the user's task; no when it only looked it up or it is someone else's work.",
+    "followed": "Chauffeur: sourcefed now watches {watch} for this session; new reviews, CI results, and comments will arrive here. Do not create another monitor for it."
+  }
 }
