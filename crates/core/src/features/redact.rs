@@ -265,16 +265,18 @@ fn shape(word: &str) -> Option<Shape> {
 /// `/Users/me/hpdp-overlay/ADEPT-45130`, or a URL's path such as
 /// `com/archives/C08/p1790…` after `https://acme.slack.`. Its segments are
 /// judged one by one, so the path survives while a token in it is still
-/// caught. A value after `key=` or `key:` stays whole, as base64 with `/`
-/// would.
+/// caught. So is a relative path such as `acme/web-app#42`: base64 has `/`
+/// but never `-` or `_`, and base64url has those but never `/`. A value
+/// after `key=` or `key:` stays whole, as base64 with `/` would.
 fn url_path(word: &str, before: &str) -> bool {
     let in_url = before
         .rsplit(char::is_whitespace)
         .next()
         .is_some_and(|token| token.contains("://"));
     let absolute = word.starts_with('/') || before.ends_with('~');
+    let not_base64 = word.contains(['-', '_']) && !word.contains('+');
 
-    word.contains('/') && key_before(before).is_empty() && (in_url || absolute)
+    word.contains('/') && key_before(before).is_empty() && (in_url || absolute || not_base64)
 }
 
 /// The key a value follows, such as `api_key=` in `api_key=abc…`, or an
@@ -443,6 +445,15 @@ mod tests {
         );
         assert_eq!(redactor.redact(slack, &mut masking), slack);
         assert_eq!(redactor.redact(github, &mut masking), github);
+
+        // A repository slug is a relative path, not base64.
+        let slug = "watching StevenJPx2/chauffeur-demo-ci#3";
+
+        assert_eq!(redactor.redact(slug, &mut masking), slug);
+        assert_eq!(
+            redactor.redact("in acme/ghp_abcdefghijklmnopqrstuvwxyz0123", &mut masking),
+            "in acme/[REDACTED]"
+        );
         assert_eq!(
             redactor.redact(token, &mut masking),
             "https://x.com/api/[REDACTED]/repos"
