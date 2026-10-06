@@ -64,25 +64,52 @@ impl HostTexts {
     }
 }
 
-/// The shipped texts overlaid by your file, if every key yours names exists
-/// in the shipped file and every text is a string within bounds.
-fn load(shipped: &str, path: &Path) -> Result<Value, String> {
-    let defaults: Value =
-        serde_json::from_str(shipped).map_err(|error| format!("shipped host texts: {error}"))?;
-    let merged: Value = load_layered(shipped, path)?;
+/// Lists the groups that take texts under any name, such as tool
+/// descriptions keyed by tool name; only the shipped file sets it.
+const OPEN: &str = "$open";
 
-    same_shape(&defaults, &merged, "", 0)
-        .map_err(|error| format!("{}: {error}", path.display()))?;
+/// The shipped texts overlaid by your file, if every key yours names exists
+/// in the shipped file (or sits in an `$open` group) and every text is a
+/// string within bounds.
+fn load(shipped: &str, path: &Path) -> Result<Value, String> {
+    let mut defaults: Value =
+        serde_json::from_str(shipped).map_err(|error| format!("shipped host texts: {error}"))?;
+    let mut merged: Value = load_layered(shipped, path)?;
+    let open_groups = take_open(&mut defaults)?;
+    let error = |error: String| format!("{}: {error}", path.display());
+
+    if take_open(&mut merged).map_err(error)? != open_groups {
+        return Err(error(format!("{OPEN} is set by the shipped texts only")));
+    }
+
+    same_shape(&defaults, &merged, "", 0, &open_groups).map_err(error)?;
+
+    if let Value::Object(texts) = &mut merged {
+        texts.insert(OPEN.into(), open_groups.into());
+    }
 
     Ok(merged)
 }
 
-fn same_shape(shipped: &Value, merged: &Value, at: &str, depth: usize) -> Result<(), String> {
+/// Remove and return the `$open` group names.
+fn take_open(texts: &mut Value) -> Result<Vec<String>, String> {
+    let Some(open) = texts.as_object_mut().and_then(|texts| texts.remove(OPEN)) else {
+        return Ok(Vec::new());
+    };
+
+    serde_json::from_value(open).map_err(|_| format!("{OPEN} must list group names"))
+}
+
+fn same_shape(
+    shipped: &Value,
+    merged: &Value,
+    at: &str,
+    depth: usize,
+    open_groups: &[String],
+) -> Result<(), String> {
     match (shipped, merged) {
         (Value::Object(shipped), Value::Object(merged)) if depth < MAX_DEPTH => {
-            // An empty object in the shipped file is an open map of texts,
-            // such as tool descriptions keyed by tool name.
-            let open = shipped.is_empty();
+            let open = open_groups.iter().any(|group| group == at);
             let any_text = Value::String(String::new());
 
             if open && merged.len() > MAX_OPEN_TEXTS {
@@ -103,7 +130,7 @@ fn same_shape(shipped: &Value, merged: &Value, at: &str, depth: usize) -> Result
                         .ok_or_else(|| format!("unknown text {here}"))?
                 };
 
-                same_shape(expected, value, &here, depth + 1)?;
+                same_shape(expected, value, &here, depth + 1, open_groups)?;
             }
 
             Ok(())
@@ -180,16 +207,28 @@ mod tests {
     }
 
     #[test]
-    fn an_empty_shipped_object_takes_any_named_texts() {
+    fn an_open_group_takes_texts_under_any_name() {
         let config = dir("open");
         let write = |text: &str| std::fs::write(config.join("hosts/opencode.json"), text).unwrap();
 
-        write(r#"{ "tool_descriptions": { "shell": "Run a command.", "grep": "Search files." } }"#);
+        write(r#"{ "tool_descriptions": { "shell": "Run a command.", "glob": "Find paths." } }"#);
         let opencode = HostTexts::load(&config)
             .unwrap()
             .current("opencode")
             .unwrap();
         assert_eq!(opencode["tool_descriptions"]["shell"], "Run a command.");
+        // A tool the shipped file does not name, beside the shipped ones.
+        assert_eq!(opencode["tool_descriptions"]["glob"], "Find paths.");
+        assert!(opencode["tool_descriptions"]["grep"].is_string());
+        assert_eq!(opencode["$open"], serde_json::json!(["tool_descriptions"]));
+
+        write(r#"{ "$open": ["ask_chauffeur"] }"#);
+        assert!(
+            HostTexts::load(&config)
+                .err()
+                .unwrap()
+                .contains("set by the shipped texts only")
+        );
 
         write(r#"{ "tool_descriptions": { "shell": "" } }"#);
         assert!(

@@ -13,8 +13,11 @@ fast model, so it adds about a third of a second, not another agent turn.
 ### The right skill, without the token bill
 
 Chauffeur reads your message and attaches only the skills it needs. It hides
-OpenCode's full skill list and the tool groups a task won't use, and brings them
-back if a later message does.
+OpenCode's full skill list and the directly sent tools a task won't use, brings
+them back if a later message does, and replaces the longest built-in tool
+descriptions with shorter ones. With Code Mode on, plugin and MCP tools stay in
+OpenCode's catalog, which lists a fixed number of tools; Chauffeur points the
+agent to the ones a request needs.
 
 ![Chauffeur attaching the jira-cli skill to a question about a Jira ticket](docs/media/jira.gif)
 
@@ -24,7 +27,11 @@ The decision feed under OpenCode is `chauffeur audit --follow --brief`.
 
 On our longer benchmark tasks, this used 29% fewer input tokens and finished
 19% faster than plain OpenCode, with the same or better pass rate
-([`bench/`](bench)).
+([`bench/`](bench)). The first request of a session is 44–48% smaller (Opus
+18.8k → 10.4k tokens, GPT-6 Luna 11.3k → 5.9k), and the shorter tool
+descriptions take about 480 more tokens off every request with no loss in
+pass rate across 135 runs
+([`docs/plans/prompt-trimming.md`](docs/plans/prompt-trimming.md)).
 
 ### Fewer permission prompts, and the right ones
 

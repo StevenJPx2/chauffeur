@@ -655,7 +655,11 @@ error, not a stray brace in a question. Override one text by naming it in your
 file of the same name; the rest stay shipped. The host's own wording (tool
 descriptions, replies, labels) ships in `skills/config/hosts/<host>.json`: the
 daemon layers your `$CHAUFFEUR_CONFIG_DIR/hosts/<host>.json` over it, rejects
-keys the shipped file lacks, and serves it through the `texts` RPC method; the
+keys the shipped file lacks (except in groups its `$open` list names, such as
+`tool_descriptions`, which take texts under any tool name), and serves it
+through the `texts` RPC method. `tool_descriptions` replaces a host tool's
+description in each request's `context` hook; the shipped set shortens nine of
+OpenCode's built-ins, about 480 tokens per request. The
 OpenCode adapter reads it every five seconds and registers its tools again when
 it changes, falling back to the shipped copy bundled into the plugin while the
 daemon is down. Rule, rulebook, and permission-contract wording already lives

@@ -34,8 +34,8 @@ steers, permission decisions) from the daemon's audit log.
   `"CHAUFFEUR_HOST_SKILLS": "keep"`: Chauffeur attaches skills and OpenCode keeps
   its own skill tool and skill list. An optional `config` names a folder of
   Chauffeur overrides, relative to the suite root, copied into the run's config
-  folder: `{ "id": "short-tools", "chauffeur": true, "disable": [], "config":
-  "variants/short-tools" }` with `variants/short-tools/hosts/opencode.json`. An
+  folder: `{ "id": "codemode-trim", "chauffeur": true, "disable": [], "config":
+  "variants/codemode-trim" }` with `variants/codemode-trim/tool-exposure.json`. An
   optional `plugins` list keeps global plugins a run otherwise disables
   (`ntfy-notify`, `optmem`, `sourcefed`): `"plugins": ["sourcefed"]`.
 - `tasks/<id>/task.json`: `{ "prompt", "check": [argv…], "timeout_seconds", "tags" }`, beside:
@@ -77,7 +77,7 @@ cargo run -q -p chauffeur-bench -- report ~/.local/state/chauffeur/bench/suite-1
 
 # What each variant's requests are made of: a one-word task per variant, then
 # the "First request" table (the first variant is the control)
-cargo run -q -p chauffeur-bench --release -- prompt --variants full,short-tools --model anthropic/claude-opus-5-5
+cargo run -q -p chauffeur-bench --release -- prompt --variants full,codemode-trim --model anthropic/claude-opus-5-5
 
 # Delete the OpenCode sessions a results folder's runs created
 cargo run -q -p chauffeur-bench -- clean ~/.local/state/chauffeur/bench/suite-1

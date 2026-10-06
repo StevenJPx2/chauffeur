@@ -1,4 +1,5 @@
 {
+  "$open": ["tool_descriptions"],
   "ask_chauffeur": {
     "description": "Ask Chauffeur for a tool or skill you lack. Your listed tools work as usual, including on files outside the project: use them first, and ask only when none of them can do the job. Describe what you need to do in plain words, such as \"drive a browser to check a page\" or \"create a Jira issue from the command line\". Chauffeur may reveal hidden tools, point you to Code Mode tools, or hand over a skill; the reply says what you got. Ask before improvising a workaround.",
     "need": "What you need to do, in plain words.",
@@ -16,7 +17,17 @@
     "empty": "The todo list is empty.",
     "heading": "Todos ({open} open):"
   },
-  "tool_descriptions": {},
+  "tool_descriptions": {
+    "shell": "Run a shell command and return its output. Quote paths with spaces. Prefer a dedicated tool when one fits. Large output is saved to a file and previewed. `timeout` is optional; background commands return at once and you are notified when they finish.",
+    "read": "Read a file (text, image, or PDF) or list a directory. Text lines are prefixed `<line>: ` (1-based; not part of the file). For large files use offset and limit, preferring one larger read over many slices, or grep for the content.",
+    "question": "Ask the user while you work: a preference, an unclear instruction, or a choice between approaches. A free-text answer is added automatically. `multiple: true` allows several picks. Put a recommended option first and end its label with \"(Recommended)\".",
+    "grep": "Search file contents with a ripgrep regex or literal text, narrowed by `path` or `include`. Returns paths, line numbers, and previews.",
+    "webfetch": "Fetch an HTTP(S) URL as markdown (default), text, or HTML. Read-only; prefer a more specific tool when one exists. Large results are previewed.",
+    "execute": "Run JavaScript in the Code Mode runtime to call tools and combine their results. `fetch` works; imports, the filesystem, and timers do not. Call only tools listed in the Code Mode catalog or returned by `search`, by their exact path, keeping bracket notation such as `tools.ns[\"tool-name\"](input)`. `return` the result (else the last expression is returned). Await calls that matter; run independent ones with `Promise.allSettled`.",
+    "patch": "Edit files with a patch:\n\n*** Begin Patch\n*** Add File: <path>        then the contents, every line starting with +\n*** Update File: <path>     optionally *** Move to: <new path>, then @@ hunks of -/+ lines\n*** Delete File: <path>\n*** End Patch\n\nEvery operation needs its header, and new lines always start with +. Example:\n\n*** Begin Patch\n*** Update File: src/app.py\n@@ def greet():\n-print(\"Hi\")\n+print(\"Hello\")\n*** End Patch",
+    "edit": "Replace exact text in a file. Copy indentation exactly from read output and leave out its `<line>: ` prefix. oldString must match exactly once unless replaceAll is true; add surrounding context to make it unique. Use replaceAll for every occurrence, such as a rename.",
+    "write": "Create or overwrite a file; missing folders are created. For partial changes use edit."
+  },
   "subagent": {
     "guidance": "The user asks that subagents doing routine work, such as searching, reading and summarising, or mechanical edits, run on a cheaper model from your own provider: pass model \"anthropic/claude-sonnet-5-5\" when you run on Claude Opus, or \"openai/gpt-6-luna\" when you run on GPT-6.1 Sol. Keep your own model for hard design, debugging or review."
   },
