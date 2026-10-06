@@ -28,6 +28,8 @@ const HostTextsSchema = Schema.Struct({
     empty: Schema.String,
     heading: Schema.String,
   }),
+  /** Replacement descriptions for host tools, keyed by tool name. */
+  tool_descriptions: Schema.Record(Schema.String, Schema.String),
   subagent: Schema.Struct({ guidance: Schema.String }),
   rulebook: Schema.Struct({
     description: Schema.String,

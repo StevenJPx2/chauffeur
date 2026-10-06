@@ -16,6 +16,7 @@
     "empty": "The todo list is empty.",
     "heading": "Todos ({open} open):"
   },
+  "tool_descriptions": {},
   "subagent": {
     "guidance": "The user asks that subagents doing routine work, such as searching, reading and summarising, or mechanical edits, run on a cheaper model from your own provider: pass model \"anthropic/claude-sonnet-5-5\" when you run on Claude Opus, or \"openai/gpt-6-luna\" when you run on GPT-6.1 Sol. Keep your own model for hard design, debugging or review."
   },

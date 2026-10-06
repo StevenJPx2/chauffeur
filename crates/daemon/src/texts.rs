@@ -19,6 +19,9 @@ const HOSTS: &[(&str, &str)] = &[(
 /// Groups nest at most this deep.
 const MAX_DEPTH: usize = 3;
 
+/// Texts an open map (an empty object in the shipped file) may hold.
+const MAX_OPEN_TEXTS: usize = 64;
+
 /// Every known host's texts, each reloaded when your file changes.
 pub struct HostTexts(HashMap<&'static str, Reloading<Value>>);
 
@@ -77,15 +80,28 @@ fn load(shipped: &str, path: &Path) -> Result<Value, String> {
 fn same_shape(shipped: &Value, merged: &Value, at: &str, depth: usize) -> Result<(), String> {
     match (shipped, merged) {
         (Value::Object(shipped), Value::Object(merged)) if depth < MAX_DEPTH => {
+            // An empty object in the shipped file is an open map of texts,
+            // such as tool descriptions keyed by tool name.
+            let open = shipped.is_empty();
+            let any_text = Value::String(String::new());
+
+            if open && merged.len() > MAX_OPEN_TEXTS {
+                return Err(format!("{at} holds more than {MAX_OPEN_TEXTS} texts"));
+            }
+
             for (key, value) in merged {
                 let here = if at.is_empty() {
                     key.clone()
                 } else {
                     format!("{at}.{key}")
                 };
-                let expected = shipped
-                    .get(key)
-                    .ok_or_else(|| format!("unknown text {here}"))?;
+                let expected = if open {
+                    &any_text
+                } else {
+                    shipped
+                        .get(key)
+                        .ok_or_else(|| format!("unknown text {here}"))?
+                };
 
                 same_shape(expected, value, &here, depth + 1)?;
             }
@@ -153,6 +169,37 @@ mod tests {
             r#"{ "todowrite": { "empty": 3 } }"#,
         )
         .unwrap();
+        assert!(
+            HostTexts::load(&config)
+                .err()
+                .unwrap()
+                .contains("wrong shape")
+        );
+
+        let _ = std::fs::remove_dir_all(&config);
+    }
+
+    #[test]
+    fn an_empty_shipped_object_takes_any_named_texts() {
+        let config = dir("open");
+        let write = |text: &str| std::fs::write(config.join("hosts/opencode.json"), text).unwrap();
+
+        write(r#"{ "tool_descriptions": { "shell": "Run a command.", "grep": "Search files." } }"#);
+        let opencode = HostTexts::load(&config)
+            .unwrap()
+            .current("opencode")
+            .unwrap();
+        assert_eq!(opencode["tool_descriptions"]["shell"], "Run a command.");
+
+        write(r#"{ "tool_descriptions": { "shell": "" } }"#);
+        assert!(
+            HostTexts::load(&config)
+                .err()
+                .unwrap()
+                .contains("must be 1-")
+        );
+
+        write(r#"{ "tool_descriptions": { "shell": { "nested": "no" } } }"#);
         assert!(
             HostTexts::load(&config)
                 .err()

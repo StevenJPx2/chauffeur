@@ -3,7 +3,7 @@ import { Effect, type Schema } from "effect"
 import type { DaemonClient } from "../src/daemon.js"
 import { Host } from "../src/host.js"
 import { installSubagentGuidance } from "../src/subagents.js"
-import { type HostTexts, SHIPPED_TEXTS, type TextsSource, withTexts } from "../src/texts.js"
+import { fixedTexts, type HostTexts, SHIPPED_TEXTS, type TextsSource, withTexts } from "../src/texts.js"
 import { installTodos, readTodos, render, TODO_TOOL, type Todo } from "../src/todos.js"
 import { fakeHost, install, noRulebooks, shippedTexts } from "./support.js"
 
@@ -143,6 +143,44 @@ test("the subagent tool's description carries the cheaper-model guidance once", 
     expect(subagent.description).toBe(`Spawns an agent in a child session.\n\n${SUBAGENT_GUIDANCE}`)
     expect(SUBAGENT_GUIDANCE).toContain("anthropic/claude-sonnet-5-5")
     expect(SUBAGENT_GUIDANCE).toContain("openai/gpt-6-luna")
+  } finally {
+    await plugin.close()
+  }
+})
+
+test("configured tool descriptions replace the host's, and the subagent guidance follows its new text", async () => {
+  type Described = { description: string }
+
+  type Editor = { update: (id: string, change: (tool: Described) => void) => void }
+
+  const shell: Described = { description: "A long description of the shell tool." }
+  const subagent: Described = { description: "A long description of the subagent tool." }
+  const tools = new Map([["shell", shell], ["subagent", subagent]])
+
+  const editor: Editor = {
+    update: (id, change) => {
+      const tool = tools.get(id)
+
+      if (tool) change(tool)
+    },
+  }
+
+  const host = fakeHost({
+    tool: {
+      transform: (edit: (editor: Editor) => void) => Effect.sync(() => {
+        edit(editor)
+
+        return { dispose: Effect.void }
+      }),
+    },
+  })
+
+  const texts = fixedTexts({ ...SHIPPED_TEXTS, tool_descriptions: { shell: "Run a command.", subagent: "Start a subagent.", missing: "Ignored." } })
+  const plugin = await install(installSubagentGuidance, host, daemon, texts)
+
+  try {
+    expect(shell.description).toBe("Run a command.")
+    expect(subagent.description).toBe(`Start a subagent.\n\n${SUBAGENT_GUIDANCE}`)
   } finally {
     await plugin.close()
   }
