@@ -72,7 +72,7 @@ A rulebook is a set of rules you switch on for one session with a slash command.
   from intake to a PR in review. It is scoped to those folders, so it only
   appears there.
 
-![/goal running a task to "Goal achieved"](docs/media/goal.gif)
+![/goal resumes unfinished work after one test fix, then verifies the complete passing suite](docs/media/goal.gif)
 
 Add your own in `skills/rulebooks/`, or per project in `.chauffeur/rulebooks/`
 ([format](skills/README.md#rulebooks)).
@@ -182,3 +182,5 @@ The demos above were recorded with
 repositories, with stub `jira`, `slackcli` and `twitter` CLIs. Twitter replies
 are fixtures. The ask demo's `AGENTS.md` requires a Slack handoff and supplies
 the question the agent asks Chauffeur.
+The `/goal` demo's project policy allows one failing test file to be fixed per
+turn, making its real automatic continuation visible.
