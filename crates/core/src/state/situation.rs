@@ -10,7 +10,8 @@ use crate::signal::{Signal, SignalKind};
 use crate::template::Template;
 
 pub const MAX_ENTRIES: usize = 32;
-const MAX_LINE_CHARS: usize = 240;
+/// The most characters one clipped line may keep, whatever is configured.
+const MAX_KEPT_CHARS: usize = 2_048;
 /// The shipped wording (`skills/config/situation.json`), compiled in.
 const SHIPPED: &str = include_str!("../../../../skills/config/situation.json");
 
@@ -53,6 +54,62 @@ pub struct SituationTexts {
     pub turn_end: Template,
     /// The user ran a rulebook command: `{rulebook}`, `{command}`, `{args}`.
     pub rulebook: Template,
+    /// How much of each clipped line System One reads.
+    pub clip: Clips,
+}
+
+/// The characters of a whole line kept, its label included: the first `head`
+/// and the last `tail`, joined by " … " when the middle is cut.
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct Keep {
+    pub head: usize,
+    pub tail: usize,
+}
+
+/// What each kind of clipped line keeps. Lines quoting the user are kept
+/// whole; the signal bounds them.
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct Clips {
+    /// Tool, model, integration-event, and agent-request lines.
+    pub line: Keep,
+    /// The agent's closing message, which often ends on a question the
+    /// user's next message answers.
+    pub turn_end: Keep,
+}
+
+impl Keep {
+    fn checked(self, field: &str) -> Result<Self, String> {
+        let kept = self.head.saturating_add(self.tail);
+
+        if (1..=MAX_KEPT_CHARS).contains(&kept) {
+            Ok(self)
+        } else {
+            Err(format!(
+                "{field}: head + tail must be 1-{MAX_KEPT_CHARS} characters"
+            ))
+        }
+    }
+
+    /// `line` within this bound.
+    fn apply(self, line: &str) -> String {
+        let count = line.chars().count();
+
+        if count <= self.head + self.tail {
+            return line.to_string();
+        }
+
+        let head: String = line.chars().take(self.head).collect();
+
+        if self.tail == 0 {
+            return head;
+        }
+
+        let tail: String = line.chars().skip(count - self.tail).collect();
+
+        format!("{head} … {tail}")
+    }
 }
 
 impl SituationTexts {
@@ -68,7 +125,7 @@ impl SituationTexts {
             .map_err(|error| format!("{}: {error}", path.display()))
     }
 
-    fn checked(self) -> Result<Self, String> {
+    fn checked(mut self) -> Result<Self, String> {
         let tool = &["tool"][..];
         let tool_input = &["tool", "input"][..];
 
@@ -130,6 +187,9 @@ impl SituationTexts {
             template.check(field, allowed)?;
         }
 
+        self.clip.line = self.clip.line.checked("clip.line")?;
+        self.clip.turn_end = self.clip.turn_end.checked("clip.turn_end")?;
+
         Ok(self)
     }
 }
@@ -163,8 +223,10 @@ impl Situation {
 
         self.entries.push_back(if quotes_user(&signal.kind) {
             line
+        } else if matches!(signal.kind, SignalKind::TurnEnd { .. }) {
+            texts.clip.turn_end.apply(&line)
         } else {
-            clip(&line)
+            texts.clip.line.apply(&line)
         });
     }
 
@@ -317,10 +379,6 @@ fn quotes_user(kind: &SignalKind) -> bool {
             | SignalKind::PermissionRequest { .. }
             | SignalKind::Rulebook { .. }
     )
-}
-
-fn clip(line: &str) -> String {
-    line.chars().take(MAX_LINE_CHARS).collect()
 }
 
 #[cfg(test)]
@@ -493,6 +551,55 @@ mod tests {
         let state = situation.render(&SituationTexts::default());
 
         assert!(state.contains(&format!("User: {words}")));
-        assert!(!state.contains(&"x".repeat(MAX_LINE_CHARS)));
+        assert!(!state.contains(&"x".repeat(240)));
+    }
+
+    #[test]
+    fn a_closing_message_keeps_both_ends_when_configured() {
+        let mut texts = SituationTexts::default();
+        // The line's label counts: "Agent ended its turn: " is 22 characters.
+        texts.clip.turn_end = Keep { head: 40, tail: 25 };
+        let mut situation = Situation::default();
+        let summary = format!(
+            "Step 1 is done.{} Should I start on step 2?",
+            " detail".repeat(80)
+        );
+
+        situation.record(
+            &Signal {
+                agent_id: "a".into(),
+                at: 1,
+                kind: SignalKind::TurnEnd {
+                    workspace: String::new(),
+                    subagent: false,
+                    user_request: String::new(),
+                    summary,
+                    todos: Vec::new(),
+                },
+            },
+            &texts,
+        );
+
+        let state = situation.render(&texts);
+
+        assert!(state.contains("Agent ended its turn: Step 1 is"), "{state}");
+        assert!(state.contains(" … Should I start on step 2?"), "{state}");
+        assert!(state.len() < 150, "{state}");
+    }
+
+    #[test]
+    fn a_keep_of_nothing_or_too_much_is_rejected() {
+        assert!(Keep { head: 0, tail: 0 }.checked("clip.line").is_err());
+        assert!(
+            Keep {
+                head: 2_000,
+                tail: 100
+            }
+            .checked("clip.line")
+            .is_err()
+        );
+        assert_eq!(Keep { head: 3, tail: 2 }.apply("abcdefgh"), "abc … gh");
+        assert_eq!(Keep { head: 3, tail: 0 }.apply("abcdefgh"), "abc");
+        assert_eq!(Keep { head: 5, tail: 5 }.apply("short"), "short");
     }
 }

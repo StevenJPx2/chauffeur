@@ -15,5 +15,9 @@
   "model_error": "Model {model} failed with {error_type}: {message}",
   "integration_event": "{source} {kind} event: {summary}",
   "turn_end": "Agent ended its turn: {summary}",
-  "rulebook": "User ran rulebook {rulebook} {command}: {args}"
+  "rulebook": "User ran rulebook {rulebook} {command}: {args}",
+  "clip": {
+    "line": { "head": 240, "tail": 0 },
+    "turn_end": { "head": 240, "tail": 0 }
+  }
 }

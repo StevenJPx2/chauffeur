@@ -3,7 +3,7 @@ import { Daemon } from "./daemon.js"
 import { Host, type SessionID } from "./host.js"
 import { signal, TEXT_CODE_POINTS } from "./protocol.js"
 import { deliverContext } from "./skills.js"
-import { clip, isIntegrationMessage, userText } from "./text.js"
+import { clip, clipEnds, isIntegrationMessage, userText } from "./text.js"
 import { type HostTexts, Texts } from "./texts.js"
 import { readTodos } from "./todos.js"
 
@@ -54,7 +54,8 @@ function reportTurnEnd(sessionID: SessionID, texts: HostTexts): Effect.Effect<vo
       workspace: session ? clip(String(session.location.directory), TEXT_CODE_POINTS) : "",
       subagent: session?.parentID !== undefined,
       user_request: user?.type === "user" ? userText(user.text) : "",
-      summary: clip(summary, TEXT_CODE_POINTS),
+      // Both ends: a closing message often ends on the question the user answers next.
+      summary: clipEnds(summary, TEXT_CODE_POINTS),
       todos: yield* readTodos(String(sessionID)),
     }))
 
