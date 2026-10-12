@@ -140,6 +140,9 @@ it lacks, then use what Chauffeur grants to finish the task.
 - **Questions with options.** When the agent ends its turn by asking you
   something in plain text, Chauffeur steers it to the question tool, so the
   ways forward arrive as options you can pick and the turn carries on.
+- **Clean test sessions.** When the agent tests OpenCode by running it against
+  your real data and finishes without deleting the sessions the test created,
+  Chauffeur resumes it to delete them.
 - **[sourcefed](https://github.com/StevenJPx2/sourcefed) events.** Chauffeur
   sets up monitors for the PR, Jira issue, or Slack thread you are working on,
   and lets through only the events the agent needs to act on.
