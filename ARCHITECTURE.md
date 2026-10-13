@@ -411,7 +411,9 @@ adapter sends an `integration_event` signal for that session to the daemon,
 recorded in the Situation as `github merged event: PR #42 merged`, and the
 event-gate capability asks whether the agent needs to act on it now. Only a
 confident no (P ≤ 0.3, confidence ≥ 0.4) withholds the event; everything else,
-including a failed judgment, delivers. sourcefed delivers too when Chauffeur's
+including a failed judgment, delivers. A body listed in `withhold_bodies`
+(shipped: sourcefed's `[message without text]` for an empty Slack message) is
+withheld without asking. sourcefed delivers too when Chauffeur's
 plugin is not loaded, fails, or is slower than 3 s. Other integrations can
 POST sourcefed's event shape `{target, monitorID, source, event}` to the
 daemon's `/integrations/sourcefed` and receive `{"deliver": bool}`. On 12 labelled events Jev withheld every piece of noise (bot

@@ -1,6 +1,7 @@
 //! Event gate: integrations such as sourcefed ask before an event reaches the
 //! agent. System One judges whether the event needs the agent to act; only a
-//! confident "no" withholds it, so a failed or unsure judgment delivers. With
+//! confident "no" withholds it, so a failed or unsure judgment delivers. An
+//! event whose body is one of `withhold_bodies` is withheld unasked. With
 //! the integration's monitors, the question also says what the event's
 //! monitor follows. Run it as `Judging::new(EventGate::default())`, with
 //! your bar as `EventGate::default().with_config(EventGateConfig::load(path)?)`.
@@ -29,6 +30,9 @@ pub struct EventGateConfig {
     /// A confident no at or below this bar withholds the event; anything
     /// else delivers it.
     pub withhold: Threshold,
+    /// Event bodies withheld without asking, such as sourcefed's placeholder
+    /// for a Slack message with no text.
+    pub withhold_bodies: Vec<String>,
     /// The wording of the question to System One.
     pub texts: EventGateTexts,
 }
@@ -166,6 +170,16 @@ impl Judged for EventGate {
         else {
             return None;
         };
+
+        if self
+            .config
+            .withhold_bodies
+            .iter()
+            .any(|withheld| withheld == body.trim())
+        {
+            return Some(Judge::done(true));
+        }
+
         let origin = self.origin(&signal.agent_id, monitor);
         let body: String = body.chars().take(MAX_BODY_CHARS).collect();
         let texts = &self.config.texts;

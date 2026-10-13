@@ -134,6 +134,29 @@ fn only_a_confident_no_withholds() {
     assert!(judged(&mut gate, &signal, None).is_empty());
 }
 
+#[test]
+fn a_slack_message_without_text_is_withheld_unasked() {
+    let signal = Signal {
+        kind: SignalKind::IntegrationEvent {
+            source: "slack".into(),
+            kind: "message".into(),
+            summary: "Slack thread message by U1".into(),
+            body: "[message without text]".into(),
+            actionable: true,
+            monitor: String::new(),
+        },
+        ..event("", "")
+    };
+
+    assert_eq!(
+        Judging::new(EventGate::default()).plan(&Situation::default(), &signal),
+        Plan::Settled(vec![Effect::Gate {
+            agent_id: "ses".into(),
+            deliver: false
+        }])
+    );
+}
+
 fn yours(name: &str, json: &str) -> PathBuf {
     let path = std::env::temp_dir().join(format!(
         "chauffeur-event-gate-{}-{name}.json",
