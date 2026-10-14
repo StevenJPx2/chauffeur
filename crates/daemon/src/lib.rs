@@ -4,7 +4,6 @@ mod audit;
 mod engine;
 mod judge;
 mod learned;
-mod memory;
 mod sourcefed;
 mod texts;
 
@@ -40,7 +39,6 @@ struct AppState {
     rulebooks: Option<Arc<Mutex<Reloading<Vec<Rulebook>>>>>,
     /// The wording each host shows the agent, reloaded when your file changes.
     texts: Arc<Mutex<HostTexts>>,
-    memory: memory::Selector,
     /// Raised by the `shutdown` method; the server stops once requests finish.
     shutdown: Arc<tokio::sync::Notify>,
 }
@@ -128,7 +126,6 @@ impl DaemonOptions {
 pub async fn serve(options: DaemonOptions) -> Result<(), String> {
     let address = options.address;
     let judge = JudgeConfig::from_env()?;
-    let memory = memory::Selector::start(judge.clone()).await?;
 
     // Without rules, no rulebook can run, so none is offered.
     let rulebooks = if options.disabled.iter().any(|id| id == "rules") {
@@ -163,7 +160,6 @@ pub async fn serve(options: DaemonOptions) -> Result<(), String> {
         token: options.token,
         rulebooks,
         texts,
-        memory,
         shutdown: Arc::clone(&shutdown),
     };
     let app = Router::new()
@@ -203,8 +199,6 @@ async fn rpc(
             Ok(json!({ "ok": true }))
         }
         METHOD_SIGNAL => signal(&state.engine, request.params).await,
-        "memory.select" => state.memory.select(request.params).await,
-        "memory.redact" => memory::redact(request.params),
         METHOD_RULEBOOKS => offered(&state, &request.params),
         METHOD_TEXTS => host_texts(&state, &request.params),
         method => Err(format!("unknown method {method}")),
