@@ -5,22 +5,23 @@ import { installIdle } from "../src/idle.js"
 import type { Signal, Todo } from "../src/protocol.js"
 import { eventStream, fakeHost, install, noRulebooks, settle, shippedTexts } from "./support.js"
 
-test("turn end carries the workspace, user instruction and todos, and delivers a confirmed reminder", async () => {
+test("turn end carries the workspace, user instruction and todo list, and delivers a confirmed reminder", async () => {
   const sessionID = "ses_hpdp"
   const events = eventStream()
   const sent: Signal[] = []
   const messages: Array<{ readonly text: string; readonly resume?: boolean }> = []
   const todos: ReadonlyArray<Todo> = [{ content: "Fix the size notice", status: "in_progress" }]
+  const write = { type: "tool", name: "todowrite", state: { status: "completed", input: { todos } } }
 
   const host = fakeHost({
     location: { directory: "/projects/hpdp-overlay/main" },
     event: { subscribe: events.subscribe },
-    storage: { get: (key: string) => Effect.succeed(key === `todos/${sessionID}` ? todos : undefined) },
+    storage: { get: () => Effect.succeed(undefined), set: () => Effect.void },
     session: {
       get: () => Effect.succeed({ location: { directory: "/projects/hpdp-overlay/main" }, outcome: "succeeded" }),
       context: () => Effect.succeed([
         { type: "user", text: "Do not open a PR", metadata: {} },
-        { type: "assistant", content: [{ type: "reasoning", text: "thinking" }, { type: "text", text: "Changes are local; no PR opened." }] },
+        { type: "assistant", content: [write, { type: "reasoning", text: "thinking" }, { type: "text", text: "Changes are local; no PR opened." }] },
       ]),
       synthetic: (message: (typeof messages)[number]) => Effect.sync(() => { messages.push(message) }),
     },
@@ -47,6 +48,7 @@ test("turn end carries the workspace, user instruction and todos, and delivers a
       summary: "Changes are local; no PR opened.",
       todos,
     })
+    // Only the engine's own guidance is delivered: open todos are no concern of this plugin's.
     expect(messages).toEqual([expect.objectContaining({ text: "Check the overlay", resume: true })])
   } finally {
     await plugin.close()

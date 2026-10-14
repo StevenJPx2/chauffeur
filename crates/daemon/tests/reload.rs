@@ -59,7 +59,7 @@ async fn a_rule_added_while_running_applies_to_the_next_signal() {
     let engine = EngineHandle::spawn(EngineOptions {
         config_dir: root.join("config"),
         skills_dir: skills_dir.clone(),
-        jev,
+        judge: chauffeur_daemon::JudgeConfig::jev(jev),
         idle_reminders: false,
         sourcefed: None,
         disabled: Vec::new(),

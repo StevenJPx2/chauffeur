@@ -6,6 +6,12 @@
     "key_env": "TYPESAFE_API_KEY"
   },
   {
+    "name": "subq",
+    "url": "https://api.subq.ai/v1/systemone",
+    "model": "subq-snap-preview",
+    "key_env": "SUBQ_API_KEY"
+  },
+  {
     "name": "clef",
     "url": "https://api.cloudflare.com/client/v4/accounts/{CLOUDFLARE_ACCOUNT_ID}/ai/run/@cf/cloudflare/clef",
     "model": "clef",

@@ -2,11 +2,13 @@
 
 mod audit;
 mod engine;
+mod judge;
 mod learned;
 mod sourcefed;
 mod texts;
 
 pub use engine::{EngineHandle, EngineOptions};
+pub use judge::JudgeConfig;
 
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
@@ -22,7 +24,6 @@ use chauffeur_core::{
     DaemonRequest, DaemonResponse, Effect, METHOD_HEALTH, METHOD_RULEBOOKS, METHOD_SHUTDOWN,
     METHOD_SIGNAL, METHOD_TEXTS, Reloading, RulebooksResult, SignalParams, SignalResult, Watch,
 };
-use chauffeur_judge_jev::JevConfig;
 pub use chauffeur_plugin_sourcefed::SourcefedConfig;
 use serde_json::json;
 use texts::HostTexts;
@@ -124,8 +125,7 @@ impl DaemonOptions {
 
 pub async fn serve(options: DaemonOptions) -> Result<(), String> {
     let address = options.address;
-    let jev = JevConfig::from_env()
-        .ok_or("TYPESAFE_API_KEY is required: Jev is Chauffeur's System One provider")?;
+    let judge = JudgeConfig::from_env()?;
 
     // Without rules, no rulebook can run, so none is offered.
     let rulebooks = if options.disabled.iter().any(|id| id == "rules") {
@@ -146,7 +146,7 @@ pub async fn serve(options: DaemonOptions) -> Result<(), String> {
     let engine = EngineHandle::spawn(EngineOptions {
         config_dir: options.config_dir,
         skills_dir: options.skills_dir,
-        jev,
+        judge,
         idle_reminders: options.idle_reminders,
         sourcefed: options.sourcefed,
         disabled: options.disabled,

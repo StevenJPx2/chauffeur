@@ -6,6 +6,8 @@ export class Host extends Context.Service<Host, Plugin.Context>()("chauffeur/Hos
 
 export type SessionID = Parameters<Plugin.Context["session"]["get"]>[0]["sessionID"]
 
+export type SessionInfo = Effect.Success<ReturnType<Plugin.Context["session"]["get"]>>
+
 export type HistoryMessage = Effect.Success<ReturnType<Plugin.Context["session"]["context"]>>[number]
 
 export type HostTool = Effect.Success<ReturnType<Plugin.Context["tool"]["list"]>>[number]

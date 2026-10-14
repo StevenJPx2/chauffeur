@@ -19,15 +19,6 @@ const HostTextsSchema = Schema.Struct({
     revealed: Schema.String,
     failed: Schema.String,
   }),
-  todowrite: Schema.Struct({
-    description: Schema.String,
-    todos: Schema.String,
-    content: Schema.String,
-    status: Schema.String,
-    too_many: Schema.String,
-    empty: Schema.String,
-    heading: Schema.String,
-  }),
   /** Replacement descriptions for host tools, keyed by tool name. */
   tool_descriptions: Schema.Record(Schema.String, Schema.String),
   subagent: Schema.Struct({ guidance: Schema.String }),

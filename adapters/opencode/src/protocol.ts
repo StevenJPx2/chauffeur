@@ -1,8 +1,8 @@
 import { Schema } from "effect"
 import { clip, clipBytes } from "./text.js"
-import type { Todo } from "./todos.js"
+import type { Todo } from "./todo-data.js"
 
-export type { Todo } from "./todos.js"
+export type { Todo } from "./todo-data.js"
 
 /** The engine's byte bound for each signal text field. */
 export const TEXT_BYTES = 2_048

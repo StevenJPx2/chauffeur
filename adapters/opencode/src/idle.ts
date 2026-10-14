@@ -1,10 +1,11 @@
 import { Effect, Stream } from "effect"
 import { Daemon } from "./daemon.js"
-import { Host, type SessionID } from "./host.js"
-import { signal, TEXT_CODE_POINTS } from "./protocol.js"
+import { Host, type HistoryMessage, type SessionID, type SessionInfo } from "./host.js"
+import { signal, TEXT_CODE_POINTS, type ContextEffect, type HostEffect, type Signal } from "./protocol.js"
 import { deliverContext } from "./skills.js"
 import { clip, clipEnds, isIntegrationMessage, userText } from "./text.js"
 import { type HostTexts, Texts } from "./texts.js"
+import type { Todo } from "./todo-data.js"
 import { readTodos } from "./todos.js"
 
 /**
@@ -43,31 +44,44 @@ function reportTurnEnd(sessionID: SessionID, texts: HostTexts): Effect.Effect<vo
     // session's events: only the session's own location reports its turn.
     if (session && String(session.location.directory) !== String(host.location.directory)) return
 
-    const user = context.findLast((message) => message.type === "user" && !isIntegrationMessage(message.metadata))
-    const reply = context.findLast((message) => message.type === "assistant")
+    const todos = yield* readTodos(String(sessionID), context)
 
-    const summary = reply?.type === "assistant"
-      ? reply.content.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("\n")
-      : ""
+    const effects = yield* daemon.signal(makeTurnSignal(sessionID, session, context, todos))
 
-    const effects = yield* daemon.signal(signal(String(sessionID), {
-      type: "turn_end",
-      workspace: session ? clip(String(session.location.directory), TEXT_CODE_POINTS) : "",
-      subagent: session?.parentID !== undefined,
-      user_request: user?.type === "user" ? userText(user.text) : "",
-      // Both ends: a closing message often ends on the question the user answers next.
-      summary: clipEnds(summary, TEXT_CODE_POINTS),
-      todos: yield* readTodos(String(sessionID)),
-    }))
-
-    const deliveries = effects.flatMap((effect) =>
-      effect.type === "context" && effect.agent_id === String(sessionID) && (effect.delivery === "resume" || effect.delivery === "wait")
-        ? [effect]
-        : [])
-
-    yield* Effect.forEach(deliveries, (effect) => deliverContext(sessionID, effect, texts), { discard: true })
+    yield* Effect.forEach(turnContexts(effects, sessionID), (effect) => deliverContext(sessionID, effect, texts), { discard: true })
   }).pipe(
     // Fails open: nothing is delivered.
     Effect.catch((error) => Effect.logError("chauffeur: turn end not reported", error)),
   )
+}
+
+function makeTurnSignal(
+  sessionID: SessionID,
+  session: SessionInfo | undefined,
+  context: ReadonlyArray<HistoryMessage>,
+  todos: ReadonlyArray<Todo>,
+): Signal {
+  const user = context.findLast((message) => message.type === "user" && !isIntegrationMessage(message.metadata))
+  const reply = context.findLast((message) => message.type === "assistant")
+
+  const summary = reply?.type === "assistant"
+    ? reply.content.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("\n")
+    : ""
+
+  return signal(String(sessionID), {
+    type: "turn_end",
+    workspace: session ? clip(String(session.location.directory), TEXT_CODE_POINTS) : "",
+    subagent: session?.parentID !== undefined,
+    user_request: user?.type === "user" ? userText(user.text) : "",
+    // Both ends: a closing message often ends on the question the user answers next.
+    summary: clipEnds(summary, TEXT_CODE_POINTS),
+    todos,
+  })
+}
+
+function turnContexts(effects: ReadonlyArray<HostEffect>, sessionID: SessionID): ContextEffect[] {
+  return effects.flatMap((effect) =>
+    effect.type === "context" && effect.agent_id === String(sessionID) && (effect.delivery === "resume" || effect.delivery === "wait")
+      ? [effect]
+      : [])
 }

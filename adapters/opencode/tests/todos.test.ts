@@ -1,102 +1,109 @@
 import { expect, test } from "bun:test"
+import type { SessionMessageAssistant, SessionMessageInfo } from "@opencode/client"
 import { Effect, type Schema } from "effect"
 import type { DaemonClient } from "../src/daemon.js"
 import { Host } from "../src/host.js"
 import { installToolDescriptions, rewriteDescriptions } from "../src/tool-descriptions.js"
 import { fixedTexts, type HostTexts, SHIPPED_TEXTS, type TextsSource, withTexts } from "../src/texts.js"
-import { installTodos, readTodos, render, TODO_TOOL, type Todo } from "../src/todos.js"
+import type { Todo } from "../src/todo-data.js"
+import { readTodos } from "../src/todos.js"
 import { fakeHost, Hooks, install, noRulebooks, shippedTexts } from "./support.js"
 
 const SUBAGENT_GUIDANCE = SHIPPED_TEXTS.subagent.guidance
 
-type Execute = (input: { readonly todos: ReadonlyArray<Todo> }, context: { readonly sessionID: string }) => Effect.Effect<{ content: string }>
-
 const daemon: DaemonClient = { rulebooks: noRulebooks, texts: shippedTexts, signal: () => Effect.die("unexpected") }
 
-/** A host whose storage is a map, and whose added tools are captured. */
+type ToolPart = Extract<SessionMessageAssistant["content"][number], { type: "tool" }>
+
+function toolCall(todos: ReadonlyArray<Todo>, status: "completed" | "running" = "completed"): ToolPart {
+  const input = { todos: todos.map((todo) => ({ content: todo.content, status: todo.status })) }
+
+  const state: ToolPart["state"] = status === "completed"
+    ? { status, input, content: [{ type: "text", text: "Todos saved." }] }
+    : { status, input, metadata: {} }
+
+  return { type: "tool", id: "call", name: "todowrite", state, time: { created: 0 } }
+}
+
+function assistant(content: SessionMessageAssistant["content"]): SessionMessageInfo {
+  return { id: "message", time: { created: 0 }, type: "assistant", agent: "build", model: { id: "test", providerID: "test" }, content }
+}
+
+/** A host whose storage is a map. */
 function hostWithStorage() {
   const stored = new Map<string, Schema.Json>()
-  const tools = new Map<string, Execute>()
 
   const host = fakeHost({
     storage: {
       get: (key: string) => Effect.sync(() => stored.get(key)),
       set: (key: string, json: Schema.Json) => Effect.sync(() => { stored.set(key, json) }),
     },
-    tool: {
-      transform: (edit: (editor: { add: (tool: { name: string; execute: Execute }) => void }) => void) => Effect.sync(() => {
-        edit({ add: (tool) => { tools.set(tool.name, tool.execute) } })
-
-        return { dispose: Effect.void }
-      }),
-    },
   })
 
-  const read = (sessionID: string) => Effect.runPromise(readTodos(sessionID).pipe(Effect.provideService(Host, host)))
+  const read = (sessionID: string, messages: ReadonlyArray<SessionMessageInfo>) =>
+    // SAFETY: a test transcript carries plain strings where the host brands its IDs; the reader looks only at tool parts.
+    Effect.runPromise(readTodos(sessionID, messages as never).pipe(Effect.provideService(Host, host)))
 
-  const write = (sessionID: string, todos: ReadonlyArray<Todo>) => {
-    const execute = tools.get(TODO_TOOL)
-
-    if (!execute) throw new Error("todowrite was not registered")
-
-    return Effect.runPromise(execute({ todos }, { sessionID })).then((reply) => reply.content)
-  }
-
-  return { host, stored, read, write }
+  return { stored, read }
 }
 
-test("todowrite keeps the session's list and reads it back", async () => {
-  const { host, read, write } = hostWithStorage()
-  const plugin = await install(installTodos, host, daemon)
+test("the list is the last todowrite in the transcript, trimmed and cleaned", async () => {
+  const { read } = hostWithStorage()
 
-  try {
-    const reply = await write("ses_a", [
-      { content: "Write the migration", status: "completed" },
+  const todos = await read("ses_a", [
+    assistant([toolCall([{ content: "Old task", status: "pending" }])]),
+    assistant([toolCall([
       { content: "  Backfill old rows  ", status: "in_progress" },
       { content: "   ", status: "pending" },
-    ])
+    ])]),
+  ])
 
-    expect(reply).toBe("Todos (1 open):\n[x] Write the migration\n[>] Backfill old rows")
-    expect(await read("ses_a")).toEqual([
-      { content: "Write the migration", status: "completed" },
-      { content: "Backfill old rows", status: "in_progress" },
-    ])
-    expect(await read("ses_b")).toEqual([])
-  } finally {
-    await plugin.close()
-  }
+  expect(todos).toEqual([{ content: "Backfill old rows", status: "in_progress" }])
 })
 
-test("an oversized list is refused and a corrupt stored list reads as empty", async () => {
-  const { host, stored, read, write } = hostWithStorage()
-  const plugin = await install(installTodos, host, daemon)
+test("an unfinished write does not replace the last good list, and an empty one clears it", async () => {
+  const { read } = hostWithStorage()
+  const good = assistant([toolCall([{ content: "Current task", status: "pending" }])])
 
-  try {
-    const many = Array.from({ length: 65 }, (_, index): Todo => ({ content: `step ${index}`, status: "pending" }))
-
-    expect(await write("ses_a", many)).toContain("at most 64")
-    expect(stored.has("todos/ses_a")).toBe(false)
-
-    stored.set("todos/ses_a", [{ content: "x", status: "someday" }])
-
-    expect(await read("ses_a")).toEqual([])
-  } finally {
-    await plugin.close()
-  }
+  expect(await read("ses_a", [good, assistant([toolCall([], "running")])])).toEqual([{ content: "Current task", status: "pending" }])
+  expect(await read("ses_a", [good, assistant([toolCall([])])])).toEqual([])
 })
 
-test("an empty list renders as empty", () => {
-  expect(render([], SHIPPED_TEXTS)).toBe("The todo list is empty.")
+test("a list the transcript has lost is read back from the last one seen", async () => {
+  const { read, stored } = hostWithStorage()
+
+  await read("ses_a", [assistant([toolCall([{ content: "Backfill old rows", status: "in_progress" }])])])
+
+  expect(stored.has("todos/ses_a")).toBe(true)
+
+  // After a compaction the write is no longer in the transcript.
+  expect(await read("ses_a", [assistant([])])).toEqual([{ content: "Backfill old rows", status: "in_progress" }])
+  expect(await read("ses_b", [assistant([])])).toEqual([])
 })
 
-test("edited wording re-registers the tool while the plugin runs", async () => {
+test("a corrupt stored list reads as empty", async () => {
+  const { read, stored } = hostWithStorage()
+
+  stored.set("todos/ses_a", [{ content: "x", status: "someday" }])
+
+  expect(await read("ses_a", [])).toEqual([])
+})
+
+test("an oversized or malformed write is ignored", async () => {
+  const { read } = hostWithStorage()
+  const many = Array.from({ length: 65 }, (_, index): Todo => ({ content: `step ${index}`, status: "pending" }))
+
+  expect(await read("ses_a", [assistant([toolCall(many)])])).toEqual([])
+})
+
+test("edited wording re-registers while the plugin runs", async () => {
   let texts: HostTexts = SHIPPED_TEXTS
   let version = 0
   const source: TextsSource = { current: () => texts, version: () => version }
   const live: string[] = []
 
   const register = (current: HostTexts) => Effect.sync(() => {
-    live.push(current.todowrite.empty)
+    live.push(current.labels.context)
 
     return { dispose: Effect.sync(() => { live.shift() }) }
   })
@@ -105,13 +112,13 @@ test("edited wording re-registers the tool while the plugin runs", async () => {
   const settle = () => new Promise((resolve) => setTimeout(resolve, 60))
 
   try {
-    expect(live).toEqual(["The todo list is empty."])
+    expect(live).toEqual(["Chauffeur {label}"])
 
-    texts = { ...SHIPPED_TEXTS, todowrite: { ...SHIPPED_TEXTS.todowrite, empty: "Nothing to do." } }
+    texts = { ...SHIPPED_TEXTS, labels: { ...SHIPPED_TEXTS.labels, context: "Other {label}" } }
     version += 1
     await settle()
 
-    expect(live).toEqual(["Nothing to do."])
+    expect(live).toEqual(["Other {label}"])
   } finally {
     await plugin.close()
   }

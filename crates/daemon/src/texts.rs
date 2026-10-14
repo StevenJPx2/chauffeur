@@ -163,37 +163,37 @@ mod tests {
         let config = dir("override");
         std::fs::write(
             config.join("hosts/opencode.json"),
-            r#"{ "todowrite": { "empty": "Nothing to do." } }"#,
+            r#"{ "ask_chauffeur": { "nothing_found": "Nothing extra." } }"#,
         )
         .unwrap();
 
         let mut texts = HostTexts::load(&config).unwrap();
         let opencode = texts.current("opencode").unwrap();
 
-        assert_eq!(opencode["todowrite"]["empty"], "Nothing to do.");
+        assert_eq!(opencode["ask_chauffeur"]["nothing_found"], "Nothing extra.");
         assert!(
-            opencode["todowrite"]["description"]
+            opencode["ask_chauffeur"]["description"]
                 .as_str()
                 .unwrap()
-                .contains("todo list")
+                .contains("Ask Chauffeur")
         );
         assert!(texts.current("other").is_err());
 
         std::fs::write(
             config.join("hosts/opencode.json"),
-            r#"{ "todowrite": { "emtpy": "typo" } }"#,
+            r#"{ "ask_chauffeur": { "nothing_fond": "typo" } }"#,
         )
         .unwrap();
         assert!(
             HostTexts::load(&config)
                 .err()
                 .unwrap()
-                .contains("unknown text todowrite.emtpy")
+                .contains("unknown text ask_chauffeur.nothing_fond")
         );
 
         std::fs::write(
             config.join("hosts/opencode.json"),
-            r#"{ "todowrite": { "empty": 3 } }"#,
+            r#"{ "ask_chauffeur": { "nothing_found": 3 } }"#,
         )
         .unwrap();
         assert!(

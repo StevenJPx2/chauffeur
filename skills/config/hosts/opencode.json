@@ -8,15 +8,6 @@
     "revealed": "Chauffeur revealed these tools; they are available from your next step: {tools}.",
     "failed": "Chauffeur could not answer: {error}. Continue with the tools you have."
   },
-  "todowrite": {
-    "description": "Write the todo list for this session: the distinct steps of the current task and where each stands. Use it for work with several steps: write the list before starting, keep one todo in_progress, mark each completed only when its evidence is in, and cancel any that no longer apply. Each call replaces the whole list. Chauffeur keeps a /goal going while any todo is pending or in progress.",
-    "todos": "The whole list, in order. Each call replaces the previous list.",
-    "content": "One distinct step, in a short sentence.",
-    "status": "pending, in_progress (one at a time), completed once its evidence is in, or cancelled.",
-    "too_many": "A todo list holds at most {max} items; merge some and write it again.",
-    "empty": "The todo list is empty.",
-    "heading": "Todos ({open} open):"
-  },
   "tool_descriptions": {
     "shell": "Run a shell command and return its output. Quote paths with spaces. Prefer a dedicated tool when one fits. Large output is saved to a file and previewed. `timeout` is optional; background commands return at once and you are notified when they finish.",
     "read": "Read a file (text, image, or PDF) or list a directory. Text lines are prefixed `<line>: ` (1-based; not part of the file). For large files use offset and limit, preferring one larger read over many slices, or grep for the content.",

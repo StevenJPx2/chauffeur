@@ -1,4 +1,4 @@
-//! Owns the engine on a dedicated thread. The Jev client blocks on HTTPS, so
+//! Owns the engine on a dedicated thread. Judge clients block on HTTPS, so
 //! the engine never runs on the async runtime.
 
 use std::collections::VecDeque;
@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
+use crate::judge::JudgeConfig;
 use chauffeur_capability_event_gate::{EventGate, EventGateConfig};
 use chauffeur_capability_model_router::{ModelRouter, ModelRouterConfig, Provider};
 use chauffeur_capability_monitors::{FollowWork, Monitors, MonitorsConfig};
@@ -19,7 +20,6 @@ use chauffeur_core::{
     Backstop, Capability, Effect, Engine, Judging, LearnedShapes, LearningConfig, RedactionConfig,
     Redactor, Reloading, Signal, SignalKind, SituationTexts, Watch, load_config,
 };
-use chauffeur_judge_jev::{JevClient, JevConfig};
 use chauffeur_plugin_anthropic::AnthropicProvider;
 use chauffeur_plugin_openai::OpenAiProvider;
 use chauffeur_plugin_sourcefed::{Sourcefed, SourcefedConfig};
@@ -42,8 +42,8 @@ pub struct EngineOptions {
     pub config_dir: PathBuf,
     /// The skills folder, holding `permission/` contracts and `rules/`.
     pub skills_dir: PathBuf,
-    /// Jev is the System One provider.
-    pub jev: JevConfig,
+    /// Primary System One judge and optional fallback.
+    pub judge: JudgeConfig,
     /// Shipped turn-end rules (idle reminders) are opt-in; tool-result and
     /// project rules always apply.
     pub idle_reminders: bool,
@@ -402,7 +402,7 @@ fn build_engine(
     options: &EngineOptions,
     (learned_backstop, learned_shapes): (Vec<String>, LearnedShapes),
 ) -> Result<Engine, String> {
-    let system_one = Box::new(JevClient::new(options.jev.clone())?);
+    let system_one = options.judge.build()?;
     let capabilities = without(
         capabilities(
             &options.config_dir,

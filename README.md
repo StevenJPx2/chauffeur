@@ -8,8 +8,9 @@ about to do and steps in when it matters:
 - It stops the shortcuts you would have stopped.
 - It keeps a goal running until it is done.
 
-Each decision is a quick yes/no judgment by [Jev](https://typesafe.ai), a small
-fast model, so it adds about a third of a second, not another agent turn.
+Each decision is a quick yes/no judgment. The default judge,
+[Jev](https://typesafe.ai), is a small fast model, so it adds about a third of
+a second, not another agent turn.
 
 ## What it does for you
 
@@ -91,10 +92,12 @@ A rulebook is a set of rules you switch on for one session with a slash command.
 
 **`/goal <objective>`** keeps the agent working until the objective is met:
 
-- The agent breaks the objective into todos with Chauffeur's `todowrite` tool.
-- Each turn, Chauffeur continues it and names the open todos.
+- The agent breaks the objective into todos with a `todowrite` tool. Chauffeur
+  reads the list from the session; the tool comes from a todo plugin.
 - It cannot finish while a todo is open, and it ends once the evidence shows
   the goal is met.
+- While a todo is open it leaves the next nudge to the todo plugin, so an
+  open todo is never reminded twice.
 - It pauses when only you can unblock it.
 - It stops after 20 continuations with a progress summary.
 
@@ -161,10 +164,10 @@ You need:
 - Rust
 - Node.js
 - OpenCode 2
-- a TypeSafe API key
+- an API key for your chosen judge: TypeSafe (default) or SubQ
 
 ```sh
-export TYPESAFE_API_KEY=...          # Jev; the daemon will not start without it
+export TYPESAFE_API_KEY=...          # required for the default Jev judge
 export CHAUFFEUR_IDLE_STEERING=true  # lets rulebooks continue the agent between turns
 
 git clone https://github.com/StevenJPx2/chauffeur && cd chauffeur
@@ -179,7 +182,30 @@ opencode service restart
 `~/.config/opencode/plugins/chauffeur.js`. The plugin starts the daemon when
 none is running.
 
-If Jev is unreachable, Chauffeur stands aside:
+### Choose a judge
+
+Jev stays the default. To use [SubQ Snap](https://docs.subq.ai/endpoints/decisions-api/)
+as a fallback, with both API keys in the daemon's environment:
+
+```sh
+export CHAUFFEUR_JUDGE_FALLBACK=subq
+```
+
+To use SubQ as the primary judge instead:
+
+```sh
+export CHAUFFEUR_JUDGE=subq
+export CHAUFFEUR_JUDGE_FALLBACK=none
+```
+
+SubQ reads `SUBQ_API_KEY`. Restart the daemon after changing these variables.
+Fallback happens only on failed calls or invalid answers, never to override a
+valid low-confidence answer. A failed primary is retried after 60 seconds.
+Each provider has a 3-second timeout. [Judge configuration](docs/judges.md)
+covers reverse fallback, recording, and retention. Image inputs are not wired
+into Chauffeur yet.
+
+If every configured judge fails, Chauffeur stands aside:
 
 - Prompts go through unchanged.
 - Permission requests fall back to asking you.
@@ -230,7 +256,7 @@ To reword one, name only that text in your file of the same name:
 
 ```json
 // ~/.config/chauffeur/hosts/opencode.json
-{ "todowrite": { "empty": "No todos yet." } }
+{ "ask_chauffeur": { "nothing_found": "Nothing extra for that: use the tools you have." } }
 ```
 
 Edits apply without a restart:

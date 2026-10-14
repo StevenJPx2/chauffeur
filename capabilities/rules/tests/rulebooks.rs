@@ -162,10 +162,10 @@ fn a_goal_continues_until_evidence_says_done() {
         &mut engine,
         &turn_end(3, "Profiled the handler; p95 is 180 ms."),
     );
-    // No todos yet: whether the goal needs them is asked too.
+    // No todos yet: whether the goal needs them and whether it remains unfinished are asked too.
     let ids: Vec<&str> = questions.iter().map(|(id, _)| id.as_str()).collect();
-    assert_eq!(ids.len(), 3, "{ids:?}");
-    for id in [DONE, BLOCKED, TODOS] {
+    assert_eq!(ids.len(), 4, "{ids:?}");
+    for id in [DONE, BLOCKED, TODOS, CONTINUE] {
         assert!(ids.contains(&id), "{ids:?}");
     }
     assert!(
@@ -179,11 +179,11 @@ fn a_goal_continues_until_evidence_says_done() {
             .contains("closing message this turn: Profiled the handler")
     );
 
-    // Neither done nor blocked: the book's `otherwise` keeps the agent going.
-    let delivered = answer(&mut engine, &questions, &[]);
+    // Neither done nor blocked: the explicit continuation rule keeps the agent going.
+    let delivered = answer(&mut engine, &questions, &[CONTINUE]);
     assert_eq!(delivered.len(), 1);
     assert_eq!(delivered[0].0, Delivery::Resume);
-    assert!(delivered[0].1.contains("Not done yet"));
+    assert!(delivered[0].1.contains("not yet achieved"));
 
     // The continuation turn did nothing: the book stays quiet.
     assert!(asked(&mut engine, &turn_end(4, "")).is_empty());
@@ -237,17 +237,17 @@ fn a_blocked_goal_pauses_until_resumed() {
 
     let resumed = settled(&mut engine, &command(6, RulebookCommand::Resume, ""));
     assert_eq!(resumed[0].0, Delivery::Resume);
-    assert_eq!(asked(&mut engine, &turn_end(7, "")).len(), 3);
+    assert_eq!(asked(&mut engine, &turn_end(7, "")).len(), 4);
 }
 
 #[test]
-fn a_goal_with_open_todos_cannot_finish_and_lists_them() {
+fn a_goal_with_open_todos_leaves_the_reminder_to_the_todo_tool() {
     let mut engine = engine(shipped());
 
     let started = settled(&mut engine, &command(1, RulebookCommand::Start, "ship it"));
     assert!(started[0].1.contains("todowrite"), "{started:?}");
 
-    // Open todos: "done" is not even asked, and the nudge names what is open.
+    // Open todos: "done" and the general continuation are not asked.
     let open = vec![
         todo("write the migration", TodoStatus::Completed),
         todo("backfill old rows", TodoStatus::InProgress),
@@ -257,16 +257,10 @@ fn a_goal_with_open_todos_cannot_finish_and_lists_them() {
     let ids: Vec<&str> = questions.iter().map(|(id, _)| id.as_str()).collect();
     assert_eq!(ids, vec![BLOCKED], "{ids:?}");
 
-    // Even a report that says done keeps going while todos are open.
+    // Even a report that says done cannot finish while todos are open, and the
+    // rulebook does not duplicate the todo tool's reminder.
     let delivered = answer(&mut engine, &questions, &[]);
-    assert_eq!(delivered[0].0, Delivery::Resume);
-    assert!(
-        delivered[0]
-            .1
-            .contains("Open todos:\n- backfill old rows (in progress)\n- update the docs\n"),
-        "{delivered:?}"
-    );
-    assert!(!delivered[0].1.contains("write the migration"));
+    assert!(delivered.is_empty(), "{delivered:?}");
 
     // Every todo completed or cancelled: "done" is asked again.
     assert!(asked(&mut engine, &tool(3)).is_empty());

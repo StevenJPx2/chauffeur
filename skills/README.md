@@ -31,10 +31,11 @@ an error naming it. For example, to attach a skill only on a surer yes:
 Wording works the same way. Each file's `texts` holds its questions to Jev and
 the messages it delivers, with `{placeholders}` the code fills in; a
 placeholder the field does not accept stops the daemon with an error naming
-it. To reword the todo tool's empty reply, `~/.config/chauffeur/hosts/opencode.json`:
+it. To reword the reply to a request for a tool or skill that Chauffeur cannot
+find, `~/.config/chauffeur/hosts/opencode.json`:
 
 ```json
-{ "todowrite": { "empty": "No todos yet." } }
+{ "ask_chauffeur": { "nothing_found": "Nothing extra for that: use the tools you have." } }
 ```
 
 Edits to your files reload within a second, and the OpenCode plugin picks up
@@ -91,9 +92,10 @@ every rule a session there would load.
   whose result contains one; the result text itself never goes into Jev's
   question. `session_kind` limits a rule to `top_level` or `subagent`
   sessions; without it both are judged. At a turn end, `todos` admits the
-  rule only when the agent's todo list (written with Chauffeur's `todowrite`
-  tool) is in one of the listed states: `none` (no list), `open` (any todo
-  pending or in progress), or `done` (all completed or cancelled).
+  rule only when the agent's todo list (the last `todowrite` call in the
+  session, from whichever plugin provides that tool) is in one of the listed
+  states: `none` (no list), `open` (any todo pending or in progress), or
+  `done` (all completed or cancelled).
 - **`steps`**: one or two yes/no questions. A step holds at P(yes) ≥
   `yes_at_or_above` (0.5–1) with at least `minimum_confidence`; the second is
   asked only after the first holds.
@@ -158,14 +160,15 @@ the worktree (read from its Git root down, like project rules), only there.
 - **`on_start`**: delivered, waking the agent, when the book starts or resumes.
   `/goal` shows it as a prompt, so the goal is visible in the session.
 - **`otherwise`** (optional): delivered, waking the agent, at a turn end where
-  the book's turn-end rules were asked and none holds. The goal uses it for
-  "not done yet, keep going", so a goal never sits silent between "done" and
-  "blocked". It counts against the budget.
-- **`/goal` and todos**: the goal asks the agent to break the work into todos
-  with `todowrite`. "Goal achieved" is asked only when no todo is open, so
-  while any todo is pending or in progress the goal keeps going and its
-  `otherwise` lists the open ones. A multi-step goal without todos is asked
-  once per turn window to write them.
+  the book's turn-end rules were asked and none holds. It counts against the
+  budget. Use a gated rule instead when only some turn-end states need a
+  fallback.
+- **`/goal` and todos**: the goal asks the agent to break multi-step work into
+  todos with a `todowrite` tool, and checks completion only when no todo is
+  open. Chauffeur does not provide that tool or remind the agent of open
+  todos: a todo plugin does, and the goal book stays silent while a todo is
+  open so the agent is not nudged twice. A goal without todos is asked once
+  whether it needs a list.
 - After a rulebook resumes the agent, its turn-end rules wait until the agent
   calls a tool or the user writes, so a book cannot keep waking an agent that
   does nothing. Turn-end rules need `CHAUFFEUR_IDLE_STEERING=true`.

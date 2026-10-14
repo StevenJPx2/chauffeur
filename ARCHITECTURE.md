@@ -99,13 +99,17 @@ which asks again only after a successful call with rounds left and otherwise
 settles the judge, so a verdict is always acted on. The design and migration
 are in `docs/plans/judge.md`.
 
-- **Jev** (TypeSafe AI, hosted) is the only provider, and the daemon requires
-  `TYPESAFE_API_KEY` to start. When Jev fails, each capability applies its
-  failure posture: nothing is hidden or attached, permission falls to ask, and
-  the host keeps its retry decision. There is no local fallback: on 58
-  labelled Chauffeur questions Jev scored 98% with no wrong actions at
-  P ≥ 0.7, while the local Laya model scored 83% with 3, though ~5× faster.
-  Standing aside is safer than acting on a weaker judgment.
+- **Hosted judges:** Jev (TypeSafe AI) is the default; SubQ Snap is optional.
+  `CHAUFFEUR_JUDGE` selects `jev` or `subq`. `CHAUFFEUR_JUDGE_FALLBACK` explicitly
+  enables the other judge, requiring its API key too. The shared HTTP client
+  validates every answer and records the provider name. Failure or invalid
+  answers trigger fallback, not low confidence. After a failure the primary
+  cools down for 60 seconds, then the next call probes it again. Each attempt
+  times out after 3 seconds, with no retry loop. If all configured judges fail,
+  each capability applies its existing failure posture: nothing is hidden or
+  attached, permission falls to ask, and the host keeps its retry decision.
+  The System One input is still text-only; SubQ's image API needs an input-path
+  extension before Chauffeur can use it. See [judge configuration](docs/judges.md).
 - **Confidence is optional.** Jev omits it for noul; the engine then uses the
   margin `|2p − 1|`.
 - **Egress:** shipped token prefixes in `skills/safety/redaction.json` (compiled
@@ -590,11 +594,14 @@ Installed as a package, it also registers the hand-over skills in
   whether the session has a parent (`subagent`), from `session.get`.
   Permission resources are file paths for `read`, `edit`, `write`, and
   `patch`, and command text for `shell`.
-- **Own tools:** `ask_chauffeur`, and `todowrite` in place of V1's: the agent
-  writes the session's whole todo list (content and status), kept in plugin
-  storage under `todos/<session>` and sent with each turn end, where rules
-  gate on `when.todos` and texts render `{todos}`. Exposure never judges
-  either. `tool.transform` also appends the cheaper-subagent instruction to
+- **Own tools:** `ask_chauffeur`. Exposure never judges it, nor a `todowrite`
+  tool that another plugin provides. Chauffeur reads the session's todo list
+  from the last `todowrite` call in `session.context` and keeps the last list
+  seen in plugin storage under `todos/<session>`, for a transcript a compaction
+  has emptied of it. The list is sent with each turn end, where rules gate on
+  `when.todos` and texts render `{todos}`. Chauffeur sends no todo reminder; a
+  rulebook stays silent about open todos so the todo plugin's reminder is the
+  only one. `tool.transform` also appends the cheaper-subagent instruction to
   the host's `subagent` description, so the agent reads it before launching.
 - **`permission`:** `permission.hook("evaluate")`, answered within 2 seconds.
 - **`model`:** `session.switchModel` (with the variant) plus the retry
@@ -629,7 +636,9 @@ Installed as a package, it also registers the hand-over skills in
 | `capabilities/monitors`               | the `Monitors` trait and following the agent's own PRs, issues, and threads                                                                                                                                                                                |
 | `plugins/anthropic`, `plugins/openai` | providers for the model router, their tier tables in `skills/config/providers/`                                                                                                                                                                            |
 | `plugins/sourcefed`                   | sourcefed's monitors, through its daemon                                                                                                                                                                                                                   |
-| `judges/jev`                          | Jev System One provider                                                                                                                                                                                                                                    |
+| `judges/http`                         | Shared bounded System One HTTP transport, validation and recordings |
+| `judges/jev`                          | Jev provider defaults |
+| `judges/subq`                         | SubQ Snap provider defaults |
 | `adapters/opencode`                   | signals in, effects out; an Effect plugin whose hooks share the plugin scope                                                                                                                                                                               |
 
 ## Failure and bounds
@@ -713,9 +722,14 @@ compiled in and need a rebuild.
 
 | Variable                  | Default                                                      |
 | ------------------------- | ------------------------------------------------------------ |
-| `TYPESAFE_API_KEY`        | required; the daemon refuses to start without it             |
+| `CHAUFFEUR_JUDGE`         | `jev`; also accepts `subq`                                  |
+| `CHAUFFEUR_JUDGE_FALLBACK` | unset; `jev`, `subq`, or `none`                             |
+| `TYPESAFE_API_KEY`        | required when Jev is selected as primary or fallback         |
 | `TYPESAFE_BASE_URL`       | `https://api.typesafe.ai`                                    |
 | `TYPESAFE_DEFAULT_MODEL`  | `jev-latest`                                                 |
+| `SUBQ_API_KEY`            | required when SubQ is selected as primary or fallback        |
+| `SUBQ_BASE_URL`           | `https://api.subq.ai`                                       |
+| `SUBQ_DEFAULT_MODEL`      | `subq-snap-preview`                                         |
 | `CHAUFFEUR_CONFIG_DIR`    | `~/.config/chauffeur`                                        |
 | `CHAUFFEUR_SKILLS_DIR`    | the plugin package's `skills/`, else `$CHAUFFEUR_CONFIG_DIR/skills` |
 | `CHAUFFEUR_STATE_DIR`     | `$XDG_STATE_HOME/chauffeur`, else `~/.local/state/chauffeur` |

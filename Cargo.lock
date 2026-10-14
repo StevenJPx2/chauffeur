@@ -228,6 +228,7 @@ dependencies = [
  "chauffeur-capability-tool-exposure",
  "chauffeur-core",
  "chauffeur-judge-jev",
+ "chauffeur-judge-subq",
  "chauffeur-plugin-anthropic",
  "chauffeur-plugin-openai",
  "chauffeur-plugin-sourcefed",
@@ -237,12 +238,30 @@ dependencies = [
 ]
 
 [[package]]
-name = "chauffeur-judge-jev"
+name = "chauffeur-judge-http"
 version = "0.1.0"
 dependencies = [
  "chauffeur-core",
  "reqwest",
  "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "chauffeur-judge-jev"
+version = "0.1.0"
+dependencies = [
+ "chauffeur-core",
+ "chauffeur-judge-http",
+ "serde_json",
+]
+
+[[package]]
+name = "chauffeur-judge-subq"
+version = "0.1.0"
+dependencies = [
+ "chauffeur-core",
+ "chauffeur-judge-http",
  "serde_json",
 ]
 

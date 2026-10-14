@@ -1,0 +1,18 @@
+[package]
+name = "chauffeur-judge-subq"
+description = "System One provider for SubQ Snap"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+
+[dependencies]
+chauffeur-core = { workspace = true }
+chauffeur-judge-http = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }
+
+[lints]
+workspace = true
