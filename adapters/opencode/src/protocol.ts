@@ -4,8 +4,11 @@ import type { Todo } from "./todos.js"
 
 export type { Todo } from "./todos.js"
 
-/** Signal text fields, in code points: 4 bytes each stays within the engine's 2,048-byte text bound. */
-export const TEXT_CODE_POINTS = 512
+/** The engine's byte bound for each signal text field. */
+export const TEXT_BYTES = 2_048
+
+/** Four bytes per code point keeps clipped descriptive text within that bound. */
+export const TEXT_CODE_POINTS = TEXT_BYTES / 4
 
 /** The engine's description bound. A skill's "use when…" line often comes late. */
 export const DESCRIPTION_BYTES = 400

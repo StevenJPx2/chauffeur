@@ -122,3 +122,60 @@ test("an engine failure or an oversized request keeps asking", async () => {
   expect(failed).toMatchObject({ effect: "ask", message: expect.stringContaining("daemon down") })
   expect(oversized).toMatchObject({ effect: "ask", message: "Chauffeur could not evaluate this request: more than 32 resources" })
 })
+
+test("a failure downgrades a host allow to ask, never silently allows", async () => {
+  const event = await evaluate(
+    { rulebooks: noRulebooks, texts: shippedTexts, signal: () => Effect.fail(new DaemonError({ message: "daemon down" })) },
+    { sessionID, action: "shell", resources: ["cargo test"], effect: "allow" },
+  )
+
+  expect(event.effect).toBe("ask")
+})
+
+test("another session's permission decision cannot approve this request", async () => {
+  const event = await evaluate(
+    replying([], [{ type: "permission", agent_id: "ses_other", decision: "allow", message: null }]),
+    { sessionID, action: "edit", resources: ["src/index.ts"], effect: "ask" },
+  )
+
+  expect(event.effect).toBe("ask")
+})
+
+test("a long command reaches the backstop whole, including a dangerous suffix", async () => {
+  const sent: Signal[] = []
+  const command = `printf '%s' '${"x".repeat(600)}'; rm -rf /`
+
+  await evaluate(replying(sent, []), { sessionID, action: "shell", resources: [command], effect: "allow" })
+
+  expect(sent[0]?.kind).toMatchObject({ resources: [{ requested: command, resolved: command }] })
+})
+
+test("a resource larger than the engine's byte bound asks instead of clipping", async () => {
+  const sent: Signal[] = []
+  const command = `echo '${"é".repeat(1100)}'`
+  const event = await evaluate(replying(sent, []), { sessionID, action: "shell", resources: [command], effect: "allow" })
+
+  expect(event.effect).toBe("ask")
+  expect(sent).toHaveLength(0)
+  expect(event.message).toContain("exceeds 2048 bytes")
+})
+
+test("a stalled history lookup cannot hang permission evaluation forever", async () => {
+  const hooks = new Hooks()
+
+  const host = fakeHost({
+    location: { project: { canonical: "/projects/chauffeur" } },
+    permission: { hook: hooks.register },
+    session: { context: () => Effect.never },
+  })
+
+  const plugin = await install(installPermission, host, replying([], []))
+  const event = { sessionID, action: "edit", resources: ["src/index.ts"], effect: "allow" }
+
+  try {
+    await hooks.emit("evaluate", event)
+    expect(event.effect).toBe("ask")
+  } finally {
+    await plugin.close()
+  }
+}, 3_000)

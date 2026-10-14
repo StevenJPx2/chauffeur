@@ -299,9 +299,10 @@ kind.
 Contracts in `skills/permission/` (strict JSON, validated at daemon start;
 `chauffeur skill validate PATH` checks one) are the permission capability's
 configuration. The adapter reports every request the host does not deny,
-with the host's own decision. Contracts judge only requests the host would
-**ask** about; one the host allows reaches only the backstop and the
-irreversible-harm question. For each ask, every contract matching the
+with the host's own decision. Task-approval contracts judge only requests the
+host would **ask** about; allowed requests still reach the backstop,
+irreversible-harm question, and shell-file-write guard. For each ask, every
+contract matching the
 `permission.evaluate` event and the requested action:
 
 1. checks its required and forbidden evidence, computed in core from the
@@ -317,9 +318,12 @@ failed or low-confidence judgment selects `judge_failure` or `uncertain`,
 which cannot allow. The most restrictive outcome across contracts answers the
 host (deny, then ask, then allow; prompt and remind ask with their reminder). A
 host denial always stands; the adapter asks when the engine fails or misses
-the 600 ms budget. No matching contract leaves the host's decision.
+the 2-second budget, including session-history lookup. No matching contract
+leaves the host's decision. Permission resources are never clipped: commands
+and paths reach safety checks whole, or ask if either exceeds 2,048 UTF-8 bytes.
 
-Three contracts ship, none with a cooldown. Each asks Jev whether the request
+Three task-approval contracts ship, none with a cooldown. Each asks Jev whether
+the request
 the host would ask about clearly serves the user's stated task, and approves
 it only on a **confident yes** (P ≥ 0.7, confidence ≥ 0.4). A no, an unsure
 answer, or a failed judgment leaves the ask to the user:
@@ -544,7 +548,7 @@ The adapter sends **Signals** and applies **Effects**; it holds no policy.
 - Transport: HTTP on `127.0.0.1:18790`: `POST /rpc` for hosts, where `signal`
   returns the effects that signal produced and the adapter applies them at
   once; `POST /integrations/sourcefed` for sourcefed.
-- Latency: permission decisions answer within 600 ms or fall back (ask).
+- Latency: permission evaluations finish within 2 seconds or fall back (ask).
   Skill and tool exposure run during prompt admission, so their content lands
   before the model replies; admission waits at most 6 s, then proceeds
   unenhanced. The `context` hook never calls a model.
@@ -592,7 +596,7 @@ Installed as a package, it also registers the hand-over skills in
   gate on `when.todos` and texts render `{todos}`. Exposure never judges
   either. `tool.transform` also appends the cheaper-subagent instruction to
   the host's `subagent` description, so the agent reads it before launching.
-- **`permission`:** `permission.hook("evaluate")`, answered within 600 ms.
+- **`permission`:** `permission.hook("evaluate")`, answered within 2 seconds.
 - **`model`:** `session.switchModel` (with the variant) plus the retry
   decision; the session's model comes from `session.get`.
 - **`tools`:** the hidden list is recorded on the user message's

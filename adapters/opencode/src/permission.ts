@@ -4,7 +4,7 @@ import type { PermissionEvaluation } from "@opencode/plugin/effect/permission"
 import { Effect } from "effect"
 import { Daemon } from "./daemon.js"
 import { type HistoryMessage, Host } from "./host.js"
-import { signal, TEXT_CODE_POINTS, type Resource, type SignalKind } from "./protocol.js"
+import { signal, TEXT_BYTES, TEXT_CODE_POINTS, type Resource, type SignalKind } from "./protocol.js"
 import { clip, clipStart, isIntegrationMessage, userText } from "./text.js"
 import { fill, Texts } from "./texts.js"
 
@@ -50,7 +50,7 @@ export const installPermission = Effect.gen(function* () {
 
         if (effect.message !== null) event.message = effect.message
       }
-    }).pipe(Effect.catch((error) => Effect.sync(() => {
+    }).pipe(Effect.timeout(PERMISSION_TIMEOUT), Effect.catch((error) => Effect.sync(() => {
       event.effect = "ask"
       event.message = clip(fill(texts.current().permission.failed, { error: String(error) }), TEXT_CODE_POINTS)
     })))
@@ -67,12 +67,17 @@ function request(event: PermissionEvaluation, hostDecision: "allow" | "ask"): Ef
       .flatMap((message) => (message.type === "user" && !isIntegrationMessage(message.metadata) ? [userText(message.text)] : []))
       .slice(-MAX_USER_REQUESTS)
 
+    const resources = yield* Effect.try({
+      try: () => event.resources.map((requested) => FILE_ACTIONS.has(event.action)
+        ? resolveResource(workspace, requested)
+        : resource(requested, requested)),
+      catch: (error) => String(error),
+    })
+
     return {
       type: "permission_request",
       action: clip(event.action, TEXT_CODE_POINTS),
-      resources: event.resources.map((requested) => FILE_ACTIONS.has(event.action)
-        ? resolveResource(workspace, requested)
-        : { requested: clip(requested, TEXT_CODE_POINTS), resolved: clip(requested, TEXT_CODE_POINTS) }),
+      resources,
       request: reason(event.message, history),
       workspace,
       user_requests: userRequests,
@@ -108,7 +113,16 @@ function resolveResource(workspace: string, requested: string): Resource {
     // Unresolvable paths keep their lexical form; core checks containment lexically.
   }
 
-  return { requested: clip(requested, TEXT_CODE_POINTS), resolved: clip(resolved, TEXT_CODE_POINTS) }
+  return resource(requested, resolved)
+}
+
+/** Never clip a safety target: hidden command suffixes and path tails matter. */
+function resource(requested: string, resolved: string): Resource {
+  if (Buffer.byteLength(requested, "utf8") > TEXT_BYTES || Buffer.byteLength(resolved, "utf8") > TEXT_BYTES) {
+    throw new Error(`permission resource exceeds ${TEXT_BYTES} bytes`)
+  }
+
+  return { requested, resolved }
 }
 
 function realOrSelf(path: string): string {

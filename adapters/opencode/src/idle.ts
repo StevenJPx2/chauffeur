@@ -43,9 +43,6 @@ function reportTurnEnd(sessionID: SessionID, texts: HostTexts): Effect.Effect<vo
     // session's events: only the session's own location reports its turn.
     if (session && String(session.location.directory) !== String(host.location.directory)) return
 
-    // The user stopped this turn; do not wake it with a reminder.
-    if (session?.outcome === "interrupted") return
-
     const user = context.findLast((message) => message.type === "user" && !isIntegrationMessage(message.metadata))
     const reply = context.findLast((message) => message.type === "assistant")
 
