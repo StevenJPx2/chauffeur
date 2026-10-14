@@ -579,8 +579,10 @@ Installed as a package, it also registers the hand-over skills in
   `event.subscribe`
   (`session.step.ended` reports model success;
   `session.execution.started` resets per-step state;
-  `session.execution.succeeded` and `.failed` end a turn; OpenCode 2.0.15
-  emits no `session.status` idle event). Tool results and turn ends say
+  `session.execution.succeeded` and `.failed` end a turn; deprecated
+  `session.idle` notifications are not emitted by the current host).
+  The build leaves `effect` and the OpenCode SDK external so subscriptions
+  use the host's runtime, not a second bundled copy. Tool results and turn ends say
   whether the session has a parent (`subagent`), from `session.get`.
   Permission resources are file paths for `read`, `edit`, `write`, and
   `patch`, and command text for `shell`.

@@ -1,9 +1,9 @@
 import { defineConfig } from "tsdown"
 
 /**
- * One self-contained ESM file for OpenCode to load. Dependencies are bundled
- * so the installed plugin never resolves packages from the host's
- * node_modules, and a build is the only way a change reaches a running host.
+ * Bundle the adapter, not the host runtime. OpenCode supplies Effect and its
+ * plugin SDK: a second bundled Effect runtime cannot safely consume the host's
+ * streams or share its scoped fibers, even when the versions match.
  */
 export default defineConfig({
   entry: ["src/index.ts"],
@@ -13,6 +13,5 @@ export default defineConfig({
   outDir: "dist",
   clean: true,
   dts: false,
-  // A dependency not listed here fails the build instead of slipping in.
-  deps: { alwaysBundle: [/.*/], onlyBundle: ["@opencode/plugin", "@opencode/schema", "effect"] },
+  deps: { neverBundle: ["effect", /^@opencode\//] },
 })

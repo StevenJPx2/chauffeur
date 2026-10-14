@@ -17,7 +17,7 @@ test("turn end carries the workspace, user instruction and todos, and delivers a
     event: { subscribe: events.subscribe },
     storage: { get: (key: string) => Effect.succeed(key === `todos/${sessionID}` ? todos : undefined) },
     session: {
-      get: () => Effect.succeed({ location: { directory: "/projects/hpdp-overlay/main" } }),
+      get: () => Effect.succeed({ location: { directory: "/projects/hpdp-overlay/main" }, outcome: "succeeded" }),
       context: () => Effect.succeed([
         { type: "user", text: "Do not open a PR", metadata: {} },
         { type: "assistant", content: [{ type: "reasoning", text: "thinking" }, { type: "text", text: "Changes are local; no PR opened." }] },
@@ -115,3 +115,52 @@ test("a plugin instance at another location leaves the turn to the session's own
     await plugin.close()
   }
 })
+
+for (const outcome of ["succeeded", "failed", "interrupted"] as const) {
+  test(`a ${outcome} turn ${outcome === "interrupted" ? "stays stopped" : "is reported"}`, async () => {
+    const events = eventStream()
+    const sent: Signal[] = []
+
+    const host = fakeHost({
+      location: { directory: "/projects/app" },
+      event: { subscribe: events.subscribe },
+      storage: { get: () => Effect.succeed(undefined) },
+      session: {
+        get: () => Effect.succeed({ location: { directory: "/projects/app" }, outcome }),
+        context: () => Effect.succeed([
+          { type: "assistant", content: [{ type: "text", text: "Should I make that edit to the skill?" }] },
+        ]),
+      },
+    })
+
+    const daemon: DaemonClient = { rulebooks: noRulebooks, texts: shippedTexts, signal: (value) => Effect.sync(() => {
+      sent.push(value)
+
+      return []
+    }) }
+
+    const plugin = await install(installIdle, host, daemon)
+
+    try {
+      // Deprecated idle notifications cannot duplicate the terminal event.
+      await events.publish({ type: "session.idle", data: { sessionID: "ses_app" } })
+      await settle()
+      expect(sent).toEqual([])
+
+      await events.publish({ type: `session.execution.${outcome}`, data: { sessionID: "ses_app" } })
+      await settle()
+
+      if (outcome === "interrupted") {
+        expect(sent).toEqual([])
+      } else {
+        expect(sent).toHaveLength(1)
+        expect(sent[0]?.kind).toEqual(expect.objectContaining({
+          type: "turn_end",
+          summary: "Should I make that edit to the skill?",
+        }))
+      }
+    } finally {
+      await plugin.close()
+    }
+  })
+}

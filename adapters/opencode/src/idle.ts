@@ -17,7 +17,8 @@ export const installIdle = Effect.gen(function* () {
   const texts = yield* Texts
 
   yield* host.event.subscribe().pipe(
-    // A finished turn; an interrupted one means the user stopped the agent.
+    // Terminal execution events are public; idle notifications are not emitted
+    // by the current host. An interrupted turn means the user stopped the agent.
     Stream.runForEach((event) =>
       event.type === "session.execution.succeeded" || event.type === "session.execution.failed"
         ? reportTurnEnd(event.data.sessionID, texts.current())
@@ -41,6 +42,9 @@ function reportTurnEnd(sessionID: SessionID, texts: HostTexts): Effect.Effect<vo
     // The service runs one plugin instance per location, and each sees every
     // session's events: only the session's own location reports its turn.
     if (session && String(session.location.directory) !== String(host.location.directory)) return
+
+    // The user stopped this turn; do not wake it with a reminder.
+    if (session?.outcome === "interrupted") return
 
     const user = context.findLast((message) => message.type === "user" && !isIntegrationMessage(message.metadata))
     const reply = context.findLast((message) => message.type === "assistant")

@@ -11,8 +11,8 @@
     "dist"
   ],
   "dependencies": {
-    "@opencode/plugin": "2.0.14",
-    "effect": "4.0.0-rc.112"
+    "@opencode/plugin": "2.0.28",
+    "effect": "4.0.1"
   },
   "private": true,
   "scripts": {
@@ -25,6 +25,7 @@
     "deploy": "sh scripts/deploy.sh"
   },
   "devDependencies": {
+    "@opencode/client": "2.0.28",
     "@oxlint/plugins": "1.78.0",
     "@types/bun": "1.4.2",
     "@types/node": "^24.0.0",
