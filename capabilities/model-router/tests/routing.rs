@@ -158,6 +158,33 @@ fn pins_order_the_candidates() {
 }
 
 #[test]
+fn a_blacklisted_rated_model_is_never_offered_even_when_pinned() {
+    let config = ModelRouterConfig {
+        pins: vec!["openai/sol".into()],
+        blacklist: vec!["openai/sol".into()],
+        ..defaults()
+    };
+
+    assert_eq!(
+        options(&router_with(config).plan(&Situation::default(), &limit(false))),
+        vec!["openai/luna", STAY]
+    );
+}
+
+#[test]
+fn no_eligible_model_keeps_the_current_model() {
+    let config = ModelRouterConfig {
+        blacklist: vec!["*/*".into()],
+        ..defaults()
+    };
+
+    assert_eq!(
+        router_with(config).plan(&Situation::default(), &limit(false)),
+        keep()
+    );
+}
+
+#[test]
 fn applies_the_judged_choice_and_never_retries_it() {
     let mut router = router(&[]);
     let signal = limit(false);
@@ -632,6 +659,20 @@ fn the_model_left_behind_survives_a_restart() {
 }
 
 #[test]
+fn a_restored_blacklisted_origin_is_never_offered_for_switch_back() {
+    let before = switched_router();
+    let mut after = router_with(ModelRouterConfig {
+        blacklist: vec!["anthropic/*".into()],
+        ..defaults()
+    });
+    after.load(before.save().unwrap());
+
+    let message = user_message(1 + switch_back_after(), "openai/sol");
+    assert_eq!(after.plan(&Situation::default(), &message), Plan::Skip);
+    assert_eq!(after.plan(&Situation::default(), &message), Plan::Skip);
+}
+
+#[test]
 fn a_second_fallback_does_not_restart_the_original_limits_clock() {
     let mut router = switched_router();
     let mut error = auth_error("openai/sol");
@@ -837,6 +878,35 @@ fn free_gateway_models_are_offered_only_when_nothing_else_is_left() {
 
     assert_eq!(
         offered,
+        vec![
+            "opencode/fledge-alpha-free",
+            "opencode/ling-3.1-flash-free",
+            STAY
+        ]
+    );
+}
+
+#[test]
+fn go_is_blocked_even_when_pinned_or_last_resort_but_zen_free_models_remain() {
+    let mut signal = limit_on("anthropic/claude-opus-5-5#high");
+    if let SignalKind::ModelError { available, .. } = &mut signal.kind {
+        available.retain(|entry| entry.model.provider == "opencode");
+        available.splice(
+            0..0,
+            ["opencode-go/sol", "opencode-go/example-free"].map(|key| AvailableModel {
+                model: model(key),
+                usable: true,
+            }),
+        );
+    }
+    let config = ModelRouterConfig {
+        pins: vec!["opencode-go/sol".into(), "opencode-go/example-free".into()],
+        last_resort: vec!["opencode-go/*".into(), "opencode/*-free".into()],
+        ..defaults()
+    };
+
+    assert_eq!(
+        options(&router_with(config).plan(&Situation::default(), &signal)),
         vec![
             "opencode/fledge-alpha-free",
             "opencode/ling-3.1-flash-free",

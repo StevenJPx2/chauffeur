@@ -481,8 +481,14 @@ an exact row. Only a provider with a plugin, one you use directly such as a
 subscription, rates its models, so a gateway copy (`opencode/gpt-6.1-sol`) is
 never a failover target unless pinned. An agent already on a gateway copy is
 judged by the maker's tier and moves to that tier on a provider you use
-directly. `last_resort` in `model-router.json` (shipped:
-`opencode/*-free`, `opencode-go/*-free`) names models offered only when no
+directly. `blacklist` in `model-router.json` contains `provider/model` patterns
+where `*` matches any run of characters. It excludes matching models at every
+variant from all router selections, overriding pins, tier ratings, last-resort
+patterns, and remembered switch-back origins. The shipped blacklist is
+`["opencode-go/*"]`: Go is not subscribed; Zen's free models remain available.
+Set `"blacklist": []` to remove the shipped exclusion when Go is subscribed.
+`last_resort` in `model-router.json` (shipped:
+`opencode/*-free`) names models offered only when no
 rated candidate is left. The order is: same tier, then any tier on providers
 you use directly, then the last resort:
 

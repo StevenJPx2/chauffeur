@@ -1,6 +1,7 @@
 {
   "pins": [],
-  "last_resort": ["opencode/*-free", "opencode-go/*-free"],
+  "blacklist": ["opencode-go/*"],
+  "last_resort": ["opencode/*-free"],
   "pick_confidence": 0.2,
   "switch_back": {
     "after_seconds": 300,

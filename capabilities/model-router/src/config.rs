@@ -21,6 +21,9 @@ const MAX_WORDS: usize = 256;
 #[serde(deny_unknown_fields)]
 pub struct ModelRouterConfig {
     pub pins: Vec<String>,
+    /// `provider/model` patterns never selected by the router, at any variant.
+    /// These override pins, last-resort patterns, and remembered origins.
+    pub blacklist: Vec<String>,
     /// `provider/model` patterns, such as `opencode/*-free`, offered only
     /// when no model on a provider you use directly is left.
     pub last_resort: Vec<String>,
@@ -132,6 +135,18 @@ impl ModelRouterConfig {
             return Err(format!("more than {MAX_PINS} pins or last-resort patterns"));
         }
 
+        if self.blacklist.len() > MAX_PINS {
+            return Err(format!("more than {MAX_PINS} blacklist patterns"));
+        }
+
+        if self.blacklist.iter().any(|pattern| {
+            !pattern.split_once('/').is_some_and(|(provider, model)| {
+                !provider.trim().is_empty() && !model.trim().is_empty()
+            })
+        }) {
+            return Err("a blacklist pattern must be provider/model, such as opencode-go/*".into());
+        }
+
         if self
             .last_resort
             .iter()
@@ -169,6 +184,14 @@ impl ModelRouterConfig {
         let key = format!("{}/{}", model.provider, model.model);
 
         self.last_resort.iter().any(|pattern| glob(pattern, &key))
+    }
+
+    /// Whether the router must never select `model`, regardless of variant.
+    #[must_use]
+    pub fn is_blacklisted(&self, model: &ModelRef) -> bool {
+        let key = format!("{}/{}", model.provider, model.model);
+
+        self.blacklist.iter().any(|pattern| glob(pattern, &key))
     }
 
     /// Whether the limit lasts: waiting will not clear it.
@@ -274,6 +297,44 @@ mod tests {
     }
 
     #[test]
+    fn blacklist_patterns_cover_providers_models_and_every_variant() {
+        let config = ModelRouterConfig {
+            blacklist: vec!["opencode-go/*".into(), "openai/gpt-*-sol".into()],
+            ..ModelRouterConfig::default()
+        };
+        let model = |provider: &str, model: &str| ModelRef {
+            provider: provider.into(),
+            model: model.into(),
+            variant: Some("high".into()),
+        };
+
+        assert!(config.is_blacklisted(&model("opencode-go", "example-free")));
+        assert!(config.is_blacklisted(&model("openai", "gpt-6.1-sol")));
+        assert!(!config.is_blacklisted(&model("opencode", "example-free")));
+        assert!(!config.is_blacklisted(&model("openai", "gpt-6-luna")));
+    }
+
+    #[test]
+    fn your_blacklist_replaces_the_shipped_exclusion() {
+        let path = yours("blacklist", r#"{ "blacklist": [] }"#);
+        let config = ModelRouterConfig::load(&path).unwrap();
+
+        assert!(config.blacklist.is_empty());
+        assert_eq!(config.last_resort, vec!["opencode/*-free"]);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn blacklist_patterns_are_bounded() {
+        let config = ModelRouterConfig {
+            blacklist: vec!["opencode-go/*".into(); MAX_PINS + 1],
+            ..ModelRouterConfig::default()
+        };
+
+        assert!(config.checked().unwrap_err().contains("blacklist"));
+    }
+
+    #[test]
     fn an_unknown_field_or_an_out_of_range_value_is_an_error() {
         let cases = [
             ("typo", r#"{ "pick_confidnce": 0.3 }"#, "pick_confidnce"),
@@ -285,6 +346,22 @@ mod tests {
             ("pick", r#"{ "pick_confidence": -0.1 }"#, "outside [0, 1]"),
             ("zero", r#"{ "max_candidates": 0 }"#, "max_candidates"),
             ("many", r#"{ "max_candidates": 33 }"#, "max_candidates"),
+            (
+                "blacklist-provider",
+                r#"{ "blacklist": ["opencode-go"] }"#,
+                "blacklist",
+            ),
+            ("blacklist-empty", r#"{ "blacklist": [""] }"#, "blacklist"),
+            (
+                "blacklist-no-provider",
+                r#"{ "blacklist": ["/model"] }"#,
+                "blacklist",
+            ),
+            (
+                "blacklist-no-model",
+                r#"{ "blacklist": ["provider/ "] }"#,
+                "blacklist",
+            ),
             (
                 "empty",
                 r#"{ "limit": { "messages": [" "] } }"#,

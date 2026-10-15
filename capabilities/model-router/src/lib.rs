@@ -188,6 +188,8 @@ impl ModelRouter {
 
         self.expanded(available)
             .into_iter()
+            // Explicit exclusions win over ratings, pins, and last resorts.
+            .filter(|model| !self.config.is_blacklisted(model))
             // Another variant of the failed model fails the same way.
             .filter(|model| !(model.provider == current.provider && model.model == current.model))
             .filter(|model| tried.is_none_or(|tried| !tried.contains(&model.key())))
@@ -323,6 +325,12 @@ impl ModelRouter {
         current: Option<&ModelRef>,
     ) -> Option<Judge<Verdict>> {
         let origin = self.origins.get(&signal.agent_id)?;
+
+        // Config may have changed since this origin was saved.
+        if self.config.is_blacklisted(&origin.model) {
+            self.origins.remove(&signal.agent_id);
+            return None;
+        }
 
         // The user changed the model themselves; their choice stands.
         if current.is_some_and(|current| *current != origin.current) {
