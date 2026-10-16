@@ -31,6 +31,7 @@ fn request(tools: &[&str], namespaces: &[&str]) -> Signal {
                     tools: vec![tool(&format!("{name}_open"))],
                 })
                 .collect(),
+            ranking: Vec::new(),
         },
     }
 }

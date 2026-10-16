@@ -588,6 +588,7 @@ mod tests {
                     model: None,
                     code_mode: Vec::new(),
                     workspace: String::new(),
+                    ranking: Vec::new(),
                 },
             },
             &SituationTexts::default(),

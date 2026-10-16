@@ -7,6 +7,7 @@
     "browser_only": ["browser-harness"]
   },
   "budget": { "bytes": 65536, "skills": 4 },
+  "ranking": { "judged": 16, "always": [] },
   "texts": {
     "request": "The coding agent asked for: \"{need}\" (the user's latest request: {user_request}). Does the {skill} skill ({description}) serve what it asked for? Answer yes only when it clearly does.",
     "project": "The coding session works inside the {skill} project ({workspace}). The {skill} skill: {description}. Does the user's latest request involve work in this project that the skill covers? Answer no only when the request is clearly about something else.",

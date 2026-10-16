@@ -160,6 +160,10 @@ pub enum SignalKind {
         /// and tools to the project the request is about.
         #[serde(default)]
         workspace: String,
+        /// Skill IDs, most similar to the request first. The daemon fills it
+        /// from local embeddings; hosts leave it empty.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        ranking: Vec<String>,
     },
     /// The agent asked to perform an action that needs permission.
     PermissionRequest {
@@ -216,6 +220,9 @@ pub enum SignalKind {
         /// the need.
         #[serde(default)]
         code_mode: Vec<CodeModeNamespace>,
+        /// Skill IDs, most similar to the need first, filled by the daemon.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        ranking: Vec<String>,
     },
     /// The agent finished its turn and is idle. The host supplies its current
     /// workspace and latest user request for scoped follow-through contracts.
@@ -364,7 +371,11 @@ impl SignalKind {
                 user_request,
                 tools,
                 code_mode,
-            } => validate_agent_request(need, user_request, tools, code_mode),
+                ranking,
+            } => {
+                validate_ranking(ranking)?;
+                validate_agent_request(need, user_request, tools, code_mode)
+            }
             SignalKind::ModelError {
                 model,
                 error_type,
@@ -448,12 +459,14 @@ fn validate_user_message(message: &SignalKind) -> Result<(), String> {
         model,
         code_mode,
         workspace,
+        ranking,
         ..
     } = message
     else {
         return Ok(());
     };
 
+    validate_ranking(ranking)?;
     prompt_bounded(text, "text")?;
     bounded(workspace, "workspace")?;
     validate_code_mode(code_mode)?;
@@ -523,6 +536,18 @@ fn validate_code_mode(namespaces: &[CodeModeNamespace]) -> Result<(), String> {
         bounded(&namespace.name, "Code Mode namespace")?;
         validate_catalog(&namespace.tools, "Code Mode tools")
     })
+}
+
+fn validate_ranking(ranking: &[String]) -> Result<(), String> {
+    if ranking.len() > MAX_CATALOG_ENTRIES {
+        return Err(format!(
+            "signal ranks more than {MAX_CATALOG_ENTRIES} skills"
+        ));
+    }
+
+    ranking
+        .iter()
+        .try_for_each(|id| bounded(id, "ranked skill"))
 }
 
 fn validate_catalog(entries: &[CatalogEntry], field: &str) -> Result<(), String> {

@@ -26,6 +26,8 @@ pub struct SkillExposureConfig {
     pub drift: Drift,
     /// What one signal may attach.
     pub budget: Budget,
+    /// Which skills a prompt judges when the daemon ranks them by meaning.
+    pub ranking: Ranking,
     /// The wording of the questions to System One and of what is delivered.
     pub texts: SkillTexts,
 }
@@ -121,6 +123,18 @@ pub struct Budget {
     pub skills: usize,
 }
 
+/// With a ranking, a prompt judges its pinned skills plus the closest
+/// `judged` others; without one, every skill up to the cap, pinned first.
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct Ranking {
+    /// Ranked skills judged beyond the pinned ones.
+    pub judged: usize,
+    /// Skills judged on every prompt, ranked or not: ones triggered by the
+    /// kind of work rather than its topic, such as a coding discipline.
+    pub always: Vec<String>,
+}
+
 impl SkillExposureConfig {
     /// The shipped config overlaid by your `skill-exposure.json` at `path`.
     ///
@@ -149,6 +163,14 @@ impl SkillExposureConfig {
         if self.drift.browser_only.len() > MAX_OPTIONS {
             return Err(format!(
                 "drift.browser_only lists more than {MAX_OPTIONS} skills"
+            ));
+        }
+
+        if !(1..=MAX_OPTIONS).contains(&self.ranking.judged)
+            || self.ranking.always.len() > MAX_OPTIONS
+        {
+            return Err(format!(
+                "ranking.judged must be in 1..={MAX_OPTIONS} and ranking.always list at most {MAX_OPTIONS} skills"
             ));
         }
 

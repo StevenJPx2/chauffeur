@@ -237,6 +237,7 @@ dependencies = [
  "chauffeur-plugin-anthropic",
  "chauffeur-plugin-openai",
  "chauffeur-plugin-sourcefed",
+ "reqwest",
  "serde",
  "serde_json",
  "tokio",

@@ -51,6 +51,12 @@ fails to load leaves the previous version running and logs why.
   reads only its first 400 bytes, so lead with when to use it. For a remote
   skill, set your wording under `descriptions` in `skill-sources.json` instead
   of editing the cached copy.
+- **A skill is never even asked about:** each prompt judges only pinned skills
+  plus the 16 closest by meaning, ranked by the local embedding service. A
+  skill triggered by the kind of work rather than its topic (a coding
+  discipline, a docs-first habit) belongs in `ranking.always` in
+  `~/.config/chauffeur/skill-exposure.json`. The audit log lists the questions
+  each prompt asked.
 - **A judgment bar:** override only that field in
   `~/.config/chauffeur/<capability>.json`, such as
   `{ "needed": { "at": 0.8 } }` in `skill-exposure.json`. Unknown fields stop

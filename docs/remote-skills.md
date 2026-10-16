@@ -123,7 +123,10 @@ Files:
   `git@example.com:team/skills.git` work too.
 - `ref`: a branch, tag, or commit. Defaults to `HEAD`. A branch or tag tracks
   updates; a commit pins a revision.
-- `paths`: repository directories to search for skills. Defaults to `["."]`.
+- `paths`: repository directories to search for skills, at any depth.
+  Defaults to `["."]`. A parent folder follows every skill under it, including
+  ones published later: `["skills"]` takes all of a collection, while
+  `["skills/nuxt", "skills/vite"]` takes only those two.
 - Each skill is a folder with a `SKILL.md` containing YAML `name` and
   `description`, followed by its instructions. Folded and multiline YAML
   descriptions work. Every regular file in the folder belongs to the skill.
@@ -220,8 +223,12 @@ daemon client's `skills()` method. Source states are:
 - At most 1 MiB per downloaded file.
 - At most 64 KiB per `SKILL.md`, 16 KiB of frontmatter, and 4 KiB of description.
 - At most 100 files named in a skill's text; the folder holds them all.
-- At most 64 remote skills offered, in configured source and file order. The
-  host's existing 64-candidate selection bound also includes local skills.
+- At most 128 remote skills offered, in configured source and file order;
+  the host sends at most 128 skills, local ones included. Each prompt judges
+  only its pinned skills and the 16 closest by meaning (see `ranking` in
+  `skill-exposure.json` and `ARCHITECTURE.md`), so following whole
+  collections does not make each judgment larger. Without the embedding
+  service, a prompt judges up to 64, pinned first.
 - At most ten seconds per source check, twenty seconds of checking per cycle,
   and ten seconds of file fetching per reply.
 

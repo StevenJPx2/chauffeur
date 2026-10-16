@@ -31,6 +31,7 @@ fn message(skills: Vec<CatalogEntry>) -> Signal {
             model: None,
             code_mode: Vec::new(),
             workspace: String::new(),
+            ranking: Vec::new(),
         },
     )
 }

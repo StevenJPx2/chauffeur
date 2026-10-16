@@ -24,6 +24,7 @@ fn message(first_in_context: bool, tools: &[&str]) -> Signal {
             model: None,
             code_mode: Vec::new(),
             workspace: String::new(),
+            ranking: Vec::new(),
         },
     }
 }

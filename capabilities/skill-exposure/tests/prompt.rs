@@ -38,6 +38,7 @@ fn prompt(text: &str, skills: Vec<CatalogEntry>) -> Signal {
             model: None,
             code_mode: Vec::new(),
             workspace: PROJECT.into(),
+            ranking: Vec::new(),
         },
     }
 }
@@ -49,6 +50,7 @@ fn request(need: &str) -> Signal {
             user_request: "file the bug".into(),
             tools: Vec::new(),
             code_mode: Vec::new(),
+            ranking: Vec::new(),
         },
         ..prompt("", Vec::new())
     }

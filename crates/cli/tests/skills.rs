@@ -252,6 +252,7 @@ async fn a_configured_remote_skill_is_available_to_clients_and_hot_reloads_witho
                 model: None,
                 code_mode: Vec::new(),
                 workspace: String::new(),
+                ranking: Vec::new(),
             },
         })
         .await

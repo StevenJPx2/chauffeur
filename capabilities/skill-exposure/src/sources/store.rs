@@ -261,7 +261,10 @@ impl SourceStore {
             });
 
             for skill in entry.listing.iter().flat_map(|listing| &listing.skills) {
-                if result.skills.len() < crate::MAX_OPTIONS && ids.insert(skill.id.as_str()) {
+                // A signal carries at most this many skills; ranking picks which are judged.
+                if result.skills.len() < chauffeur_core::signal::MAX_CATALOG_ENTRIES
+                    && ids.insert(skill.id.as_str())
+                {
                     result
                         .skills
                         .push(self.remote(source, entry.listing.as_ref(), skill));

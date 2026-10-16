@@ -39,6 +39,47 @@ impl Basis {
     }
 }
 
+/// A skill's place in `ranking`; unranked skills sort last, in host order.
+pub(crate) fn rank(ranking: &[String], id: &str) -> usize {
+    ranking
+        .iter()
+        .position(|ranked| ranked == id)
+        .unwrap_or(usize::MAX)
+}
+
+/// The skills a prompt or request judges. Pinned skills always: the
+/// configured `always` ones, ones the request names, and the project's own.
+/// With the daemon's ranking, the closest `judged` others follow; without
+/// it, every other skill in order, up to the cap.
+pub(crate) fn judged<'a>(
+    signal: &Signal,
+    offerable: &[&'a CatalogEntry],
+    config: &SkillExposureConfig,
+) -> Vec<&'a CatalogEntry> {
+    let ranking: &[String] = match &signal.kind {
+        SignalKind::UserMessage { ranking, .. } | SignalKind::AgentRequest { ranking, .. } => {
+            ranking
+        }
+        _ => &[],
+    };
+    let facts = Facts::of(signal);
+    let pinned = |skill: &CatalogEntry| {
+        config.ranking.always.contains(&skill.id) || facts.basis(skill) != Basis::Offered
+    };
+    let (mut chosen, mut rest): (Vec<&CatalogEntry>, Vec<&CatalogEntry>) =
+        offerable.iter().copied().partition(|skill| pinned(skill));
+
+    if !ranking.is_empty() {
+        rest.retain(|skill| ranking.contains(&skill.id));
+        rest.sort_by_key(|skill| rank(ranking, &skill.id));
+        rest.truncate(config.ranking.judged);
+    }
+
+    chosen.extend(rest);
+    chosen.truncate(crate::MAX_OPTIONS);
+    chosen
+}
+
 /// A candidate for each offerable skill, keyed by skill ID.
 #[must_use]
 pub fn candidates(

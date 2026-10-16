@@ -22,12 +22,12 @@ use chauffeur_core::{
     SignalKind, Situation,
 };
 
-pub use config::{Budget, Drift, SkillExposureConfig, SkillTexts};
+pub use config::{Budget, Drift, Ranking, SkillExposureConfig, SkillTexts};
 
 pub const ID: &str = "skill-exposure";
 /// The drift option that hands over nothing.
 pub const NONE: &str = chauffeur_core::judge::NONE;
-/// Skills judged per signal; the catalog is truncated in host order.
+/// Skills judged per signal. Beyond it, pinned and better-ranked skills win.
 pub const MAX_OPTIONS: usize = 64;
 const MAX_AGENTS: usize = 256;
 const DRIFT: &str = "drift";
@@ -48,21 +48,27 @@ struct Agent {
     last_tool: Option<String>,
     #[serde(default)]
     browser_tool: bool,
+    /// The latest prompt's skills, most similar first, when the daemon ranked them.
+    #[serde(default)]
+    ranking: Vec<String>,
 }
 
 impl Agent {
+    /// Every skill still to offer, ranked ones first in rank order.
     fn offerable(&self) -> Vec<&CatalogEntry> {
         let mut seen = HashSet::new();
-
-        self.skills
+        let mut offerable: Vec<&CatalogEntry> = self
+            .skills
             .iter()
             .filter(|skill| {
                 skill.id != NONE
                     && !self.attached.contains(&skill.id)
                     && seen.insert(skill.id.as_str())
             })
-            .take(MAX_OPTIONS)
-            .collect()
+            .collect();
+
+        offerable.sort_by_key(|skill| fanout::rank(&self.ranking, &skill.id));
+        offerable
     }
 
     fn drift_due(&self, at: u64, cooldown_seconds: u64) -> bool {
@@ -105,10 +111,11 @@ impl SkillExposure {
         self.agents.entry(agent_id.to_string()).or_default()
     }
 
-    /// Every offered skill, judged in one round.
+    /// The pinned and closest-ranked skills, judged in one round.
     fn fan_out(&self, signal: &Signal) -> Option<Judge<Vec<String>>> {
         let agent = self.agents.get(&signal.agent_id)?;
-        let candidates = fanout::candidates(signal, &agent.offerable(), &self.config);
+        let judged = fanout::judged(signal, &agent.offerable(), &self.config);
+        let candidates = fanout::candidates(signal, &judged, &self.config);
 
         (!candidates.is_empty()).then(|| strategy::fan_out(candidates))
     }
@@ -150,6 +157,7 @@ impl SkillExposure {
             .offerable()
             .into_iter()
             .filter(|skill| agent.browser_tool || !drift.browser_only.contains(&skill.id))
+            .take(MAX_OPTIONS)
             .collect();
         let pick = drift.confidence.pick();
 
@@ -193,10 +201,13 @@ impl Judged for SkillExposure {
 
     fn judge(&mut self, _: &Situation, signal: &Signal) -> Option<Judge<Vec<String>>> {
         match &signal.kind {
-            SignalKind::UserMessage { skills, .. } => {
+            SignalKind::UserMessage {
+                skills, ranking, ..
+            } => {
                 // The host lists only skills not yet attached in this context.
                 *self.agent(&signal.agent_id) = Agent {
                     skills: skills.clone(),
+                    ranking: ranking.clone(),
                     ..Agent::default()
                 };
 

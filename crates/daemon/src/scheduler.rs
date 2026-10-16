@@ -1167,6 +1167,7 @@ mod tests {
         let started = Instant::now();
         let effects = crate::judge(
             &engine,
+            &crate::ranking::Ranker::new(None).unwrap(),
             json!({ "signal": turn_end("a", "reason"), "deadline_ms": 600 }),
         )
         .await

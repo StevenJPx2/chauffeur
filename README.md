@@ -245,6 +245,7 @@ chauffeur audit --follow --brief  # new decisions as they happen, one short line
 | `CHAUFFEUR_STATE_DIR` | `~/.local/state/chauffeur` (session memory, audit log) |
 | `CHAUFFEUR_DAEMON_URL` | `http://127.0.0.1:18790` |
 | `CHAUFFEUR_SOURCEFED` | on; `off` leaves sourcefed alone |
+| `CHAUFFEUR_EMBEDDINGS` | `http://127.0.0.1:18791`; a loopback embedding service that ranks skills so each prompt judges the closest few, or `off` |
 
 Rules, rulebooks, and permission contracts are strict JSON in [`skills/`](skills):
 

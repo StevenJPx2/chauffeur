@@ -4,6 +4,7 @@ mod audit;
 mod engine;
 mod judge;
 mod learned;
+mod ranking;
 mod reasoning;
 mod scheduler;
 mod skills;
@@ -49,6 +50,8 @@ struct AppState {
     /// The wording each host shows the agent, reloaded when your file changes.
     texts: Arc<Mutex<HostTexts>>,
     skills: skills::SkillCatalog,
+    /// Orders each prompt's skills by meaning before the engine judges it.
+    ranker: ranking::Ranker,
     /// Raised by the `shutdown` method; the server stops once requests finish.
     shutdown: Arc<tokio::sync::Notify>,
 }
@@ -96,6 +99,9 @@ pub struct DaemonOptions {
     pub disabled: Vec<String>,
     pub state_file: Option<PathBuf>,
     pub audit_file: Option<PathBuf>,
+    /// The loopback embedding service that ranks skills, unless
+    /// `CHAUFFEUR_EMBEDDINGS=off`; EmbeddingGemma's port by default.
+    pub embeddings: Option<String>,
 }
 
 impl DaemonOptions {
@@ -129,6 +135,11 @@ impl DaemonOptions {
                 .collect(),
             state_file: Some(state.join("state.json")),
             audit_file: Some(state.join("audit.jsonl")),
+            embeddings: match std::env::var("CHAUFFEUR_EMBEDDINGS") {
+                Ok(value) if value == "off" => None,
+                Ok(url) => Some(url),
+                Err(_) => Some("http://127.0.0.1:18791".into()),
+            },
         })
     }
 }
@@ -154,6 +165,7 @@ pub async fn serve(options: DaemonOptions) -> Result<(), String> {
         ))))
     };
     let texts = Arc::new(Mutex::new(HostTexts::load(&options.config_dir)?));
+    let ranker = ranking::Ranker::new(options.embeddings.as_deref())?;
     let skill_config = options.config_dir.join("skill-sources.json");
     let skill_cache = options
         .state_file
@@ -184,6 +196,7 @@ pub async fn serve(options: DaemonOptions) -> Result<(), String> {
         rulebooks,
         texts,
         skills: skill_worker.catalog.clone(),
+        ranker,
         shutdown: Arc::clone(&shutdown),
     };
     let app = Router::new()
@@ -289,21 +302,28 @@ async fn sourcefed_event(
 
 /// The engine's effects, after fetching the files of any remote skill they attach.
 async fn signal(state: &AppState, params: serde_json::Value) -> Result<serde_json::Value, String> {
-    let effects = judge(&state.engine, params).await?;
+    let effects = judge(&state.engine, &state.ranker, params).await?;
 
     state.skills.prepare(&effects).await;
 
     serde_json::to_value(SignalResult { effects }).map_err(|error| error.to_string())
 }
 
-/// The effects of the signal in `params`, judged within its host budget.
-async fn judge(engine: &EngineHandle, params: serde_json::Value) -> Result<Vec<Effect>, String> {
-    let params: SignalParams =
-        serde_json::from_value(params).map_err(|error| format!("invalid params: {error}"))?;
+/// The effects of the signal in `params`, its skills ranked first, judged
+/// within its host budget.
+async fn judge(
+    engine: &EngineHandle,
+    ranker: &ranking::Ranker,
+    params: serde_json::Value,
+) -> Result<Vec<Effect>, String> {
+    let SignalParams {
+        mut signal,
+        deadline_ms,
+        ..
+    } = serde_json::from_value(params).map_err(|error| format!("invalid params: {error}"))?;
 
-    engine
-        .ingest_with_deadline(params.signal, params.deadline_ms)
-        .await
+    ranker.rank(&mut signal).await;
+    engine.ingest_with_deadline(signal, deadline_ms).await
 }
 
 fn authorized(headers: &HeaderMap, token: Option<&str>) -> bool {

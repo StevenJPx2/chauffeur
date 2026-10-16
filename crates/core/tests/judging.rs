@@ -158,6 +158,7 @@ fn a_signal_the_capability_does_not_judge_is_skipped() {
             user_request: String::new(),
             tools: Vec::new(),
             code_mode: Vec::new(),
+            ranking: Vec::new(),
         },
         ..turn_end()
     };

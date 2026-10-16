@@ -325,6 +325,7 @@ impl ToolExposure {
             user_request,
             tools,
             code_mode,
+            ..
         } = &signal.kind
         else {
             return None;

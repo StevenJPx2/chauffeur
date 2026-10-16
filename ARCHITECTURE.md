@@ -215,6 +215,22 @@ is skipped for a smaller one. The drift hand-over after a tool result stays a
 single pick. Everything else the engine remembers per agent
 is persisted by the daemon (see Failure and bounds).
 
+Which skills a prompt judges is a ranking, not the whole catalog. Before the
+engine sees a prompt or `ask_chauffeur` request, the daemon embeds its text
+(with the agent's previous prompt, so a short follow-up keeps its topic) on a
+loopback embedding service, EmbeddingGemma 2 by default
+(`CHAUFFEUR_EMBEDDINGS`), and fills the signal's `ranking` with skill IDs,
+closest first. Skill vectors are cached by ID and description and embedded in
+the background, so a prompt waits at most 400 ms, normally about 0.1 s. The
+skill judge then asks about its pinned skills, those in `ranking.always`
+(skills triggered by the kind of work rather than its topic), those the
+request names, and the project's own, plus the closest `ranking.judged`
+(16) others. Without a ranking (service off, slow, or still embedding) it asks
+about every skill up to 64, pinned first. Skills not asked about at a prompt
+remain hand-over options mid-turn, closest first. Replayed against 62 logged
+prompts, this judged 19 skills on average instead of 60 and kept every skill
+the full judgment had attached.
+
 ## Cache discipline
 
 Prompt caching keys on a stable prefix per (provider, model). Tool definitions
