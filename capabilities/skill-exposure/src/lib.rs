@@ -9,6 +9,9 @@
 mod config;
 mod fanout;
 
+#[cfg(feature = "sources")]
+pub mod sources;
+
 use std::collections::{HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};

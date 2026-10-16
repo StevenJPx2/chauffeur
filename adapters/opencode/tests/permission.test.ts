@@ -3,7 +3,7 @@ import { Effect } from "effect"
 import { type DaemonClient, DaemonError } from "../src/daemon.js"
 import { installPermission } from "../src/permission.js"
 import type { HostEffect, Signal } from "../src/protocol.js"
-import { fakeHost, Hooks, install, noRulebooks, shippedTexts } from "./support.js"
+import { fakeHost, Hooks, install, noRulebooks, noSkills, shippedTexts } from "./support.js"
 
 const sessionID = "ses_permission"
 
@@ -23,7 +23,7 @@ function permissionHost(hooks: Hooks) {
 }
 
 function replying(sent: Signal[], effects: ReadonlyArray<HostEffect>): DaemonClient {
-  return { rulebooks: noRulebooks, texts: shippedTexts, signal: (value) => Effect.sync(() => {
+  return { skills: noSkills, rulebooks: noRulebooks, texts: shippedTexts, signal: (value) => Effect.sync(() => {
     sent.push(value)
 
     return effects
@@ -109,9 +109,26 @@ test("a host allow is reported as one, and stands unless the engine vetoes it", 
   ])
 })
 
+test("a judgment that arrives late still answers, rather than asking", async () => {
+  // One engine thread serves every signal, so a permission request waits
+  // behind the judgments already under way. A queued answer is still an
+  // answer: only a call that never returns becomes an ask.
+  const approval: ReadonlyArray<HostEffect> = [
+    { type: "permission", agent_id: sessionID, decision: "allow", message: "Serves the task." },
+  ]
+
+  const queued: DaemonClient = { ...replying([], []), signal: () => Effect.as(Effect.sleep("400 millis"), approval) }
+
+  const event = await evaluate(queued, {
+    sessionID, action: "shell", resources: ["cargo test"], effect: "ask",
+  })
+
+  expect(event).toMatchObject({ effect: "allow", message: "Serves the task." })
+})
+
 test("an engine failure or an oversized request keeps asking", async () => {
   const failed = await evaluate(
-    { rulebooks: noRulebooks, texts: shippedTexts, signal: () => Effect.fail(new DaemonError({ message: "daemon down" })) },
+    { skills: noSkills, rulebooks: noRulebooks, texts: shippedTexts, signal: () => Effect.fail(new DaemonError({ message: "daemon down" })) },
     { sessionID, action: "shell", resources: ["ls"], effect: "ask" },
   )
 
@@ -125,7 +142,7 @@ test("an engine failure or an oversized request keeps asking", async () => {
 
 test("a failure downgrades a host allow to ask, never silently allows", async () => {
   const event = await evaluate(
-    { rulebooks: noRulebooks, texts: shippedTexts, signal: () => Effect.fail(new DaemonError({ message: "daemon down" })) },
+    { skills: noSkills, rulebooks: noRulebooks, texts: shippedTexts, signal: () => Effect.fail(new DaemonError({ message: "daemon down" })) },
     { sessionID, action: "shell", resources: ["cargo test"], effect: "allow" },
   )
 
@@ -178,4 +195,4 @@ test("a stalled history lookup cannot hang permission evaluation forever", async
   } finally {
     await plugin.close()
   }
-}, 3_000)
+}, 8_000)

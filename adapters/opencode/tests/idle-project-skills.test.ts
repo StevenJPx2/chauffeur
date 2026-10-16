@@ -3,7 +3,7 @@ import { Effect } from "effect"
 import type { DaemonClient } from "../src/daemon.js"
 import { installIdle } from "../src/idle.js"
 import type { Signal, Todo } from "../src/protocol.js"
-import { eventStream, fakeHost, install, noRulebooks, settle, shippedTexts } from "./support.js"
+import { eventStream, fakeHost, install, noRulebooks, noSkills, settle, shippedTexts } from "./support.js"
 
 test("turn end carries the workspace, user instruction and todo list, and delivers a confirmed reminder", async () => {
   const sessionID = "ses_hpdp"
@@ -28,7 +28,7 @@ test("turn end carries the workspace, user instruction and todo list, and delive
     skill: { list: () => Effect.succeed({ data: [] }) },
   })
 
-  const daemon: DaemonClient = { rulebooks: noRulebooks, texts: shippedTexts, signal: (value) => Effect.sync(() => {
+  const daemon: DaemonClient = { skills: noSkills, rulebooks: noRulebooks, texts: shippedTexts, signal: (value) => Effect.sync(() => {
     sent.push(value)
 
     return [{ type: "context", agent_id: sessionID, delivery: "resume", label: "HPDP", skills: [], text: "Check the overlay" }]
@@ -69,7 +69,7 @@ test("a subagent's turn end says it is a subagent", async () => {
     },
   })
 
-  const daemon: DaemonClient = { rulebooks: noRulebooks, texts: shippedTexts, signal: (value) => Effect.sync(() => {
+  const daemon: DaemonClient = { skills: noSkills, rulebooks: noRulebooks, texts: shippedTexts, signal: (value) => Effect.sync(() => {
     sent.push(value)
 
     return []
@@ -100,7 +100,7 @@ test("a plugin instance at another location leaves the turn to the session's own
     },
   })
 
-  const daemon: DaemonClient = { rulebooks: noRulebooks, texts: shippedTexts, signal: (value) => Effect.sync(() => {
+  const daemon: DaemonClient = { skills: noSkills, rulebooks: noRulebooks, texts: shippedTexts, signal: (value) => Effect.sync(() => {
     sent.push(value)
 
     return []
@@ -135,7 +135,7 @@ for (const outcome of ["succeeded", "failed", "interrupted"] as const) {
       },
     })
 
-    const daemon: DaemonClient = { rulebooks: noRulebooks, texts: shippedTexts, signal: (value) => Effect.sync(() => {
+    const daemon: DaemonClient = { skills: noSkills, rulebooks: noRulebooks, texts: shippedTexts, signal: (value) => Effect.sync(() => {
       sent.push(value)
 
       return []

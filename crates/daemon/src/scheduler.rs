@@ -1165,14 +1165,12 @@ mod tests {
         )
         .await;
         let started = Instant::now();
-        let reply = crate::signal(
+        let effects = crate::judge(
             &engine,
             json!({ "signal": turn_end("a", "reason"), "deadline_ms": 600 }),
         )
         .await
         .unwrap();
-        let effects: chauffeur_core::SignalResult = serde_json::from_value(reply).unwrap();
-        let effects = effects.effects;
         assert_eq!(labels(&effects), ["unsettled"]);
         assert!(started.elapsed() >= Duration::from_millis(450));
         assert!(

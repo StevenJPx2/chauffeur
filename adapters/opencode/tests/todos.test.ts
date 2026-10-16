@@ -7,11 +7,11 @@ import { installToolDescriptions, rewriteDescriptions } from "../src/tool-descri
 import { fixedTexts, type HostTexts, SHIPPED_TEXTS, type TextsSource, withTexts } from "../src/texts.js"
 import type { Todo } from "../src/todo-data.js"
 import { readTodos } from "../src/todos.js"
-import { fakeHost, Hooks, install, noRulebooks, shippedTexts } from "./support.js"
+import { fakeHost, Hooks, install, noRulebooks, noSkills, shippedTexts } from "./support.js"
 
 const SUBAGENT_GUIDANCE = SHIPPED_TEXTS.subagent.guidance
 
-const daemon: DaemonClient = { rulebooks: noRulebooks, texts: shippedTexts, signal: () => Effect.die("unexpected") }
+const daemon: DaemonClient = { skills: noSkills, rulebooks: noRulebooks, texts: shippedTexts, signal: () => Effect.die("unexpected") }
 
 type ToolPart = Extract<SessionMessageAssistant["content"][number], { type: "tool" }>
 

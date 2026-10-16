@@ -10,6 +10,7 @@ import { installIdle } from "./idle.js"
 import { installModelRouter } from "./model-router.js"
 import { installPermission } from "./permission.js"
 import { installRulebooks } from "./rulebooks.js"
+import { installRemoteSkills } from "./remote-skills.js"
 import { claimSkillLoading, hostLoadsSkills } from "./skills.js"
 import { installToolDescriptions } from "./tool-descriptions.js"
 import { followDaemonTexts, Texts } from "./texts.js"
@@ -29,6 +30,7 @@ const capabilities = Effect.gen(function* () {
   yield* installAskTool(exposure)
   yield* installToolDescriptions
   yield* installHandoffSkills
+  yield* installRemoteSkills
   yield* installGate
   yield* installIdle
   yield* installRulebooks

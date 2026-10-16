@@ -4,7 +4,7 @@ import type { DaemonClient } from "../src/daemon.js"
 import type { Signal } from "../src/protocol.js"
 import { userText } from "../src/text.js"
 import { installRulebooks, offerRulebooks, parseRulebookInput } from "../src/rulebooks.js"
-import { fakeHost, install, shippedTexts } from "./support.js"
+import { fakeHost, install, noSkills, shippedTexts } from "./support.js"
 
 test("command text maps to a rulebook command", () => {
   expect(parseRulebookInput("")).toEqual({ command: "status", args: "" })
@@ -48,6 +48,7 @@ async function goalCommand(answer: { delivery: "resume" | "wait"; text: string; 
   })
 
   const daemon: DaemonClient = {
+    skills: noSkills,
     texts: shippedTexts,
     rulebooks: (workspace) => Effect.sync(() => {
       recorded.offeredIn.push(workspace)
@@ -118,7 +119,7 @@ test("no rulebooks, no commands", async () => {
     return { dispose: Effect.void }
   }) } })
 
-  const daemon: DaemonClient = { rulebooks: () => Effect.succeed([]), texts: shippedTexts, signal: () => Effect.die("unexpected") }
+  const daemon: DaemonClient = { skills: noSkills, rulebooks: () => Effect.succeed([]), texts: shippedTexts, signal: () => Effect.die("unexpected") }
   const plugin = await install(installRulebooks, host, daemon)
 
   expect(transformed).toBe(false)
@@ -152,7 +153,7 @@ test("a changed offer materializes lazy command registrations", async () => {
     }) },
   })
 
-  const daemon: DaemonClient = { rulebooks: () => Effect.sync(() => offer), texts: shippedTexts, signal: () => Effect.die("unexpected") }
+  const daemon: DaemonClient = { skills: noSkills, rulebooks: () => Effect.sync(() => offer), texts: shippedTexts, signal: () => Effect.die("unexpected") }
   const plugin = await install(offerRulebooks("10 millis"), host, daemon)
   const registered = () => [...names].sort()
   const settle = () => new Promise((resolve) => setTimeout(resolve, 60))

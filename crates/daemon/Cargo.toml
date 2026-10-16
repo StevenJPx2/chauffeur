@@ -14,7 +14,7 @@ chauffeur-judge-subq = { workspace = true }
 chauffeur-plugin-anthropic = { workspace = true }
 chauffeur-plugin-openai = { workspace = true }
 chauffeur-capability-model-router = { workspace = true }
-chauffeur-capability-skill-exposure = { workspace = true }
+chauffeur-capability-skill-exposure = { workspace = true, features = ["sources"] }
 chauffeur-capability-tool-exposure = { workspace = true }
 chauffeur-capability-permission = { workspace = true }
 chauffeur-capability-rules = { workspace = true }
