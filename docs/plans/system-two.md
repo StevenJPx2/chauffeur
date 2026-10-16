@@ -1,8 +1,9 @@
 # System Two judgments
 
-Status: step 1 of the implementation sequence is built: core requests,
-composition and engine rounds, tested with fake executors. The daemon has no
-System Two executor, so every reasoning is unavailable there.
+Status: steps 1 and 2 of the implementation sequence are built: core requests,
+composition and engine rounds, and run-owned execution state, tested with fake
+executors. The daemon still runs one signal at a time and has no System Two
+executor, so every reasoning is unavailable there.
 
 Chauffeur composes fast classification and LLM reasoning in the same `Judge<T>`
 state machine. Capabilities define judgments, provider plugins execute inference,
@@ -55,8 +56,9 @@ flowchart LR
 - The provider plugins expose model tiers, exclusions and recommendations through
   the model-router's `Provider` trait. They contain no inference transport or
   credential management.
-- The daemon has one blocking engine worker. `Engine::pending` and
-  `Judging::pending` each hold one in-flight operation.
+- The engine holds up to 64 runs in flight, keyed by `RunId`, through
+  `start`, `resume` and `cancel`; `begin` and `finish` drive one run at a time.
+  The daemon has one blocking engine worker that uses `ingest`.
 
 ## Composition and inference contracts
 
@@ -160,13 +162,18 @@ for other agents.
 4. Resume the matching run when results arrive; finish or dispatch another round.
 5. Commit the verdict and capability state, then reply with effects and persist.
 
-The single pending slot in `Engine` and the pending judge in `Judging<C>` move
-into owned per-run state before concurrent dispatch is enabled. Permission
-contracts and learning probes also retain their run-specific inputs.
-Capabilities cannot store an unkeyed current request between callbacks.
-Run-local mutations and learning updates remain staged until the run is accepted;
-cancellation discards them. A superseded caller receives cancellation through its
-failure path, with no obsolete effects.
+Each run owns its signal, a snapshot of the agent's activity, its pending
+requests, settled effects, learning probe and trace. Capabilities receive the
+`RunId` in `start`, `resume` and `cancel` and keep anything they need between
+rounds under it; `Judging<C>` holds one judge per run, and permission contracts
+re-read the request. The engine accepts one run per agent and rejects results
+for runs that settled or were cancelled.
+
+A capability acts when its own judgment finishes, and the run returns its
+effects once every capability has settled. A cancelled run returns no effects.
+Learned safety patterns apply as soon as answers validate, since they judge the
+command, not the run. A superseded caller receives cancellation through its
+failure path.
 
 | Concern | Decision |
 |---|---|
@@ -301,6 +308,7 @@ recording is opt-in and receives the same redaction policy.
 |---|---|
 | First provider backend and authentication | One subscription-backed CLI executor in an existing provider plugin, subject to verified support; keep the executor contract usable by direct API backends |
 | First model | Choose an exact supported model after the labeled completion-review replay; routing recommendations alone do not establish judge quality |
+| State of a cancelled run's finished branches | A capability that settled in an earlier round keeps the state it acted on. The daemon restores a snapshot for abandoned model-error replies; defer every `act` to run settlement once concurrent dispatch shows stale state elsewhere |
 
 Multi-provider ensembles, autonomous tool use, images, durable background reviews
 and new effect types are deferred.

@@ -1,6 +1,9 @@
 //! Decoupled capabilities: each turns routing answers into effects.
 
+use std::fmt;
+
 use crate::effect::Effect;
+use crate::engine::MAX_ROUNDS;
 use crate::signal::Signal;
 use crate::situation::Situation;
 use crate::system_one::{Answer, Question};
@@ -85,26 +88,62 @@ impl<'a> Round<'a> {
     }
 }
 
+/// One signal's judgment while it is in flight. The engine numbers runs from
+/// 1; several can be in flight at once, so a capability keeps whatever it
+/// holds between rounds under its run, never in one shared slot.
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct RunId(pub u64);
+
+impl RunId {
+    /// The run [`Capability::plan`] and [`Capability::decide`] use, for
+    /// driving one capability one signal at a time.
+    pub const SOLO: Self = Self(0);
+}
+
+impl fmt::Display for RunId {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(formatter, "run {}", self.0)
+    }
+}
+
 pub trait Capability: Send {
     /// Unique capability ID.
     fn id(&self) -> &str;
 
-    fn plan(&mut self, situation: &Situation, signal: &Signal) -> Plan;
+    /// Plan `run`'s signal. Whatever a capability needs in later rounds it
+    /// keeps under `run`.
+    fn start(&mut self, run: RunId, situation: &Situation, signal: &Signal) -> Plan;
 
-    /// Turn the judgments into effects. Answers carry the local question IDs.
-    /// `answers` is `None` when System One failed; the capability applies its
-    /// failure posture.
-    fn decide(&mut self, signal: &Signal, answers: Option<&[Answer]>) -> Vec<Effect>;
+    /// Continue `run` with its latest round, local IDs restored: finish with
+    /// effects, or ask another round. A failed System One call arrives as
+    /// `outcome.answers == None`; the capability applies its failure posture.
+    fn resume(
+        &mut self,
+        run: RunId,
+        signal: &Signal,
+        outcome: &Round<'_>,
+        round: usize,
+    ) -> PipeStep;
 
-    /// Called after a round of answers. One-step capabilities use `decide`.
-    fn advance(&mut self, signal: &Signal, answers: Option<&[Answer]>, _round: usize) -> PipeStep {
-        PipeStep::Done(self.decide(signal, answers))
+    /// Forget `run`: it was abandoned, or has settled. Its effects are never
+    /// asked for.
+    fn cancel(&mut self, _run: RunId) {}
+
+    /// [`Capability::start`] for one signal at a time.
+    fn plan(&mut self, situation: &Situation, signal: &Signal) -> Plan {
+        self.start(RunId::SOLO, situation, signal)
     }
 
-    /// Called after a round that may include System Two outcomes, with
-    /// local IDs. Capabilities that never reason use `advance`.
-    fn advance_round(&mut self, signal: &Signal, outcome: &Round<'_>, round: usize) -> PipeStep {
-        self.advance(signal, outcome.answers, round)
+    /// Finish the signal [`Capability::plan`] started with these answers,
+    /// settling whatever would have asked again.
+    fn decide(&mut self, signal: &Signal, answers: Option<&[Answer]>) -> Vec<Effect> {
+        match self.resume(RunId::SOLO, signal, &Round::answers(answers), MAX_ROUNDS) {
+            PipeStep::Done(effects) => effects,
+            PipeStep::Next(_) | PipeStep::Infer(_) => {
+                self.cancel(RunId::SOLO);
+                Vec::new()
+            }
+        }
     }
 
     /// Per-agent memory to keep across daemon restarts, as JSON. `None` when

@@ -9,8 +9,8 @@ mod evidence;
 use std::collections::HashMap;
 
 use chauffeur_core::{
-    Answer, Capability, ChoiceOption, Effect, PermissionDecision, Plan, Question, QuestionKind,
-    Signal, SignalKind, Situation, Template,
+    Answer, Capability, ChoiceOption, Effect, PermissionDecision, PipeStep, Plan, Question,
+    QuestionKind, Round, RunId, Signal, SignalKind, Situation, Template,
 };
 
 pub use config::{PermissionConfig, PermissionTexts};
@@ -147,7 +147,9 @@ impl Capability for Permission {
         ID
     }
 
-    fn plan(&mut self, _: &Situation, signal: &Signal) -> Plan {
+    /// Permission keeps nothing between rounds: [`Capability::resume`] reads
+    /// the request again, so its runs need no memory.
+    fn start(&mut self, _: RunId, _: &Situation, signal: &Signal) -> Plan {
         // A host denial always stands; only its asks and allows are judged.
         let Some((action, host)) =
             request(signal).filter(|(_, host)| *host != PermissionDecision::Deny)
@@ -173,13 +175,13 @@ impl Capability for Permission {
         Plan::Ask(questions)
     }
 
-    fn decide(&mut self, signal: &Signal, answers: Option<&[Answer]>) -> Vec<Effect> {
+    fn resume(&mut self, _: RunId, signal: &Signal, outcome: &Round<'_>, _: usize) -> PipeStep {
         let Some(request) = request(signal) else {
-            return Vec::new();
+            return PipeStep::Done(Vec::new());
         };
-        let judgment = answers.map_or(Judgment::Failed, Judgment::Answered);
+        let judgment = outcome.answers.map_or(Judgment::Failed, Judgment::Answered);
 
-        self.answer(signal, request, &judgment)
+        PipeStep::Done(self.answer(signal, request, &judgment))
     }
 }
 

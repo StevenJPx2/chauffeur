@@ -2,12 +2,13 @@
 //! signal and acts on the value it finishes with. [`Judging`] adapts it to
 //! [`Capability`], holding the judge between rounds.
 
-use crate::capability::{Capability, Inference, PipeStep, Plan, Round};
+use std::collections::HashMap;
+
+use crate::capability::{Capability, Inference, PipeStep, Plan, Round, RunId};
 use crate::effect::Effect;
 use crate::engine::MAX_ROUNDS;
 use crate::signal::Signal;
 use crate::situation::Situation;
-use crate::system_one::Answer;
 
 use super::Judge;
 
@@ -37,8 +38,8 @@ pub trait Judged: Send {
 /// A [`Judged`] capability as the engine drives it.
 pub struct Judging<C: Judged> {
     capability: C,
-    /// The judge between rounds of the current signal.
-    pending: Option<Judge<C::Verdict>>,
+    /// Each run's judge between its rounds.
+    pending: HashMap<RunId, Judge<C::Verdict>>,
 }
 
 impl<C: Judged> Judging<C> {
@@ -46,7 +47,7 @@ impl<C: Judged> Judging<C> {
     pub fn new(capability: C) -> Self {
         Self {
             capability,
-            pending: None,
+            pending: HashMap::new(),
         }
     }
 
@@ -56,9 +57,23 @@ impl<C: Judged> Judging<C> {
         &self.capability
     }
 
+    /// How many runs hold a judge between rounds.
+    #[must_use]
+    pub fn in_flight(&self) -> usize {
+        self.pending.len()
+    }
+
     /// Act on a finished judge.
     fn finish(&mut self, signal: &Signal, verdict: C::Verdict) -> PipeStep {
         PipeStep::Done(self.capability.act(signal, verdict))
+    }
+
+    /// Keep `judge` for `run`'s next round, and say what that round asks.
+    fn wait(&mut self, run: RunId, judge: Judge<C::Verdict>) -> Inference {
+        let inference = judge.inference();
+
+        self.pending.insert(run, judge);
+        inference
     }
 }
 
@@ -73,8 +88,8 @@ impl<C: Judged> Capability for Judging<C> {
         self.capability.id()
     }
 
-    fn plan(&mut self, situation: &Situation, signal: &Signal) -> Plan {
-        self.pending = None;
+    fn start(&mut self, run: RunId, situation: &Situation, signal: &Signal) -> Plan {
+        self.pending.remove(&run);
 
         match self.capability.judge(situation, signal) {
             None => Plan::Skip,
@@ -82,38 +97,27 @@ impl<C: Judged> Capability for Judging<C> {
                 effects if effects.is_empty() => Plan::Skip,
                 effects => Plan::Settled(effects),
             },
-            Some(judge) => {
-                let inference = judge.inference();
-
-                self.pending = Some(judge);
-
-                if inference.reasonings.is_empty() {
-                    Plan::Ask(inference.questions)
-                } else {
-                    Plan::Infer(inference)
-                }
-            }
+            Some(judge) => match self.wait(run, judge) {
+                inference if inference.reasonings.is_empty() => Plan::Ask(inference.questions),
+                inference => Plan::Infer(inference),
+            },
         }
     }
 
-    fn decide(&mut self, signal: &Signal, answers: Option<&[Answer]>) -> Vec<Effect> {
-        match self.advance(signal, answers, MAX_ROUNDS) {
-            PipeStep::Done(effects) => effects,
-            PipeStep::Next(_) | PipeStep::Infer(_) => Vec::new(),
-        }
-    }
-
-    fn advance(&mut self, signal: &Signal, answers: Option<&[Answer]>, round: usize) -> PipeStep {
-        self.advance_round(signal, &Round::answers(answers), round)
-    }
-
-    /// Step the judge. It asks again only while rounds remain, and asks
+    /// Step `run`'s judge. It asks again only while rounds remain, and asks
     /// System One again only after System One answered this round, since
     /// the engine runs no further round otherwise; a next round of System
     /// Two alone, such as a fallback for a failed System One call, may run.
-    /// In every other case it settles, so its value is always acted on.
-    fn advance_round(&mut self, signal: &Signal, outcome: &Round<'_>, round: usize) -> PipeStep {
-        let Some(judge) = self.pending.take() else {
+    /// In every other case it settles, so its value is always acted on. A
+    /// run it holds no judge for, such as one already cancelled, does nothing.
+    fn resume(
+        &mut self,
+        run: RunId,
+        signal: &Signal,
+        outcome: &Round<'_>,
+        round: usize,
+    ) -> PipeStep {
+        let Some(judge) = self.pending.remove(&run) else {
             return PipeStep::Done(Vec::new());
         };
 
@@ -127,24 +131,15 @@ impl<C: Judged> Capability for Judging<C> {
 
                 self.finish(signal, verdict)
             }
-            judge => {
-                let Inference {
-                    questions,
-                    reasonings,
-                } = judge.inference();
-
-                self.pending = Some(judge);
-
-                if reasonings.is_empty() {
-                    PipeStep::Next(questions)
-                } else {
-                    PipeStep::Infer(Inference {
-                        questions,
-                        reasonings,
-                    })
-                }
-            }
+            judge => match self.wait(run, judge) {
+                inference if inference.reasonings.is_empty() => PipeStep::Next(inference.questions),
+                inference => PipeStep::Infer(inference),
+            },
         }
+    }
+
+    fn cancel(&mut self, run: RunId) {
+        self.pending.remove(&run);
     }
 
     fn save(&self) -> Option<serde_json::Value> {

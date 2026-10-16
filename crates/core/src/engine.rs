@@ -3,7 +3,7 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::backstop::Backstop;
-use crate::capability::{Capability, Inference, PipeStep, Plan, Round};
+use crate::capability::{Capability, Inference, PipeStep, Plan, Round, RunId};
 use crate::effect::{Effect, PermissionDecision};
 use crate::learning::{self, LearningConfig, Probe};
 use crate::redact::{LearnedShapes, Masking, RedactionConfig, Redactor};
@@ -19,6 +19,8 @@ pub const MAX_AGENTS: usize = 256;
 /// Rounds per signal, at most, whether they ask System One, System Two, or
 /// both.
 pub const MAX_ROUNDS: usize = 2;
+/// Signals in flight at once, at most; a host bounds its own below this.
+pub const MAX_RUNS: usize = 64;
 /// Bumped when the saved state's shape changes; older state is ignored.
 const STATE_VERSION: u32 = 1;
 
@@ -35,8 +37,13 @@ pub struct Engine {
     learning: LearningConfig,
     situation_texts: SituationTexts,
     learned_changed: bool,
+    /// The trace of the signal that settled last.
     trace: Trace,
-    pending: Option<Pending>,
+    /// Signals between their first round and their last.
+    runs: HashMap<RunId, Run>,
+    next_run: u64,
+    /// The run [`Engine::begin`] started, which [`Engine::finish`] continues.
+    solo: Option<RunId>,
 }
 
 /// What one signal needs next.
@@ -54,9 +61,13 @@ pub enum Step {
     },
 }
 
-/// A signal between [`Engine::begin`] and [`Engine::finish`].
-struct Pending {
+/// A signal between its first round and its last: everything its later
+/// rounds need, owned by the run so other signals can be in flight too.
+struct Run {
     signal: Signal,
+    /// The agent's activity as the signal saw it; later rounds read the
+    /// same, whatever else is recorded or evicted meanwhile.
+    situation: Situation,
     settled: Vec<Effect>,
     asks: Vec<(usize, Inference)>,
     probe: Probe,
@@ -64,6 +75,7 @@ struct Pending {
     irreversible: bool,
     questions: Vec<Question>,
     reasonings: Vec<Reasoning>,
+    trace: Trace,
 }
 
 impl Engine {
@@ -100,7 +112,9 @@ impl Engine {
             learning: LearningConfig::default(),
             situation_texts: SituationTexts::default(),
             learned_changed: false,
-            pending: None,
+            runs: HashMap::new(),
+            next_run: 0,
+            solo: None,
         })
     }
 
@@ -196,16 +210,31 @@ impl Engine {
         }
     }
 
-    /// What the last [`Engine::ingest`] asked and received, for auditing.
+    /// What the signal that settled last asked and received, for auditing.
     #[must_use]
     pub fn trace(&self) -> &Trace {
         &self.trace
     }
 
+    /// Signals in flight.
+    #[must_use]
+    pub fn active(&self) -> usize {
+        self.runs.len()
+    }
+
+    /// The run `agent_id` has in flight, if any.
+    #[must_use]
+    pub fn busy(&self, agent_id: &str) -> Option<RunId> {
+        self.runs
+            .iter()
+            .find(|(_, run)| run.signal.agent_id == agent_id)
+            .map(|(id, _)| *id)
+    }
+
     /// Run one signal to completion with the engine's own System One and
     /// System Two.
     pub fn ingest(&mut self, signal: &Signal) -> Result<Vec<Effect>, String> {
-        let mut step = self.begin(signal)?;
+        let (run, mut step) = self.start(signal)?;
 
         loop {
             let (state, questions, reasonings) = match step {
@@ -234,38 +263,83 @@ impl Engine {
                 })
                 .collect();
             let elapsed = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
-            step = self.finish_round(result, reasoned, elapsed);
+            step = self
+                .resume(run, result, reasoned, elapsed)
+                .unwrap_or(Step::Done(Vec::new()));
         }
     }
 
-    /// Start a signal. Hosts that call System One themselves ask the returned
-    /// questions about the returned state, then call [`Engine::finish`].
+    /// Start a signal, abandoning the one [`Engine::begin`] started before.
+    /// Hosts that call System One themselves ask the returned questions about
+    /// the returned state, then call [`Engine::finish`].
     pub fn begin(&mut self, signal: &Signal) -> Result<Step, String> {
+        if let Some(solo) = self.solo.take() {
+            self.cancel(solo);
+        }
+
+        let (run, step) = self.start(signal)?;
+
+        if matches!(step, Step::Ask { .. }) {
+            self.solo = Some(run);
+        }
+
+        Ok(step)
+    }
+
+    /// Start a signal as its own run, beside any others in flight. Ask the
+    /// returned step's questions and reasonings, then call
+    /// [`Engine::resume`] with the run; a step that is done has no run to
+    /// resume.
+    ///
+    /// # Errors
+    ///
+    /// An invalid signal; an agent with a run already in flight, since one
+    /// agent's signals are judged in order; or [`MAX_RUNS`] in flight.
+    pub fn start(&mut self, signal: &Signal) -> Result<(RunId, Step), String> {
         self.trace = Trace::default();
-        self.pending = None;
         signal.validate()?;
+
+        if let Some(run) = self.busy(&signal.agent_id) {
+            return Err(format!("{} is still judging {run}", signal.agent_id));
+        }
+        if self.runs.len() >= MAX_RUNS {
+            return Err(format!("{MAX_RUNS} signals already in flight"));
+        }
+
+        self.next_run += 1;
+        let id = RunId(self.next_run);
+        let mut trace = Trace::default();
+
         self.record(signal);
 
         // Irreversible harm is vetoed before any capability or model call.
         if let Some(pattern) = self.backstop.veto(signal) {
-            self.trace.veto = Some(pattern.to_string());
+            trace.veto = Some(pattern.to_string());
+            self.trace = trace;
 
-            return Ok(Step::Done(vec![Effect::Permission {
-                agent_id: signal.agent_id.clone(),
-                decision: PermissionDecision::Deny,
-                message: Some(self.backstop.blocked_message(pattern)),
-            }]));
+            return Ok((
+                id,
+                Step::Done(vec![Effect::Permission {
+                    agent_id: signal.agent_id.clone(),
+                    decision: PermissionDecision::Deny,
+                    message: Some(self.backstop.blocked_message(pattern)),
+                }]),
+            ));
         }
 
         // A request you chose to confirm yourself asks, whatever a contract says.
         if let Some(pattern) = self.backstop.confirm(signal) {
-            self.trace.veto = Some(pattern.to_string());
+            trace.veto = Some(pattern.to_string());
+            self.trace = trace;
 
-            return Ok(Step::Done(vec![Effect::Permission {
-                agent_id: signal.agent_id.clone(),
-                decision: PermissionDecision::Ask,
-                message: Some(self.backstop.confirm_message(pattern)),
-            }]));
+            return Ok((
+                id,
+                Step::Done(vec![Effect::Permission {
+                    agent_id: signal.agent_id.clone(),
+                    decision: PermissionDecision::Ask,
+                    message: Some(self.backstop.confirm_message(pattern)),
+                }]),
+            ));
         }
 
         let situation = self
@@ -273,11 +347,12 @@ impl Engine {
             .get(&signal.agent_id)
             .cloned()
             .unwrap_or_default();
-        let (settled, asks) = self.plan(&situation, signal);
+        let (settled, asks) = self.plan(id, &situation, signal);
         let harm = learning::harm(signal, &self.learning.texts);
 
         if asks.is_empty() && harm.is_none() {
-            return Ok(Step::Done(settled));
+            self.release(id);
+            return Ok((id, Step::Done(settled)));
         }
 
         let (command, harm) = harm.unzip();
@@ -294,26 +369,56 @@ impl Engine {
         let reasonings = self.reasonings(&asks, &state, &mut masking);
 
         questions.extend(learning::secrets(&masking, &self.learning.texts));
-        self.trace.questions = questions
+        trace.questions = questions
             .iter()
             .map(|question| TracedQuestion::new(question, 1))
             .collect();
-        self.pending = Some(Pending {
-            signal: signal.clone(),
-            settled,
-            asks,
-            probe: Probe::new(command, &masking),
-            round: 1,
-            irreversible: false,
-            questions: questions.clone(),
-            reasonings: reasonings.clone(),
-        });
+        self.runs.insert(
+            id,
+            Run {
+                signal: signal.clone(),
+                situation,
+                settled,
+                asks,
+                probe: Probe::new(command, &masking),
+                round: 1,
+                irreversible: false,
+                questions: questions.clone(),
+                reasonings: reasonings.clone(),
+                trace,
+            },
+        );
 
-        Ok(Step::Ask {
-            state,
-            questions,
-            reasonings,
-        })
+        Ok((
+            id,
+            Step::Ask {
+                state,
+                questions,
+                reasonings,
+            },
+        ))
+    }
+
+    /// Abandon `run`: no capability acts on it, and a later result for it is
+    /// ignored. Returns what it had asked and received so far.
+    pub fn cancel(&mut self, run: RunId) -> Option<Trace> {
+        if self.solo == Some(run) {
+            self.solo = None;
+        }
+
+        let mut trace = self.runs.remove(&run)?.trace;
+
+        self.release(run);
+        trace.error.get_or_insert_with(|| "cancelled".into());
+
+        Some(trace)
+    }
+
+    /// Every capability forgets `run`.
+    fn release(&mut self, run: RunId) {
+        for capability in &mut self.capabilities {
+            capability.cancel(run);
+        }
     }
 
     /// Every capability's reasonings, IDs namespaced and text redacted with
@@ -392,21 +497,45 @@ impl Engine {
         self.finish_round(result, Vec::new(), elapsed_ms)
     }
 
-    /// Finish one round with System One's result and each reasoning's
-    /// outcome by ID. A round that asked System One nothing ignores
-    /// `result`; a reasoning without an outcome is unavailable, and a
-    /// verdict is checked against its request again before any capability
-    /// reads it.
+    /// Finish the round [`Engine::begin`] asked; another may be ready when a
+    /// capability depends on its outcome. Without a run in flight, nothing
+    /// is done.
     pub fn finish_round(
         &mut self,
         result: Result<Vec<Answer>, String>,
         reasoned: Vec<(String, Reasoned)>,
         elapsed_ms: u64,
     ) -> Step {
-        let Some(mut pending) = self.pending.take() else {
+        let Some(run) = self.solo else {
             return Step::Done(Vec::new());
         };
-        self.trace.elapsed_ms = self.trace.elapsed_ms.saturating_add(elapsed_ms);
+        let step = self
+            .resume(run, result, reasoned, elapsed_ms)
+            .unwrap_or(Step::Done(Vec::new()));
+
+        if matches!(step, Step::Done(_)) {
+            self.solo = None;
+        }
+
+        step
+    }
+
+    /// Continue `run` with System One's result and each reasoning's outcome
+    /// by ID. A round that asked System One nothing ignores `result`; a
+    /// reasoning without an outcome is unavailable, and a verdict is checked
+    /// against its request again before any capability reads it. `None` for
+    /// a run not in flight: it settled, was cancelled, or this result is a
+    /// duplicate; nothing changes.
+    pub fn resume(
+        &mut self,
+        run: RunId,
+        result: Result<Vec<Answer>, String>,
+        reasoned: Vec<(String, Reasoned)>,
+        elapsed_ms: u64,
+    ) -> Option<Step> {
+        let mut pending = self.runs.remove(&run)?;
+
+        pending.trace.elapsed_ms = pending.trace.elapsed_ms.saturating_add(elapsed_ms);
         let result = if pending.questions.is_empty() {
             Ok(Vec::new())
         } else {
@@ -416,10 +545,10 @@ impl Engine {
                     .map(|()| answers)
             })
         };
-        let reasoned = self.checked(&pending, reasoned);
+        let reasoned = checked(&mut pending, reasoned);
         let answers = match result {
             Ok(answers) => {
-                self.trace.answers.extend(
+                pending.trace.answers.extend(
                     answers
                         .iter()
                         .map(|answer| TracedAnswer::new(answer, pending.round)),
@@ -427,20 +556,24 @@ impl Engine {
                 Some(answers)
             }
             Err(error) => {
-                self.trace.error = Some(error);
+                pending.trace.error = Some(error);
                 None
             }
         };
         if pending.round == 1 {
-            pending.irreversible = answers
-                .as_deref()
-                .is_some_and(|answers| self.learn(&pending.probe, answers));
+            pending.irreversible = answers.as_deref().is_some_and(|answers| {
+                let (learned, irreversible) = self.learn(&pending.probe, answers);
+
+                pending.trace.learned = learned;
+                irreversible
+            });
         }
         let round = Round {
             answers: answers.as_deref(),
             reasoned: &reasoned,
         };
-        let (effects, next) = self.advance(&pending.signal, &pending.asks, &round, pending.round);
+        let (effects, next) =
+            self.advance(run, &pending.signal, &pending.asks, &round, pending.round);
         pending.settled.extend(effects);
 
         // A failed System One call ends System One's rounds; a next round of
@@ -454,29 +587,25 @@ impl Engine {
             pending.asks = next;
             pending.round += 1;
             let mut masking = Masking::default();
-            let situation = self
-                .situations
-                .get(&pending.signal.agent_id)
-                .cloned()
-                .unwrap_or_default();
-            let state = self
-                .redactor
-                .redact(&situation.render(&self.situation_texts), &mut masking);
+            let state = self.redactor.redact(
+                &pending.situation.render(&self.situation_texts),
+                &mut masking,
+            );
             let questions = self.redacted(self.namespaced(&pending.asks), &mut masking);
             let reasonings = self.reasonings(&pending.asks, &state, &mut masking);
-            self.trace.questions.extend(
+            pending.trace.questions.extend(
                 questions
                     .iter()
                     .map(|question| TracedQuestion::new(question, pending.round)),
             );
             pending.questions = questions.clone();
             pending.reasonings = reasonings.clone();
-            self.pending = Some(pending);
-            return Step::Ask {
+            self.runs.insert(run, pending);
+            return Some(Step::Ask {
                 state,
                 questions,
                 reasonings,
-            };
+            });
         }
 
         // A command judged irreversible is denied, whatever a contract said.
@@ -491,43 +620,17 @@ impl Engine {
             });
         }
 
-        Step::Done(pending.settled)
+        self.release(run);
+        self.trace = pending.trace;
+
+        Some(Step::Done(pending.settled))
     }
 
-    /// Each pending reasoning's outcome, a verdict checked against its
-    /// request again, unavailable when the host brought none, and traced.
-    /// Outcomes for anything not asked are dropped.
-    fn checked(
-        &mut self,
-        pending: &Pending,
-        reasoned: Vec<(String, Reasoned)>,
-    ) -> Vec<(String, Reasoned)> {
-        let mut reasoned: std::collections::HashMap<String, Reasoned> =
-            reasoned.into_iter().collect();
-
-        pending
-            .reasonings
-            .iter()
-            .map(|request| {
-                let outcome = reasoned
-                    .remove(&request.id)
-                    .unwrap_or_else(|| Err(ReasoningFailure::Unavailable("no outcome".into())))
-                    .and_then(|verdict| {
-                        system_two::validate_verdict(request, &verdict).map(|()| verdict)
-                    });
-
-                self.trace
-                    .reasonings
-                    .push(TracedReasoning::new(request, &outcome, pending.round));
-
-                (request.id.clone(), outcome)
-            })
-            .collect()
-    }
-
-    /// Grow the safety lists from the core answers; `true` when the command
-    /// was judged irreversible.
-    fn learn(&mut self, probe: &Probe, answers: &[Answer]) -> bool {
+    /// Grow the safety lists from the core answers: what was learned, and
+    /// whether the command was judged irreversible. Valid answers are kept
+    /// even if their run is later cancelled; they judged the command, not
+    /// the run.
+    fn learn(&mut self, probe: &Probe, answers: &[Answer]) -> (Vec<String>, bool) {
         let (learned, irreversible) = probe.learn(
             &self.learning,
             answers,
@@ -536,9 +639,8 @@ impl Engine {
         );
 
         self.learned_changed |= !learned.is_empty();
-        self.trace.learned = learned;
 
-        irreversible
+        (learned, irreversible)
     }
 
     fn record(&mut self, signal: &Signal) {
@@ -567,6 +669,7 @@ impl Engine {
     /// Settled effects, plus each asking capability's index and inference.
     fn plan(
         &mut self,
+        run: RunId,
         situation: &Situation,
         signal: &Signal,
     ) -> (Vec<Effect>, Vec<(usize, Inference)>) {
@@ -574,7 +677,7 @@ impl Engine {
         let mut asks = Vec::new();
 
         for (index, capability) in self.capabilities.iter_mut().enumerate() {
-            let inference = match capability.plan(situation, signal) {
+            let inference = match capability.start(run, situation, signal) {
                 Plan::Skip => continue,
                 Plan::Settled(settled) => {
                     effects.extend(settled);
@@ -610,6 +713,7 @@ impl Engine {
     /// asked System One nothing this round is not told of its failure.
     fn advance(
         &mut self,
+        run: RunId,
         signal: &Signal,
         asks: &[(usize, Inference)],
         round: &Round<'_>,
@@ -650,7 +754,7 @@ impl Engine {
             };
 
             if let Some(capability) = self.capabilities.get_mut(*index) {
-                let inference = match capability.advance_round(signal, &outcome, number) {
+                let inference = match capability.resume(run, signal, &outcome, number) {
                     PipeStep::Done(done) => {
                         effects.extend(done);
                         continue;
@@ -673,6 +777,31 @@ impl Engine {
             .get(index)
             .map_or_else(String::new, |capability| format!("{}/", capability.id()))
     }
+}
+
+/// Each of `run`'s reasonings with its outcome: a verdict checked against
+/// its request again, unavailable when none came, and traced. Outcomes for
+/// anything not asked are dropped.
+fn checked(run: &mut Run, reasoned: Vec<(String, Reasoned)>) -> Vec<(String, Reasoned)> {
+    let mut reasoned: HashMap<String, Reasoned> = reasoned.into_iter().collect();
+
+    run.reasonings
+        .iter()
+        .map(|request| {
+            let outcome = reasoned
+                .remove(&request.id)
+                .unwrap_or_else(|| Err(ReasoningFailure::Unavailable("no outcome".into())))
+                .and_then(|verdict| {
+                    system_two::validate_verdict(request, &verdict).map(|()| verdict)
+                });
+
+            run.trace
+                .reasonings
+                .push(TracedReasoning::new(request, &outcome, run.round));
+
+            (request.id.clone(), outcome)
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -729,7 +858,7 @@ mod tests {
             self.id
         }
 
-        fn plan(&mut self, _: &Situation, _: &Signal) -> Plan {
+        fn start(&mut self, _: RunId, _: &Situation, _: &Signal) -> Plan {
             if !self.interested {
                 return Plan::Skip;
             }
@@ -748,8 +877,8 @@ mod tests {
             ])
         }
 
-        fn decide(&mut self, _: &Signal, answers: Option<&[Answer]>) -> Vec<Effect> {
-            let ids = answers.map_or_else(
+        fn resume(&mut self, _: RunId, _: &Signal, round: &Round<'_>, _: usize) -> PipeStep {
+            let ids = round.answers.map_or_else(
                 || "none".to_string(),
                 |answers| {
                     answers
@@ -760,7 +889,7 @@ mod tests {
                 },
             );
 
-            vec![keep(&format!("{}:{ids}", self.id))]
+            PipeStep::Done(vec![keep(&format!("{}:{ids}", self.id))])
         }
     }
 
@@ -929,7 +1058,7 @@ mod tests {
             "follow-up"
         }
 
-        fn plan(&mut self, _: &Situation, _: &Signal) -> Plan {
+        fn start(&mut self, _: RunId, _: &Situation, _: &Signal) -> Plan {
             Plan::Ask(vec![Question {
                 id: "first".into(),
                 instructions: "first?".into(),
@@ -937,16 +1066,15 @@ mod tests {
             }])
         }
 
-        fn decide(&mut self, _: &Signal, _: Option<&[Answer]>) -> Vec<Effect> {
-            Vec::new()
-        }
-
-        fn advance(
+        fn resume(
             &mut self,
+            _: RunId,
             signal: &Signal,
-            answers: Option<&[Answer]>,
+            outcome: &Round<'_>,
             round: usize,
         ) -> PipeStep {
+            let answers = outcome.answers;
+
             if round == 1 && answers.is_some_and(|answers| matches!(answers.first(), Some(Answer { value: AnswerValue::Noul(p), .. }) if *p > 0.7)) {
                 return PipeStep::Next(vec![Question { id: "second".into(), instructions: "second?".into(), kind: QuestionKind::Noul }]);
             }

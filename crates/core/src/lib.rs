@@ -23,7 +23,7 @@ pub use features::{backstop, redact};
 pub use state::{situation, trace};
 
 pub use backstop::{Backstop, BackstopConfig, BackstopTexts};
-pub use capability::{Capability, Inference, PipeStep, Plan, Round};
+pub use capability::{Capability, Inference, PipeStep, Plan, Round, RunId};
 #[cfg(feature = "client")]
 pub use client::{DEFAULT_DAEMON_URL, DaemonClient};
 pub use config::{load_config, load_layered, read_json_files};

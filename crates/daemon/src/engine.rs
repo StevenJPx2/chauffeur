@@ -430,7 +430,7 @@ fn build_engine(
 
 #[cfg(test)]
 mod tests {
-    use chauffeur_core::{Plan, Situation};
+    use chauffeur_core::{PipeStep, Plan, Round, RunId, Situation};
 
     use super::*;
 
@@ -441,12 +441,12 @@ mod tests {
             self.0
         }
 
-        fn plan(&mut self, _: &Situation, _: &Signal) -> Plan {
+        fn start(&mut self, _: RunId, _: &Situation, _: &Signal) -> Plan {
             Plan::Skip
         }
 
-        fn decide(&mut self, _: &Signal, _: Option<&[chauffeur_core::Answer]>) -> Vec<Effect> {
-            Vec::new()
+        fn resume(&mut self, _: RunId, _: &Signal, _: &Round<'_>, _: usize) -> PipeStep {
+            PipeStep::Done(Vec::new())
         }
     }
 
