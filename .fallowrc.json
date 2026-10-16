@@ -1,4 +1,0 @@
-{
-  "entry": ["bench/probe/index.js"],
-  "ignorePatterns": ["bench/tasks/**"]
-}

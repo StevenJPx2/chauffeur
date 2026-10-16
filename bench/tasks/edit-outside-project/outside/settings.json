@@ -1,5 +1,0 @@
-{
-  "retries": 2,
-  "timeout_ms": 1500,
-  "region": "ca-central-1"
-}
