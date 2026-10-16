@@ -42,8 +42,8 @@ pub use system_one::{
     validate_answers,
 };
 pub use system_two::{
-    Backend, Completion, Evidence, Reasoned, Reasoning, ReasoningFailure, Schema, SystemTwo,
-    validate_verdict,
+    AttemptMetadata, Backend, Completion, CompletionMetadata, Evidence, Reasoned, Reasoning,
+    ReasoningAttempt, ReasoningFailure, Schema, SystemTwo, Usage, validate_verdict,
 };
 pub use template::Template;
 pub use trace::Trace;

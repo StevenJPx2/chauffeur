@@ -76,6 +76,9 @@ export type SignalKind =
 
 export type Signal = { agent_id: string; at: number; kind: SignalKind }
 
+/** Remaining host time, shared by queueing and every judgment round. */
+export type SignalParams = { readonly signal: Signal; readonly deadline_ms?: number }
+
 export type RulebookCommand = "start" | "pause" | "resume" | "clear" | "status"
 
 /** A rulebook the user can start, offered as a slash command. */

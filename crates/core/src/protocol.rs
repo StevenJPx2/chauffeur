@@ -53,12 +53,40 @@ pub struct DaemonResponse {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
 pub struct SignalParams {
     pub signal: Signal,
+    /// Remaining host time, including queueing; absent uses the daemon's limit.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deadline_ms: Option<u64>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub struct SignalResult {
     pub effects: Vec<Effect>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn signal_budgets_are_optional_and_additive_fields_are_compatible() {
+        let wire = json!({ "signal": { "agent_id": "a", "at": 1, "kind": {
+            "type": "turn_end", "workspace": "", "subagent": false,
+            "user_request": "", "summary": "", "todos": []
+        } } });
+        let old: SignalParams = serde_json::from_value(wire.clone()).unwrap();
+        assert_eq!(old.deadline_ms, None);
+        assert_eq!(serde_json::to_value(&old).unwrap(), wire);
+        let mut new = wire;
+        new["deadline_ms"] = json!(2_000);
+        new["future_field"] = json!(true);
+        assert_eq!(
+            serde_json::from_value::<SignalParams>(new)
+                .unwrap()
+                .deadline_ms,
+            Some(2_000)
+        );
+    }
 }

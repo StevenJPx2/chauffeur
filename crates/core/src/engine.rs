@@ -11,7 +11,7 @@ use crate::signal::Signal;
 use crate::situation::{Situation, SituationTexts};
 use crate::system_one::{Answer, Question, QuestionKind, SystemOne, validate_answers};
 use crate::system_two::{
-    self, ACTIVITY, Evidence, Reasoned, Reasoning, ReasoningFailure, SystemTwo,
+    self, ACTIVITY, Evidence, Reasoned, Reasoning, ReasoningAttempt, ReasoningFailure, SystemTwo,
 };
 use crate::trace::{Trace, TracedAnswer, TracedQuestion, TracedReasoning};
 
@@ -259,12 +259,15 @@ impl Engine {
                         .as_deref_mut()
                         .map(|executor| executor as &mut dyn SystemTwo);
 
-                    (request.id.clone(), system_two::run(executor, request))
+                    (
+                        request.id.clone(),
+                        system_two::run_attempt(executor, request, std::time::Duration::MAX),
+                    )
                 })
                 .collect();
             let elapsed = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
             step = self
-                .resume(run, result, reasoned, elapsed)
+                .resume_attempts(run, result, reasoned, elapsed)
                 .unwrap_or(Step::Done(Vec::new()));
         }
     }
@@ -533,33 +536,31 @@ impl Engine {
         reasoned: Vec<(String, Reasoned)>,
         elapsed_ms: u64,
     ) -> Option<Step> {
+        self.resume_attempts(
+            run,
+            result,
+            reasoned
+                .into_iter()
+                .map(|(id, outcome)| (id, outcome.into()))
+                .collect(),
+            elapsed_ms,
+        )
+    }
+
+    /// Continue a hosted run, retaining each attempt's execution metadata in
+    /// its trace while capabilities read validated outcomes only.
+    pub fn resume_attempts(
+        &mut self,
+        run: RunId,
+        result: Result<Vec<Answer>, String>,
+        reasoned: Vec<(String, ReasoningAttempt)>,
+        elapsed_ms: u64,
+    ) -> Option<Step> {
         let mut pending = self.runs.remove(&run)?;
 
         pending.trace.elapsed_ms = pending.trace.elapsed_ms.saturating_add(elapsed_ms);
-        let result = if pending.questions.is_empty() {
-            Ok(Vec::new())
-        } else {
-            result.and_then(|answers| {
-                validate_answers(&pending.questions, &answers)
-                    .map_err(|error| error.0)
-                    .map(|()| answers)
-            })
-        };
+        let answers = checked_answers(&mut pending, result);
         let reasoned = checked(&mut pending, reasoned);
-        let answers = match result {
-            Ok(answers) => {
-                pending.trace.answers.extend(
-                    answers
-                        .iter()
-                        .map(|answer| TracedAnswer::new(answer, pending.round)),
-                );
-                Some(answers)
-            }
-            Err(error) => {
-                pending.trace.error = Some(error);
-                None
-            }
-        };
         if pending.round == 1 {
             pending.irreversible = answers.as_deref().is_some_and(|answers| {
                 let (learned, irreversible) = self.learn(&pending.probe, answers);
@@ -779,25 +780,52 @@ impl Engine {
     }
 }
 
+/// Accept only answers matching the run's questions and trace their outcome.
+fn checked_answers(run: &mut Run, result: Result<Vec<Answer>, String>) -> Option<Vec<Answer>> {
+    let result = if run.questions.is_empty() {
+        Ok(Vec::new())
+    } else {
+        result.and_then(|answers| {
+            validate_answers(&run.questions, &answers)
+                .map_err(|error| error.0)
+                .map(|()| answers)
+        })
+    };
+    match result {
+        Ok(answers) => {
+            run.trace.answers.extend(
+                answers
+                    .iter()
+                    .map(|answer| TracedAnswer::new(answer, run.round)),
+            );
+            Some(answers)
+        }
+        Err(error) => {
+            run.trace.error = Some(error);
+            None
+        }
+    }
+}
+
 /// Each of `run`'s reasonings with its outcome: a verdict checked against
 /// its request again, unavailable when none came, and traced. Outcomes for
 /// anything not asked are dropped.
-fn checked(run: &mut Run, reasoned: Vec<(String, Reasoned)>) -> Vec<(String, Reasoned)> {
-    let mut reasoned: HashMap<String, Reasoned> = reasoned.into_iter().collect();
+fn checked(run: &mut Run, reasoned: Vec<(String, ReasoningAttempt)>) -> Vec<(String, Reasoned)> {
+    let mut reasoned: HashMap<String, ReasoningAttempt> = reasoned.into_iter().collect();
 
     run.reasonings
         .iter()
         .map(|request| {
-            let outcome = reasoned
+            let attempt = reasoned
                 .remove(&request.id)
-                .unwrap_or_else(|| Err(ReasoningFailure::Unavailable("no outcome".into())))
-                .and_then(|verdict| {
-                    system_two::validate_verdict(request, &verdict).map(|()| verdict)
-                });
+                .unwrap_or_else(|| Err(ReasoningFailure::Unavailable("no outcome".into())).into());
+            let outcome = attempt.outcome.and_then(|verdict| {
+                system_two::validate_verdict(request, &verdict).map(|()| verdict)
+            });
 
-            run.trace
-                .reasonings
-                .push(TracedReasoning::new(request, &outcome, run.round));
+            let traced =
+                TracedReasoning::new(request, &outcome, run.round).with_metadata(attempt.metadata);
+            run.trace.reasonings.push(traced);
 
             (request.id.clone(), outcome)
         })

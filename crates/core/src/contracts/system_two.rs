@@ -14,6 +14,8 @@ pub const MAX_REASONING_INPUT_BYTES: usize = 32 * 1024;
 pub const MAX_VERDICT_BYTES: usize = 64 * 1024;
 /// The evidence ID the engine gives the agent's recent activity.
 pub const ACTIVITY: &str = "activity";
+/// A call needs this much remaining time to be useful.
+pub const MIN_REASONING_TIME: Duration = Duration::from_millis(250);
 
 const MAX_SCHEMA_DEPTH: usize = 4;
 const MAX_FIELDS: usize = 16;
@@ -283,6 +285,53 @@ impl fmt::Display for ReasoningFailure {
 /// A reasoning's outcome: a verdict that fits its schema, or why there is none.
 pub type Reasoned = Result<Value, ReasoningFailure>;
 
+/// Token counts reported by a provider; an absent count was not reported.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+pub struct Usage {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub input_tokens: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub output_tokens: Option<u64>,
+}
+
+/// Provider-reported facts, retained even when the output fails validation.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+pub struct CompletionMetadata {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reported_model: Option<String>,
+    pub usage: Usage,
+}
+
+/// Execution facts for one reasoning attempt, separate from its verdict.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+pub struct AttemptMetadata {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub provider: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub backend: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub requested_model: Option<String>,
+    #[serde(flatten)]
+    pub completion: CompletionMetadata,
+    pub latency_ms: u64,
+}
+
+/// A host's execution result. Capabilities read only `outcome`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ReasoningAttempt {
+    pub outcome: Reasoned,
+    pub metadata: AttemptMetadata,
+}
+
+impl From<Reasoned> for ReasoningAttempt {
+    fn from(outcome: Reasoned) -> Self {
+        Self {
+            outcome,
+            metadata: AttemptMetadata::default(),
+        }
+    }
+}
+
 /// One structured LLM call, as a provider plugin's backend runs it. The
 /// host has already rendered the prompt and redacted what it quotes.
 #[derive(Clone, Copy, Debug)]
@@ -305,9 +354,14 @@ pub struct Completion<'a> {
 }
 
 /// A provider plugin's way to run a [`Completion`]: one model call whose
-/// output is JSON, or an explicit failure.
+/// output is JSON, or an explicit failure. Report model and usage facts in
+/// `metadata` even when the verdict fails or is refused.
 pub trait Backend: Send {
-    fn complete(&mut self, completion: &Completion<'_>) -> Reasoned;
+    fn complete(
+        &mut self,
+        completion: &Completion<'_>,
+        metadata: &mut CompletionMetadata,
+    ) -> Reasoned;
 }
 
 /// An LLM that reasons. Implementations answer one request per call; the
@@ -316,6 +370,22 @@ pub trait SystemTwo: Send {
     fn name(&self) -> &str;
 
     fn reason(&mut self, request: &Reasoning) -> Reasoned;
+
+    /// Execution settings known before a provider call, including on failure.
+    fn metadata(&mut self, _request: &Reasoning) -> AttemptMetadata {
+        AttemptMetadata::default()
+    }
+
+    /// Reason within the host's remaining time. Executors with configurable
+    /// call timeouts cap them at `timeout` and fill provider-reported metadata.
+    fn reason_with(
+        &mut self,
+        request: &Reasoning,
+        _timeout: Duration,
+        _metadata: &mut CompletionMetadata,
+    ) -> Reasoned {
+        self.reason(request)
+    }
 }
 
 impl SystemTwo for Box<dyn SystemTwo> {
@@ -326,11 +396,55 @@ impl SystemTwo for Box<dyn SystemTwo> {
     fn reason(&mut self, request: &Reasoning) -> Reasoned {
         (**self).reason(request)
     }
+
+    fn metadata(&mut self, request: &Reasoning) -> AttemptMetadata {
+        (**self).metadata(request)
+    }
+
+    fn reason_with(
+        &mut self,
+        request: &Reasoning,
+        timeout: Duration,
+        metadata: &mut CompletionMetadata,
+    ) -> Reasoned {
+        (**self).reason_with(request, timeout, metadata)
+    }
 }
 
 /// Run `request` on `executor` within the input and output budgets, and
 /// accept only a verdict that fits its schema.
 pub fn run(executor: Option<&mut dyn SystemTwo>, request: &Reasoning) -> Reasoned {
+    run_attempt(executor, request, Duration::MAX).outcome
+}
+
+/// Run and validate one attempt, keeping execution facts on every outcome.
+pub fn run_attempt(
+    mut executor: Option<&mut dyn SystemTwo>,
+    request: &Reasoning,
+    timeout: Duration,
+) -> ReasoningAttempt {
+    let started = std::time::Instant::now();
+    let mut metadata = executor
+        .as_mut()
+        .map_or_else(AttemptMetadata::default, |executor| {
+            executor.metadata(request)
+        });
+    let outcome = execute(
+        executor,
+        request,
+        timeout.saturating_sub(started.elapsed()),
+        &mut metadata.completion,
+    );
+    metadata.latency_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
+    ReasoningAttempt { outcome, metadata }
+}
+
+fn execute(
+    executor: Option<&mut dyn SystemTwo>,
+    request: &Reasoning,
+    timeout: Duration,
+    metadata: &mut CompletionMetadata,
+) -> Reasoned {
     if let Err(error) = request.schema.check() {
         return Err(ReasoningFailure::Invalid(format!("schema: {error}")));
     }
@@ -341,7 +455,10 @@ pub fn run(executor: Option<&mut dyn SystemTwo>, request: &Reasoning) -> Reasone
     let Some(executor) = executor else {
         return Err(ReasoningFailure::Unavailable("System Two is off".into()));
     };
-    let verdict = executor.reason(request)?;
+    if timeout < MIN_REASONING_TIME {
+        return Err(ReasoningFailure::TimedOut);
+    }
+    let verdict = executor.reason_with(request, timeout, metadata)?;
 
     validate_verdict(request, &verdict)?;
 
@@ -478,5 +595,12 @@ mod tests {
             review().schema.to_json_schema(&[])["required"],
             json!(["verdict", "cites"])
         );
+    }
+
+    #[test]
+    fn an_attempt_without_minimum_useful_time_returns_no_verdict() {
+        let mut executor = Fixed(Ok(json!({ "verdict": "complete", "cites": ["tests"] })));
+        let attempt = run_attempt(Some(&mut executor), &review(), Duration::from_millis(20));
+        assert_eq!(attempt.outcome, Err(ReasoningFailure::TimedOut));
     }
 }

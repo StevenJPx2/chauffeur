@@ -132,6 +132,29 @@ impl SystemTwo for Two {
         self.seen.lock().unwrap().push(request.clone());
         self.reply.clone()
     }
+
+    fn metadata(&mut self, _: &Reasoning) -> chauffeur_core::AttemptMetadata {
+        chauffeur_core::AttemptMetadata {
+            provider: Some("openai".into()),
+            backend: Some("codex".into()),
+            requested_model: Some("requested".into()),
+            ..Default::default()
+        }
+    }
+
+    fn reason_with(
+        &mut self,
+        request: &Reasoning,
+        _: std::time::Duration,
+        metadata: &mut chauffeur_core::CompletionMetadata,
+    ) -> Reasoned {
+        metadata.reported_model = Some("reported".into());
+        metadata.usage = chauffeur_core::Usage {
+            input_tokens: Some(123),
+            output_tokens: Some(45),
+        };
+        self.reason(request)
+    }
 }
 
 fn engine(
@@ -227,6 +250,16 @@ fn an_unsure_screen_is_reviewed_with_redacted_evidence_and_activity() {
     let traced = &engine.trace().reasonings;
     assert_eq!(traced.len(), 1);
     assert_eq!((traced[0].round, traced[0].verdict.is_some()), (2, true));
+    let metadata = &traced[0].metadata;
+    assert_eq!(metadata.provider.as_deref(), Some("openai"));
+    assert_eq!(metadata.backend.as_deref(), Some("codex"));
+    assert_eq!(metadata.requested_model.as_deref(), Some("requested"));
+    assert_eq!(
+        metadata.completion.reported_model.as_deref(),
+        Some("reported")
+    );
+    assert_eq!(metadata.completion.usage.input_tokens, Some(123));
+    assert_eq!(metadata.completion.usage.output_tokens, Some(45));
 }
 
 #[test]
@@ -259,6 +292,16 @@ fn without_a_valid_verdict_the_capability_applies_its_failure_posture() {
             "{two:?}"
         );
         assert!(engine.trace().reasonings[0].failure.is_some());
+        if two.is_some() {
+            assert_eq!(
+                engine.trace().reasonings[0]
+                    .metadata
+                    .completion
+                    .usage
+                    .input_tokens,
+                Some(123)
+            );
+        }
     }
 }
 

@@ -1,9 +1,9 @@
 # System Two judgments
 
-Status: steps 1 to 4 of the implementation sequence are built: core requests,
-composition and engine rounds, run-owned execution state, the daemon's
-scheduler and judge workers, and the `openai/codex` backend with profiles in
-`skills/config/judge.json`. System Two ships off, and no capability asks it yet.
+Status: implementation steps 1 to 5 are built. The daemon executes System Two
+through profiles in `skills/config/judge.json`, records bounded attempt metadata,
+and propagates host deadlines through its workers.
+System Two ships off, and no capability asks it yet.
 
 Chauffeur composes fast classification and LLM reasoning in the same `Judge<T>`
 state machine. Capabilities define judgments, provider plugins execute inference,
@@ -54,15 +54,15 @@ flowchart LR
 - The engine batches ready System One questions across capabilities and permits
   two dependent rounds per signal.
 - The provider plugins expose model tiers, exclusions and recommendations through
-  the model-router's `Provider` trait. They contain no inference transport or
-  credential management.
+  the model-router's `Provider` trait. Routing metadata is independent of
+  inference transport and credential management.
 - The engine holds up to 64 runs in flight, keyed by `RunId`, through
   `start`, `resume` and `cancel`; `begin` and `finish` drive one run at a time.
 - `crates/daemon/src/scheduler.rs` owns the engine on one thread and judges up
   to 8 signals at once, one per agent. Four System One workers, one reserved
   for permission requests, and two System Two workers make every judge call,
   so the engine thread never waits on one. Each signal settles through its
-  failure posture 14 seconds after it arrives.
+  failure posture within its host budget, capped at 14 seconds after arrival.
 
 ## Composition and inference contracts
 
@@ -74,20 +74,15 @@ the execution tier:
 | System One classification | State and existing typed questions | Probability, choice or score answers |
 | System Two reasoning | Instructions, bounded evidence, output schema and profile | Structured verdict or an explicit failure |
 
-`Judge::ask` preserves its existing classification behavior. A proposed
-`Judge::reason` constructor adds reasoning steps. Both compose through the same
-`then`, `all` and `zip` operations.
+`Judge::ask` classifies and `Judge::reason` adds reasoning steps. Both compose
+through the same `then`, `all` and `zip` operations.
 
-Illustrative proposed usage; `screen`, `review_request` and the decoder belong to
+Illustrative usage; `screen`, `review_request` and the decoder belong to
 the calling capability:
 
 ```rust
 screen.then(move |candidate| match candidate {
-    Some(candidate) => Judge::reason(
-        "completion-review",
-        review_request(candidate),
-        decode_review,
-    ),
+    Some(candidate) => Judge::reason(review_request(candidate), decode_review),
     None => Judge::done(Review::NotNeeded),
 })
 ```
@@ -105,7 +100,7 @@ concurrency. A reasoning call can review several candidates when its capability
 explicitly constructs that request. Cross-signal batching is deferred.
 
 Every request has a capability-local ID. The engine namespaces it and assigns a
-run ID and attempt ID. Results identify the exact run, request and attempt.
+run ID. Results identify the exact run, round and request.
 Failures are delivered per request; one failed branch does not erase another
 branch's successful result. Aggregation defines how those outcomes combine.
 
@@ -136,7 +131,8 @@ Each provider plugin can implement two independent interfaces:
 - The existing model-router `Provider` interface for metadata.
 - Core's `Backend` interface: one structured `Completion` (model, effort,
   instructions, input, JSON Schema, output limit, timeout) in, JSON or an
-  explicit `ReasoningFailure` out.
+  explicit `ReasoningFailure` out, with reported model and token usage alongside
+  either outcome. `Reasoned` remains the capability-facing verdict contract.
 
 `plugins/openai` provides `codex::CodexBackend`, which calls the Codex
 Responses endpoint with the ChatGPT login in `$CODEX_HOME/auth.json`, refreshing
@@ -165,8 +161,8 @@ provider I/O. Waiting for inference releases the coordinator to process work
 for other agents.
 
 1. Admit a signal with an absolute monotonic deadline, including queue time.
-2. Build an owned run containing its signal snapshot, continuations, trace,
-   settled effects and configuration generation.
+2. Build an owned run containing its signal snapshot, continuations, trace
+   and settled effects.
 3. Dispatch ready requests while enforcing global, provider and per-run limits.
 4. Resume the matching run when results arrive; finish or dispatch another round.
 5. Commit the verdict and capability state, then reply with effects and persist.
@@ -181,18 +177,17 @@ for runs that settled or were cancelled.
 A capability acts when its own judgment finishes, and the run returns its
 effects once every capability has settled. A cancelled run returns no effects.
 Learned safety patterns apply as soon as answers validate, since they judge the
-command, not the run. A superseded caller receives cancellation through its
-failure path.
+command, not the run.
 
 | Concern | Decision |
 |---|---|
 | Ordering | One active signal per agent; other agents progress independently |
 | Priority | Permission work has reserved capacity; background reasoning cannot consume it |
 | Supersession | Deferred: a new user request waits behind its agent's active run. Invalidating the older run's effects needs a host-visible cancellation signal |
-| Cancellation | Caller disconnect, deadline, supersession and shutdown stop further dispatch and cancel active backend work |
+| Cancellation | Caller disconnect, deadline and shutdown stop further provider calls for the run; active blocking calls finish on their workers and late results are discarded |
 | Late completion | Run/attempt tokens reject late or duplicate results before state mutation |
 | Effects | Accumulate until the signal settles; return once to the waiting host |
-| Reload | Valid config activates only while no signal is in flight, so a run never resumes on replaced capability objects |
+| Reload | Capability config activates between signals; worker profiles reload between calls |
 | Restart | Persist committed session state; in-flight continuations are discarded and callers receive host failure behavior |
 
 Effect delivery retains the current request/reply semantics. A host disconnect
@@ -201,32 +196,39 @@ background reviews and later host resumes are deferred.
 
 ### Budgets and host deadlines
 
-Shipped defaults live in a new `skills/config/judge.json`, layered with
-`~/.config/chauffeur/judge.json`. Prompts, schemas and execution settings are
-snapshotted for each run. Invalid reloads retain the last valid configuration.
+Shipped defaults live in `skills/config/judge.json`, layered with
+`~/.config/chauffeur/judge.json`. Each call snapshots its profile and rendered
+wording. Invalid reloads retain the last valid configuration.
 
-Proposed starting limits:
+Execution limits:
 
 | Limit | Default |
 |---|---|
 | Active signal runs | 8 |
 | Concurrent System Two calls | 2, separate from reserved System One capacity |
 | Dependent rounds | 2 |
-| Provider attempts per signal | 8, counting both tiers and fallback attempts |
+| Provider attempts per signal | Planned: 8, counting both tiers and fallback attempts |
 | System Two input / response size | 32 KiB / 64 KiB |
 | System Two output tokens | 1,024 |
-| System Two call timeout | 6 seconds per profile; GPT-6 Luna answered small reviews in 1.7–3 s. Capping by remaining signal time arrives with deadline propagation |
+| System Two call timeout | 6 seconds per profile, capped by the run's remaining time |
+| Minimum useful call time | 250 ms; shorter budgets yield `TimedOut` without a provider call |
+| Reply reserve | 150 ms from a supplied host budget |
 
 Input that exceeds its budget is rejected or reduced by explicit capability
 evidence selection; the executor does not silently remove evidence.
 
-The signal RPC accepts an optional remaining-time budget. The daemon caps it at
-15 seconds and reserves reply time. The OpenCode adapter supplies the budget
-already imposed by its hook: approximately 5 seconds for permissions, 6 seconds
-for admission and 8 seconds for tool recovery. Queueing, schema setup, provider
-attempts and dependent rounds share this deadline. A new call starts only when
-its configured minimum useful time remains. Expiry supplies failure outcomes
-and prevents further inference.
+The signal RPC accepts optional `deadline_ms`. The run receives the lesser of
+the host budget minus the reply reserve and the daemon's 14-second limit; an
+absent budget uses that limit. Queueing, schema setup, provider attempts and
+dependent rounds share the deadline. Workers recheck it before provider I/O,
+and expiry supplies failure outcomes through the capability's posture.
+
+The OpenCode adapter sends its signal timeout: 2 seconds for permissions,
+6 seconds for admission, 3 seconds for ordinary tool results and event gating,
+8 seconds for tool recovery and explicit requests, and 20 seconds by default
+for turn ends and rulebook commands. Additive signal fields are accepted by
+the RPC parser. A client receiving an older daemon's explicit rejection of
+`deadline_ms` retries the signal without that field.
 
 ## Escalation, failure and safety
 
@@ -251,16 +253,18 @@ System Two ships disabled, with no active execution profile. Enabling it require
 an explicit provider/backend/model selection and an opt-in capability route.
 Existing System One environment selection remains supported.
 
-Each audit attempt records:
+Each reasoning in the run's trace records its round, capability-namespaced
+request ID, profile, clipped instructions, evidence IDs and validated verdict
+or failure. Execution metadata adds provider, backend, requested model,
+reported model, input/output token counts when supplied, and latency in
+milliseconds. A started attempt's execution settings and elapsed latency remain
+available when the scheduler settles it as timed out. Settings are absent when
+no worker resolved a profile; unreported usage stays absent.
 
-- Run, capability, request and attempt IDs.
-- Tier, profile, provider, backend, requested and reported model IDs.
-- Configuration generation, branching reason and validation outcome.
-- Queue delay, provider latency, token usage when available and deadline outcome.
-- Cancellation, refusal, budget exhaustion and fallback events.
-
-Successful verdict explanations remain optional and short. Raw provider
-recording is opt-in and receives the same redaction policy.
+`audit.jsonl` serializes that trace through the existing redactor. Provider
+metadata survives malformed verdicts and refusals. Explanations remain optional
+and short; private reasoning and credentials are excluded. Queue-delay metrics,
+configuration generations and standalone cancellation records are deferred.
 
 ## Implementation sequence
 
@@ -278,10 +282,9 @@ recording is opt-in and receives the same redaction policy.
    extend the selected plugin in `plugins/anthropic` or `plugins/openai` with one
    backend. Verify its official authentication, structured-output and cancellation
    contracts before implementation.
-5. **Audit and deadlines:** record each attempt's profile, model, token usage and
-   latency in core traces and the daemon audit. Add the optional deadline field
-   to core RPC/client and OpenCode protocol translation, and cap each call by
-   its signal's remaining time.
+5. **Audit and deadlines — built:** core traces and daemon audit retain execution
+   metadata on verdicts and failures. Core RPC/client and OpenCode propagate
+   optional host budgets; workers cap call timeouts and skip unusable budgets.
 6. **First integration:** add an opt-in rulebook completion review in
    `capabilities/rules`, with its wording and schema in owner config. Run direct
    System Two and System One → System Two variants against labeled cases before
@@ -317,7 +320,7 @@ recording is opt-in and receives the same redaction policy.
 | Decision | Recommended starting point |
 |---|---|
 | Cancelling an in-flight call | The blocking client cannot abort a call its run abandoned; the worker finishes it and the result is dropped. Move backends to an async or cancellable client if abandoned calls hold workers in practice |
-| State of a cancelled run's finished branches | A capability that settled in an earlier round keeps the state it acted on. The daemon restores a snapshot for abandoned model-error replies; defer every `act` to run settlement once concurrent dispatch shows stale state elsewhere |
+| State of a cancelled run's finished branches | A settled capability keeps the state it acted on. The daemon restores a snapshot for abandoned model-error replies; defer every `act` to run settlement once concurrent dispatch shows stale state elsewhere |
 
 Multi-provider ensembles, autonomous tool use, images, durable background reviews
 and new effect types are deferred.

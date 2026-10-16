@@ -155,16 +155,19 @@ fn schema() -> Value {
 fn complete(backend: &mut CodexBackend, timeout: Duration) -> chauffeur_core::Reasoned {
     let schema = schema();
 
-    backend.complete(&Completion {
-        model: "gpt-6-luna",
-        effort: Some("low"),
-        instructions: "Judge the goal.",
-        input: "Goal: tests pass.",
-        name: "completion review",
-        schema: &schema,
-        max_output_tokens: 512,
-        timeout,
-    })
+    backend.complete(
+        &Completion {
+            model: "gpt-6-luna",
+            effort: Some("low"),
+            instructions: "Judge the goal.",
+            input: "Goal: tests pass.",
+            name: "completion review",
+            schema: &schema,
+            max_output_tokens: 512,
+            timeout,
+        },
+        &mut chauffeur_core::CompletionMetadata::default(),
+    )
 }
 
 /// A Responses event stream of `events`.
@@ -320,6 +323,44 @@ fn a_slow_provider_times_out() {
 }
 
 #[test]
+fn completed_metadata_survives_valid_and_invalid_verdicts_and_refusals() {
+    let access = jwt("fresh", now() + 3_600);
+    let completion = json!({ "type": "response.completed", "response": {
+        "model": "reported-model", "usage": { "input_tokens": 123, "output_tokens": 45 }
+    } });
+    let (base, _seen) = serve(vec![
+        sse(&[delta("{}"), completion.clone()]),
+        sse(&[delta("not JSON"), completion.clone()]),
+        sse(&[json!({ "type": "response.refusal.done" }), completion]),
+    ]);
+    let mut backend = backend(auth_file("metadata", &access), &base);
+    for expected in [None, Some("invalid"), Some("refused")] {
+        let mut metadata = chauffeur_core::CompletionMetadata::default();
+        let result = backend.complete(
+            &Completion {
+                model: "requested",
+                effort: None,
+                instructions: "Judge.",
+                input: "Evidence.",
+                name: "review",
+                schema: &schema(),
+                max_output_tokens: 512,
+                timeout: SECOND,
+            },
+            &mut metadata,
+        );
+        match expected {
+            None => assert!(result.is_ok()),
+            Some("invalid") => assert!(matches!(result, Err(ReasoningFailure::Invalid(_)))),
+            _ => assert_eq!(result, Err(ReasoningFailure::Refused)),
+        }
+        assert_eq!(metadata.reported_model.as_deref(), Some("reported-model"));
+        assert_eq!(metadata.usage.input_tokens, Some(123));
+        assert_eq!(metadata.usage.output_tokens, Some(45));
+    }
+}
+
+#[test]
 fn an_expiring_login_is_refreshed_once_and_saved_for_the_codex_cli() {
     let stale = jwt("stale", now() + 30);
     let renewed = jwt("renewed", now() + 3_600);
@@ -438,7 +479,7 @@ fn live_luna_returns_a_verdict_that_fits_the_schema() {
         schema: &schema,
         max_output_tokens: 512,
         timeout: Duration::from_secs(10),
-    });
+    }, &mut chauffeur_core::CompletionMetadata::default());
 
     println!("{:?} {verdict:?}", started.elapsed());
     assert_eq!(

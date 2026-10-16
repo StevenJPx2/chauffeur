@@ -125,6 +125,20 @@ A verdict must fit the request's schema and cite only evidence it was given.
 A refusal, cut-off output, timeout, or an unknown profile gives no verdict,
 and the capability applies its failure posture.
 
+Each call shares its signal's remaining host budget. The daemon reserves
+150 ms for the reply and caps the run at 14 seconds; the profile timeout is
+an upper bound. System Two calls with less than 250 ms left return a timeout without
+starting provider inference. The OpenCode adapter supplies its hook timeout,
+including the 2-second permission budget. Callers omitting `deadline_ms` retain
+the daemon's default limit.
+
+`audit.jsonl` records each reasoning's profile, provider/backend, requested model,
+reported model and input/output token usage when available, latency in milliseconds,
+and verdict or failure. Text remains clipped and redacted. Missing usage is
+omitted. A timed-out run retains settings for calls that started; a blocking
+provider call can still occupy its worker until its own timeout, and its late
+result is discarded.
+
 ## Replay benchmark
 
 SubQ is included in `bench/judges.json`. Replay a redacted corpus recorded by

@@ -5,7 +5,7 @@ use serde::Serialize;
 
 use crate::redact::redact_secrets;
 use crate::system_one::{Answer, AnswerValue, Question, QuestionKind};
-use crate::system_two::{Reasoned, Reasoning};
+use crate::system_two::{AttemptMetadata, Reasoned, Reasoning};
 
 const MAX_INSTRUCTION_CHARS: usize = 600;
 
@@ -26,7 +26,7 @@ pub struct Trace {
     /// failure posture.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
-    /// Time spent waiting for System One.
+    /// Time spent waiting for inference rounds.
     pub elapsed_ms: u64,
     /// What the backstop and redactor learned from this signal's answers.
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -57,6 +57,8 @@ pub struct TracedReasoning {
     pub round: usize,
     pub id: String,
     pub profile: String,
+    #[serde(flatten)]
+    pub metadata: AttemptMetadata,
     pub instructions: String,
     /// The IDs of the evidence it was given.
     pub evidence: Vec<String>,
@@ -68,6 +70,28 @@ pub struct TracedReasoning {
 }
 
 impl TracedReasoning {
+    /// Attach execution facts with the same clipping and secret redaction as
+    /// other provider-controlled trace text.
+    #[must_use]
+    pub fn with_metadata(mut self, mut metadata: AttemptMetadata) -> Self {
+        for text in [
+            &mut metadata.provider,
+            &mut metadata.backend,
+            &mut metadata.requested_model,
+            &mut metadata.completion.reported_model,
+        ]
+        .into_iter()
+        .flatten()
+        {
+            *text = redact_secrets(text)
+                .chars()
+                .take(MAX_INSTRUCTION_CHARS)
+                .collect();
+        }
+        self.metadata = metadata;
+        self
+    }
+
     #[must_use]
     pub fn new(request: &Reasoning, outcome: &Reasoned, round: usize) -> Self {
         let clip = |text: &str| -> String {
@@ -85,6 +109,7 @@ impl TracedReasoning {
             round,
             id: request.id.clone(),
             profile: request.profile.clone(),
+            metadata: AttemptMetadata::default(),
             instructions: clip(&request.instructions),
             evidence: request
                 .evidence

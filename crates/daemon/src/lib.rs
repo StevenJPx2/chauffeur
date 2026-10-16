@@ -268,7 +268,9 @@ async fn signal(
 ) -> Result<serde_json::Value, String> {
     let params: SignalParams =
         serde_json::from_value(params).map_err(|error| format!("invalid params: {error}"))?;
-    let effects = engine.ingest(params.signal).await?;
+    let effects = engine
+        .ingest_with_deadline(params.signal, params.deadline_ms)
+        .await?;
 
     serde_json::to_value(SignalResult { effects }).map_err(|error| error.to_string())
 }

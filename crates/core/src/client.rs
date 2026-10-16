@@ -41,7 +41,29 @@ impl DaemonClient {
     }
 
     pub async fn signal(&self, signal: Signal) -> Result<Vec<Effect>, String> {
-        let result: SignalResult = self.call(METHOD_SIGNAL, &SignalParams { signal }).await?;
+        self.signal_with_deadline(signal, None).await
+    }
+
+    /// Report a signal with the host's remaining milliseconds, when bounded.
+    pub async fn signal_with_deadline(
+        &self,
+        signal: Signal,
+        deadline_ms: Option<u64>,
+    ) -> Result<Vec<Effect>, String> {
+        let mut params = SignalParams {
+            signal,
+            deadline_ms,
+        };
+        let result: Result<SignalResult, String> = self.call(METHOD_SIGNAL, &params).await;
+        let result = match result {
+            Err(error)
+                if deadline_ms.is_some() && error.contains("unknown field `deadline_ms`") =>
+            {
+                params.deadline_ms = None;
+                self.call(METHOD_SIGNAL, &params).await?
+            }
+            result => result?,
+        };
 
         Ok(result.effects)
     }

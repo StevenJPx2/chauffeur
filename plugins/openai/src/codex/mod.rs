@@ -8,7 +8,7 @@ use std::io::{BufRead, BufReader, Read};
 use std::sync::Arc;
 
 use chauffeur_core::system_two::MAX_VERDICT_BYTES;
-use chauffeur_core::{Backend, Completion, Reasoned, ReasoningFailure};
+use chauffeur_core::{Backend, Completion, CompletionMetadata, Reasoned, ReasoningFailure, Usage};
 use reqwest::StatusCode;
 use reqwest::blocking::{Client, Response};
 use serde_json::{Value, json};
@@ -54,14 +54,19 @@ impl CodexBackend {
     }
 
     fn send(&self, completion: &Completion<'_>) -> Result<Response, ReasoningFailure> {
+        let started = std::time::Instant::now();
         let token = self
             .auth
             .token(&self.http)
             .map_err(ReasoningFailure::Unavailable)?;
+        let timeout = completion.timeout.saturating_sub(started.elapsed());
+        if timeout < chauffeur_core::system_two::MIN_REASONING_TIME {
+            return Err(ReasoningFailure::TimedOut);
+        }
         let mut request = self
             .http
             .post(&self.endpoint)
-            .timeout(completion.timeout)
+            .timeout(timeout)
             .bearer_auth(&token.access)
             .header("originator", "codex_cli_rs")
             .header("openai-beta", "responses=experimental")
@@ -95,9 +100,13 @@ impl CodexBackend {
 }
 
 impl Backend for CodexBackend {
-    fn complete(&mut self, completion: &Completion<'_>) -> Reasoned {
+    fn complete(
+        &mut self,
+        completion: &Completion<'_>,
+        metadata: &mut CompletionMetadata,
+    ) -> Reasoned {
         let response = self.send(completion)?;
-        let text = read_stream(response)?;
+        let text = read_stream(response, metadata)?;
 
         serde_json::from_str(&text)
             .map_err(|error| ReasoningFailure::Invalid(format!("output is not JSON: {error}")))
@@ -194,7 +203,10 @@ fn clip(text: &str) -> String {
 }
 
 /// The output text of a streamed response, or why there is none.
-fn read_stream(response: Response) -> Result<String, ReasoningFailure> {
+fn read_stream(
+    response: Response,
+    metadata: &mut CompletionMetadata,
+) -> Result<String, ReasoningFailure> {
     let reader = BufReader::new(response.take(MAX_STREAM_BYTES));
     let mut text = String::new();
     let mut refused = false;
@@ -213,6 +225,8 @@ fn read_stream(response: Response) -> Result<String, ReasoningFailure> {
         let Ok(event) = serde_json::from_str::<Value>(data) else {
             continue;
         };
+
+        record_metadata(&event["response"], metadata);
 
         match event["type"].as_str().unwrap_or_default() {
             "response.output_text.delta" => {
@@ -252,6 +266,18 @@ fn read_stream(response: Response) -> Result<String, ReasoningFailure> {
     } else {
         ReasoningFailure::Failed("the stream ended before the response completed".into())
     })
+}
+
+fn record_metadata(response: &Value, metadata: &mut CompletionMetadata) {
+    if let Some(model) = response["model"].as_str() {
+        metadata.reported_model = Some(model.chars().take(MAX_ERROR_CHARS).collect());
+    }
+    if let Some(usage) = response.get("usage").filter(|usage| usage.is_object()) {
+        metadata.usage = Usage {
+            input_tokens: usage["input_tokens"].as_u64(),
+            output_tokens: usage["output_tokens"].as_u64(),
+        };
+    }
 }
 
 fn provider_error(event: &Value) -> ReasoningFailure {

@@ -12,8 +12,8 @@ use std::time::{Duration, Instant};
 
 use chauffeur_core::engine::MAX_ROUNDS;
 use chauffeur_core::{
-    Answer, Effect, Engine, Question, Reasoned, Reasoning, ReasoningFailure, Reloading, RunId,
-    Signal, SignalKind, Step, SystemOne, SystemTwo, system_two,
+    Answer, AttemptMetadata, Effect, Engine, Question, Reasoning, ReasoningAttempt,
+    ReasoningFailure, Reloading, RunId, Signal, SignalKind, Step, SystemOne, SystemTwo, system_two,
 };
 use tokio::sync::oneshot;
 
@@ -35,6 +35,8 @@ pub(crate) const REPLY_TIMEOUT: Duration = Duration::from_secs(15);
 /// A signal's own deadline, from when it arrives: settled through its
 /// failure posture before the host stops waiting.
 pub(crate) const RUN_DEADLINE: Duration = Duration::from_secs(14);
+/// Time left for serializing and delivering the host's reply.
+const REPLY_RESERVE: Duration = Duration::from_millis(150);
 
 /// Builds one System Two executor per worker.
 pub type SystemTwoFactory = Arc<dyn Fn() -> Result<Box<dyn SystemTwo>, String> + Send + Sync>;
@@ -56,6 +58,13 @@ pub(crate) struct Setup {
 enum Event {
     Job(Job),
     Done(Done),
+    Started {
+        run: RunId,
+        round: usize,
+        id: String,
+        metadata: AttemptMetadata,
+        at: Instant,
+    },
     /// Every handle is gone.
     Closed,
 }
@@ -64,6 +73,13 @@ struct Job {
     signal: Signal,
     reply: oneshot::Sender<Result<Vec<Effect>, String>>,
     received: Instant,
+    budget: Duration,
+}
+
+impl Job {
+    fn expires(&self, limit: Duration) -> Instant {
+        self.received + self.budget.min(limit)
+    }
 }
 
 enum Done {
@@ -76,7 +92,7 @@ enum Done {
         run: RunId,
         round: usize,
         id: String,
-        outcome: Reasoned,
+        outcome: ReasoningAttempt,
     },
 }
 
@@ -86,12 +102,14 @@ struct OneTask {
     state: String,
     questions: Vec<Question>,
     urgent: bool,
+    deadline: Instant,
 }
 
 struct TwoTask {
     run: RunId,
     round: usize,
     request: Reasoning,
+    deadline: Instant,
 }
 
 /// The daemon's way in to the engine.
@@ -119,6 +137,16 @@ impl EngineHandle {
     /// The queue is full or the engine stopped; the signal is invalid; or
     /// no effects came within the host's wait.
     pub async fn ingest(&self, signal: Signal) -> Result<Vec<Effect>, String> {
+        self.ingest_with_deadline(signal, None).await
+    }
+
+    /// Judge with the host's remaining milliseconds, reserving reply time and
+    /// sharing the budget across queueing and every inference round.
+    pub async fn ingest_with_deadline(
+        &self,
+        signal: Signal,
+        deadline_ms: Option<u64>,
+    ) -> Result<Vec<Effect>, String> {
         let (reply, result) = oneshot::channel();
 
         if self.inner.queued.fetch_add(1, Ordering::SeqCst) >= QUEUE_DEPTH {
@@ -130,6 +158,11 @@ impl EngineHandle {
             signal,
             reply,
             received: Instant::now(),
+            budget: deadline_ms.map_or(RUN_DEADLINE, |ms| {
+                Duration::from_millis(ms)
+                    .saturating_sub(REPLY_RESERVE)
+                    .min(RUN_DEADLINE)
+            }),
         };
 
         if self.inner.events.send(Event::Job(job)).is_err() {
@@ -172,11 +205,12 @@ impl EngineHandle {
                     let two = setup
                         .system_two
                         .map(|factory| {
+                            let started = done.clone();
                             Pool::spawn(
                                 "chauffeur-reason",
                                 TWO_WORKERS,
                                 move || factory(),
-                                reason,
+                                move |executor, task| reason(executor, task, &started),
                                 &done,
                             )
                         })
@@ -221,9 +255,13 @@ impl EngineHandle {
 }
 
 fn ask(judge: &mut Box<dyn SystemOne>, task: OneTask) -> Event {
-    let result = judge
-        .ask(&task.state, &task.questions)
-        .map_err(|error| error.0);
+    let result = if Instant::now() >= task.deadline {
+        Err("timed out".into())
+    } else {
+        judge
+            .ask(&task.state, &task.questions)
+            .map_err(|error| error.0)
+    };
 
     Event::Done(Done::Answers {
         run: task.run,
@@ -232,8 +270,26 @@ fn ask(judge: &mut Box<dyn SystemOne>, task: OneTask) -> Event {
     })
 }
 
-fn reason(executor: &mut Box<dyn SystemTwo>, task: TwoTask) -> Event {
-    let outcome = system_two::run(Some(executor.as_mut()), &task.request);
+fn reason(executor: &mut Box<dyn SystemTwo>, task: TwoTask, events: &Sender<Event>) -> Event {
+    let started = Instant::now();
+    let metadata = executor.metadata(&task.request);
+    let _ = events.send(Event::Started {
+        run: task.run,
+        round: task.round,
+        id: task.request.id.clone(),
+        metadata: metadata.clone(),
+        at: started,
+    });
+    let remaining = task.deadline.saturating_duration_since(Instant::now());
+    let mut outcome = if remaining < system_two::MIN_REASONING_TIME {
+        ReasoningAttempt {
+            outcome: Err(ReasoningFailure::TimedOut),
+            metadata,
+        }
+    } else {
+        system_two::run_attempt(Some(executor.as_mut()), &task.request, remaining)
+    };
+    outcome.metadata.latency_ms = millis(started.elapsed());
 
     Event::Done(Done::Reasoned {
         run: task.run,
@@ -252,7 +308,8 @@ struct Active {
     answers: Option<Result<Vec<Answer>, String>>,
     /// Reasonings asked this round.
     asked: Vec<String>,
-    reasoned: Vec<(String, Reasoned)>,
+    reasoned: Vec<(String, ReasoningAttempt)>,
+    started: HashMap<String, (AttemptMetadata, Instant)>,
     /// Calls of this round still out.
     awaiting: usize,
     /// The engine's memory before a signal that runs alone, restored if its
@@ -311,6 +368,21 @@ impl Scheduler {
                     self.waiting.push_back(job);
                 }
                 Ok(Event::Done(done)) => self.collect(done),
+                Ok(Event::Started {
+                    run,
+                    round,
+                    id,
+                    metadata,
+                    at,
+                }) => {
+                    if let Some(active) = self
+                        .active
+                        .get_mut(&run)
+                        .filter(|active| active.round == round)
+                    {
+                        active.started.insert(id, (metadata, at));
+                    }
+                }
                 Ok(Event::Closed) | Err(RecvTimeoutError::Disconnected) => return,
                 Err(RecvTimeoutError::Timeout) => {}
             }
@@ -327,7 +399,7 @@ impl Scheduler {
             if job.reply.is_closed() {
                 continue;
             }
-            if now >= job.received + deadline {
+            if now >= job.expires(deadline) {
                 let _ = job.reply.send(Err("engine timed out".into()));
                 continue;
             }
@@ -348,7 +420,7 @@ impl Scheduler {
         let late: Vec<RunId> = self
             .active
             .iter()
-            .filter(|(_, active)| now >= active.job.received + deadline)
+            .filter(|(_, active)| now >= active.job.expires(deadline))
             .map(|(run, _)| *run)
             .collect();
 
@@ -432,6 +504,7 @@ impl Scheduler {
                         answers: None,
                         asked: Vec::new(),
                         reasoned: Vec::new(),
+                        started: HashMap::new(),
                         awaiting: 0,
                         before,
                     },
@@ -460,6 +533,7 @@ impl Scheduler {
         active.asked_at = Instant::now();
         active.answers = None;
         active.reasoned.clear();
+        active.started.clear();
         active.asked = reasonings
             .iter()
             .map(|request| request.id.clone())
@@ -475,6 +549,7 @@ impl Scheduler {
                 state,
                 questions,
                 urgent,
+                deadline: active.job.expires(self.deadline),
             };
             let at = if urgent {
                 self.one_backlog
@@ -495,11 +570,12 @@ impl Scheduler {
                     run,
                     round,
                     request,
+                    deadline: active.job.expires(self.deadline),
                 });
             } else {
                 let outcome = system_two::run(None, &request);
 
-                active.reasoned.push((request.id, outcome));
+                active.reasoned.push((request.id, outcome.into()));
             }
         }
 
@@ -522,7 +598,9 @@ impl Scheduler {
                 break;
             };
 
-            if self.active.contains_key(&task.run) {
+            if Instant::now() >= task.deadline {
+                self.expire(task.run);
+            } else if self.active.contains_key(&task.run) {
                 self.one.send(task);
             }
         }
@@ -556,6 +634,14 @@ impl Scheduler {
                 (*run, *round)
             }
         };
+        if self
+            .active
+            .get(&run)
+            .is_some_and(|active| Instant::now() >= active.job.expires(self.deadline))
+        {
+            self.expire(run);
+            return;
+        }
         let Some(active) = self
             .active
             .get_mut(&run)
@@ -585,7 +671,11 @@ impl Scheduler {
         let elapsed = millis(active.asked_at.elapsed());
         let round = active.round;
 
-        match self.engine.peek().resume(run, answers, reasoned, elapsed) {
+        match self
+            .engine
+            .peek()
+            .resume_attempts(run, answers, reasoned, elapsed)
+        {
             Some(Step::Ask {
                 state,
                 questions,
@@ -634,16 +724,35 @@ impl Scheduler {
 
         for id in &active.asked {
             if !reasoned.iter().any(|(answered, _)| answered == id) {
-                reasoned.push((id.clone(), Err(ReasoningFailure::TimedOut)));
+                let metadata = active.started.get(id).map_or_else(
+                    AttemptMetadata::default,
+                    |(metadata, at)| {
+                        let mut metadata = metadata.clone();
+                        metadata.latency_ms = millis(at.elapsed());
+                        metadata
+                    },
+                );
+                reasoned.push((
+                    id.clone(),
+                    ReasoningAttempt {
+                        outcome: Err(ReasoningFailure::TimedOut),
+                        metadata,
+                    },
+                ));
             }
         }
 
-        let mut step = engine.resume(run, answers, reasoned, millis(active.asked_at.elapsed()));
+        let mut step =
+            engine.resume_attempts(run, answers, reasoned, millis(active.asked_at.elapsed()));
 
         for _ in 0..MAX_ROUNDS {
             match step {
-                Some(Step::Ask { .. }) => {
-                    step = engine.resume(run, Err("timed out".into()), Vec::new(), 0);
+                Some(Step::Ask { reasonings, .. }) => {
+                    let failed = reasonings
+                        .into_iter()
+                        .map(|request| (request.id, Err(ReasoningFailure::TimedOut)))
+                        .collect();
+                    step = engine.resume(run, Err("timed out".into()), failed, 0);
                 }
                 _ => break,
             }
@@ -706,8 +815,8 @@ mod tests {
     use std::thread::sleep;
 
     use chauffeur_core::{
-        AnswerValue, Delivery, Judge, Judged, Judging, PermissionDecision, Schema, Situation,
-        SystemOneError, Watch,
+        AnswerValue, Delivery, Judge, Judged, Judging, PermissionDecision, Reasoned, Schema,
+        Situation, SystemOneError, Watch,
     };
     use serde_json::json;
 
@@ -839,17 +948,39 @@ mod tests {
             sleep(SLOW_TWO);
             Ok(json!({ "verdict": "complete" }))
         }
+
+        fn metadata(&mut self, _: &Reasoning) -> AttemptMetadata {
+            AttemptMetadata {
+                provider: Some("test-provider".into()),
+                backend: Some("slow".into()),
+                requested_model: Some("test-model".into()),
+                ..Default::default()
+            }
+        }
     }
 
     async fn scheduler(deadline: Duration) -> EngineHandle {
+        scheduler_with(
+            deadline,
+            Arc::new(|| Ok(Box::new(Two) as Box<dyn SystemTwo>)),
+            None,
+        )
+        .await
+    }
+
+    async fn scheduler_with(
+        deadline: Duration,
+        factory: SystemTwoFactory,
+        audit: Option<std::path::PathBuf>,
+    ) -> EngineHandle {
         let setup = Setup {
             judge: JudgeConfig::custom(Arc::new(|| Ok(Box::new(One) as Box<dyn SystemOne>))),
-            system_two: Some(Arc::new(|| Ok(Box::new(Two) as Box<dyn SystemTwo>))),
+            system_two: Some(factory),
             deadline,
         };
 
         EngineHandle::launch(
-            || {
+            move || {
                 let engine = Engine::hosted(vec![Box::new(Judging::new(Probe))])?;
                 let engine = Reloading::new(
                     "test",
@@ -858,13 +989,7 @@ mod tests {
                     Box::new(|_| Err("no reload".into())),
                 );
 
-                Ok((
-                    engine,
-                    Files {
-                        state: None,
-                        audit: None,
-                    },
-                ))
+                Ok((engine, Files { state: None, audit }))
             },
             setup,
         )
@@ -1022,5 +1147,206 @@ mod tests {
 
         assert_eq!(labels(&effects), ["unsettled"]);
         assert!(took >= deadline && took < SLOW_TWO, "{took:?}");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_short_host_budget_settles_a_slow_reasoning_before_the_hook_stops_waiting() {
+        let path = std::env::temp_dir().join(format!(
+            "chauffeur-short-budget-{}.jsonl",
+            std::process::id()
+        ));
+        if path.exists() {
+            std::fs::remove_file(&path).unwrap();
+        }
+        let engine = scheduler_with(
+            RUN_DEADLINE,
+            Arc::new(|| Ok(Box::new(Two) as Box<dyn SystemTwo>)),
+            Some(path.clone()),
+        )
+        .await;
+        let started = Instant::now();
+        let reply = crate::signal(
+            &engine,
+            json!({ "signal": turn_end("a", "reason"), "deadline_ms": 600 }),
+        )
+        .await
+        .unwrap();
+        let effects: chauffeur_core::SignalResult = serde_json::from_value(reply).unwrap();
+        let effects = effects.effects;
+        assert_eq!(labels(&effects), ["unsettled"]);
+        assert!(started.elapsed() >= Duration::from_millis(450));
+        assert!(
+            started.elapsed() < Duration::from_millis(600),
+            "{:?}",
+            started.elapsed()
+        );
+        let written = std::fs::read_to_string(&path).unwrap();
+        let record: serde_json::Value = serde_json::from_str(written.trim()).unwrap();
+        let attempt = &record["trace"]["reasonings"][0];
+        assert_eq!(attempt["failure"], "timed out");
+        assert_eq!(attempt["provider"], "test-provider");
+        assert_eq!(attempt["requested_model"], "test-model");
+        assert!(attempt["latency_ms"].as_u64().unwrap() >= 250);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    struct Timed(std::sync::mpsc::Sender<Duration>);
+
+    impl SystemTwo for Timed {
+        fn name(&self) -> &str {
+            "timed"
+        }
+        fn reason(&mut self, _: &Reasoning) -> Reasoned {
+            panic!("budgeted path required")
+        }
+        fn reason_with(
+            &mut self,
+            _: &Reasoning,
+            timeout: Duration,
+            _: &mut chauffeur_core::CompletionMetadata,
+        ) -> Reasoned {
+            self.0.send(timeout).unwrap();
+            Ok(json!({ "verdict": "complete" }))
+        }
+    }
+
+    #[test]
+    fn a_worker_rechecks_remaining_time_and_skips_calls_without_a_useful_budget() {
+        let (calls, seen) = mpsc::channel();
+        let mut executor: Box<dyn SystemTwo> = Box::new(Timed(calls));
+        let (events, _) = mpsc::channel();
+        for remaining in [Duration::from_millis(800), Duration::from_millis(20)] {
+            let task = TwoTask {
+                run: RunId(1),
+                round: 1,
+                request: Reasoning {
+                    id: "review".into(),
+                    profile: "test".into(),
+                    instructions: "Done?".into(),
+                    evidence: Vec::new(),
+                    activity: false,
+                    schema: Schema::Object(vec![(
+                        "verdict".into(),
+                        Schema::Enum(vec!["complete".into()]),
+                    )]),
+                },
+                deadline: Instant::now() + remaining,
+            };
+            let Event::Done(Done::Reasoned { outcome, .. }) = reason(&mut executor, task, &events)
+            else {
+                panic!("expected reasoning")
+            };
+            if remaining < system_two::MIN_REASONING_TIME {
+                assert_eq!(outcome.outcome, Err(ReasoningFailure::TimedOut));
+                assert!(seen.try_recv().is_err());
+            } else {
+                assert!(outcome.outcome.is_ok());
+                let timeout = seen.recv().unwrap();
+                assert!(timeout >= system_two::MIN_REASONING_TIME && timeout <= remaining);
+            }
+        }
+    }
+
+    #[test]
+    fn system_one_does_not_start_a_round_past_its_deadline() {
+        let mut judge: Box<dyn SystemOne> = Box::new(One);
+        let task = OneTask {
+            run: RunId(1),
+            round: 2,
+            state: String::new(),
+            questions: Vec::new(),
+            urgent: false,
+            deadline: Instant::now(),
+        };
+        let Event::Done(Done::Answers { result, .. }) = ask(&mut judge, task) else {
+            panic!("expected answers")
+        };
+        assert_eq!(result, Err("timed out".into()));
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn optional_host_budgets_saturate_and_never_exceed_the_daemon_limit() {
+        let (events, inbox) = mpsc::channel();
+        let engine = EngineHandle {
+            inner: Arc::new(Inner {
+                events,
+                queued: Arc::new(AtomicUsize::new(0)),
+            }),
+        };
+        for (host, expected) in [
+            (None, RUN_DEADLINE),
+            (Some(0), Duration::ZERO),
+            (Some(100), Duration::ZERO),
+            (Some(2_000), Duration::from_millis(1_850)),
+            (Some(u64::MAX), RUN_DEADLINE),
+        ] {
+            let handle = engine.clone();
+            let ingest = tokio::spawn(async move {
+                handle
+                    .ingest_with_deadline(turn_end("a", "reason"), host)
+                    .await
+            });
+            let Event::Job(job) = inbox.recv_timeout(Duration::from_secs(1)).unwrap() else {
+                panic!("expected job")
+            };
+            assert_eq!(job.budget, expected);
+            job.reply.send(Ok(Vec::new())).unwrap();
+            assert_eq!(ingest.await.unwrap(), Ok(Vec::new()));
+        }
+    }
+
+    struct Reported;
+
+    impl chauffeur_core::Backend for Reported {
+        fn complete(
+            &mut self,
+            _: &chauffeur_core::Completion<'_>,
+            metadata: &mut chauffeur_core::CompletionMetadata,
+        ) -> Reasoned {
+            sleep(Duration::from_millis(10));
+            metadata.reported_model = Some("reported-model".into());
+            metadata.usage = chauffeur_core::Usage {
+                input_tokens: Some(123),
+                output_tokens: Some(45),
+            };
+            Ok(json!({ "verdict": "complete" }))
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn registry_execution_metadata_reaches_the_runs_audit_record() {
+        let dir =
+            std::env::temp_dir().join(format!("chauffeur-scheduler-audit-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("audit.jsonl");
+        if path.exists() {
+            std::fs::remove_file(&path).unwrap();
+        }
+        std::fs::write(dir.join("judge.json"), r#"{"system_two":{"enabled":true,"profiles":{"test":{"provider":"openai","backend":"codex","model":"requested-model","timeout_ms":1000,"max_output_tokens":128}}}}"#).unwrap();
+        let factories: HashMap<String, crate::reasoning::BackendFactory> = HashMap::from([(
+            "openai/codex".into(),
+            Arc::new(|| Ok(Box::new(Reported) as Box<dyn chauffeur_core::Backend>))
+                as crate::reasoning::BackendFactory,
+        )]);
+        let factory = crate::reasoning::with_backends(dir.join("judge.json"), factories);
+        let engine = scheduler_with(RUN_DEADLINE, factory, Some(path.clone())).await;
+        let effects = engine.ingest(turn_end("a", "reason")).await.unwrap();
+        assert_eq!(labels(&effects), ["reviewed"]);
+        let written = std::fs::read_to_string(&path).unwrap();
+        let record: serde_json::Value = serde_json::from_str(written.trim()).unwrap();
+        let attempt = &record["trace"]["reasonings"][0];
+        assert_eq!(attempt["profile"], "test");
+        assert_eq!(attempt["provider"], "openai");
+        assert_eq!(attempt["backend"], "codex");
+        assert_eq!(attempt["requested_model"], "requested-model");
+        assert_eq!(attempt["reported_model"], "reported-model");
+        assert_eq!(
+            attempt["usage"],
+            json!({ "input_tokens": 123, "output_tokens": 45 })
+        );
+        assert!(attempt["latency_ms"].as_u64().unwrap() >= 10);
+        assert!(attempt["verdict"].as_str().unwrap().contains("complete"));
+        drop(engine);
+        std::fs::remove_dir_all(dir).unwrap();
     }
 }

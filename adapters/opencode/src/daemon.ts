@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process"
-import { Context, type Duration, Effect, Option, Schema } from "effect"
+import { Context, Duration, Effect, Option, Schema } from "effect"
 import { daemonLaunch, PLUGIN_VERSION } from "./package.js"
-import { RpcReply, RulebooksReply, SignalReply, type HostEffect, type RulebookEntry, type Signal } from "./protocol.js"
+import { RpcReply, RulebooksReply, SignalReply, type HostEffect, type RulebookEntry, type Signal, type SignalParams } from "./protocol.js"
 
 const DEFAULT_URL = "http://127.0.0.1:18790"
 
@@ -27,7 +27,7 @@ export type DaemonClient = {
 
 type Endpoint = { readonly url: string; readonly headers: Headers }
 
-type RpcParams = { readonly signal?: Signal; readonly workspace?: string; readonly host?: string }
+type RpcParams = SignalParams | { readonly workspace?: string; readonly host?: string }
 
 /**
  * Connect to the configured daemon, or start a local one when none answers.
@@ -51,7 +51,7 @@ const connect = Effect.gen(function* () {
 
   return {
     signal: (value, timeout = SIGNAL_TIMEOUT) =>
-      request(endpoint, "signal", { signal: value }, SignalReply, timeout).pipe(Effect.map((reply) => reply.effects)),
+      sendSignal(endpoint, value, timeout),
     rulebooks: (workspace) =>
       request(endpoint, "rulebooks", { workspace }, RulebooksReply, RPC_TIMEOUT).pipe(Effect.map((reply) => reply.rulebooks)),
     texts: (host) => request(endpoint, "texts", { host }, Schema.Unknown, RPC_TIMEOUT),
@@ -60,6 +60,20 @@ const connect = Effect.gen(function* () {
 
 export class Daemon extends Context.Service<Daemon, DaemonClient>()("chauffeur/Daemon") {
   static readonly connect: Effect.Effect<DaemonClient> = connect
+}
+
+function sendSignal(endpoint: Endpoint, value: Signal, timeout: Duration.Input): Effect.Effect<ReadonlyArray<HostEffect>, DaemonError> {
+  const params: SignalParams = { signal: value, deadline_ms: Duration.toMillis(Duration.fromInputUnsafe(timeout)) }
+
+  return request(endpoint, "signal", params, SignalReply, timeout).pipe(
+    Effect.catchTag("DaemonError", (error) =>
+      error.message.includes("unknown field `deadline_ms`")
+        ? request(endpoint, "signal", { signal: value }, SignalReply, timeout)
+        : Effect.fail(error)),
+    Effect.map((reply) => reply.effects),
+    Effect.timeout(timeout),
+    Effect.catchTag("TimeoutError", () => new DaemonError({ message: "chauffeur signal timed out" })),
+  )
 }
 
 /** A daemon's `health` reply; daemons before versioned releases send no version. */

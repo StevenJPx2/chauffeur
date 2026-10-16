@@ -200,4 +200,75 @@ mod tests {
         assert!(!lines[0].contains(unknown));
         std::fs::remove_dir_all(&dir).unwrap();
     }
+
+    #[test]
+    fn reasoning_metadata_and_failures_are_redacted_without_inventing_usage() {
+        use chauffeur_core::trace::TracedReasoning;
+        use chauffeur_core::{
+            AttemptMetadata, CompletionMetadata, Reasoning, ReasoningFailure, Schema,
+        };
+
+        let path = std::env::temp_dir().join(format!(
+            "chauffeur-audit-reasoning-{}.jsonl",
+            std::process::id()
+        ));
+        if path.exists() {
+            std::fs::remove_file(&path).unwrap();
+        }
+        let secret = "ghp_abcdefghijklmnopqrstuvwxyz0123456789";
+        let request = Reasoning {
+            id: "review".into(),
+            profile: "completion-review".into(),
+            instructions: format!("Review {secret}"),
+            evidence: Vec::new(),
+            activity: false,
+            schema: Schema::Boolean,
+        };
+        let outcome = Err(ReasoningFailure::Failed(format!(
+            "provider rejected {secret}"
+        )));
+        let reasoning =
+            TracedReasoning::new(&request, &outcome, 1).with_metadata(AttemptMetadata {
+                provider: Some("openai".into()),
+                backend: Some("codex".into()),
+                requested_model: Some("requested".into()),
+                completion: CompletionMetadata {
+                    reported_model: Some(secret.into()),
+                    ..Default::default()
+                },
+                latency_ms: 42,
+            });
+        let trace = Trace {
+            reasonings: vec![reasoning],
+            ..Trace::default()
+        };
+        let event = signal(SignalKind::TurnEnd {
+            workspace: String::new(),
+            subagent: false,
+            user_request: String::new(),
+            summary: String::new(),
+            todos: Vec::new(),
+        });
+        append(
+            &path,
+            &event,
+            &trace,
+            &Ok(Vec::new()),
+            chauffeur_core::redact_secrets,
+        );
+        let written = std::fs::read_to_string(&path).unwrap();
+        assert!(!written.contains(secret));
+        let record: Value = serde_json::from_str(written.trim()).unwrap();
+        let reasoning = &record["trace"]["reasonings"][0];
+        assert_eq!(reasoning["latency_ms"], 42);
+        assert_eq!(reasoning["requested_model"], "requested");
+        assert_eq!(reasoning["usage"], json!({}));
+        assert!(
+            reasoning["failure"]
+                .as_str()
+                .unwrap()
+                .contains("provider rejected")
+        );
+        std::fs::remove_file(path).unwrap();
+    }
 }

@@ -10,8 +10,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use chauffeur_core::{
-    Backend, Completion, Reasoned, Reasoning, ReasoningFailure, Reloading, SystemTwo, Template,
-    Watch, load_layered,
+    AttemptMetadata, Backend, Completion, CompletionMetadata, Reasoned, Reasoning,
+    ReasoningFailure, Reloading, SystemTwo, Template, Watch, load_layered,
 };
 use chauffeur_plugin_openai::codex::{CodexAuth, CodexBackend};
 use serde::Deserialize;
@@ -177,6 +177,29 @@ impl SystemTwo for Registry {
     }
 
     fn reason(&mut self, request: &Reasoning) -> Reasoned {
+        self.reason_with(request, Duration::MAX, &mut CompletionMetadata::default())
+    }
+
+    fn metadata(&mut self, request: &Reasoning) -> AttemptMetadata {
+        self.config
+            .current()
+            .profiles
+            .get(&request.profile)
+            .map_or_else(AttemptMetadata::default, |profile| AttemptMetadata {
+                provider: Some(profile.provider.clone()),
+                backend: Some(profile.backend.clone()),
+                requested_model: Some(profile.model.clone()),
+                ..AttemptMetadata::default()
+            })
+    }
+
+    fn reason_with(
+        &mut self,
+        request: &Reasoning,
+        timeout: Duration,
+        metadata: &mut CompletionMetadata,
+    ) -> Reasoned {
+        let started = std::time::Instant::now();
         let config = self.config.current().clone();
 
         if !config.enabled {
@@ -210,16 +233,25 @@ impl SystemTwo for Registry {
             .get_mut(&key)
             .ok_or_else(|| ReasoningFailure::Unavailable(format!("no backend {key}")))?;
 
-        backend.complete(&Completion {
-            model: &profile.model,
-            effort: profile.effort.as_deref(),
-            instructions: &instructions,
-            input: &input,
-            name: &request.profile,
-            schema: &schema,
-            max_output_tokens: profile.max_output_tokens,
-            timeout: Duration::from_millis(profile.timeout_ms),
-        })
+        let timeout = Duration::from_millis(profile.timeout_ms)
+            .min(timeout.saturating_sub(started.elapsed()));
+        if timeout < chauffeur_core::system_two::MIN_REASONING_TIME {
+            return Err(ReasoningFailure::TimedOut);
+        }
+
+        backend.complete(
+            &Completion {
+                model: &profile.model,
+                effort: profile.effort.as_deref(),
+                instructions: &instructions,
+                input: &input,
+                name: &request.profile,
+                schema: &schema,
+                max_output_tokens: profile.max_output_tokens,
+                timeout,
+            },
+            metadata,
+        )
     }
 }
 
@@ -274,7 +306,11 @@ mod tests {
     struct Recorder(Arc<Mutex<Vec<String>>>);
 
     impl Backend for Recorder {
-        fn complete(&mut self, completion: &Completion<'_>) -> Reasoned {
+        fn complete(
+            &mut self,
+            completion: &Completion<'_>,
+            _: &mut CompletionMetadata,
+        ) -> Reasoned {
             self.0.lock().unwrap().push(format!(
                 "{} {:?} {}ms {} | {} | {}",
                 completion.model,
@@ -427,5 +463,41 @@ mod tests {
 
             assert!(error.contains(expected), "{name}: {error}");
         }
+    }
+
+    #[test]
+    fn the_remaining_run_time_caps_the_profile_and_short_calls_do_not_start() {
+        let dir = folder("deadline");
+        enable(&dir, "");
+        let (mut registry, calls) = registry(&dir);
+        let request = review("completion-review");
+        let attempt = chauffeur_core::system_two::run_attempt(
+            Some(registry.as_mut()),
+            &request,
+            Duration::from_millis(900),
+        );
+        assert!(attempt.outcome.is_ok());
+        assert_eq!(attempt.metadata.provider.as_deref(), Some("openai"));
+        assert_eq!(attempt.metadata.backend.as_deref(), Some("codex"));
+        assert_eq!(
+            attempt.metadata.requested_model.as_deref(),
+            Some("gpt-6-luna")
+        );
+        let call = calls.lock().unwrap()[0].clone();
+        let timeout: u64 = call
+            .split_whitespace()
+            .nth(2)
+            .unwrap()
+            .trim_end_matches("ms")
+            .parse()
+            .unwrap();
+        assert!((250..=900).contains(&timeout), "{call}");
+        let attempt = chauffeur_core::system_two::run_attempt(
+            Some(registry.as_mut()),
+            &request,
+            Duration::from_millis(20),
+        );
+        assert_eq!(attempt.outcome, Err(ReasoningFailure::TimedOut));
+        assert_eq!(calls.lock().unwrap().len(), 1);
     }
 }
