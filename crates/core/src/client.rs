@@ -8,7 +8,8 @@ use serde_json::Value;
 
 use crate::effect::Effect;
 use crate::protocol::{
-    DaemonRequest, DaemonResponse, METHOD_HEALTH, METHOD_SIGNAL, SignalParams, SignalResult,
+    DaemonRequest, DaemonResponse, METHOD_HEALTH, METHOD_SIGNAL, METHOD_SKILLS, SignalParams,
+    SignalResult, SkillsResult,
 };
 use crate::signal::Signal;
 
@@ -38,6 +39,11 @@ impl DaemonClient {
     pub async fn health(&self) -> Result<(), String> {
         let _: Value = self.call(METHOD_HEALTH, &()).await?;
         Ok(())
+    }
+
+    /// Parsed remote skills and last-refresh status, served by the shared source worker.
+    pub async fn skills(&self) -> Result<SkillsResult, String> {
+        self.call(METHOD_SKILLS, &()).await
     }
 
     pub async fn signal(&self, signal: Signal) -> Result<Vec<Effect>, String> {

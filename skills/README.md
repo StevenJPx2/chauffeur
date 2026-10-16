@@ -12,7 +12,8 @@ rejected, and `chauffeur skill validate PATH` checks one.
 | `rulebooks/` | Rulebooks: named sets of rules the user starts in a session with a slash command, such as `/goal <objective>`. |
 | `safety/` | The backstop's deny and confirm patterns, redaction shapes, and the bars for learning from them. |
 | `config/` | Each capability's tunable defaults: judgment bars, budgets, timing, word lists, and the `texts` it asks and says, plus `situation.json` (the state Jev sees), `providers/` model tier tables, and `hosts/` (each host's tool descriptions and replies). |
-| `handoff/` | Skills Chauffeur hands over, in OpenCode's `SKILL.md` format: `slack-cli`, `jira-cli`, and `twitter-cli`. Link them into a skills directory OpenCode reads, such as `~/.agents/skills`. |
+| `handoff/` | Skills Chauffeur hands over, in OpenCode's `SKILL.md` format: `slack-cli`, `jira-cli`, and `twitter-cli`. Link them into a skills directory OpenCode reads, such as `~/.agents/skills`, or follow them as a remote source. |
+| `chauffeur/` | The `chauffeur` skill: operating, configuring, and debugging Chauffeur itself. Follow it as a remote source (see [`docs/remote-skills.md`](../docs/remote-skills.md)). |
 
 The files in `safety/` and `config/` are compiled into the daemon as its
 defaults. To change one, put a file with the same name in

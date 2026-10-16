@@ -36,6 +36,15 @@ async fn run(args: Vec<String>) -> Result<(), String> {
         "skill" => skill(&args[1..]),
         "signal" => signal(&args[1..]).await,
         "health" => client()?.health().await,
+        "skills" => {
+            let catalog = client()?.skills().await?;
+            let encoded =
+                serde_json::to_string_pretty(&catalog).map_err(|error| error.to_string())?;
+
+            println!("{encoded}");
+
+            Ok(())
+        }
         "audit" => audit(&args[1..]),
         "--version" | "version" => {
             println!("chauffeur {}", chauffeur_daemon::VERSION);
@@ -157,5 +166,5 @@ fn option<'a>(args: &'a [String], name: &str) -> Option<&'a str> {
 }
 
 fn usage() -> String {
-    "usage: chauffeur daemon [--port PORT] | mcp | health | audit [N] [--brief] [--follow] | skill validate PATH | signal --file PATH | --version".into()
+    "usage: chauffeur daemon [--port PORT] | mcp | health | skills | audit [N] [--brief] [--follow] | skill validate PATH | signal --file PATH | --version".into()
 }

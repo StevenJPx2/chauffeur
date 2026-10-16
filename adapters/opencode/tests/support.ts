@@ -83,7 +83,10 @@ export const noRulebooks: DaemonClient["rulebooks"] = () => Effect.succeed([])
 /** A daemon serving the shipped texts. */
 export const shippedTexts: DaemonClient["texts"] = () => Effect.succeed(SHIPPED_TEXTS)
 
-export const noDaemon: DaemonClient = { rulebooks: noRulebooks, texts: shippedTexts, signal: () => Effect.die("unexpected daemon signal") }
+/** A daemon with no configured remote sources. */
+export const noSkills: DaemonClient["skills"] = () => Effect.succeed({ skills: [], sources: [] })
+
+export const noDaemon: DaemonClient = { skills: noSkills, rulebooks: noRulebooks, texts: shippedTexts, signal: () => Effect.die("unexpected daemon signal") }
 
 /** Exposure with nothing hidden and no Code Mode; a test overrides what it reads. */
 export function fakeExposure(overrides: Partial<ExposureControl> = {}): ExposureControl {

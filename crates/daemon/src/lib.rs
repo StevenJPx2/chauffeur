@@ -6,6 +6,7 @@ mod judge;
 mod learned;
 mod reasoning;
 mod scheduler;
+mod skills;
 mod sourcefed;
 mod texts;
 mod workers;
@@ -26,7 +27,8 @@ use axum::{Json, Router};
 use chauffeur_capability_rules::Rulebook;
 use chauffeur_core::{
     DaemonRequest, DaemonResponse, Effect, METHOD_HEALTH, METHOD_RULEBOOKS, METHOD_SHUTDOWN,
-    METHOD_SIGNAL, METHOD_TEXTS, Reloading, RulebooksResult, SignalParams, SignalResult, Watch,
+    METHOD_SIGNAL, METHOD_SKILLS, METHOD_TEXTS, Reloading, RulebooksResult, SignalParams,
+    SignalResult, Watch,
 };
 pub use chauffeur_plugin_sourcefed::SourcefedConfig;
 use serde_json::json;
@@ -43,6 +45,7 @@ struct AppState {
     rulebooks: Option<Arc<Mutex<Reloading<Vec<Rulebook>>>>>,
     /// The wording each host shows the agent, reloaded when your file changes.
     texts: Arc<Mutex<HostTexts>>,
+    skills: skills::SkillCatalog,
     /// Raised by the `shutdown` method; the server stops once requests finish.
     shutdown: Arc<tokio::sync::Notify>,
 }
@@ -148,6 +151,13 @@ pub async fn serve(options: DaemonOptions) -> Result<(), String> {
         ))))
     };
     let texts = Arc::new(Mutex::new(HostTexts::load(&options.config_dir)?));
+    let skill_config = options.config_dir.join("skill-sources.json");
+    let skill_cache = options
+        .state_file
+        .as_ref()
+        .and_then(|path| path.parent())
+        .unwrap_or(&options.config_dir)
+        .join("skill-cache");
     let engine = EngineHandle::spawn(EngineOptions {
         config_dir: options.config_dir,
         skills_dir: options.skills_dir,
@@ -161,11 +171,16 @@ pub async fn serve(options: DaemonOptions) -> Result<(), String> {
     })
     .await?;
     let shutdown = Arc::new(tokio::sync::Notify::new());
+    let listener = tokio::net::TcpListener::bind(address)
+        .await
+        .map_err(|error| format!("bind daemon to {address}: {error}"))?;
+    let skill_worker = skills::SkillWorker::start(skill_config, skill_cache)?;
     let state = AppState {
         engine,
         token: options.token,
         rulebooks,
         texts,
+        skills: skill_worker.catalog.clone(),
         shutdown: Arc::clone(&shutdown),
     };
     let app = Router::new()
@@ -176,14 +191,15 @@ pub async fn serve(options: DaemonOptions) -> Result<(), String> {
             post(sourcefed_event).layer(DefaultBodyLimit::max(64 * 1024)),
         )
         .with_state(state);
-    let listener = tokio::net::TcpListener::bind(address)
-        .await
-        .map_err(|error| format!("bind daemon to {address}: {error}"))?;
 
-    axum::serve(listener, app)
+    let result = axum::serve(listener, app)
         .with_graceful_shutdown(async move { shutdown.notified().await })
         .await
-        .map_err(|error| format!("serve daemon: {error}"))
+        .map_err(|error| format!("serve daemon: {error}"));
+
+    skill_worker.finish().await?;
+
+    result
 }
 
 async fn rpc(
@@ -204,9 +220,15 @@ async fn rpc(
 
             Ok(json!({ "ok": true }))
         }
-        METHOD_SIGNAL => signal(&state.engine, request.params).await,
+        METHOD_SIGNAL => signal(&state, request.params).await,
         METHOD_RULEBOOKS => offered(&state, &request.params),
         METHOD_TEXTS => host_texts(&state, &request.params),
+        METHOD_SKILLS => match state.skills.current().await {
+            Ok(catalog) => {
+                serde_json::to_value(catalog.as_ref()).map_err(|error| error.to_string())
+            }
+            Err(error) => Err(error),
+        },
         method => Err(format!("unknown method {method}")),
     };
     let (status, response) = match result {
@@ -262,13 +284,13 @@ async fn sourcefed_event(
     }
 }
 
-async fn signal(
-    engine: &EngineHandle,
-    params: serde_json::Value,
-) -> Result<serde_json::Value, String> {
+/// The engine's effects, after fetching the files of any remote skill they attach.
+async fn signal(state: &AppState, params: serde_json::Value) -> Result<serde_json::Value, String> {
     let params: SignalParams =
         serde_json::from_value(params).map_err(|error| format!("invalid params: {error}"))?;
-    let effects = engine.ingest(params.signal).await?;
+    let effects = state.engine.ingest(params.signal).await?;
+
+    state.skills.prepare(&effects).await;
 
     serde_json::to_value(SignalResult { effects }).map_err(|error| error.to_string())
 }

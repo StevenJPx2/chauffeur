@@ -139,3 +139,23 @@ export const RpcReply = Schema.Struct({
   result: Schema.optional(Schema.Unknown),
   error: Schema.optional(Schema.String),
 })
+
+const RemoteSkill = Schema.Struct({
+  id: Schema.String,
+  description: Schema.String,
+  content: Schema.String,
+  path: Schema.String,
+  source_id: Schema.String,
+  source_url: Schema.String,
+  revision: Schema.String,
+})
+
+const SkillSourceStatus = Schema.Union([
+  Schema.Struct({ id: Schema.String, state: Schema.Literal("ready"), revision: Schema.String, checked_at: Schema.Number }),
+  Schema.Struct({ id: Schema.String, state: Schema.Literal("stale"), revision: Schema.String, checked_at: Schema.Number, error: Schema.String }),
+  Schema.Struct({ id: Schema.String, state: Schema.Literal("unavailable"), error: Schema.String }),
+])
+
+export const SkillsReply = Schema.Struct({ skills: Schema.Array(RemoteSkill), sources: Schema.Array(SkillSourceStatus) })
+
+export type SkillsReply = typeof SkillsReply.Type

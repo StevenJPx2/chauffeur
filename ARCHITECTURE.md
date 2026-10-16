@@ -21,13 +21,14 @@ are capabilities or plugins that hang off that core.
 | Integration events and the sourcefed event gate, model switch-back, tool-group reveal, rules, persistence across restarts                           | built         |
 | Ephemeral enhancements                                                                                                                              | not yet built |
 | Code Mode tool surfacing, skill-list removal, audit log, child-session inheritance                                                                  | built         |
+| Configured remote skill sources: cheap change checks, shared parsing, files fetched on attach                                                     | built         |
 
 ## Three planes
 
 ```text
 host events: user prompt · agent response · tool call/result · idle · model error · integrations
         │  adapter sends Signals
-   ┌────▼──────┐  SENSE      bounded rolling Situation per agent (32 entries)
+   ┌────▼──────┐  SENSE      bounded rolling Situation per agent (32 entries, 16 KiB)
    │ Situation │
    └────┬──────┘
         │  each capability plans: skip · settled effects · a question
@@ -47,6 +48,41 @@ The engine is synchronous, owns no I/O, and runs on a dedicated daemon thread
 behind a bounded queue. Capabilities know nothing about routing; the engine
 knows nothing about any capability.
 
+### Thin adapters
+
+Adapters translate host events into signals and apply effects using host APIs.
+Behavior, policy, and durable state belong in shared Rust code, so another
+harness does not require reimplementing them. Registry bridges and transport
+polling are host integration, not source-management policy.
+
+### Skill sources
+
+`capabilities/skill-exposure/src/sources/`, enabled by the crate's `sources`
+feature, owns configured source validation, cheap change checks (Git
+`ls-remote`, HTTP conditional requests), YAML frontmatter parsing, and
+per-revision skill folders. The existing synchronous skill judge is unchanged
+and has no source I/O.
+
+- Descriptions are listed from upstream only when a check finds a change. Git
+  uses a persistent `blob:none` partial clone, so only `SKILL.md` contents
+  download.
+- A skill's files are fetched when an effect attaches it: the daemon's
+  `signal` handler hands attached skill IDs to the source worker and waits at
+  most ten seconds before replying. Unattached skills never download files.
+- The daemon owns one bounded worker outside the judgment engine.
+- The core protocol defines `RemoteSkill`, source status, and the `skills` RPC.
+- The Rust daemon client and `chauffeur skills` consume the same catalog.
+- The OpenCode adapter maps parsed entries into its skill registry. OpenCode
+  2.0.28 hides discovered skills from plugin transforms, so a remote skill
+  shadows a same-named local one there.
+- Listings and skill folders are replaced or published atomically; failures
+  keep the last good listing and report stale or unavailable status.
+- A revision folder is never removed beneath a session. Storage ceilings fail
+  visibly instead.
+
+[Source configuration and bounds](docs/remote-skills.md) are authoritative.
+Public discovery and automatic cache reclamation are deferred.
+
 ## Routing
 
 Every capability is reached through System One. Facts such as a 429, a
@@ -57,6 +93,9 @@ questions into one request per round. Most capabilities finish in one Jev
 call. A dependent tool-recovery judgment adds a second call only when its
 first answer selects a candidate; the bounded tool-result hook then waits up
 to eight seconds. Other effects from that signal wait for the final round.
+The state and the round's questions share one request's input, so a round that
+asks at length is given a shorter window of activity to read it in, never less
+than the 2 KiB that hold the request being judged.
 
 A capability may settle without a question only on facts that make a judgment
 moot: an empty candidate set, or a veto such as "a tool already ran in the
@@ -558,7 +597,10 @@ The adapter sends **Signals** and applies **Effects**; it holds no policy.
 - Transport: HTTP on `127.0.0.1:18790`: `POST /rpc` for hosts, where `signal`
   returns the effects that signal produced and the adapter applies them at
   once; `POST /integrations/sourcefed` for sourcefed.
-- Latency: permission evaluations finish within 2 seconds or fall back (ask).
+- Latency: permission evaluations finish within 5 seconds or fall back (ask).
+  One engine thread serves every signal, so a busy session queues a permission
+  request behind judgments already under way; the budget covers that wait, since
+  a judgment itself is 300-400 ms.
   Skill and tool exposure run during prompt admission, so their content lands
   before the model replies; admission waits at most 6 s, then proceeds
   unenhanced. The `context` hook never calls a model.
@@ -609,7 +651,7 @@ Installed as a package, it also registers the hand-over skills in
   rulebook stays silent about open todos so the todo plugin's reminder is the
   only one. `tool.transform` also appends the cheaper-subagent instruction to
   the host's `subagent` description, so the agent reads it before launching.
-- **`permission`:** `permission.hook("evaluate")`, answered within 2 seconds.
+- **`permission`:** `permission.hook("evaluate")`, answered within 5 seconds.
 - **`model`:** `session.switchModel` (with the variant) plus the retry
   decision; the session's model comes from `session.get`.
 - **`tools`:** the hidden list is recorded on the user message's
@@ -652,7 +694,8 @@ Installed as a package, it also registers the hand-over skills in
 - Permission fails closed (ask); enhancements fail open (omitted); the model
   router fails toward unblocking (first candidate); with the daemon down, the
   host's own retry decision stands.
-- Bounds: 256 agents per engine (oldest evicted), 32 Situation entries, 2 KiB
+- Bounds: 256 agents per engine (oldest evicted), 32 Situation entries within
+  16 KiB of state (oldest dropped, 32 KiB however configured), 2 KiB
   per signal field, 400 B per catalog description, 128 skills and 128 tools per
   signal, 256 available models per signal, a 64-deep engine queue,
   3 s Jev timeout, 15 s engine reply timeout, 256 KiB Jev response cap, 128 KiB
@@ -687,10 +730,13 @@ HTTP status codes, and validation errors stay in code.
 in config. Each file's `texts` object holds that owner's questions to Jev,
 option descriptions, and the notices and labels it delivers:
 `skills/config/<capability>.json`, `skills/config/situation.json` (the state
-Jev sees, and its `clip` rule: how much of each activity line is kept from
-the start and the end; the agent's closing message keeps its first 80 and
-last 320 characters, since it often ends on the question the user's next
-message answers), `skills/safety/learning.json` and `backstop.json` (core's harm and
+Jev sees, its `clip` rules: how much of each activity line is kept from the
+start and the end, and its `max_chars`: the whole state, oldest entries
+dropped first, since one request counts against the provider's input limit;
+the agent's closing message keeps its first 80 and last 320 characters, since
+it often ends on the question the user's next message answers, and a line
+quoting the user keeps 640 and 1,024, since a prompt is 64 KiB at most),
+`skills/safety/learning.json` and `backstop.json` (core's harm and
 secret questions, block and confirm messages). A text is a
 `chauffeur_core::Template` with named `{placeholders}`; each field accepts only
 the placeholders its code fills, checked when the file loads, so a typo is an

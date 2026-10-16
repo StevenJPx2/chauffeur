@@ -33,6 +33,11 @@ keeps the rest of the prompt lean:
 
 The decision feed under OpenCode is `chauffeur audit --follow --brief`.
 
+Skills can also come from [configured Git repositories and HTTP catalogs](docs/remote-skills.md).
+The shared daemon checks upstream cheaply for changes and fetches a skill's
+references and scripts when the skill is attached. `chauffeur skills` shows
+their sources and freshness. No public registry search is enabled.
+
 What it saves, measured with [`bench/`](bench) and
 [`docs/plans/prompt-trimming.md`](docs/plans/prompt-trimming.md):
 

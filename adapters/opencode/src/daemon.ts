@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process"
 import { Context, type Duration, Effect, Option, Schema } from "effect"
 import { daemonLaunch, PLUGIN_VERSION } from "./package.js"
-import { RpcReply, RulebooksReply, SignalReply, type HostEffect, type RulebookEntry, type Signal } from "./protocol.js"
+import { RpcReply, RulebooksReply, SignalReply, SkillsReply, type HostEffect, type RulebookEntry, type Signal } from "./protocol.js"
 
 const DEFAULT_URL = "http://127.0.0.1:18790"
 
@@ -18,6 +18,8 @@ const STOP_ATTEMPTS = 20
 export class DaemonError extends Schema.TaggedError<DaemonError>()("DaemonError", { message: Schema.String }) {}
 
 export type DaemonClient = {
+  /** The host-independent remote catalog; source ownership stays in the daemon. */
+  readonly skills: () => Effect.Effect<SkillsReply, DaemonError>
   readonly signal: (signal: Signal, timeout?: Duration.Input) => Effect.Effect<ReadonlyArray<HostEffect>, DaemonError>
   /** The rulebooks the user can start in `workspace`, offered as slash commands. */
   readonly rulebooks: (workspace: string) => Effect.Effect<ReadonlyArray<RulebookEntry>, DaemonError>
@@ -50,6 +52,7 @@ const connect = Effect.gen(function* () {
   yield* settle(endpoint, startupStep(daemon, configured !== undefined), daemon?.version, healthy)
 
   return {
+    skills: () => request(endpoint, "skills", {}, SkillsReply, RPC_TIMEOUT),
     signal: (value, timeout = SIGNAL_TIMEOUT) =>
       request(endpoint, "signal", { signal: value }, SignalReply, timeout).pipe(Effect.map((reply) => reply.effects)),
     rulebooks: (workspace) =>
