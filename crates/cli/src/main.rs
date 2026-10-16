@@ -1,6 +1,7 @@
 //! Chauffeur CLI. All behavior goes through the daemon protocol.
 
 mod audit;
+mod setup;
 
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::Path;
@@ -46,6 +47,7 @@ async fn run(args: Vec<String>) -> Result<(), String> {
             Ok(())
         }
         "audit" => audit(&args[1..]),
+        "setup" => setup::run(&args[1..]),
         "--version" | "version" => {
             println!("chauffeur {}", chauffeur_daemon::VERSION);
 
@@ -168,7 +170,7 @@ fn client() -> Result<DaemonClient, String> {
     DaemonClient::new(url, token)
 }
 
-fn option<'a>(args: &'a [String], name: &str) -> Option<&'a str> {
+pub(crate) fn option<'a>(args: &'a [String], name: &str) -> Option<&'a str> {
     args.windows(2)
         .find(|pair| pair.first().is_some_and(|argument| argument == name))
         .and_then(|pair| pair.get(1))
@@ -176,5 +178,5 @@ fn option<'a>(args: &'a [String], name: &str) -> Option<&'a str> {
 }
 
 fn usage() -> String {
-    "usage: chauffeur daemon [--port PORT] | mcp | health | skills | audit [N] [--brief] [--follow] | skill validate PATH | signal --file PATH | --version".into()
+    "usage: chauffeur daemon [--port PORT] | mcp | health | skills | audit [N] [--brief] [--follow] | skill validate PATH | signal --file PATH | setup opencode [--service] [--force] [--dry-run] | --version".into()
 }

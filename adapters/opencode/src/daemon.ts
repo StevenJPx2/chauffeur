@@ -46,10 +46,9 @@ const connect = Effect.gen(function* () {
   const endpoint: Endpoint = { url: (configured ?? DEFAULT_URL).replace(/\/$/, ""), headers }
 
   const found = request(endpoint, "health", {}, Health, RPC_TIMEOUT).pipe(Effect.option, Effect.map(Option.getOrUndefined))
-  const healthy = found.pipe(Effect.map((daemon) => daemon !== undefined))
   const daemon = yield* found
 
-  yield* settle(endpoint, startupStep(daemon, configured !== undefined), daemon?.version, healthy)
+  yield* settle(endpoint, startupStep(daemon, configured !== undefined), daemon?.version, found)
 
   return {
     skills: () => request(endpoint, "skills", {}, SkillsReply, RPC_TIMEOUT),
@@ -79,32 +78,44 @@ function sendSignal(endpoint: Endpoint, value: Signal, timeout: Duration.Input):
   )
 }
 
-/** A daemon's `health` reply; daemons before versioned releases send no version. */
-const Health = Schema.Struct({ ok: Schema.Boolean, version: Schema.optional(Schema.String) })
+/**
+ * A daemon's `health` reply; daemons before versioned releases send no version.
+ * `managed` names the service manager that restarts it, such as `brew`.
+ */
+const Health = Schema.Struct({ ok: Schema.Boolean, version: Schema.optional(Schema.String), managed: Schema.optional(Schema.String) })
+
+type Found = typeof Health.Type | undefined
 
 /**
  * What the plugin does with the daemon it finds at startup. It starts one when
  * none answers and replaces one of another version, but never touches a daemon
- * the user runs at `CHAUFFEUR_DAEMON_URL`.
+ * the user runs at `CHAUFFEUR_DAEMON_URL`. A daemon a service manager runs is
+ * left for that manager to restart (`managed`), so an older session cannot
+ * stop a newer service and the port keeps one owner.
  */
-export type StartupStep = "use" | "start" | "replace" | "unavailable" | "mismatch"
+export type StartupStep = "use" | "start" | "replace" | "managed" | "unavailable" | "mismatch"
 
-export function startupStep(found: { readonly version?: string | undefined } | undefined, configured: boolean, version: string = PLUGIN_VERSION): StartupStep {
+export function startupStep(found: { readonly version?: string | undefined; readonly managed?: string | undefined } | undefined, configured: boolean, version: string = PLUGIN_VERSION): StartupStep {
   if (found === undefined) return configured ? "unavailable" : "start"
 
   if (found.version === version) return "use"
 
-  return configured ? "mismatch" : "replace"
+  if (configured) return "mismatch"
+
+  return found.managed === undefined ? "replace" : "managed"
 }
 
-function settle(endpoint: Endpoint, step: StartupStep, found: string | undefined, healthy: Effect.Effect<boolean>): Effect.Effect<void> {
-  const versions = `the daemon at ${endpoint.url} is ${found ?? "unversioned"}; this plugin is ${PLUGIN_VERSION}`
+function settle(endpoint: Endpoint, step: StartupStep, version: string | undefined, found: Effect.Effect<Found>): Effect.Effect<void> {
+  const versions = `the daemon at ${endpoint.url} is ${version ?? "unversioned"}; this plugin is ${PLUGIN_VERSION}`
+  const healthy = found.pipe(Effect.map((daemon) => daemon !== undefined))
 
   if (step === "unavailable") return Effect.logError(`chauffeur: daemon unavailable at ${endpoint.url}`)
 
   if (step === "mismatch") return Effect.logWarning(`chauffeur: ${versions}. Update the daemon you run, or unset CHAUFFEUR_DAEMON_URL.`)
 
   if (step === "replace") return replace(endpoint, healthy, versions)
+
+  if (step === "managed") return Effect.logWarning(`chauffeur: ${versions}. Restart the service with \`brew services restart chauffeur\`, then restart OpenCode. Leaving the managed daemon running.`)
 
   if (step === "start") return started(healthy)
 

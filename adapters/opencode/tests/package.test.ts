@@ -17,6 +17,14 @@ test("the plugin starts, uses, or replaces a daemon by version, and never replac
   expect(startupStep({ version: "0.0.1" }, true)).toBe("mismatch")
 })
 
+test("a service-managed daemon of another version is left for its manager to restart", () => {
+  expect(startupStep({ version: "0.0.1", managed: "brew" }, false)).toBe("managed")
+  expect(startupStep({ version: "99.0.0", managed: "brew" }, false)).toBe("managed")
+  expect(startupStep({ version: PLUGIN_VERSION, managed: "brew" }, false)).toBe("use")
+  // The user's own daemon stays theirs, managed or not.
+  expect(startupStep({ version: "0.0.1", managed: "brew" }, true)).toBe("mismatch")
+})
+
 /** A package as npm installs it: the bundle, its skills, and one platform binary. */
 function installedPackage() {
   // Real path: module resolution follows macOS's /var -> /private/var link.

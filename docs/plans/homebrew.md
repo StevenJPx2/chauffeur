@@ -43,6 +43,13 @@ flowchart TB
 | `chauffeur setup opencode` | Links the shim into `~/.config/opencode/plugins`, or reports what it would change |
 | Plugin | Starts the daemon when none runs; defers to a service-managed one |
 
+The tap's local checkout is `~/Documents/Projects/taps`. Chauffeur's formula
+lives at `Formula/chauffeur.rb` there, beside `sourcefed.rb` and
+`audiobook-studio.rb`. Audiobook Studio's release workflow establishes the
+pattern: upload versioned GitHub release tarballs, then update this shared tap
+using `HOMEBREW_TAP_TOKEN`. A disposable local tap is used only for packaging
+tests; the shared tap receives a formula with real release URLs and checksums.
+
 ## Release artifacts
 
 Each target ships one tarball, `chauffeur-X.Y.Z-<target>.tar.gz`, for
@@ -83,7 +90,9 @@ class Chauffeur < Formula
     (pkgshare/"opencode-plugin.js").write <<~JS
       process.env.CHAUFFEUR_BIN ??= "#{opt_bin}/chauffeur"
       process.env.CHAUFFEUR_SKILLS_DIR ??= "#{opt_pkgshare}/skills"
-      export { default } from "#{opt_pkgshare}/dist/index.mjs"
+      const plugin = await import("#{opt_pkgshare}/dist/index.mjs")
+      export const ChauffeurRpc = plugin.ChauffeurRpc
+      export default plugin.default
     JS
   end
 
@@ -131,12 +140,19 @@ creates it with mode `0600` when asked to set up the service.
 
 ### Upgrades in service mode
 
-`brew upgrade` replaces the keg but does not restart running services. A
-service daemon reports `"managed": "brew"` in `health` (from
+The user restarts a service after upgrading, then restarts OpenCode:
+
+```sh
+brew upgrade stevenjpx2/taps/chauffeur
+brew services restart chauffeur
+opencode service restart
+```
+
+A service daemon reports `"managed": "brew"` in `health` (from
 `CHAUFFEUR_MANAGED`). A plugin that finds a managed daemon of another version
-sends `shutdown` and waits up to 20 seconds for the service manager to restart
-it from `opt`, which already holds the new version. It never starts a second
-daemon, so the port has one owner and launchd does not loop on a failed bind.
+logs restart instructions and leaves it running. It never sends `shutdown` or
+starts a competing process. An older OpenCode session cannot stop a newer
+service, and launchd retains ownership of the daemon's lifecycle.
 
 A plugin-started daemon is replaced as the release plan describes: `shutdown`,
 then the plugin starts its own.

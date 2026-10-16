@@ -54,10 +54,24 @@ struct AppState {
     ranker: ranking::Ranker,
     /// Raised by the `shutdown` method; the server stops once requests finish.
     shutdown: Arc<tokio::sync::Notify>,
+    /// The service manager that runs this daemon, from `CHAUFFEUR_MANAGED`.
+    managed: Option<String>,
 }
 
 /// The daemon's version, which the host compares with its own.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+
+/// The `health` reply: the version, and the service manager that restarts this
+/// daemon when it stops, so a host replacing it waits instead of starting its own.
+fn health(managed: Option<&str>) -> serde_json::Value {
+    let mut reply = json!({ "ok": true, "version": VERSION });
+
+    if let Some(managed) = managed {
+        reply["managed"] = json!(managed);
+    }
+
+    reply
+}
 
 /// The texts of the host named in `params.host`.
 fn host_texts(state: &AppState, params: &serde_json::Value) -> Result<serde_json::Value, String> {
@@ -102,6 +116,9 @@ pub struct DaemonOptions {
     /// The loopback embedding service that ranks skills, unless
     /// `CHAUFFEUR_EMBEDDINGS=off`; EmbeddingGemma's port by default.
     pub embeddings: Option<String>,
+    /// The service manager that restarts this daemon, such as `brew`, from
+    /// `CHAUFFEUR_MANAGED`; `None` when a host started it.
+    pub managed: Option<String>,
 }
 
 impl DaemonOptions {
@@ -140,6 +157,9 @@ impl DaemonOptions {
                 Ok(url) => Some(url),
                 Err(_) => Some("http://127.0.0.1:18791".into()),
             },
+            managed: std::env::var("CHAUFFEUR_MANAGED")
+                .ok()
+                .filter(|manager| !manager.trim().is_empty()),
         })
     }
 }
@@ -198,6 +218,7 @@ pub async fn serve(options: DaemonOptions) -> Result<(), String> {
         skills: skill_worker.catalog.clone(),
         ranker,
         shutdown: Arc::clone(&shutdown),
+        managed: options.managed,
     };
     let app = Router::new()
         // A permission request quotes up to eight whole user messages.
@@ -229,7 +250,7 @@ async fn rpc(
 
     let id = request.id;
     let result = match request.method.as_str() {
-        METHOD_HEALTH => Ok(json!({ "ok": true, "version": VERSION })),
+        METHOD_HEALTH => Ok(health(state.managed.as_deref())),
         METHOD_SHUTDOWN => {
             // A stored permit: the server stops even if it is not yet waiting.
             state.shutdown.notify_one();

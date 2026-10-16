@@ -1,5 +1,5 @@
-//! The daemon reports its version and stops on `shutdown`, as a host
-//! replacing a daemon of another version relies on.
+//! The daemon reports its version and its service manager, and stops on
+//! `shutdown`, as a host replacing a daemon of another version relies on.
 
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
@@ -71,6 +71,8 @@ fn health_reports_the_version_and_shutdown_stops_the_daemon() {
             .env("CHAUFFEUR_CONFIG_DIR", dir.join("config"))
             .env("CHAUFFEUR_SKILLS_DIR", skills)
             .env("CHAUFFEUR_SOURCEFED", "off")
+            .env("CHAUFFEUR_EMBEDDINGS", "off")
+            .env("CHAUFFEUR_MANAGED", "brew")
             .env_remove("CHAUFFEUR_DAEMON_TOKEN")
             .stdout(Stdio::null())
             .stderr(Stdio::null())
@@ -84,6 +86,8 @@ fn health_reports_the_version_and_shutdown_stops_the_daemon() {
     );
     let health = rpc(port, "health").unwrap();
     assert_eq!(health["result"]["version"], env!("CARGO_PKG_VERSION"));
+    // A service manager restarts it, so a host replacing it waits.
+    assert_eq!(health["result"]["managed"], "brew");
 
     assert_eq!(rpc(port, "shutdown").unwrap()["result"]["ok"], true);
     assert!(
