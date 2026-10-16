@@ -16,14 +16,14 @@ pub mod protocol;
 pub mod template;
 pub mod watch;
 
-pub use contracts::{capability, effect, signal, system_one};
+pub use contracts::{capability, effect, signal, system_one, system_two};
 pub(crate) use features::learning;
 pub use features::learning::{LearningConfig, LearningTexts};
 pub use features::{backstop, redact};
 pub use state::{situation, trace};
 
 pub use backstop::{Backstop, BackstopConfig, BackstopTexts};
-pub use capability::{Capability, PipeStep, Plan};
+pub use capability::{Capability, Inference, PipeStep, Plan, Round};
 #[cfg(feature = "client")]
 pub use client::{DEFAULT_DAEMON_URL, DaemonClient};
 pub use config::{load_config, load_layered, read_json_files};
@@ -40,6 +40,9 @@ pub use situation::{Situation, SituationTexts};
 pub use system_one::{
     Answer, AnswerValue, ChoiceOption, Question, QuestionKind, SystemOne, SystemOneError,
     validate_answers,
+};
+pub use system_two::{
+    Evidence, Reasoned, Reasoning, ReasoningFailure, Schema, SystemTwo, validate_verdict,
 };
 pub use template::Template;
 pub use trace::Trace;

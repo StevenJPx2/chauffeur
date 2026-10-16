@@ -1,8 +1,9 @@
 //! A judgment as a state machine. A [`Judge`] either has finished with a
-//! value or is asking System One questions; each round's answers, or `None`
-//! when the call failed, move it to its next state. Four primitives build
-//! every judge: [`Judge::done`], [`Judge::ask`], [`Judge::then`], and
-//! [`Judge::all`]. Judging strategies ([`strategy`]) are compositions of them.
+//! value or is waiting on a round: System One questions, System Two
+//! reasonings, or both. Each round's outcome moves it to its next state.
+//! Five primitives build every judge: [`Judge::done`], [`Judge::ask`],
+//! [`Judge::reason`], [`Judge::then`], and [`Judge::all`]. Judging strategies
+//! ([`strategy`]) are compositions of them.
 
 mod judged;
 mod rule;
@@ -13,19 +14,21 @@ pub use rule::{Confidence, NONE, Pick, Rule, Threshold};
 
 use std::collections::HashSet;
 
+use crate::capability::{Inference, Round};
 use crate::system_one::{Answer, Question};
+use crate::system_two::{Reasoned, Reasoning};
 
-/// What a judge does with the next round's answers: `None` when the call
-/// failed.
-type Next<T> = Box<dyn FnOnce(Option<&[Answer]>) -> Judge<T> + Send>;
+/// What a judge does with the next round's outcome.
+type Next<T> = Box<dyn FnOnce(&Round<'_>) -> Judge<T> + Send>;
 
 /// A judgment in progress, or its result.
 pub enum Judge<T> {
     /// Finished, with its value.
     Done(T),
-    /// Waiting on these questions; the answers choose the next state.
+    /// Waiting on this round; its outcome chooses the next state.
     Asking {
         questions: Vec<Question>,
+        reasonings: Vec<Reasoning>,
         next: Next<T>,
     },
 }
@@ -37,8 +40,8 @@ impl<T: Send + 'static> Judge<T> {
         Self::Done(value)
     }
 
-    /// One question; `read` turns its answer, or `None` when the call failed,
-    /// into the judge's value.
+    /// One System One question; `read` turns its answer, or `None` when the
+    /// call failed, into the judge's value.
     #[must_use]
     pub fn ask(
         question: Question,
@@ -48,16 +51,32 @@ impl<T: Send + 'static> Judge<T> {
 
         Self::Asking {
             questions: vec![question],
-            next: Box::new(move |answers| {
+            reasonings: Vec::new(),
+            next: Box::new(move |round| {
                 Self::Done(read(
-                    answers.and_then(|answers| answers.iter().find(|answer| answer.id == id)),
+                    round
+                        .answers
+                        .and_then(|answers| answers.iter().find(|answer| answer.id == id)),
                 ))
             }),
         }
     }
 
-    /// When this judge finishes with `v`, continue as `f(v)`: its questions
-    /// are asked in the following round.
+    /// One System Two reasoning; `read` turns its verdict, or why there is
+    /// none, into the judge's value.
+    #[must_use]
+    pub fn reason(request: Reasoning, read: impl FnOnce(Reasoned) -> T + Send + 'static) -> Self {
+        let id = request.id.clone();
+
+        Self::Asking {
+            questions: Vec::new(),
+            reasonings: vec![request],
+            next: Box::new(move |round| Self::Done(read(round.reasoned(&id)))),
+        }
+    }
+
+    /// When this judge finishes with `v`, continue as `f(v)`: its requests
+    /// go out in the following round.
     #[must_use]
     pub fn then<U: Send + 'static>(
         self,
@@ -65,9 +84,14 @@ impl<T: Send + 'static> Judge<T> {
     ) -> Judge<U> {
         match self {
             Self::Done(value) => f(value),
-            Self::Asking { questions, next } => Judge::Asking {
+            Self::Asking {
                 questions,
-                next: Box::new(move |answers| next(answers).then(f)),
+                reasonings,
+                next,
+            } => Judge::Asking {
+                questions,
+                reasonings,
+                next: Box::new(move |round| next(round).then(f)),
             },
         }
     }
@@ -79,41 +103,42 @@ impl<T: Send + 'static> Judge<T> {
         match (self, other) {
             (Self::Done(left), Judge::Done(right)) => Judge::Done((left, right)),
             (left, right) => {
-                let questions: Vec<Question> = left
-                    .questions()
-                    .iter()
-                    .chain(right.questions())
-                    .cloned()
-                    .collect();
-                let mut ids = HashSet::new();
+                let questions = joined(left.questions(), right.questions());
+                let reasonings = joined(left.reasonings(), right.reasonings());
 
                 debug_assert!(
-                    questions
-                        .iter()
-                        .all(|question| ids.insert(question.id.clone())),
-                    "judges run together must ask distinct question IDs"
+                    distinct(&questions, &reasonings),
+                    "judges run together must ask distinct IDs"
                 );
 
                 Judge::Asking {
                     questions,
-                    next: Box::new(move |answers| left.step(answers).zip(right.step(answers))),
+                    reasonings,
+                    next: Box::new(move |round| {
+                        left.step_round(round).zip(right.step_round(round))
+                    }),
                 }
             }
         }
     }
 
-    /// This judge's value, or `None` when a round's call failed, or rounds
-    /// ran out, before it finished: a judge whose rules all refused can be
-    /// told apart from one that was never answered.
+    /// This judge's value, or `None` when a round's System One call failed,
+    /// or rounds ran out, before it finished: a judge whose rules all refused
+    /// can be told apart from one that was never answered.
     #[must_use]
     pub fn unless_failed(self) -> Judge<Option<T>> {
         match self {
             Self::Done(value) => Judge::Done(Some(value)),
-            Self::Asking { questions, next } => Judge::Asking {
+            Self::Asking {
                 questions,
-                next: Box::new(move |answers| match answers {
-                    Some(_) => next(answers).unless_failed(),
-                    None => next(None).map(|_| None),
+                reasonings,
+                next,
+            } => Judge::Asking {
+                questions,
+                reasonings,
+                next: Box::new(move |round| match round.answers {
+                    Some(_) => next(round).unless_failed(),
+                    None => next(round).map(|_| None),
                 }),
             },
         }
@@ -125,7 +150,7 @@ impl<T: Send + 'static> Judge<T> {
         self.then(|value| Judge::done(f(value)))
     }
 
-    /// The questions this round asks; none once finished.
+    /// The System One questions this round asks; none once finished.
     #[must_use]
     pub fn questions(&self) -> &[Question] {
         match self {
@@ -134,18 +159,42 @@ impl<T: Send + 'static> Judge<T> {
         }
     }
 
-    /// Move to the next state with this round's answers, or `None` when the
-    /// call failed. A finished judge stays finished.
+    /// The System Two reasonings this round asks; none once finished.
+    #[must_use]
+    pub fn reasonings(&self) -> &[Reasoning] {
+        match self {
+            Self::Done(_) => &[],
+            Self::Asking { reasonings, .. } => reasonings,
+        }
+    }
+
+    /// Everything this round asks.
+    #[must_use]
+    pub fn inference(&self) -> Inference {
+        Inference {
+            questions: self.questions().to_vec(),
+            reasonings: self.reasonings().to_vec(),
+        }
+    }
+
+    /// Move to the next state with this round's System One answers, or
+    /// `None` when the call failed. A finished judge stays finished.
     #[must_use]
     pub fn step(self, answers: Option<&[Answer]>) -> Self {
+        self.step_round(&Round::answers(answers))
+    }
+
+    /// Move to the next state with this round's whole outcome.
+    #[must_use]
+    pub fn step_round(self, round: &Round<'_>) -> Self {
         match self {
             Self::Done(value) => Self::Done(value),
-            Self::Asking { next, .. } => next(answers),
+            Self::Asking { next, .. } => next(round),
         }
     }
 
     /// Finish without asking anything more: every remaining round is read
-    /// as a failed call. Used once the engine's rounds are spent.
+    /// as failed. Used once the engine's rounds are spent.
     #[must_use]
     pub fn settle(self) -> T {
         let mut judge = self;
@@ -153,21 +202,21 @@ impl<T: Send + 'static> Judge<T> {
         loop {
             match judge {
                 Self::Done(value) => return value,
-                Self::Asking { next, .. } => judge = next(None),
+                Self::Asking { next, .. } => judge = next(&Round::default()),
             }
         }
     }
 }
 
 impl<T: Send + 'static> Judge<Vec<T>> {
-    /// Run `judges` side by side: each round asks every one still asking, in
-    /// one call. Finishes, in order, once all of them have.
+    /// Run `judges` side by side: each round asks every one still asking,
+    /// System One questions in one call. Finishes, in order, once all of
+    /// them have.
     ///
     /// # Panics
     ///
-    /// In debug builds, when two judges ask the same question ID in one
-    /// round: their answers could not be told apart. Question IDs are the
-    /// caller's to keep unique.
+    /// In debug builds, when two judges ask the same ID in one round: their
+    /// outcomes could not be told apart. IDs are the caller's to keep unique.
     #[must_use]
     pub fn all(judges: Vec<Judge<T>>) -> Self {
         if judges.iter().all(|judge| matches!(judge, Judge::Done(_))) {
@@ -178,27 +227,44 @@ impl<T: Send + 'static> Judge<Vec<T>> {
             .iter()
             .flat_map(|judge| judge.questions().iter().cloned())
             .collect();
-        let mut ids = HashSet::new();
+        let reasonings: Vec<Reasoning> = judges
+            .iter()
+            .flat_map(|judge| judge.reasonings().iter().cloned())
+            .collect();
 
         debug_assert!(
-            questions
-                .iter()
-                .all(|question| ids.insert(question.id.clone())),
-            "judges run together must ask distinct question IDs"
+            distinct(&questions, &reasonings),
+            "judges run together must ask distinct IDs"
         );
 
         Self::Asking {
             questions,
-            next: Box::new(move |answers| {
+            reasonings,
+            next: Box::new(move |round| {
                 Self::all(
                     judges
                         .into_iter()
-                        .map(|judge| judge.step(answers))
+                        .map(|judge| judge.step_round(round))
                         .collect(),
                 )
             }),
         }
     }
+}
+
+fn joined<T: Clone>(left: &[T], right: &[T]) -> Vec<T> {
+    left.iter().chain(right).cloned().collect()
+}
+
+/// Whether no ID repeats across a round's questions and reasonings.
+fn distinct(questions: &[Question], reasonings: &[Reasoning]) -> bool {
+    let mut ids = HashSet::new();
+
+    questions
+        .iter()
+        .map(|question| &question.id)
+        .chain(reasonings.iter().map(|reasoning| &reasoning.id))
+        .all(|id| ids.insert(id))
 }
 
 #[cfg(test)]

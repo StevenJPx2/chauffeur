@@ -5,6 +5,7 @@ use serde::Serialize;
 
 use crate::redact::redact_secrets;
 use crate::system_one::{Answer, AnswerValue, Question, QuestionKind};
+use crate::system_two::{Reasoned, Reasoning};
 
 const MAX_INSTRUCTION_CHARS: usize = 600;
 
@@ -18,6 +19,9 @@ pub struct Trace {
     pub questions: Vec<TracedQuestion>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub answers: Vec<TracedAnswer>,
+    /// Every System Two reasoning, with its verdict or why there is none.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub reasonings: Vec<TracedReasoning>,
     /// Why System One failed, when it did; capabilities then applied their
     /// failure posture.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -46,6 +50,51 @@ pub struct TracedAnswer {
     pub value: serde_json::Value,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub confidence: Option<f32>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct TracedReasoning {
+    pub round: usize,
+    pub id: String,
+    pub profile: String,
+    pub instructions: String,
+    /// The IDs of the evidence it was given.
+    pub evidence: Vec<String>,
+    /// The verdict as JSON, clipped.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub verdict: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub failure: Option<String>,
+}
+
+impl TracedReasoning {
+    #[must_use]
+    pub fn new(request: &Reasoning, outcome: &Reasoned, round: usize) -> Self {
+        let clip = |text: &str| -> String {
+            redact_secrets(text)
+                .chars()
+                .take(MAX_INSTRUCTION_CHARS)
+                .collect()
+        };
+        let (verdict, failure) = match outcome {
+            Ok(verdict) => (Some(clip(&verdict.to_string())), None),
+            Err(failure) => (None, Some(clip(&failure.to_string()))),
+        };
+
+        Self {
+            round,
+            id: request.id.clone(),
+            profile: request.profile.clone(),
+            instructions: clip(&request.instructions),
+            evidence: request
+                .evidence
+                .iter()
+                .map(|piece| piece.id.clone())
+                .collect(),
+            verdict,
+            failure,
+        }
+    }
 }
 
 impl TracedQuestion {

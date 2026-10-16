@@ -3,23 +3,30 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::backstop::Backstop;
-use crate::capability::{Capability, PipeStep, Plan};
+use crate::capability::{Capability, Inference, PipeStep, Plan, Round};
 use crate::effect::{Effect, PermissionDecision};
 use crate::learning::{self, LearningConfig, Probe};
 use crate::redact::{LearnedShapes, Masking, RedactionConfig, Redactor};
 use crate::signal::Signal;
 use crate::situation::{Situation, SituationTexts};
 use crate::system_one::{Answer, Question, QuestionKind, SystemOne, validate_answers};
-use crate::trace::{Trace, TracedAnswer, TracedQuestion};
+use crate::system_two::{
+    self, ACTIVITY, Evidence, Reasoned, Reasoning, ReasoningFailure, SystemTwo,
+};
+use crate::trace::{Trace, TracedAnswer, TracedQuestion, TracedReasoning};
 
 pub const MAX_AGENTS: usize = 256;
-/// System One rounds per signal, at most.
+/// Rounds per signal, at most, whether they ask System One, System Two, or
+/// both.
 pub const MAX_ROUNDS: usize = 2;
 /// Bumped when the saved state's shape changes; older state is ignored.
 const STATE_VERSION: u32 = 1;
 
 pub struct Engine {
     system_one: Option<Box<dyn SystemOne>>,
+    /// `None` leaves every reasoning unavailable, so capabilities apply their
+    /// failure posture.
+    system_two: Option<Box<dyn SystemTwo>>,
     capabilities: Vec<Box<dyn Capability>>,
     situations: HashMap<String, Situation>,
     backstop: Backstop,
@@ -37,10 +44,13 @@ pub struct Engine {
 pub enum Step {
     /// Decided without System One.
     Done(Vec<Effect>),
-    /// Ask System One these questions; finishing may produce another round.
+    /// Ask System One these questions, if any, and run each reasoning on
+    /// System Two; finish with [`Engine::finish`], or [`Engine::finish_round`]
+    /// when there are reasonings. Finishing may produce another round.
     Ask {
         state: String,
         questions: Vec<Question>,
+        reasonings: Vec<Reasoning>,
     },
 }
 
@@ -48,11 +58,12 @@ pub enum Step {
 struct Pending {
     signal: Signal,
     settled: Vec<Effect>,
-    asks: Vec<(usize, Vec<Question>)>,
+    asks: Vec<(usize, Inference)>,
     probe: Probe,
     round: usize,
     irreversible: bool,
     questions: Vec<Question>,
+    reasonings: Vec<Reasoning>,
 }
 
 impl Engine {
@@ -80,6 +91,7 @@ impl Engine {
 
         Ok(Self {
             system_one: None,
+            system_two: None,
             capabilities,
             situations: HashMap::new(),
             trace: Trace::default(),
@@ -90,6 +102,13 @@ impl Engine {
             learned_changed: false,
             pending: None,
         })
+    }
+
+    /// Reason with `system_two`. Without one, every reasoning is unavailable.
+    #[must_use]
+    pub fn with_system_two(mut self, system_two: Box<dyn SystemTwo>) -> Self {
+        self.system_two = Some(system_two);
+        self
     }
 
     /// Replace the shipped learning bars, for example with your `learning.json`.
@@ -183,22 +202,39 @@ impl Engine {
         &self.trace
     }
 
-    /// Run one signal to completion with the engine's own System One.
+    /// Run one signal to completion with the engine's own System One and
+    /// System Two.
     pub fn ingest(&mut self, signal: &Signal) -> Result<Vec<Effect>, String> {
         let mut step = self.begin(signal)?;
 
         loop {
-            let (state, questions) = match step {
+            let (state, questions, reasonings) = match step {
                 Step::Done(effects) => return Ok(effects),
-                Step::Ask { state, questions } => (state, questions),
+                Step::Ask {
+                    state,
+                    questions,
+                    reasonings,
+                } => (state, questions, reasonings),
             };
             let started = std::time::Instant::now();
             let result = match self.system_one.as_mut() {
+                _ if questions.is_empty() => Ok(Vec::new()),
                 Some(system_one) => system_one.ask(&state, &questions).map_err(|error| error.0),
                 None => Err("no System One provider".to_string()),
             };
+            let reasoned = reasonings
+                .iter()
+                .map(|request| {
+                    let executor = self
+                        .system_two
+                        .as_deref_mut()
+                        .map(|executor| executor as &mut dyn SystemTwo);
+
+                    (request.id.clone(), system_two::run(executor, request))
+                })
+                .collect();
             let elapsed = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
-            step = self.finish(result, elapsed);
+            step = self.finish_round(result, reasoned, elapsed);
         }
     }
 
@@ -255,6 +291,7 @@ impl Engine {
             .redactor
             .redact(&situation.render(&self.situation_texts), &mut masking);
         let mut questions = self.redacted(questions, &mut masking);
+        let reasonings = self.reasonings(&asks, &state, &mut masking);
 
         questions.extend(learning::secrets(&masking, &self.learning.texts));
         self.trace.questions = questions
@@ -269,9 +306,56 @@ impl Engine {
             round: 1,
             irreversible: false,
             questions: questions.clone(),
+            reasonings: reasonings.clone(),
         });
 
-        Ok(Step::Ask { state, questions })
+        Ok(Step::Ask {
+            state,
+            questions,
+            reasonings,
+        })
+    }
+
+    /// Every capability's reasonings, IDs namespaced and text redacted with
+    /// the round's numbering; those that ask for it get the redacted `state`
+    /// as evidence [`ACTIVITY`].
+    fn reasonings(
+        &self,
+        asks: &[(usize, Inference)],
+        state: &str,
+        masking: &mut Masking,
+    ) -> Vec<Reasoning> {
+        let mut reasonings = Vec::new();
+
+        for (index, inference) in asks {
+            let prefix = self.prefix(*index);
+
+            for request in &inference.reasonings {
+                let mut evidence = Vec::with_capacity(request.evidence.len() + 1);
+
+                if request.activity && !request.evidence.iter().any(|piece| piece.id == ACTIVITY) {
+                    evidence.push(Evidence {
+                        id: ACTIVITY.into(),
+                        text: state.to_string(),
+                    });
+                }
+                for piece in &request.evidence {
+                    evidence.push(Evidence {
+                        id: piece.id.clone(),
+                        text: self.redactor.redact(&piece.text, masking),
+                    });
+                }
+
+                reasonings.push(Reasoning {
+                    id: format!("{prefix}{}", request.id),
+                    instructions: self.redactor.redact(&request.instructions, masking),
+                    evidence,
+                    ..request.clone()
+                });
+            }
+        }
+
+        reasonings
     }
 
     /// Questions with their text redacted: capability questions can quote
@@ -302,17 +386,37 @@ impl Engine {
             .collect()
     }
 
-    /// Finish one round; another may be ready when a capability depends on its answer.
+    /// Finish a round of System One alone; another may be ready when a
+    /// capability depends on its answer.
     pub fn finish(&mut self, result: Result<Vec<Answer>, String>, elapsed_ms: u64) -> Step {
+        self.finish_round(result, Vec::new(), elapsed_ms)
+    }
+
+    /// Finish one round with System One's result and each reasoning's
+    /// outcome by ID. A round that asked System One nothing ignores
+    /// `result`; a reasoning without an outcome is unavailable, and a
+    /// verdict is checked against its request again before any capability
+    /// reads it.
+    pub fn finish_round(
+        &mut self,
+        result: Result<Vec<Answer>, String>,
+        reasoned: Vec<(String, Reasoned)>,
+        elapsed_ms: u64,
+    ) -> Step {
         let Some(mut pending) = self.pending.take() else {
             return Step::Done(Vec::new());
         };
         self.trace.elapsed_ms = self.trace.elapsed_ms.saturating_add(elapsed_ms);
-        let result = result.and_then(|answers| {
-            validate_answers(&pending.questions, &answers)
-                .map_err(|error| error.0)
-                .map(|()| answers)
-        });
+        let result = if pending.questions.is_empty() {
+            Ok(Vec::new())
+        } else {
+            result.and_then(|answers| {
+                validate_answers(&pending.questions, &answers)
+                    .map_err(|error| error.0)
+                    .map(|()| answers)
+            })
+        };
+        let reasoned = self.checked(&pending, reasoned);
         let answers = match result {
             Ok(answers) => {
                 self.trace.answers.extend(
@@ -332,15 +436,21 @@ impl Engine {
                 .as_deref()
                 .is_some_and(|answers| self.learn(&pending.probe, answers));
         }
-        let (effects, next) = self.advance(
-            &pending.signal,
-            &pending.asks,
-            answers.as_deref(),
-            pending.round,
-        );
+        let round = Round {
+            answers: answers.as_deref(),
+            reasoned: &reasoned,
+        };
+        let (effects, next) = self.advance(&pending.signal, &pending.asks, &round, pending.round);
         pending.settled.extend(effects);
 
-        if !next.is_empty() && pending.round < MAX_ROUNDS && answers.is_some() {
+        // A failed System One call ends System One's rounds; a next round of
+        // System Two alone may still run.
+        let next_allowed = answers.is_some()
+            || next
+                .iter()
+                .all(|(_, inference)| inference.questions.is_empty());
+
+        if !next.is_empty() && pending.round < MAX_ROUNDS && next_allowed {
             pending.asks = next;
             pending.round += 1;
             let mut masking = Masking::default();
@@ -353,14 +463,20 @@ impl Engine {
                 .redactor
                 .redact(&situation.render(&self.situation_texts), &mut masking);
             let questions = self.redacted(self.namespaced(&pending.asks), &mut masking);
+            let reasonings = self.reasonings(&pending.asks, &state, &mut masking);
             self.trace.questions.extend(
                 questions
                     .iter()
                     .map(|question| TracedQuestion::new(question, pending.round)),
             );
             pending.questions = questions.clone();
+            pending.reasonings = reasonings.clone();
             self.pending = Some(pending);
-            return Step::Ask { state, questions };
+            return Step::Ask {
+                state,
+                questions,
+                reasonings,
+            };
         }
 
         // A command judged irreversible is denied, whatever a contract said.
@@ -376,6 +492,37 @@ impl Engine {
         }
 
         Step::Done(pending.settled)
+    }
+
+    /// Each pending reasoning's outcome, a verdict checked against its
+    /// request again, unavailable when the host brought none, and traced.
+    /// Outcomes for anything not asked are dropped.
+    fn checked(
+        &mut self,
+        pending: &Pending,
+        reasoned: Vec<(String, Reasoned)>,
+    ) -> Vec<(String, Reasoned)> {
+        let mut reasoned: std::collections::HashMap<String, Reasoned> =
+            reasoned.into_iter().collect();
+
+        pending
+            .reasonings
+            .iter()
+            .map(|request| {
+                let outcome = reasoned
+                    .remove(&request.id)
+                    .unwrap_or_else(|| Err(ReasoningFailure::Unavailable("no outcome".into())))
+                    .and_then(|verdict| {
+                        system_two::validate_verdict(request, &verdict).map(|()| verdict)
+                    });
+
+                self.trace
+                    .reasonings
+                    .push(TracedReasoning::new(request, &outcome, pending.round));
+
+                (request.id.clone(), outcome)
+            })
+            .collect()
     }
 
     /// Grow the safety lists from the core answers; `true` when the command
@@ -417,21 +564,28 @@ impl Engine {
         }
     }
 
-    /// Settled effects, plus each asking capability's index and questions.
+    /// Settled effects, plus each asking capability's index and inference.
     fn plan(
         &mut self,
         situation: &Situation,
         signal: &Signal,
-    ) -> (Vec<Effect>, Vec<(usize, Vec<Question>)>) {
+    ) -> (Vec<Effect>, Vec<(usize, Inference)>) {
         let mut effects = Vec::new();
         let mut asks = Vec::new();
 
         for (index, capability) in self.capabilities.iter_mut().enumerate() {
-            match capability.plan(situation, signal) {
-                Plan::Skip => {}
-                Plan::Settled(settled) => effects.extend(settled),
-                Plan::Ask(questions) if questions.is_empty() => {}
-                Plan::Ask(questions) => asks.push((index, questions)),
+            let inference = match capability.plan(situation, signal) {
+                Plan::Skip => continue,
+                Plan::Settled(settled) => {
+                    effects.extend(settled);
+                    continue;
+                }
+                Plan::Ask(questions) => Inference::from(questions),
+                Plan::Infer(inference) => inference,
+            };
+
+            if !inference.is_empty() {
+                asks.push((index, inference));
             }
         }
 
@@ -439,12 +593,12 @@ impl Engine {
     }
 
     /// Every capability's questions in one list, IDs namespaced by capability.
-    fn namespaced(&self, asks: &[(usize, Vec<Question>)]) -> Vec<Question> {
+    fn namespaced(&self, asks: &[(usize, Inference)]) -> Vec<Question> {
         asks.iter()
-            .flat_map(|(index, questions)| {
+            .flat_map(|(index, inference)| {
                 let prefix = self.prefix(*index);
 
-                questions.iter().map(move |question| Question {
+                inference.questions.iter().map(move |question| Question {
                     id: format!("{prefix}{}", question.id),
                     ..question.clone()
                 })
@@ -452,40 +606,61 @@ impl Engine {
             .collect()
     }
 
-    /// Hand each asking capability its own answers, IDs restored.
+    /// Hand each asking capability its own outcomes, IDs restored. One that
+    /// asked System One nothing this round is not told of its failure.
     fn advance(
         &mut self,
         signal: &Signal,
-        asks: &[(usize, Vec<Question>)],
-        answers: Option<&[Answer]>,
-        round: usize,
-    ) -> (Vec<Effect>, Vec<(usize, Vec<Question>)>) {
+        asks: &[(usize, Inference)],
+        round: &Round<'_>,
+        number: usize,
+    ) -> (Vec<Effect>, Vec<(usize, Inference)>) {
         let mut effects = Vec::new();
         let mut next = Vec::new();
 
-        for (index, _) in asks {
+        for (index, inference) in asks {
             let prefix = self.prefix(*index);
-            let local: Option<Vec<Answer>> = answers.as_ref().map(|answers| {
-                answers
-                    .iter()
-                    .filter_map(|answer| {
-                        let id = answer.id.strip_prefix(&prefix)?;
+            let local: Option<Vec<Answer>> = if inference.questions.is_empty() {
+                Some(Vec::new())
+            } else {
+                round.answers.map(|answers| {
+                    answers
+                        .iter()
+                        .filter_map(|answer| {
+                            let id = answer.id.strip_prefix(&prefix)?;
 
-                        Some(Answer {
-                            id: id.to_string(),
-                            ..answer.clone()
+                            Some(Answer {
+                                id: id.to_string(),
+                                ..answer.clone()
+                            })
                         })
-                    })
-                    .collect()
-            });
+                        .collect()
+                })
+            };
+            let reasoned: Vec<(String, Reasoned)> = round
+                .reasoned
+                .iter()
+                .filter_map(|(id, outcome)| {
+                    Some((id.strip_prefix(&prefix)?.to_string(), outcome.clone()))
+                })
+                .collect();
+            let outcome = Round {
+                answers: local.as_deref(),
+                reasoned: &reasoned,
+            };
 
             if let Some(capability) = self.capabilities.get_mut(*index) {
-                match capability.advance(signal, local.as_deref(), round) {
-                    PipeStep::Done(done) => effects.extend(done),
-                    PipeStep::Next(questions) if !questions.is_empty() => {
-                        next.push((*index, questions))
+                let inference = match capability.advance_round(signal, &outcome, number) {
+                    PipeStep::Done(done) => {
+                        effects.extend(done);
+                        continue;
                     }
-                    PipeStep::Next(_) => {}
+                    PipeStep::Next(questions) => Inference::from(questions),
+                    PipeStep::Infer(inference) => inference,
+                };
+
+                if !inference.is_empty() {
+                    next.push((*index, inference));
                 }
             }
         }
@@ -720,7 +895,10 @@ mod tests {
         })];
         let mut engine = Engine::hosted(capabilities).unwrap();
 
-        let Step::Ask { state, questions } = engine.begin(&signal()).unwrap() else {
+        let Step::Ask {
+            state, questions, ..
+        } = engine.begin(&signal()).unwrap()
+        else {
             panic!("expected questions")
         };
         assert!(state.contains("Recent agent activity"));

@@ -20,6 +20,7 @@ pub fn append(
     redact: impl Fn(&str) -> String,
 ) {
     let quiet = trace.questions.is_empty()
+        && trace.reasonings.is_empty()
         && trace.veto.is_none()
         && matches!(result, Ok(effects) if effects.is_empty());
 

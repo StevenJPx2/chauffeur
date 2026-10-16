@@ -1,10 +1,45 @@
 //! Common judging strategies, each a composition of [`Judge`]'s primitives.
 //! A capability composes its own when these do not fit.
 
+use serde::Deserialize;
+
 use crate::system_one::Question;
 
 use super::rule::probability;
 use super::{Judge, Rule};
+
+/// What one System One answer settled, read against a confident yes and a
+/// confident no.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Screened {
+    Yes,
+    No,
+    /// Answered, but neither rule held.
+    Unsure,
+    /// The call failed.
+    Failed,
+}
+
+/// Which screened outcomes go on to System Two.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct Escalation {
+    #[serde(default)]
+    pub unsure: bool,
+    #[serde(default)]
+    pub failed: bool,
+}
+
+impl Escalation {
+    #[must_use]
+    pub const fn covers(self, screened: Screened) -> bool {
+        match screened {
+            Screened::Unsure => self.unsure,
+            Screened::Failed => self.failed,
+            Screened::Yes | Screened::No => false,
+        }
+    }
+}
 
 /// One question per candidate, judged by its own rule.
 pub struct Candidate<K> {
@@ -24,6 +59,37 @@ pub struct Chained<K> {
 #[must_use]
 pub fn single(question: Question, rule: Rule) -> Judge<bool> {
     Judge::ask(question, move |answer| rule.holds(answer))
+}
+
+/// One question read as a confident `yes`, a confident `no`, unsure, or a
+/// failed call.
+#[must_use]
+pub fn screen(question: Question, yes: Rule, no: Rule) -> Judge<Screened> {
+    Judge::ask(question, move |answer| match answer {
+        None => Screened::Failed,
+        Some(_) if yes.holds(answer) => Screened::Yes,
+        Some(_) if no.holds(answer) => Screened::No,
+        Some(_) => Screened::Unsure,
+    })
+}
+
+/// System One first, System Two when it matters: the outcomes `when` covers
+/// continue as `review` in the next round; every other outcome settles as
+/// `settle` reads it.
+#[must_use]
+pub fn escalate<T: Send + 'static>(
+    screen: Judge<Screened>,
+    when: Escalation,
+    settle: impl FnOnce(Screened) -> T + Send + 'static,
+    review: impl FnOnce(Screened) -> Judge<T> + Send + 'static,
+) -> Judge<T> {
+    screen.then(move |screened| {
+        if when.covers(screened) {
+            review(screened)
+        } else {
+            Judge::done(settle(screened))
+        }
+    })
 }
 
 /// Every candidate asked in the same round; the keys whose rule holds, most

@@ -114,7 +114,9 @@ fn slack_in_project(slack: f32, project: f32, jira: f32) -> Step {
 #[test]
 fn every_skill_is_asked_about_in_one_round_worded_by_its_facts() {
     let mut engine = engine();
-    let Step::Ask { state, questions } = engine.begin(&prompt(SLACK_LINK, catalog())).unwrap()
+    let Step::Ask {
+        state, questions, ..
+    } = engine.begin(&prompt(SLACK_LINK, catalog())).unwrap()
     else {
         panic!("expected questions")
     };

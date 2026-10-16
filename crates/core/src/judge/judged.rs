@@ -2,7 +2,7 @@
 //! signal and acts on the value it finishes with. [`Judging`] adapts it to
 //! [`Capability`], holding the judge between rounds.
 
-use crate::capability::{Capability, PipeStep, Plan};
+use crate::capability::{Capability, Inference, PipeStep, Plan, Round};
 use crate::effect::Effect;
 use crate::engine::MAX_ROUNDS;
 use crate::signal::Signal;
@@ -83,11 +83,15 @@ impl<C: Judged> Capability for Judging<C> {
                 effects => Plan::Settled(effects),
             },
             Some(judge) => {
-                let questions = judge.questions().to_vec();
+                let inference = judge.inference();
 
                 self.pending = Some(judge);
 
-                Plan::Ask(questions)
+                if inference.reasonings.is_empty() {
+                    Plan::Ask(inference.questions)
+                } else {
+                    Plan::Infer(inference)
+                }
             }
         }
     }
@@ -95,31 +99,50 @@ impl<C: Judged> Capability for Judging<C> {
     fn decide(&mut self, signal: &Signal, answers: Option<&[Answer]>) -> Vec<Effect> {
         match self.advance(signal, answers, MAX_ROUNDS) {
             PipeStep::Done(effects) => effects,
-            PipeStep::Next(_) => Vec::new(),
+            PipeStep::Next(_) | PipeStep::Infer(_) => Vec::new(),
         }
     }
 
-    /// Step the judge. It asks again only when this round's call succeeded
-    /// and rounds remain, since the engine runs no further round otherwise;
-    /// in every other case it settles, so its value is always acted on.
     fn advance(&mut self, signal: &Signal, answers: Option<&[Answer]>, round: usize) -> PipeStep {
+        self.advance_round(signal, &Round::answers(answers), round)
+    }
+
+    /// Step the judge. It asks again only while rounds remain, and asks
+    /// System One again only after System One answered this round, since
+    /// the engine runs no further round otherwise; a next round of System
+    /// Two alone, such as a fallback for a failed System One call, may run.
+    /// In every other case it settles, so its value is always acted on.
+    fn advance_round(&mut self, signal: &Signal, outcome: &Round<'_>, round: usize) -> PipeStep {
         let Some(judge) = self.pending.take() else {
             return PipeStep::Done(Vec::new());
         };
 
-        match judge.step(answers) {
+        match judge.step_round(outcome) {
             Judge::Done(verdict) => self.finish(signal, verdict),
-            judge if answers.is_none() || round >= MAX_ROUNDS => {
+            judge
+                if round >= MAX_ROUNDS
+                    || (outcome.answers.is_none() && !judge.questions().is_empty()) =>
+            {
                 let verdict = judge.settle();
 
                 self.finish(signal, verdict)
             }
             judge => {
-                let questions = judge.questions().to_vec();
+                let Inference {
+                    questions,
+                    reasonings,
+                } = judge.inference();
 
                 self.pending = Some(judge);
 
-                PipeStep::Next(questions)
+                if reasonings.is_empty() {
+                    PipeStep::Next(questions)
+                } else {
+                    PipeStep::Infer(Inference {
+                        questions,
+                        reasonings,
+                    })
+                }
             }
         }
     }
