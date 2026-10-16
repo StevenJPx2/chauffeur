@@ -1,5 +1,6 @@
 //! Provider selection and bounded, opt-in judge fallback.
 
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use chauffeur_core::{Answer, Question, SystemOne, SystemOneError, validate_answers};
@@ -8,10 +9,14 @@ use chauffeur_judge_subq::{SubqClient, SubqConfig};
 
 const RETRY_AFTER: Duration = Duration::from_secs(60);
 
+/// Builds one System One client for each judge worker.
+pub type SystemOneFactory = Arc<dyn Fn() -> Result<Box<dyn SystemOne>, String> + Send + Sync>;
+
 #[derive(Clone)]
 enum Provider {
     Jev(JevConfig),
     Subq(SubqConfig),
+    Custom(SystemOneFactory),
 }
 
 impl Provider {
@@ -19,6 +24,7 @@ impl Provider {
         match self {
             Self::Jev(config) => Ok(Box::new(JevClient::new(config.clone())?)),
             Self::Subq(config) => Ok(Box::new(SubqClient::new(config.clone())?)),
+            Self::Custom(factory) => factory(),
         }
     }
 }
@@ -35,6 +41,16 @@ impl JudgeConfig {
     pub fn jev(config: JevConfig) -> Self {
         Self {
             primary: Provider::Jev(config),
+            fallback: None,
+        }
+    }
+
+    /// A judge built by `factory`, once for each worker, such as a local
+    /// model or a test double.
+    #[must_use]
+    pub fn custom(factory: SystemOneFactory) -> Self {
+        Self {
+            primary: Provider::Custom(factory),
             fallback: None,
         }
     }
@@ -80,7 +96,8 @@ impl JudgeConfig {
         })
     }
 
-    /// Build on the engine thread, never inside an async runtime.
+    /// Build on a worker thread, never inside an async runtime. Each worker
+    /// builds its own, so a fallback's cooldown is per worker.
     pub(crate) fn build(&self) -> Result<Box<dyn SystemOne>, String> {
         let primary = self.primary.build()?;
 

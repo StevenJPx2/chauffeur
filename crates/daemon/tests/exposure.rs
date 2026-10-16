@@ -54,6 +54,7 @@ async fn first_user_message_attaches_skills_and_hides_unneeded_tools() {
         skills_dir: std::env::temp_dir().join("chauffeur-no-skills-repo"),
         config_dir,
         judge: chauffeur_daemon::JudgeConfig::jev(jev),
+        system_two: None,
         idle_reminders: false,
         sourcefed: None,
         disabled: Vec::new(),

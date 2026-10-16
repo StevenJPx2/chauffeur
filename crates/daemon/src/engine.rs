@@ -1,12 +1,11 @@
-//! Owns the engine on a dedicated thread. Judge clients block on HTTPS, so
-//! the engine never runs on the async runtime.
+//! Builds the engine from config and skills, rebuilds it when they change,
+//! and keeps its memory across restarts. [`crate::scheduler`] runs it.
 
-use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::Duration;
 
 use crate::judge::JudgeConfig;
+use crate::scheduler::{EngineHandle, Files, RUN_DEADLINE, Setup, SystemTwoFactory};
 use chauffeur_capability_event_gate::{EventGate, EventGateConfig};
 use chauffeur_capability_model_router::{ModelRouter, ModelRouterConfig, Provider};
 use chauffeur_capability_monitors::{FollowWork, Monitors, MonitorsConfig};
@@ -17,26 +16,12 @@ use chauffeur_capability_rules::{
 use chauffeur_capability_skill_exposure::{SkillExposure, SkillExposureConfig};
 use chauffeur_capability_tool_exposure::{ToolExposure, ToolExposureConfig};
 use chauffeur_core::{
-    Backstop, Capability, Effect, Engine, Judging, LearnedShapes, LearningConfig, RedactionConfig,
-    Redactor, Reloading, Signal, SignalKind, SituationTexts, Watch, load_config,
+    Backstop, Capability, Engine, Judging, LearnedShapes, LearningConfig, RedactionConfig,
+    Redactor, Reloading, SituationTexts, Watch, load_config,
 };
 use chauffeur_plugin_anthropic::AnthropicProvider;
 use chauffeur_plugin_openai::OpenAiProvider;
 use chauffeur_plugin_sourcefed::{Sourcefed, SourcefedConfig};
-use tokio::sync::{mpsc, oneshot};
-
-const QUEUE_DEPTH: usize = 64;
-const REPLY_TIMEOUT: Duration = Duration::from_secs(15);
-
-struct Job {
-    signal: Signal,
-    reply: oneshot::Sender<Result<Vec<Effect>, String>>,
-}
-
-#[derive(Clone)]
-pub struct EngineHandle {
-    jobs: mpsc::Sender<Job>,
-}
 
 pub struct EngineOptions {
     pub config_dir: PathBuf,
@@ -44,6 +29,9 @@ pub struct EngineOptions {
     pub skills_dir: PathBuf,
     /// Primary System One judge and optional fallback.
     pub judge: JudgeConfig,
+    /// Builds a System Two executor for each reasoning worker; `None` leaves
+    /// every reasoning unavailable.
+    pub system_two: Option<SystemTwoFactory>,
     /// Shipped turn-end rules (idle reminders) are opt-in; tool-result and
     /// project rules always apply.
     pub idle_reminders: bool,
@@ -61,29 +49,23 @@ pub struct EngineOptions {
 }
 
 impl EngineHandle {
-    /// Start the engine thread; resolves once the engine is built or failed.
+    /// Start the engine thread and its judges' workers; resolves once all
+    /// are built, or with the first error.
     pub async fn spawn(options: EngineOptions) -> Result<Self, String> {
-        let (jobs, mut queue) = mpsc::channel::<Job>(QUEUE_DEPTH);
-        let (ready, started) = oneshot::channel();
+        let setup = Setup {
+            judge: options.judge.clone(),
+            system_two: options.system_two.clone(),
+            deadline: RUN_DEADLINE,
+        };
 
-        std::thread::Builder::new()
-            .name("chauffeur-engine".into())
-            .spawn(move || {
+        Self::launch(
+            move || {
                 let learned = options
                     .state_file
                     .as_deref()
                     .map(crate::learned::load)
                     .unwrap_or_default();
-                let mut engine = match build_engine(&options, learned) {
-                    Ok(engine) => {
-                        let _ = ready.send(Ok(()));
-                        engine
-                    }
-                    Err(error) => {
-                        let _ = ready.send(Err(error));
-                        return;
-                    }
-                };
+                let mut engine = build_engine(&options, learned)?;
 
                 if let Some(path) = &options.state_file {
                     restore(&mut engine, path);
@@ -94,80 +76,11 @@ impl EngineHandle {
                     audit: options.audit_file.clone(),
                 };
 
-                serve(reloading(engine, options), &mut queue, &files);
-            })
-            .map_err(|error| format!("spawn engine thread: {error}"))?;
-
-        started
-            .await
-            .map_err(|_| "engine thread exited during startup".to_string())??;
-
-        Ok(Self { jobs })
-    }
-
-    pub async fn ingest(&self, signal: Signal) -> Result<Vec<Effect>, String> {
-        let (reply, result) = oneshot::channel();
-
-        self.jobs
-            .try_send(Job { signal, reply })
-            .map_err(|error| format!("engine unavailable: {error}"))?;
-
-        tokio::time::timeout(REPLY_TIMEOUT, result)
-            .await
-            .map_err(|_| "engine timed out".to_string())?
-            .map_err(|_| "engine dropped the signal".to_string())?
-    }
-}
-
-/// Where the engine thread keeps its memory and its decision log.
-struct Files {
-    state: Option<PathBuf>,
-    audit: Option<PathBuf>,
-}
-
-/// Run jobs until the daemon shuts down, rebuilding the engine first
-/// whenever its config or skills changed.
-fn serve(mut engine: Reloading<Engine>, queue: &mut mpsc::Receiver<Job>, files: &Files) {
-    let mut pending = VecDeque::new();
-
-    while let Some(job) = next_job(queue, &mut pending) {
-        if job.reply.is_closed() {
-            continue;
-        }
-        let engine = engine.current();
-        // A model effect only counts when the host is still waiting for it;
-        // an abandoned retry must not leave a phantom attempted model or
-        // switch-back origin.
-        let before =
-            matches!(job.signal.kind, SignalKind::ModelError { .. }).then(|| engine.save());
-        let result = engine.ingest(&job.signal);
-
-        if job.reply.is_closed() {
-            if let Some(before) = before {
-                engine.load(before);
-            }
-            continue;
-        }
-
-        if let Some(path) = &files.audit {
-            crate::audit::append(path, &job.signal, engine.trace(), &result, |text| {
-                engine.redact_for_audit(text)
-            });
-        }
-
-        if job.reply.send(result).is_err() {
-            if let Some(before) = before {
-                engine.load(before);
-            }
-            continue;
-        }
-
-        if let Some(path) = &files.state {
-            persist(engine, path);
-            if engine.take_learned_changed() {
-                crate::learned::save(engine, path);
-            }
-        }
+                Ok((reloading(engine, options), files))
+            },
+            setup,
+        )
+        .await
     }
 }
 
@@ -203,25 +116,6 @@ fn reloading(engine: Engine, options: EngineOptions) -> Reloading<Engine> {
     )
 }
 
-/// The next job to run: a permission request first, since the host holds a
-/// tool call until it is answered, then the rest in arrival order. Waits
-/// only when nothing is pending; `None` once the daemon is shutting down.
-fn next_job(queue: &mut mpsc::Receiver<Job>, pending: &mut VecDeque<Job>) -> Option<Job> {
-    if pending.is_empty() {
-        pending.push_back(queue.blocking_recv()?);
-    }
-    while let Ok(job) = queue.try_recv() {
-        pending.push_back(job);
-    }
-
-    let urgent = pending
-        .iter()
-        .position(|job| matches!(job.signal.kind, SignalKind::PermissionRequest { .. }))
-        .unwrap_or(0);
-
-    pending.remove(urgent)
-}
-
 /// Larger state files are ignored rather than read.
 const MAX_STATE_BYTES: u64 = 8 * 1024 * 1024;
 
@@ -252,7 +146,7 @@ fn restore(engine: &mut Engine, path: &Path) {
 }
 
 /// Write atomically: a crash mid-write leaves the previous state intact.
-fn persist(engine: &Engine, path: &Path) {
+pub(crate) fn persist(engine: &Engine, path: &Path) {
     let temporary = path.with_extension("json.tmp");
     let result = serde_json::to_vec(&engine.save())
         .map_err(|error| error.to_string())
@@ -402,7 +296,6 @@ fn build_engine(
     options: &EngineOptions,
     (learned_backstop, learned_shapes): (Vec<String>, LearnedShapes),
 ) -> Result<Engine, String> {
-    let system_one = options.judge.build()?;
     let capabilities = without(
         capabilities(
             &options.config_dir,
@@ -421,7 +314,7 @@ fn build_engine(
     let learning = LearningConfig::load(&options.config_dir.join("learning.json"))?;
     let situation = SituationTexts::load(&options.config_dir.join("situation.json"))?;
 
-    Ok(Engine::new(system_one, capabilities)?
+    Ok(Engine::hosted(capabilities)?
         .with_backstop(backstop.with_learned(learned_backstop))
         .with_redactor(redactor)
         .with_learning(learning)
@@ -430,7 +323,7 @@ fn build_engine(
 
 #[cfg(test)]
 mod tests {
-    use chauffeur_core::{PipeStep, Plan, Round, RunId, Situation};
+    use chauffeur_core::{PipeStep, Plan, Round, RunId, Signal, Situation};
 
     use super::*;
 
@@ -469,59 +362,5 @@ mod tests {
         };
 
         assert!(error.contains("skil-exposure") && error.contains("rules, skill-exposure"));
-    }
-
-    fn job(kind: SignalKind) -> Job {
-        let (reply, _) = oneshot::channel();
-
-        Job {
-            signal: Signal {
-                agent_id: "ses".into(),
-                at: 1,
-                kind,
-            },
-            reply,
-        }
-    }
-
-    fn turn_end() -> SignalKind {
-        SignalKind::TurnEnd {
-            workspace: String::new(),
-            subagent: false,
-            user_request: String::new(),
-            summary: "first".into(),
-            todos: Vec::new(),
-        }
-    }
-
-    fn permission() -> SignalKind {
-        SignalKind::PermissionRequest {
-            action: "shell".into(),
-            resources: Vec::new(),
-            request: String::new(),
-            workspace: String::new(),
-            user_requests: Vec::new(),
-            host_decision: chauffeur_core::PermissionDecision::Ask,
-        }
-    }
-
-    #[test]
-    fn a_waiting_permission_request_runs_before_earlier_signals() {
-        let (jobs, mut queue) = mpsc::channel(8);
-        let mut pending = VecDeque::new();
-
-        for kind in [turn_end(), permission(), turn_end()] {
-            jobs.try_send(job(kind)).unwrap();
-        }
-
-        let order: Vec<bool> = std::iter::from_fn(|| {
-            (!pending.is_empty() || !queue.is_empty())
-                .then(|| next_job(&mut queue, &mut pending))
-                .flatten()
-        })
-        .map(|job| matches!(job.signal.kind, SignalKind::PermissionRequest { .. }))
-        .collect();
-
-        assert_eq!(order, [true, false, false]);
     }
 }

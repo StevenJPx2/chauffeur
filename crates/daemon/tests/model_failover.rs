@@ -50,6 +50,7 @@ async fn usage_limit_switches_to_the_judged_same_tier_model() {
         skills_dir: std::env::temp_dir().join("chauffeur-no-skills-repo"),
         config_dir,
         judge: chauffeur_daemon::JudgeConfig::jev(jev),
+        system_two: None,
         idle_reminders: false,
         sourcefed: None,
         disabled: Vec::new(),

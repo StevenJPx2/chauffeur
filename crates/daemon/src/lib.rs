@@ -4,11 +4,14 @@ mod audit;
 mod engine;
 mod judge;
 mod learned;
+mod scheduler;
 mod sourcefed;
 mod texts;
+mod workers;
 
-pub use engine::{EngineHandle, EngineOptions};
-pub use judge::JudgeConfig;
+pub use engine::EngineOptions;
+pub use judge::{JudgeConfig, SystemOneFactory};
+pub use scheduler::{EngineHandle, SystemTwoFactory};
 
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
@@ -147,6 +150,7 @@ pub async fn serve(options: DaemonOptions) -> Result<(), String> {
         config_dir: options.config_dir,
         skills_dir: options.skills_dir,
         judge,
+        system_two: None,
         idle_reminders: options.idle_reminders,
         sourcefed: options.sourcefed,
         disabled: options.disabled,

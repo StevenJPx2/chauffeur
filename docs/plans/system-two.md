@@ -1,9 +1,9 @@
 # System Two judgments
 
-Status: steps 1 and 2 of the implementation sequence are built: core requests,
-composition and engine rounds, and run-owned execution state, tested with fake
-executors. The daemon still runs one signal at a time and has no System Two
-executor, so every reasoning is unavailable there.
+Status: steps 1 to 3 of the implementation sequence are built: core requests,
+composition and engine rounds, run-owned execution state, and the daemon's
+scheduler and judge workers. The daemon has no System Two executor, so every
+reasoning is unavailable there.
 
 Chauffeur composes fast classification and LLM reasoning in the same `Judge<T>`
 state machine. Capabilities define judgments, provider plugins execute inference,
@@ -58,7 +58,11 @@ flowchart LR
   credential management.
 - The engine holds up to 64 runs in flight, keyed by `RunId`, through
   `start`, `resume` and `cancel`; `begin` and `finish` drive one run at a time.
-  The daemon has one blocking engine worker that uses `ingest`.
+- `crates/daemon/src/scheduler.rs` owns the engine on one thread and judges up
+  to 8 signals at once, one per agent. Four System One workers, one reserved
+  for permission requests, and two System Two workers make every judge call,
+  so the engine thread never waits on one. Each signal settles through its
+  failure posture 14 seconds after it arrives.
 
 ## Composition and inference contracts
 
@@ -179,11 +183,11 @@ failure path.
 |---|---|
 | Ordering | One active signal per agent; other agents progress independently |
 | Priority | Permission work has reserved capacity; background reasoning cannot consume it |
-| Supersession | A new user request invalidates an older run's effects; queued obsolete work is discarded |
+| Supersession | Deferred: a new user request waits behind its agent's active run. Invalidating the older run's effects needs a host-visible cancellation signal |
 | Cancellation | Caller disconnect, deadline, supersession and shutdown stop further dispatch and cancel active backend work |
 | Late completion | Run/attempt tokens reject late or duplicate results before state mutation |
 | Effects | Accumulate until the signal settles; return once to the waiting host |
-| Reload | Valid config activates at a coordinator boundary; active runs settle through cancellation before their capability objects are replaced |
+| Reload | Valid config activates only while no signal is in flight, so a run never resumes on replaced capability objects |
 | Restart | Persist committed session state; in-flight continuations are discarded and callers receive host failure behavior |
 
 Effect delivery retains the current request/reply semantics. A host disconnect
