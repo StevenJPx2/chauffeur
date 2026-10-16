@@ -12,6 +12,11 @@ are capabilities or plugins that hang off that core.
 
 ## Status
 
+The proposed split into a judgment runtime and plugins is defined in
+[the pluggability plan](docs/plans/pluggability.md), with source findings and
+executed checks in [the architecture audit](docs/audits/architecture.md). This
+document describes the current architecture.
+
 | Part                                                                                                                                                | State         |
 | --------------------------------------------------------------------------------------------------------------------------------------------------- | ------------- |
 | Sense → Classify → Act engine, System One interface, Jev provider (HTTPS via rustls), secret redaction                                              | built         |
