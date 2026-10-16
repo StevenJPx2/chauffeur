@@ -1,9 +1,9 @@
 # System Two judgments
 
-Status: steps 1 to 3 of the implementation sequence are built: core requests,
-composition and engine rounds, run-owned execution state, and the daemon's
-scheduler and judge workers. The daemon has no System Two executor, so every
-reasoning is unavailable there.
+Status: steps 1 to 4 of the implementation sequence are built: core requests,
+composition and engine rounds, run-owned execution state, the daemon's
+scheduler and judge workers, and the `openai/codex` backend with profiles in
+`skills/config/judge.json`. System Two ships off, and no capability asks it yet.
 
 Chauffeur composes fast classification and LLM reasoning in the same `Judge<T>`
 state machine. Capabilities define judgments, provider plugins execute inference,
@@ -134,11 +134,16 @@ separate trusted instructions from untrusted evidence.
 Each provider plugin can implement two independent interfaces:
 
 - The existing model-router `Provider` interface for metadata.
-- A core-owned inference executor interface for model calls, availability,
-  cancellation and normalized results.
+- Core's `Backend` interface: one structured `Completion` (model, effort,
+  instructions, input, JSON Schema, output limit, timeout) in, JSON or an
+  explicit `ReasoningFailure` out.
 
-The daemon constructs the plugin and registers its supported interfaces under
-the same provider ID. The model-router retains ownership of its tier policy;
+`plugins/openai` provides `codex::CodexBackend`, which calls the Codex
+Responses endpoint with the ChatGPT login in `$CODEX_HOME/auth.json`, refreshing
+the token and writing it back for the Codex CLI. The daemon's registry
+(`crates/daemon/src/reasoning.rs`) keys backends as `provider/backend`, builds
+each on a worker thread the first time a profile needs it, and renders the
+profile's wording around the request. The model-router retains ownership of its tier policy;
 execution contracts do not depend on the model-router crate. Metadata-only
 plugins remain valid. No new provider-specific judge crate is required for each
 LLM provider.
@@ -210,7 +215,7 @@ Proposed starting limits:
 | Provider attempts per signal | 8, counting both tiers and fallback attempts |
 | System Two input / response size | 32 KiB / 64 KiB |
 | System Two output tokens | 1,024 |
-| System Two call timeout | 4 seconds, capped by remaining signal time |
+| System Two call timeout | 6 seconds per profile; GPT-6 Luna answered small reviews in 1.7–3 s. Capping by remaining signal time arrives with deadline propagation |
 
 Input that exceeds its budget is rejected or reduced by explicit capability
 evidence selection; the executor does not silently remove evidence.
@@ -273,9 +278,10 @@ recording is opt-in and receives the same redaction policy.
    extend the selected plugin in `plugins/anthropic` or `plugins/openai` with one
    backend. Verify its official authentication, structured-output and cancellation
    contracts before implementation.
-5. **Configuration and audit:** add `skills/config/judge.json`; extend
-   `crates/daemon/src/judge.rs`, core traces and daemon audit formatting. Add the
-   optional deadline field to core RPC/client and OpenCode protocol translation.
+5. **Audit and deadlines:** record each attempt's profile, model, token usage and
+   latency in core traces and the daemon audit. Add the optional deadline field
+   to core RPC/client and OpenCode protocol translation, and cap each call by
+   its signal's remaining time.
 6. **First integration:** add an opt-in rulebook completion review in
    `capabilities/rules`, with its wording and schema in owner config. Run direct
    System Two and System One → System Two variants against labeled cases before
@@ -310,8 +316,7 @@ recording is opt-in and receives the same redaction policy.
 
 | Decision | Recommended starting point |
 |---|---|
-| First provider backend and authentication | One subscription-backed CLI executor in an existing provider plugin, subject to verified support; keep the executor contract usable by direct API backends |
-| First model | Choose an exact supported model after the labeled completion-review replay; routing recommendations alone do not establish judge quality |
+| Cancelling an in-flight call | The blocking client cannot abort a call its run abandoned; the worker finishes it and the result is dropped. Move backends to an async or cancellable client if abandoned calls hold workers in practice |
 | State of a cancelled run's finished branches | A capability that settled in an earlier round keeps the state it acted on. The daemon restores a snapshot for abandoned model-error replies; defer every `act` to run settlement once concurrent dispatch shows stale state elsewhere |
 
 Multi-provider ensembles, autonomous tool use, images, durable background reviews

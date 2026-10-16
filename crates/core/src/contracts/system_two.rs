@@ -3,6 +3,7 @@
 
 use std::collections::HashSet;
 use std::fmt;
+use std::time::Duration;
 
 use serde::Serialize;
 use serde_json::{Map, Value, json};
@@ -281,6 +282,33 @@ impl fmt::Display for ReasoningFailure {
 
 /// A reasoning's outcome: a verdict that fits its schema, or why there is none.
 pub type Reasoned = Result<Value, ReasoningFailure>;
+
+/// One structured LLM call, as a provider plugin's backend runs it. The
+/// host has already rendered the prompt and redacted what it quotes.
+#[derive(Clone, Copy, Debug)]
+pub struct Completion<'a> {
+    pub model: &'a str,
+    /// A provider's reasoning effort, such as `low`; `None` is its default.
+    pub effort: Option<&'a str>,
+    /// Trusted instructions, kept apart from the input.
+    pub instructions: &'a str,
+    /// The question and its evidence.
+    pub input: &'a str,
+    /// A name for the output format, such as the profile's.
+    pub name: &'a str,
+    /// The standard JSON Schema the output must fit, from
+    /// [`Schema::to_json_schema`]. A backend enforces it where its provider
+    /// can; the host validates the verdict either way.
+    pub schema: &'a Value,
+    pub max_output_tokens: u32,
+    pub timeout: Duration,
+}
+
+/// A provider plugin's way to run a [`Completion`]: one model call whose
+/// output is JSON, or an explicit failure.
+pub trait Backend: Send {
+    fn complete(&mut self, completion: &Completion<'_>) -> Reasoned;
+}
 
 /// An LLM that reasons. Implementations answer one request per call; the
 /// engine validates the verdict before any capability sees it.

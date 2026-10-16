@@ -86,6 +86,45 @@ document a per-request `store: false` switch. Enabling fallback therefore
 explicitly authorizes sending the redacted judgment context to that provider;
 it is never inferred from finding an API key.
 
+## System Two
+
+System Two answers judgments that need reasoning over evidence, with a
+general-purpose LLM. It ships off. Each reasoning names a profile in
+[`skills/config/judge.json`](../skills/config/judge.json), which picks:
+
+- the provider plugin and its backend;
+- the model, its reasoning effort, and output limit;
+- a timeout for each call.
+
+The shipped `completion-review` profile uses GPT-6 Luna through the
+`openai/codex` backend. That backend uses your ChatGPT subscription through
+the Codex CLI's login:
+
+- It reads `$CODEX_HOME/auth.json`, else `~/.codex/auth.json`. Log in with
+  `codex login` first.
+- It refreshes the access token shortly before it expires and writes the new
+  tokens back, keeping the file's other fields and its `0600` mode, so the
+  Codex CLI stays logged in.
+- Its calls count against your ChatGPT plan's limits.
+- It asks OpenAI not to store the request (`store: false`). The evidence it
+  sends is redacted locally first, as System One's is.
+
+To turn it on, add to `~/.config/chauffeur/judge.json`:
+
+```json
+{ "system_two": { "enabled": true } }
+```
+
+The same file can override any profile field or the wording, such as
+`{ "system_two": { "profiles": { "completion-review": { "effort": "medium" } } } }`.
+Edits apply without a restart. A file that fails to load keeps the previous
+profiles running and logs why; at startup it stops the daemon, as other
+config does.
+
+A verdict must fit the request's schema and cite only evidence it was given.
+A refusal, cut-off output, timeout, or an unknown profile gives no verdict,
+and the capability applies its failure posture.
+
 ## Replay benchmark
 
 SubQ is included in `bench/judges.json`. Replay a redacted corpus recorded by

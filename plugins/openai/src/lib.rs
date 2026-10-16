@@ -1,5 +1,8 @@
 //! OpenAI provider plugin: equivalence tiers, by model and thinking variant,
-//! shipped in `skills/config/providers/openai.json`.
+//! shipped in `skills/config/providers/openai.json`, and [`codex`], a System
+//! Two backend over your ChatGPT subscription.
+
+pub mod codex;
 
 use std::path::Path;
 

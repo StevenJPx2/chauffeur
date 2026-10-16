@@ -286,7 +286,11 @@ dependencies = [
 name = "chauffeur-plugin-openai"
 version = "0.1.0"
 dependencies = [
+ "base64",
  "chauffeur-capability-model-router",
+ "chauffeur-core",
+ "reqwest",
+ "serde_json",
 ]
 
 [[package]]

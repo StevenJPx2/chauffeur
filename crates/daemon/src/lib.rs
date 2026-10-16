@@ -4,6 +4,7 @@ mod audit;
 mod engine;
 mod judge;
 mod learned;
+mod reasoning;
 mod scheduler;
 mod sourcefed;
 mod texts;
@@ -129,6 +130,7 @@ impl DaemonOptions {
 pub async fn serve(options: DaemonOptions) -> Result<(), String> {
     let address = options.address;
     let judge = JudgeConfig::from_env()?;
+    let system_two = reasoning::factory(&options.config_dir)?;
 
     // Without rules, no rulebook can run, so none is offered.
     let rulebooks = if options.disabled.iter().any(|id| id == "rules") {
@@ -150,7 +152,7 @@ pub async fn serve(options: DaemonOptions) -> Result<(), String> {
         config_dir: options.config_dir,
         skills_dir: options.skills_dir,
         judge,
-        system_two: None,
+        system_two: Some(system_two),
         idle_reminders: options.idle_reminders,
         sourcefed: options.sourcefed,
         disabled: options.disabled,
