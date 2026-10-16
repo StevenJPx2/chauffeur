@@ -7,6 +7,7 @@
 
 mod book;
 mod history;
+mod review;
 mod rule;
 mod rulebook;
 mod source;
@@ -15,10 +16,6 @@ mod texts;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
-use chauffeur_core::judge::{
-    self,
-    strategy::{self, Chained},
-};
 use chauffeur_core::{
     Effect, Judge, Judged, Question, QuestionKind, Signal, SignalKind, Situation, Todo, TodoState,
     TodoStatus, load_layered,
@@ -27,6 +24,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 
 use book::{Books, Notice, Running};
 use history::Histories;
+pub use review::{Review, ReviewVerdict, ReviewWhen};
 pub use rule::{Gate, History, Rule, SCHEMA_VERSION, SessionKind, Step, Then, Trigger};
 pub use rulebook::{
     Args, End, Input, InputSkills, RULEBOOK_SCHEMA_VERSION, Rulebook, TODOS, load_rulebooks,
@@ -243,21 +241,25 @@ impl Rules {
             .filter(|rule| self.may_fire(agent, rule, signal.at))
             .collect();
         let texts = &self.config.texts;
-        let candidates = rules.into_iter().map(|rule| Chained {
-            steps: rule
+        let judges = rules.into_iter().map(|rule| {
+            let steps = rule
                 .steps
                 .iter()
                 .map(|step| {
                     (
                         question(texts, &rule, step, &signal.kind, &tools),
-                        judge::Rule::yes(step.yes_at_or_above, step.minimum_confidence),
+                        step.clone(),
+                        step.review
+                            .as_ref()
+                            .filter(|review| review.enabled)
+                            .map(|review| review.request(&question_id(&rule, step), &signal.kind)),
                     )
                 })
-                .collect(),
-            key: rule,
+                .collect::<Vec<_>>();
+            review::chain(steps.into_iter()).map(move |held| held.then_some(rule))
         });
 
-        strategy::chain(candidates)
+        Judge::all(judges.collect()).map(|held| held.into_iter().flatten().collect())
     }
 
     fn record_fired(&mut self, agent: &str, rule: &Rule, at: u64) {

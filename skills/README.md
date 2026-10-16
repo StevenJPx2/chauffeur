@@ -110,6 +110,54 @@ every rule a session there would load.
 IDs are 1–64 characters of `[a-z0-9_-]`; questions and text are at most 1 KiB; a
 directory holds at most 64 rules, a project at most 32.
 
+### Optional System Two review
+
+A turn-end step may carry `review`. It is off unless `enabled` is true:
+
+```json
+"review": {
+  "enabled": true,
+  "when": { "unsure": true, "failed": true },
+  "profile": "completion-review",
+  "instructions": "Review whether {args} is achieved and checked. Give complete, continue, blocked or insufficient_evidence, with evidence citations and a short reason.",
+  "holds_on": "complete"
+}
+```
+
+The screen reads the step's existing yes threshold and confidence. A confident
+no has P(yes) ≤ `1 - yes_at_or_above` with the same minimum confidence; other
+valid answers are unsure. A failed classification is separate. Only outcomes
+selected by `when` escalate. Confident yes/no answers never call System Two.
+
+The rules capability owns a fixed schema:
+`{"verdict":"complete","cites":["summary"],"reason":"Checks passed"}`.
+`verdict` is `complete`, `continue`, `blocked`, or `insufficient_evidence`;
+`cites` contains at most four supplied evidence IDs, and `reason` at most 512
+characters. A holding verdict needs at least one valid citation and a nonblank
+reason. `holds_on` selects `complete`, `continue`, or `blocked`; a rule with
+`then.end: complete` must select `complete`.
+
+| System One outcome | Review state / result | Step holds |
+|---|---|---|
+| Confident yes | Any; no review requested | Yes |
+| Confident no | Any; no review requested | No |
+| Unsure or failed | Review absent, disabled, or outcome not selected | No |
+| Selected unsure or failed | Valid `holds_on` verdict, citations and reason | Yes |
+| Selected unsure or failed | Other verdict, insufficient evidence, or no citations | No |
+| Selected unsure or failed | Off/unavailable, refusal, timeout, invalid output, or other failure | No |
+
+Reviews request redacted recent `activity` plus the turn's `user_request` and
+`summary` when nonempty, and `todos` as JSON (including an empty list).
+Rulebook review instructions accept `{args}` and `{input}`. Instructions are
+1–4096 bytes; the engine rejects input beyond its 32 KiB reasoning budget.
+Evidence is untrusted data, and citations establish provenance, not correctness.
+
+Loading rejects a rule whose steps plus review blocks exceed two dependent
+rounds, including disabled blocks. A reviewed rule therefore has one screen
+and one possible reasoning round. Reviews do not change gates, delivery limits,
+priorities, pause behavior or continuation behavior. `blocked` does not itself
+pause a book; the configured rules decide its effects.
+
 ## Rulebooks
 
 A rulebook is a set of rules that stays off until the user starts it in a
@@ -169,6 +217,13 @@ the worktree (read from its Git root down, like project rules), only there.
   todos: a todo plugin does, and the goal book stays silent while a todo is
   open so the agent is not nudged twice. A goal without todos is asked once
   whether it needs a list.
+- **`/goal` completion review**: the shipped `goal-done` step has
+  `review.enabled: false`. To opt in, set it to `true` in the loaded
+  `rulebooks/goal.json`, enable System Two in `judge.json` (see
+  [judges](../docs/judges.md#system-two)), validate the book, then start it with
+  `/goal <objective>`. Running books keep their start-time snapshot. With System
+  Two off or unavailable, unsure/failed screens still do not hold, preserving
+  the System One completion decision. Open todos keep their deterministic veto.
 - After a rulebook resumes the agent, its turn-end rules wait until the agent
   calls a tool or the user writes, so a book cannot keep waking an agent that
   does nothing. Turn-end rules need `CHAUFFEUR_IDLE_STEERING=true`.

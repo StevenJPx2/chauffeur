@@ -88,12 +88,22 @@ fn print_rule(rule: &chauffeur_capability_rules::Rule) {
     );
 }
 
-/// Validate a permission contract, or a rule (one with `on`), and print what
+/// Validate a permission contract, rule or rulebook, and print what
 /// was accepted.
 fn validate_skill(path: &str) -> Result<(), String> {
     let bytes = read_bounded(path, MAX_SIGNAL_BYTES)?;
     let value: serde_json::Value =
         serde_json::from_slice(&bytes).map_err(|error| format!("{path}: {error}"))?;
+
+    if value.get("rules").is_some() {
+        let book = chauffeur_capability_rules::Rulebook::from_json(&bytes)
+            .map_err(|error| format!("{path}: {error}"))?;
+        println!("{}: {} rule(s)", book.id, book.rules.len());
+        for rule in &book.rules {
+            print_rule(rule);
+        }
+        return Ok(());
+    }
 
     if value.get("on").is_some() {
         let rule = chauffeur_capability_rules::Rule::from_json(&bytes)

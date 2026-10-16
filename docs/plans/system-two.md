@@ -1,9 +1,10 @@
 # System Two judgments
 
-Status: steps 1 to 4 of the implementation sequence are built: core requests,
+Status: steps 1 to 4 and the opt-in rule review in step 6 are built: core requests,
 composition and engine rounds, run-owned execution state, the daemon's
 scheduler and judge workers, and the `openai/codex` backend with profiles in
-`skills/config/judge.json`. System Two ships off, and no capability asks it yet.
+`skills/config/judge.json`. System Two and the goal's review route ship off.
+Step 5 covers audit and deadline propagation; live review rollout requires reviewed evidence.
 
 Chauffeur composes fast classification and LLM reasoning in the same `Judge<T>`
 state machine. Capabilities define judgments, provider plugins execute inference,
@@ -54,8 +55,8 @@ flowchart LR
 - The engine batches ready System One questions across capabilities and permits
   two dependent rounds per signal.
 - The provider plugins expose model tiers, exclusions and recommendations through
-  the model-router's `Provider` trait. They contain no inference transport or
-  credential management.
+  the model-router's `Provider` trait. That interface contains no inference
+  transport or credential management.
 - The engine holds up to 64 runs in flight, keyed by `RunId`, through
   `start`, `resume` and `cancel`; `begin` and `finish` drive one run at a time.
 - `crates/daemon/src/scheduler.rs` owns the engine on one thread and judges up
@@ -74,20 +75,16 @@ the execution tier:
 | System One classification | State and existing typed questions | Probability, choice or score answers |
 | System Two reasoning | Instructions, bounded evidence, output schema and profile | Structured verdict or an explicit failure |
 
-`Judge::ask` preserves its existing classification behavior. A proposed
-`Judge::reason` constructor adds reasoning steps. Both compose through the same
+`Judge::ask` preserves its existing classification behavior.
+`Judge::reason` adds reasoning steps. Both compose through the same
 `then`, `all` and `zip` operations.
 
-Illustrative proposed usage; `screen`, `review_request` and the decoder belong to
+Illustrative usage; `screen`, `review_request` and the decoder belong to
 the calling capability:
 
 ```rust
 screen.then(move |candidate| match candidate {
-    Some(candidate) => Judge::reason(
-        "completion-review",
-        review_request(candidate),
-        decode_review,
-    ),
+    Some(candidate) => Judge::reason(review_request(candidate), decode_review),
     None => Judge::done(Review::NotNeeded),
 })
 ```
@@ -201,7 +198,7 @@ background reviews and later host resumes are deferred.
 
 ### Budgets and host deadlines
 
-Shipped defaults live in a new `skills/config/judge.json`, layered with
+Shipped defaults live in `skills/config/judge.json`, layered with
 `~/.config/chauffeur/judge.json`. Prompts, schemas and execution settings are
 snapshotted for each run. Invalid reloads retain the last valid configuration.
 
@@ -262,6 +259,37 @@ Each audit attempt records:
 Successful verdict explanations remain optional and short. Raw provider
 recording is opt-in and receives the same redaction policy.
 
+## Rulebook completion review
+
+```mermaid
+flowchart TB
+    Turn["Turn end admitted by todo gate"] --> Screen["System One screen"]
+    Screen -->|"Configured unsure / failed"| Review["System Two review<br/>Named profile + tagged evidence"]
+    Screen -->|"Confident answer or review disabled"| Rules["Existing rule priorities"]
+    Review -->|"Validated holding verdict or non-holding outcome"| Rules
+    Rules --> Effects["Complete, pause, continue or remain quiet"]
+```
+
+| Owner | Responsibility |
+|---|---|
+| Rule JSON | Opt-in flag, escalation conditions, profile, instructions and holding verdict |
+| Rules capability | Fixed verdict schema, turn evidence and judgment composition |
+| Engine | Activity evidence, redaction, schema/citation validation and two-round limit |
+
+The shipped `goal-done` review is disabled. Its enabled route screens once and
+reviews selected unsure/failed screens once, requesting `activity` plus the
+turn's request, summary and todos. A matching `complete` verdict needs a valid
+citation and nonblank reason. Confident yes/no answers settle without review;
+an unavailable, failed, invalid or insufficient review does not hold. Existing
+todo gates and rule priorities determine the effects. Rule loading rejects
+chains whose steps plus review blocks exceed two rounds.
+
+The canonical [rule format](../../skills/README.md#optional-system-two-review)
+defines the schema and complete outcome table. Sixteen synthetic labeled cases
+and the [profile replay](../judges.md#opt-in-rulebook-completion-review) compare
+System One alone, screened review and direct review. Direct review is an
+evaluation variant; rule files expose the screened route.
+
 ## Implementation sequence
 
 1. **Core requests and composition:** extend `crates/core/src/contracts/` and
@@ -282,13 +310,11 @@ recording is opt-in and receives the same redaction policy.
    latency in core traces and the daemon audit. Add the optional deadline field
    to core RPC/client and OpenCode protocol translation, and cap each call by
    its signal's remaining time.
-6. **First integration:** add an opt-in rulebook completion review in
-   `capabilities/rules`, with its wording and schema in owner config. Run direct
-   System Two and System One → System Two variants against labeled cases before
-   enabling either in a live rulebook. The screened variant uses one classification
-   round and one reasoning round. Open todos keep their deterministic completion
-   veto; uncertain or failed reviews cannot complete the rulebook, and existing
-   pause/continuation priorities remain authoritative.
+6. **First integration — implemented:** `capabilities/rules` supports opt-in
+   screened reviews, with wording in rule JSON and a fixed capability-owned
+   verdict schema. Engine regressions cover conservative failures, todo gates,
+   priorities and load-time round budgets. The labeled profile replay compares
+   all three variants; live rulebook enablement requires reviewed outcome evidence.
 7. **Evaluation and documentation:** extend `bench/src/judges/` for mixed-tier
    trajectories and human-labeled verdicts. Update `docs/judges.md`,
    `docs/plans/judge.md` and `ARCHITECTURE.md` when the implementation lands.

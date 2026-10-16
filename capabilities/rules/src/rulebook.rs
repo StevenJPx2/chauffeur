@@ -1,6 +1,6 @@
 //! The rulebook format: a named set of rules the user starts in a session,
 //! with arguments, and stops again. Its rules use the rule format, with
-//! `{args}` and `{input}` in their questions and texts and `then.end` to
+//! `{args}` and `{input}` in questions, review instructions and texts, and `then.end` to
 //! finish the book. A shipped book may be scoped to folders; a project's own
 //! books live in its `.chauffeur/rulebooks/`.
 
@@ -174,6 +174,9 @@ impl Rulebook {
             .map(|mut rule| {
                 for step in &mut rule.steps {
                     step.question = fill(&step.question, args);
+                    if let Some(review) = &mut step.review {
+                        review.instructions = fill(&review.instructions, args);
+                    }
                 }
                 rule.then.text = fill(&rule.then.text, args);
 
