@@ -79,8 +79,9 @@ impl HttpClient {
         }
         if !status.is_success() {
             return Err(SystemOneError(format!(
-                "{} returned HTTP {status}",
-                self.name
+                "{} returned HTTP {status}{}",
+                self.name,
+                error_type(&bytes)
             )));
         }
 
@@ -116,6 +117,27 @@ impl HttpClient {
             eprintln!("chauffeur: record judgment to {}: {error}", path.display());
         }
     }
+}
+
+/// The provider's own reason, when it names one this file knows: `: 400 Bad
+/// Request: max_tokens_exceeded`. The list is an allowlist read off a live
+/// API, because a reply is never echoed otherwise: its text carries the
+/// context that was judged. Add a name here once a provider is seen to send it.
+fn error_type(bytes: &[u8]) -> String {
+    const KNOWN: &[&str] = &["max_tokens_exceeded", "context_length_exceeded"];
+
+    let body = serde_json::from_slice::<Value>(bytes).ok();
+    let named = body
+        .as_ref()
+        .and_then(|body| {
+            body.get("detail")
+                .and_then(|detail| detail.get("error_type"))
+                .or_else(|| body.get("error_type"))
+                .and_then(Value::as_str)
+        })
+        .filter(|reason| KNOWN.contains(reason));
+
+    named.map_or_else(String::new, |reason| format!(": {reason}"))
 }
 
 fn answers_json(answers: &[Answer]) -> Value {

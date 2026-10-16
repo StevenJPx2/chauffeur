@@ -12,6 +12,10 @@ use crate::template::Template;
 pub const MAX_ENTRIES: usize = 32;
 /// The most characters one clipped line may keep, whatever is configured.
 const MAX_KEPT_CHARS: usize = 2_048;
+/// The most characters the whole state may hold, whatever is configured. A
+/// provider counts the request's input against its own limit, and this is the
+/// ceiling that keeps one long prompt from asking past it.
+const MAX_STATE_CHARS: usize = 32_768;
 /// The shipped wording (`skills/config/situation.json`), compiled in.
 const SHIPPED: &str = include_str!("../../../../skills/config/situation.json");
 
@@ -56,6 +60,8 @@ pub struct SituationTexts {
     pub rulebook: Template,
     /// How much of each clipped line System One reads.
     pub clip: Clips,
+    /// The characters the whole state may hold, oldest entries dropped first.
+    pub max_chars: usize,
 }
 
 /// The characters of a whole line kept, its label included: the first `head`
@@ -67,8 +73,9 @@ pub struct Keep {
     pub tail: usize,
 }
 
-/// What each kind of clipped line keeps. Lines quoting the user are kept
-/// whole; the signal bounds them.
+/// What each kind of clipped line keeps. Lines quoting the user keep both
+/// ends, like a closing message: a request is 64 KiB at most, and the state is
+/// one bounded window.
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct Clips {
@@ -77,6 +84,9 @@ pub struct Clips {
     /// The agent's closing message, which often ends on a question the
     /// user's next message answers.
     pub turn_end: Keep,
+    /// User messages, permission requests, and rulebook commands, which carry
+    /// the user's own words.
+    pub quoted: Keep,
 }
 
 impl Keep {
@@ -189,6 +199,13 @@ impl SituationTexts {
 
         self.clip.line = self.clip.line.checked("clip.line")?;
         self.clip.turn_end = self.clip.turn_end.checked("clip.turn_end")?;
+        self.clip.quoted = self.clip.quoted.checked("clip.quoted")?;
+
+        if !(1..=MAX_STATE_CHARS).contains(&self.max_chars) {
+            return Err(format!(
+                "max_chars: the state must hold 1-{MAX_STATE_CHARS} characters"
+            ));
+        }
 
         Ok(self)
     }
@@ -222,12 +239,18 @@ impl Situation {
         }
 
         self.entries.push_back(if quotes_user(&signal.kind) {
-            line
+            texts.clip.quoted.apply(&line)
         } else if matches!(signal.kind, SignalKind::TurnEnd { .. }) {
             texts.clip.turn_end.apply(&line)
         } else {
             texts.clip.line.apply(&line)
         });
+
+        // A judgment is about the newest entries, so the oldest go first when
+        // the state outgrows its budget.
+        while self.entries.len() > 1 && self.held() > texts.max_chars {
+            self.entries.pop_front();
+        }
     }
 
     #[must_use]
@@ -235,18 +258,42 @@ impl Situation {
         self.last_at
     }
 
-    /// Prose rendering for System One: recent activity, oldest first.
+    /// The characters the entries hold, each with its bullet and newline.
+    fn held(&self) -> usize {
+        self.entries
+            .iter()
+            .map(|entry| entry.chars().count() + 3)
+            .sum()
+    }
+
+    /// Prose rendering for System One: recent activity, oldest first, newest
+    /// entries first within `budget`. The newest entry always survives.
     #[must_use]
-    pub fn render(&self, texts: &SituationTexts) -> String {
+    pub fn render(&self, texts: &SituationTexts, budget: usize) -> String {
         if self.entries.is_empty() {
             return texts.empty.render(&[]);
         }
 
-        let mut state = texts.header.render(&[]);
+        let header = texts.header.render(&[]);
+        let mut used = header.chars().count() + 1;
+        let mut kept: Vec<&String> = Vec::new();
+
+        for entry in self.entries.iter().rev() {
+            let cost = entry.chars().count() + 3;
+
+            if !kept.is_empty() && used + cost > budget {
+                break;
+            }
+
+            used += cost;
+            kept.push(entry);
+        }
+
+        let mut state = header;
 
         state.push('\n');
 
-        for entry in &self.entries {
+        for entry in kept.into_iter().rev() {
             state.push_str("- ");
             state.push_str(entry);
             state.push('\n');
@@ -370,8 +417,9 @@ fn describe_tool(texts: &SituationTexts, tool: &str, ok: bool, input: &str, erro
     line
 }
 
-/// Lines carrying the user's own words are kept whole; the signal bounds
-/// them. Lines about tools and models are clipped.
+/// Lines carrying the user's own words keep both ends, like a closing message:
+/// a prompt is 64 KiB at most and the state is one bounded window. Lines about
+/// tools and models keep the head only.
 fn quotes_user(kind: &SignalKind) -> bool {
     matches!(
         kind,
@@ -426,7 +474,9 @@ mod tests {
             &SituationTexts::default(),
         );
 
-        assert!(situation.render(&SituationTexts::default()).contains(
+        assert!(situation
+            .render(&SituationTexts::default(), usize::MAX)
+            .contains(
             "Agent asks to edit /w/README.md from the project /w. Its reason: update install (latest user request: please update README.md)"
         ));
     }
@@ -456,7 +506,7 @@ mod tests {
 
         assert!(
             situation
-                .render(&SituationTexts::default())
+                .render(&SituationTexts::default(), usize::MAX)
                 .contains(r#"Tool failed: edit {"path":"main.rs"} (error: permission denied)"#)
         );
     }
@@ -467,7 +517,7 @@ mod tests {
         let mut situation = Situation::default();
 
         assert_eq!(
-            situation.render(&texts),
+            situation.render(&texts, texts.max_chars),
             "No recent agent activity is recorded."
         );
         situation.record(&tool(1), &texts);
@@ -487,7 +537,7 @@ mod tests {
         );
 
         assert_eq!(
-            situation.render(&texts),
+            situation.render(&texts, texts.max_chars),
             "Recent agent activity, oldest first:\n- Ran tool tool-1.\n- Agent ended its turn: done\n"
         );
     }
@@ -513,7 +563,7 @@ mod tests {
             situation.record(&tool(n), &SituationTexts::default());
         }
 
-        let state = situation.render(&SituationTexts::default());
+        let state = situation.render(&SituationTexts::default(), usize::MAX);
 
         assert!(!state.contains("tool-4."));
         assert!(state.contains("tool-5."));
@@ -522,16 +572,16 @@ mod tests {
     }
 
     #[test]
-    fn user_words_stay_whole_while_tool_lines_are_clipped() {
+    fn user_words_keep_both_ends_while_tool_lines_keep_the_head() {
         let mut situation = Situation::default();
-        let words = format!("{} the end", "requirement ".repeat(100));
+        let words = format!("{} the end", "requirement ".repeat(200));
 
         situation.record(
             &Signal {
                 agent_id: "a".into(),
                 at: 1,
                 kind: SignalKind::UserMessage {
-                    text: words.clone(),
+                    text: words,
                     first_in_context: true,
                     skills: Vec::new(),
                     tools: Vec::new(),
@@ -548,10 +598,98 @@ mod tests {
         }
         situation.record(&long_tool, &SituationTexts::default());
 
-        let state = situation.render(&SituationTexts::default());
+        let state = situation.render(&SituationTexts::default(), usize::MAX);
 
-        assert!(state.contains(&format!("User: {words}")));
+        assert!(state.contains("User: requirement requirement"), "{state}");
+        assert!(state.contains(" … "), "{state}");
+        assert!(state.contains("the end\n"), "{state}");
         assert!(!state.contains(&"x".repeat(240)));
+    }
+
+    /// A prompt is 64 KiB at most, and a permission request quotes it whole:
+    /// the state would outgrow any provider's input limit on its own.
+    #[test]
+    fn a_long_prompt_cannot_fill_the_state() {
+        let texts = SituationTexts::default();
+        let prompt = format!("{} Shall I start on step 2?", "requirement ".repeat(6_000));
+        let mut situation = Situation::default();
+
+        for n in 0..MAX_ENTRIES {
+            situation.record(
+                &Signal {
+                    agent_id: "a".into(),
+                    at: n as u64,
+                    kind: SignalKind::PermissionRequest {
+                        action: "edit".into(),
+                        resources: vec![crate::signal::Resource {
+                            requested: "README.md".into(),
+                            resolved: "/w/README.md".into(),
+                        }],
+                        request: String::new(),
+                        workspace: "/w".into(),
+                        user_requests: vec![prompt.clone()],
+                        host_decision: crate::effect::PermissionDecision::Ask,
+                    },
+                },
+                &texts,
+            );
+        }
+
+        let state = situation.render(&texts, texts.max_chars);
+
+        assert!(
+            prompt.len() > texts.max_chars,
+            "the prompt is the long part"
+        );
+        assert!(
+            state.chars().count() <= texts.max_chars,
+            "{} characters",
+            state.chars().count()
+        );
+        assert!(state.contains("Shall I start on step 2?"), "{state}");
+        assert_eq!(
+            situation.entries.len(),
+            texts.max_chars / 1_664,
+            "only as many entries as fit"
+        );
+    }
+
+    #[test]
+    fn a_smaller_budget_drops_older_entries_and_keeps_the_newest() {
+        let texts = SituationTexts::default();
+        let mut situation = Situation::default();
+
+        for n in 0..8 {
+            situation.record(&tool(n), &texts);
+        }
+
+        let full = situation.render(&texts, texts.max_chars);
+        let trimmed = situation.render(&texts, 60);
+
+        assert!(full.contains("tool-0."));
+        assert!(!trimmed.contains("tool-0."));
+        assert!(trimmed.contains("tool-7."), "{trimmed}");
+        assert!(trimmed.chars().count() <= 60, "{}", trimmed.chars().count());
+
+        // The newest entry is the request being judged, so it survives any
+        // budget a round leaves it.
+        let alone = situation.render(&texts, 1);
+
+        assert!(alone.contains("tool-7."), "{alone}");
+        assert!(!alone.contains("tool-6."), "{alone}");
+    }
+
+    #[test]
+    fn a_state_budget_out_of_range_is_an_error() {
+        let path =
+            std::env::temp_dir().join(format!("chauffeur-state-{}.json", std::process::id()));
+
+        std::fs::write(&path, r#"{ "max_chars": 0 }"#).unwrap();
+
+        let error = SituationTexts::load(&path).unwrap_err();
+
+        assert!(error.contains("max_chars: the state must hold"), "{error}");
+        std::fs::remove_file(path).unwrap();
     }
 
     #[test]
@@ -580,7 +718,7 @@ mod tests {
             &texts,
         );
 
-        let state = situation.render(&texts);
+        let state = situation.render(&texts, usize::MAX);
 
         assert!(state.contains("Agent ended its turn: Step 1 is"), "{state}");
         assert!(state.contains(" … Should I start on step 2?"), "{state}");

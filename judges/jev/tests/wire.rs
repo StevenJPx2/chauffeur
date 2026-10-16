@@ -195,3 +195,43 @@ fn http_errors_and_mismatched_answers_fail() {
     assert!(client(base_url).ask("s", &questions()).is_err());
     server.join().expect("fixture");
 }
+
+#[test]
+fn a_rejected_request_names_the_providers_error_type_but_not_its_text() {
+    let (base_url, server) = serve(
+        "400 Bad Request",
+        r#"{"detail":{"error_type":"max_tokens_exceeded"}}"#,
+    );
+
+    let error = client(base_url).ask("s", &questions()).unwrap_err();
+
+    assert_eq!(
+        error.0,
+        "jev returned HTTP 400 Bad Request: max_tokens_exceeded"
+    );
+    server.join().expect("fixture");
+
+    // A reply with anything but a machine token in `error_type` says nothing
+    // worth keeping, and its text is never echoed.
+    let (base_url, server) = serve(
+        "402 Payment Required",
+        r#"{"detail":{"error_type":"do-not-log-response"}}"#,
+    );
+
+    let error = client(base_url).ask("s", &questions()).unwrap_err();
+
+    assert_eq!(error.0, "jev returned HTTP 402 Payment Required");
+    assert!(!error.0.contains("do-not-log-response"));
+    server.join().expect("fixture");
+
+    let (base_url, server) = serve(
+        "402 Payment Required",
+        r#"{"detail":{"message":"the prompt was over budget: sk-secret"}}"#,
+    );
+
+    let error = client(base_url).ask("s", &questions()).unwrap_err();
+
+    assert_eq!(error.0, "jev returned HTTP 402 Payment Required");
+    assert!(!error.0.contains("sk-secret"));
+    server.join().expect("fixture");
+}

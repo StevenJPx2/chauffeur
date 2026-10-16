@@ -18,6 +18,8 @@
   "rulebook": "User ran rulebook {rulebook} {command}: {args}",
   "clip": {
     "line": { "head": 240, "tail": 0 },
-    "turn_end": { "head": 80, "tail": 320 }
-  }
+    "turn_end": { "head": 80, "tail": 320 },
+    "quoted": { "head": 640, "tail": 1024 }
+  },
+  "max_chars": 16384
 }

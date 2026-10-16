@@ -21,6 +21,8 @@ pub const MAX_AGENTS: usize = 256;
 pub const MAX_ROUNDS: usize = 2;
 /// Signals in flight at once, at most; a host bounds its own below this.
 pub const MAX_RUNS: usize = 64;
+/// The state a round always keeps, however much its questions already ask.
+const MIN_STATE_CHARS: usize = 2_048;
 /// Bumped when the saved state's shape changes; older state is ignored.
 const STATE_VERSION: u32 = 1;
 
@@ -365,9 +367,10 @@ impl Engine {
 
         // One numbering across state and questions, so a value keeps its label.
         let mut masking = Masking::default();
-        let state = self
-            .redactor
-            .redact(&situation.render(&self.situation_texts), &mut masking);
+        let state = self.redactor.redact(
+            &situation.render(&self.situation_texts, self.state_budget(&questions)),
+            &mut masking,
+        );
         let mut questions = self.redacted(questions, &mut masking);
         let reasonings = self.reasonings(&asks, &state, &mut masking);
 
@@ -464,6 +467,20 @@ impl Engine {
         }
 
         reasonings
+    }
+
+    /// Characters the state may use this round: its own bound, less what the
+    /// questions already ask. One request counts against the provider's input
+    /// limit, so a round that asks at length gets a shorter window to be read
+    /// in. `MIN_STATE_CHARS` is always left, since the request being judged is
+    /// the newest entry.
+    fn state_budget(&self, questions: &[Question]) -> usize {
+        let asked: usize = questions.iter().map(asked_chars).sum();
+
+        self.situation_texts
+            .max_chars
+            .saturating_sub(asked)
+            .max(MIN_STATE_CHARS)
     }
 
     /// Questions with their text redacted: capability questions can quote
@@ -588,11 +605,14 @@ impl Engine {
             pending.asks = next;
             pending.round += 1;
             let mut masking = Masking::default();
+            let asked = self.namespaced(&pending.asks);
             let state = self.redactor.redact(
-                &pending.situation.render(&self.situation_texts),
+                &pending
+                    .situation
+                    .render(&self.situation_texts, self.state_budget(&asked)),
                 &mut masking,
             );
-            let questions = self.redacted(self.namespaced(&pending.asks), &mut masking);
+            let questions = self.redacted(asked, &mut masking);
             let reasonings = self.reasonings(&pending.asks, &state, &mut masking);
             pending.trace.questions.extend(
                 questions
@@ -807,6 +827,20 @@ fn checked_answers(run: &mut Run, result: Result<Vec<Answer>, String>) -> Option
     }
 }
 
+/// The characters one question spends in the request, its options included.
+fn asked_chars(question: &Question) -> usize {
+    let options: usize = match &question.kind {
+        QuestionKind::Choice { options } => options
+            .iter()
+            .map(|option| option.value.chars().count() + option.description.chars().count())
+            .sum(),
+        QuestionKind::Score { levels } => levels.iter().map(|level| level.chars().count()).sum(),
+        QuestionKind::Noul => 0,
+    };
+
+    question.id.chars().count() + question.instructions.chars().count() + options
+}
+
 /// Each of `run`'s reasonings with its outcome: a verdict checked against
 /// its request again, unavailable when none came, and traced. Outcomes for
 /// anything not asked are dropped.
@@ -974,6 +1008,95 @@ mod tests {
         assert_eq!(effects, vec![keep("one:a,b"), keep("two:a,b")]);
     }
 
+    /// One request counts against the provider's input limit, so a round that
+    /// asks at length leaves a shorter window of activity to read it in.
+    #[test]
+    fn a_round_that_asks_at_length_gets_a_shorter_state() {
+        struct Lengths(Arc<Mutex<Vec<usize>>>);
+
+        impl SystemOne for Lengths {
+            fn name(&self) -> &str {
+                "lengths"
+            }
+
+            fn ask(
+                &mut self,
+                state: &str,
+                questions: &[Question],
+            ) -> Result<Vec<Answer>, SystemOneError> {
+                self.0.lock().unwrap().push(state.len());
+
+                Ok(questions
+                    .iter()
+                    .map(|question| Answer {
+                        id: question.id.clone(),
+                        value: AnswerValue::Noul(0.9),
+                        confidence: None,
+                    })
+                    .collect())
+            }
+        }
+
+        struct Ask {
+            id: &'static str,
+            chars: usize,
+        }
+
+        impl Capability for Ask {
+            fn id(&self) -> &str {
+                self.id
+            }
+
+            fn start(&mut self, _: RunId, _: &Situation, _: &Signal) -> Plan {
+                Plan::Ask(vec![Question {
+                    id: "q".into(),
+                    instructions: "why ".repeat(self.chars),
+                    kind: QuestionKind::Noul,
+                }])
+            }
+
+            fn resume(&mut self, _: RunId, _: &Signal, _: &Round<'_>, _: usize) -> PipeStep {
+                PipeStep::Done(Vec::new())
+            }
+        }
+
+        fn state_len(id: &'static str, chars: usize) -> usize {
+            let seen = Arc::new(Mutex::new(Vec::new()));
+            let texts = SituationTexts {
+                max_chars: 8_000,
+                ..SituationTexts::default()
+            };
+            let mut engine = Engine::new(
+                Box::new(Lengths(Arc::clone(&seen))),
+                vec![Box::new(Ask { id, chars })],
+            )
+            .unwrap()
+            .with_situation_texts(texts);
+
+            for at in 1..=32 {
+                let mut signal = signal();
+                signal.at = at;
+
+                if let SignalKind::ToolResult { input, .. } = &mut signal.kind {
+                    *input = "x".repeat(1_000);
+                }
+
+                engine.record(&signal);
+            }
+
+            engine.ingest(&signal()).unwrap();
+
+            seen.lock().unwrap()[0]
+        }
+
+        let quiet = state_len("quiet", 10);
+        let loud = state_len("loud", 7_000);
+
+        assert!(quiet > 7_000, "{quiet} characters of activity");
+        assert!(loud <= MIN_STATE_CHARS, "{loud} characters");
+        assert!(loud < quiet / 2, "{loud} against {quiet}");
+    }
+
     #[test]
     fn classifier_failure_reaches_each_capability_posture() {
         let calls = Arc::new(Mutex::new(Vec::new()));
@@ -1011,8 +1134,8 @@ mod tests {
         after.load(saved.clone());
         let texts = SituationTexts::default();
         assert_eq!(
-            after.situations["agent"].render(&texts),
-            before.situations["agent"].render(&texts)
+            after.situations["agent"].render(&texts, texts.max_chars),
+            before.situations["agent"].render(&texts, texts.max_chars)
         );
 
         let mut stale = saved;
