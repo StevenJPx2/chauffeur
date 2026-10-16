@@ -8,7 +8,8 @@ opencode plugin add @fdcn/chauffeur
 ```
 
 No Rust, Node, clone, or symlinks. Every release is built, tested, and staged
-by CI from a tag; it goes public when you approve it with 2FA.
+by CI from a tag; it goes public when you approve it with 2FA. Homebrew is a
+second channel built from the same release; see [Homebrew](homebrew.md).
 
 ## Packages
 
@@ -93,8 +94,8 @@ approval:
    with the tag's version.
 3. **Stage** each package with `npm stage publish`, platform packages before
    the main one. Trusted publishing (OIDC) authenticates; npm adds provenance.
-4. **Release** on GitHub: the four binaries, `SHA256SUMS`, and the changelog
-   section.
+4. **Release** on GitHub: the four platform tarballs, `SHA256SUMS`, and the
+   changelog section; stable tags then update the Homebrew formula.
 
 You then approve the staged packages on npmjs.com with 2FA, platform packages
 first.
