@@ -25,6 +25,8 @@ afterEach(() => {
 /** A daemon that answers health checks and replies to signals with `reply`. */
 function daemon(reply: Reply | Response, observe: (budget: SignalBudget) => void = () => undefined): void {
   const server = Bun.serve({
+    // The client calls 127.0.0.1; binding it alone keeps the port ours.
+    hostname: "127.0.0.1",
     port: 0,
     fetch: async (request) => {
       const wire = await request.json()
@@ -72,6 +74,7 @@ test("an older strict daemon receives a signal without the deadline field", asyn
   const seen: unknown[] = []
 
   const server = Bun.serve({
+    hostname: "127.0.0.1",
     port: 0,
     fetch: async (request) => {
       const wire = await request.json()

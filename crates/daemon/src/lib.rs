@@ -10,6 +10,9 @@ mod sourcefed;
 mod texts;
 mod workers;
 
+#[cfg(test)]
+mod completion_review;
+
 pub use engine::EngineOptions;
 pub use judge::{JudgeConfig, SystemOneFactory};
 pub use scheduler::{EngineHandle, SystemTwoFactory};

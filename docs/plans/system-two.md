@@ -1,9 +1,10 @@
 # System Two judgments
 
-Status: implementation steps 1 to 5 are built. The daemon executes System Two
+Status: implementation steps 1 to 6 are built. The daemon executes System Two
 through profiles in `skills/config/judge.json`, records bounded attempt metadata,
-and propagates host deadlines through its workers.
-System Two ships off, and no capability asks it yet.
+and propagates host deadlines through its workers. Rules can escalate unsure or
+failed steps to an opt-in review; `/goal` ships one disabled. System Two and the
+goal's review ship off; live rollout requires reviewed outcome evidence.
 
 Chauffeur composes fast classification and LLM reasoning in the same `Judge<T>`
 state machine. Capabilities define judgments, provider plugins execute inference,
@@ -266,6 +267,37 @@ metadata survives malformed verdicts and refusals. Explanations remain optional
 and short; private reasoning and credentials are excluded. Queue-delay metrics,
 configuration generations and standalone cancellation records are deferred.
 
+## Rulebook completion review
+
+```mermaid
+flowchart TB
+    Turn["Turn end admitted by todo gate"] --> Screen["System One screen"]
+    Screen -->|"Configured unsure / failed"| Review["System Two review<br/>Named profile + tagged evidence"]
+    Screen -->|"Confident answer or review disabled"| Rules["Existing rule priorities"]
+    Review -->|"Validated holding verdict or non-holding outcome"| Rules
+    Rules --> Effects["Complete, pause, continue or remain quiet"]
+```
+
+| Owner | Responsibility |
+|---|---|
+| Rule JSON | Opt-in flag, escalation conditions, profile, instructions and holding verdict |
+| Rules capability | Fixed verdict schema, turn evidence and judgment composition |
+| Engine | Activity evidence, redaction, schema/citation validation and two-round limit |
+
+The shipped `goal-done` review is disabled. Its enabled route screens once and
+reviews selected unsure/failed screens once, requesting `activity` plus the
+turn's request, summary and todos. A matching `complete` verdict needs a valid
+citation and nonblank reason. Confident yes/no answers settle without review;
+an unavailable, failed, invalid or insufficient review does not hold. Existing
+todo gates and rule priorities determine the effects. Rule loading rejects
+chains whose steps plus review blocks exceed two rounds.
+
+The canonical [rule format](../../skills/README.md#optional-system-two-review)
+defines the schema and complete outcome table. Sixteen synthetic labeled cases
+and the [profile replay](../judges.md#opt-in-rulebook-completion-review) compare
+System One alone, screened review and direct review. Direct review is an
+evaluation variant; rule files expose the screened route.
+
 ## Implementation sequence
 
 1. **Core requests and composition:** extend `crates/core/src/contracts/` and
@@ -285,13 +317,11 @@ configuration generations and standalone cancellation records are deferred.
 5. **Audit and deadlines — built:** core traces and daemon audit retain execution
    metadata on verdicts and failures. Core RPC/client and OpenCode propagate
    optional host budgets; workers cap call timeouts and skip unusable budgets.
-6. **First integration:** add an opt-in rulebook completion review in
-   `capabilities/rules`, with its wording and schema in owner config. Run direct
-   System Two and System One → System Two variants against labeled cases before
-   enabling either in a live rulebook. The screened variant uses one classification
-   round and one reasoning round. Open todos keep their deterministic completion
-   veto; uncertain or failed reviews cannot complete the rulebook, and existing
-   pause/continuation priorities remain authoritative.
+6. **First integration — built:** `capabilities/rules` supports opt-in
+   screened reviews, with wording in rule JSON and a fixed capability-owned
+   verdict schema. Engine regressions cover conservative failures, todo gates,
+   priorities and load-time round budgets. The labeled profile replay compares
+   all three variants; live rulebook enablement requires reviewed outcome evidence.
 7. **Evaluation and documentation:** extend `bench/src/judges/` for mixed-tier
    trajectories and human-labeled verdicts. Update `docs/judges.md`,
    `docs/plans/judge.md` and `ARCHITECTURE.md` when the implementation lands.

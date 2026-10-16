@@ -139,6 +139,44 @@ omitted. A timed-out run retains settings for calls that started; a blocking
 provider call can still occupy its worker until its own timeout, and its late
 result is discarded.
 
+### Opt-in rulebook completion review
+
+The shipped goal's `goal-done` step has a disabled `review` block. Enabling
+System Two alone leaves `/goal` unchanged. Opting in also requires setting
+`review.enabled: true` in the loaded `rulebooks/goal.json` and starting the
+book. See the [rule review format and outcome table](../skills/README.md#optional-system-two-review).
+
+The route screens once with System One and reviews selected unsure/failed
+answers once with the named profile. A confident yes completes without review;
+a confident no cannot escalate. Only a cited `complete` verdict can turn an
+unsure/failed completion screen into a holding step. Unavailable execution
+preserves that screen's non-holding outcome. Todo gates and rule priorities
+remain authoritative.
+
+Sixteen synthetic labeled cases live in
+[`bench/judges/completion-review.json`](../bench/judges/completion-review.json).
+An ignored replay uses the real daemon profile registry, an isolated config
+under `target/`, and the same rule evidence and core validation:
+
+```sh
+cargo test -p chauffeur-daemon completion_review::completion_review_live --locked -- --ignored --nocapture
+```
+
+It requires `TYPESAFE_API_KEY` and a Codex login; it may refresh and write that
+login. It never contacts a running daemon or changes live Chauffeur config.
+Each case reports verdict, completion agreement and latency for System One
+alone, screen→review, and direct review, followed by p50/p95. The first two
+variants share one classification call; direct review makes its own profile
+call without classification I/O. All variants retain the todo veto. The corpus
+isolates `goal-done`; it does not score pause/continuation selection. These
+synthetic expectations need independent human review and broader trajectories
+before default enablement.
+
+The [single-pass evaluation report](../bench/judges/completion-review.md)
+records agreement, latency and an evidence limitation: recent activity does not
+retain successful tool-result output. A closing report can therefore remain
+insufficient to establish completion even when the scenario includes passing checks.
+
 ## Replay benchmark
 
 SubQ is included in `bench/judges.json`. Replay a redacted corpus recorded by

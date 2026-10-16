@@ -1,11 +1,12 @@
-//! The rule format: a trigger, a gate of exact facts, one or two ordered Jev
-//! judgments, and the context delivered once every judgment holds.
+//! The rule format: a trigger, exact gates, ordered classification steps with
+//! optional System Two review, and context once every step holds.
 
 use std::collections::HashSet;
 
 use chauffeur_core::{Delivery, TodoState};
 use serde::{Deserialize, Serialize};
 
+use crate::review::{Review, ReviewVerdict};
 use crate::rulebook::End;
 
 pub const SCHEMA_VERSION: u8 = 2;
@@ -139,6 +140,9 @@ pub struct Step {
     pub yes_at_or_above: f32,
     /// …and the answer is at least this confident.
     pub minimum_confidence: f32,
+    /// Review selected unsure or failed screens in the following round.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub review: Option<Review>,
 }
 
 /// The context a confirmed rule delivers.
@@ -311,7 +315,36 @@ impl Rule {
 
         let mut ids = HashSet::new();
 
+        let rounds = self.steps.len()
+            + self
+                .steps
+                .iter()
+                .filter(|step| step.review.is_some())
+                .count();
+        if rounds > chauffeur_core::engine::MAX_ROUNDS {
+            return Err(format!(
+                "{}: steps and reviews exceed the 2-round budget",
+                self.id
+            ));
+        }
+
         for step in &self.steps {
+            if let Some(review) = &step.review {
+                review
+                    .check()
+                    .map_err(|error| format!("{}: step {}: {error}", self.id, step.id))?;
+                if self.on != Trigger::TurnEnd {
+                    return Err(format!("{}: review applies only to turn_end", self.id));
+                }
+                if self.then.end == Some(End::Complete)
+                    && review.holds_on != ReviewVerdict::Complete
+                {
+                    return Err(format!(
+                        "{}: completion review must hold on complete",
+                        self.id
+                    ));
+                }
+            }
             if !identifier(&step.id) || !ids.insert(&step.id) {
                 return Err(format!(
                     "{}: step id {:?} is invalid or repeated",
