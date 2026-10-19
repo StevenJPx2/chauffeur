@@ -613,7 +613,8 @@ impl Judged for ModelRouter {
             | SignalKind::IntegrationEvent { .. }
             | SignalKind::AgentRequest { .. }
             | SignalKind::TurnEnd { .. }
-            | SignalKind::Rulebook { .. } => None,
+            | SignalKind::Rulebook { .. }
+            | SignalKind::SkillReview { .. } => None,
         }
     }
 

@@ -410,7 +410,7 @@ fn metadata_accepts_crlf_quoted_and_folded_descriptions_but_rejects_duplicates()
 }
 
 /// Kills a whole process group on drop, including after a failed assertion.
-struct KillGroup(u32);
+pub(super) struct KillGroup(u32);
 
 impl Drop for KillGroup {
     fn drop(&mut self) {
@@ -420,7 +420,7 @@ impl Drop for KillGroup {
     }
 }
 
-async fn git(repository: &Path, args: &[&str]) -> String {
+pub(super) async fn git(repository: &Path, args: &[&str]) -> String {
     let output = Command::new("git")
         .args([
             "-c",
@@ -460,7 +460,7 @@ async fn present(repository: &Path, object: &str) -> bool {
 }
 
 /// A `git-daemon` serving `root`, counting connections.
-async fn serve_git(
+pub(super) async fn serve_git(
     root: &Path,
 ) -> (
     u16,

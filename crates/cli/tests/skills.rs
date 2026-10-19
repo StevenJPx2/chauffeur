@@ -21,8 +21,12 @@ struct Fixture {
 
 impl Fixture {
     fn new() -> Self {
-        let root =
-            std::env::temp_dir().join(format!("chauffeur-skills-rpc-{}", std::process::id()));
+        static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let root = std::env::temp_dir().join(format!(
+            "chauffeur-skills-rpc-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        ));
         std::fs::create_dir_all(root.join("config")).unwrap();
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let source = format!("http://{}/", listener.local_addr().unwrap());
@@ -190,6 +194,52 @@ fn respond(mut stream: TcpStream) {
     );
 
     stream.write_all(response.as_bytes()).unwrap();
+}
+
+#[tokio::test]
+async fn the_daemon_reviews_a_skill_and_answers_with_a_verdict() {
+    let mut fixture = Fixture::new();
+    let address = fixture.start();
+    let client = DaemonClient::new(&address, None).unwrap();
+
+    for _ in 0..60 {
+        if client.health().await.is_ok() {
+            break;
+        }
+
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+
+    let effects = client
+        .signal_with_deadline(
+            Signal {
+                agent_id: "skill-review:test:0".into(),
+                at: 1,
+                kind: SignalKind::SkillReview {
+                    name: "deploy".into(),
+                    source: "https://github.com/o/r.git skills/deploy".into(),
+                    provenance: "Author: Someone.".into(),
+                    instructions: "---\nname: deploy\n---\nRun the project's tests.".into(),
+                    files: vec![chauffeur_core::SkillFile {
+                        path: "scripts/test.sh".into(),
+                        content: Some("npm test".into()),
+                    }],
+                },
+            },
+            Some(14_150),
+        )
+        .await
+        .unwrap();
+
+    // The fixture's judge answers every question with a confident yes.
+    assert!(
+        matches!(
+            effects.as_slice(),
+            [Effect::SkillVerdict { agent_id, safety: chauffeur_core::SkillSafety::Safe, judge, .. }]
+                if agent_id == "skill-review:test:0" && judge == "system_one"
+        ),
+        "{effects:?}"
+    );
 }
 
 #[tokio::test]

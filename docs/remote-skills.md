@@ -63,13 +63,36 @@ Skilld's patterns found in its files, then adds it to `skill-sources.json`:
 - A behavior Skilld marks `ask` (running downloaded code, root, credentials,
   destructive commands, hidden text) stops approval until you name it with
   `--allow ID`. An empty list proves nothing.
-- `--dry-run` shows the change; `--json` prints it for scripts.
+- Chauffeur's judges review each skill first (below). An unsafe verdict stops
+  approval unless you pass `--accept-risk`; no verdict stops it unless you
+  pass `--unvetted`.
+- `--dry-run` shows the change and the reviews; `--json` prints them for scripts.
 
 Approved skills are fetched from GitHub like any other source; Skilld is never
-asked during a prompt. The source follows the default branch, and the reviewed
-commit is only shown. Approval rewrites the file with one source per line,
-keeping every setting, and writes through a symlink. `SKILLD_API_URL` points
-at another Skilld origin.
+asked during a prompt. The source follows the default branch; later revisions
+are not reviewed again yet. Approval rewrites the file with one source per
+line, keeping every setting, and writes through a symlink. `SKILLD_API_URL`
+points at another Skilld origin.
+
+### The safety review
+
+Approval fetches the skill with Git at the commit Skilld recorded: its
+`SKILL.md` and its text files, scripts first, up to 16 KiB each and 48 KiB in
+all. Binary, larger, and later files are named but not shown. The daemon then
+judges it as a `skill_review` signal:
+
+1. System One answers one question over the whole skill: is it safe for an
+   agent to follow? A confident yes (`safe`) or no (`unsafe_at`) settles it.
+   System One can only clear a skill it saw whole.
+2. An unsure or failed answer, or a skill partly shown, goes to System Two's
+   `skill-review` profile, within the 32 KiB review budget. Its verdict is
+   `safe`, `unsafe` with cited concerns, or `insufficient_evidence`.
+3. A review that is off, fails, or cannot tell gives no verdict, which is
+   never read as safe.
+
+Bars, wording, and whether to review live in `skill-review.json`; the profile
+in `judge.json`, where System Two must be enabled. Each review is in the audit
+log. A daemon that is not running gives no verdict.
 
 ### Your descriptions
 

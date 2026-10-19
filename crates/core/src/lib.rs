@@ -27,14 +27,15 @@ pub use capability::{Capability, Inference, PipeStep, Plan, Round, RunId};
 #[cfg(feature = "client")]
 pub use client::{DEFAULT_DAEMON_URL, DaemonClient};
 pub use config::{load_config, load_layered, read_json_files};
-pub use effect::{Delivery, Effect, PermissionDecision};
+pub use effect::{Delivery, Effect, PermissionDecision, SkillSafety};
 pub use engine::{Engine, Step};
 pub use judge::{Confidence, Judge, Judged, Judging, Pick, Rule, Threshold};
 pub use protocol::*;
 pub use redact::{LearnedShapes, Prefix, RedactionConfig, Redactor, Shape, redact_secrets};
 pub use signal::{
     AvailableModel, CatalogEntry, CodeModeNamespace, MAX_PROMPT_BYTES, MAX_TEXT_BYTES, MAX_TODOS,
-    ModelRef, Resource, RulebookCommand, Signal, SignalKind, Todo, TodoState, TodoStatus,
+    ModelRef, Resource, RulebookCommand, Signal, SignalKind, SkillFile, Todo, TodoState,
+    TodoStatus,
 };
 pub use situation::{Situation, SituationTexts};
 pub use system_one::{

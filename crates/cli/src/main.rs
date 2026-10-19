@@ -89,7 +89,10 @@ async fn skill(args: &[String]) -> Result<(), String> {
 
             Ok(())
         }
-        _ => Err("usage: chauffeur skill validate PATH | validate-project WORKSPACE | discover WORDS... [--limit N] [--json] | approve OWNER/REPOSITORY[/SKILL] [--allow ID]... [--dry-run] [--json]".into()),
+        _ => Err(format!(
+            "usage: chauffeur skill validate PATH | validate-project WORKSPACE | discover WORDS... [--limit N] [--json] | approve {}",
+            discover::APPROVE_USAGE
+        )),
     }
 }
 
@@ -166,7 +169,7 @@ fn read_bounded(path: &str, limit: usize) -> Result<Vec<u8>, String> {
     Ok(bytes)
 }
 
-fn client() -> Result<DaemonClient, String> {
+pub(crate) fn client() -> Result<DaemonClient, String> {
     let url = std::env::var("CHAUFFEUR_DAEMON_URL").unwrap_or_else(|_| DEFAULT_DAEMON_URL.into());
     let token = std::env::var("CHAUFFEUR_DAEMON_TOKEN").ok();
 

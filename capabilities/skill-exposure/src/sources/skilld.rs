@@ -10,6 +10,8 @@ use reqwest::Url;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+use chauffeur_core::signal::MAX_SKILL_FILES;
+
 use super::{SourceError, valid_path};
 
 const DEFAULT_ORIGIN: &str = "https://skilld.dev";
@@ -24,7 +26,7 @@ const MAX_TEXT_CHARS: usize = 500;
 
 #[derive(Debug, Error)]
 pub enum DiscoveryError {
-    #[error("Skilld request failed: {0}")]
+    #[error("request failed: {0}")]
     Http(#[from] reqwest::Error),
     #[error("Skilld answered {status} {code}: {detail}")]
     Api {
@@ -160,6 +162,14 @@ pub struct Candidate {
     pub tags: Vec<String>,
     pub page: String,
     pub behaviors: Vec<Behavior>,
+    /// Every file besides `SKILL.md`, relative to `dir`.
+    pub files: Vec<CandidateFile>,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+pub struct CandidateFile {
+    pub path: String,
+    pub size: u64,
 }
 
 #[derive(Deserialize)]
@@ -203,6 +213,15 @@ struct SkillAnswer {
     page_url: String,
     #[serde(default)]
     behaviors: Vec<BehaviorAnswer>,
+    #[serde(default)]
+    files: Vec<FileAnswer>,
+}
+
+#[derive(Deserialize)]
+struct FileAnswer {
+    path: String,
+    #[serde(default)]
+    size: u64,
 }
 
 #[derive(Deserialize)]
@@ -327,6 +346,24 @@ impl Candidate {
                     .collect(),
             })
             .collect();
+        let mut files: Vec<CandidateFile> = Vec::new();
+
+        for file in &answer.files {
+            if file.path == "SKILL.md" {
+                continue;
+            }
+
+            if !valid_path(&file.path) || files.len() == MAX_SKILL_FILES {
+                return Err(invalid(format!(
+                    "{selector}: Skilld lists files a review cannot follow"
+                )));
+            }
+
+            files.push(CandidateFile {
+                path: file.path.clone(),
+                size: file.size,
+            });
+        }
 
         Ok(Self {
             selector: selector.to_string(),
@@ -343,6 +380,7 @@ impl Candidate {
             tags: answer.tags.iter().take(16).map(|tag| clean(tag)).collect(),
             page: clean(&answer.page_url),
             behaviors,
+            files,
         })
     }
 }
@@ -385,9 +423,28 @@ fn skill_dir(path: &str) -> Option<String> {
         .map(Into::into)
 }
 
+#[derive(Clone)]
 pub struct SkilldClient {
     origin: Url,
     http: reqwest::Client,
+}
+
+fn checked_origin(text: &str, what: &str) -> Result<Url, DiscoveryError> {
+    let origin = Url::parse(text).map_err(|_| invalid(format!("invalid {what} origin")))?;
+    let loopback = matches!(origin.host_str(), Some("localhost" | "127.0.0.1" | "[::1]"));
+
+    if !(origin.scheme() == "https" || (loopback && origin.scheme() == "http"))
+        || origin.path() != "/"
+        || origin.query().is_some()
+        || !origin.username().is_empty()
+        || origin.password().is_some()
+    {
+        return Err(invalid(format!(
+            "the {what} origin must be an HTTPS origin, or HTTP on loopback"
+        )));
+    }
+
+    Ok(origin)
 }
 
 impl SkilldClient {
@@ -402,20 +459,7 @@ impl SkilldClient {
     /// # Errors
     /// Returns an error unless `origin` is HTTPS, or HTTP on loopback.
     pub fn new(origin: &str) -> Result<Self, DiscoveryError> {
-        let origin = Url::parse(origin).map_err(|_| invalid("invalid Skilld origin"))?;
-        let loopback = matches!(origin.host_str(), Some("localhost" | "127.0.0.1" | "[::1]"));
-
-        if !(origin.scheme() == "https" || (loopback && origin.scheme() == "http"))
-            || origin.path() != "/"
-            || origin.query().is_some()
-            || !origin.username().is_empty()
-            || origin.password().is_some()
-        {
-            return Err(invalid(
-                "the Skilld origin must be an HTTPS origin, or HTTP on loopback",
-            ));
-        }
-
+        let origin = checked_origin(origin, "Skilld")?;
         let http = reqwest::Client::builder()
             .redirect(reqwest::redirect::Policy::none())
             .timeout(Duration::from_secs(10))

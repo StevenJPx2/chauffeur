@@ -7,6 +7,7 @@ mod git;
 mod http;
 mod model;
 mod parse;
+mod review;
 mod skilld;
 mod store;
 
@@ -15,9 +16,12 @@ mod discovery_tests;
 #[cfg(test)]
 mod tests;
 
-pub use approve::{Approval, Change, approve, read_config, write_config};
+pub use approve::{Approval, Change, Consent, approve, read_config, write_config};
 pub use model::{Source, SourcesConfig};
-pub use skilld::{Behavior, Candidate, DiscoveryError, Found, Selector, SkilldClient, Tier};
+pub use review::{Gathered, Review, gather, read_verdict, review_signal};
+pub use skilld::{
+    Behavior, Candidate, CandidateFile, DiscoveryError, Found, Selector, SkilldClient, Tier,
+};
 pub use store::SourceStore;
 
 use serde::{Deserialize, Serialize};

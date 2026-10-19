@@ -1,7 +1,8 @@
 # Skill discovery through Skilld
 
-Status: first cut built. Search and approval run from the CLI; dependency
-suggestions and host surfaces are deferred.
+Status: built. Search, judged review, and approval run from the CLI.
+Re-reviewing new upstream revisions, dependency suggestions, and host surfaces
+are deferred.
 
 ## Decision
 
@@ -29,6 +30,30 @@ shows the change without writing.
 One-skill approval records the skill's exact directory. Repository approval
 records the deepest folder that holds all of its listed skills, and so follows
 future skills published there.
+
+## Safety review
+
+```mermaid
+flowchart LR
+    Fetch["Git fetch at Skilld's commit<br/>SKILL.md + text files"] --> One["System One<br/>Is it safe to follow?"]
+    One -->|"confident, seen whole"| Verdict["safe / unsafe"]
+    One -->|"unsure, failed, or partly shown"| Two["System Two review<br/>skill-review profile"]
+    Two --> Verdict2["safe / unsafe with citations /<br/>insufficient evidence"]
+```
+
+| Component | Responsibility |
+|---|---|
+| `SignalKind::SkillReview` | Carries the skill to the daemon; never enters an agent's situation |
+| `capabilities/skill-review` | Question, escalation, evidence within the 32 KiB budget, verdict rules |
+| `Effect::SkillVerdict` | `safe`, `unsafe`, or `undetermined`, the judge, reason, and concerns |
+| `skill-exposure` sources | Gathers files with Git; turns verdicts into refusals |
+
+| Concern | Decision |
+|---|---|
+| Unsafe verdict | Refuse; `--accept-risk` overrides |
+| No verdict | Refuse; `--unvetted` overrides. Off, failed, or unsure-without-review never pass |
+| Partial content | System One cannot clear it; System Two is told what was not shown |
+| Upstream changes | Not yet re-reviewed: the daemon should review each new revision before exposing it |
 
 ## Skilld interface
 
@@ -63,7 +88,7 @@ The file is rewritten whole and atomically; its content, including
 | Privacy | Send only the typed search terms or the named selector |
 | Trust | Approval is required to add a source; nothing from Skilld executes |
 | Updates | Approved sources follow the default branch, like hand-written ones; the reviewed commit is printed |
-| Verification | Chauffeur fetches from Git directly, so Skilld's artifact attestation does not apply |
+| Verification | Chauffeur fetches from Git directly, so Skilld's artifact attestation does not apply; the judges review the fetched bytes |
 | Compatibility | Skilld carries no version-compatibility data; tags and last push are shown instead |
 | Failure | A Skilld failure changes nothing; approved sources keep working |
 
@@ -81,6 +106,11 @@ The file is rewritten whole and atomically; its content, including
    fake API.
 5. Docs: `docs/remote-skills.md` and the `chauffeur` skill.
 
-Deferred: suggestions from project dependencies (Skilld has no such
+6. Safety review: `capabilities/skill-review`, the `SkillReview` signal and
+   `SkillVerdict` effect in `crates/core`, the `skill-review` profile in
+   `skills/config/judge.json`, Git gathering in `sources/review.rs`.
+
+Deferred: daemon re-review of each new revision of an approved source;
+suggestions from project dependencies (Skilld has no such
 interface, so Chauffeur would build search terms itself), and host-adapter
 surfaces.

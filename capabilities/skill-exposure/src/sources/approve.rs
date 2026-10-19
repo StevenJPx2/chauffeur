@@ -7,7 +7,10 @@ use std::path::Path;
 
 use serde::Serialize;
 
+use chauffeur_core::SkillSafety;
+
 use super::model::{MAX_PATHS, MAX_SOURCES, valid_name};
+use super::review::Review;
 use super::skilld::{Candidate, DiscoveryError, Selector, Tier};
 use super::{MAX_CONFIG, Source, SourcesConfig};
 
@@ -22,8 +25,19 @@ pub enum Change {
     Covered { source: String },
 }
 
+/// What the user accepted beyond a clean approval.
+#[derive(Clone, Debug, Default)]
+pub struct Consent {
+    /// `ask` behaviors Skilld flagged that the user allows.
+    pub allow: Vec<String>,
+    /// Add skills the judges found unsafe.
+    pub accept_risk: bool,
+    /// Add skills no judge reached a verdict on.
+    pub unvetted: bool,
+}
+
 /// What approving a selector would do. Nothing is written until the caller
-/// passes `config` to [`write_config`], and only when `blocked` is empty.
+/// passes `config` to [`write_config`], and only when [`Approval::writes`].
 #[derive(Clone, Debug, Serialize)]
 pub struct Approval {
     pub selector: String,
@@ -32,8 +46,12 @@ pub struct Approval {
     /// holding every skill in the repository, which includes future ones.
     pub dir: String,
     pub skills: Vec<Candidate>,
+    /// Each skill's review, in the order of `skills`.
+    pub reviews: Vec<Review>,
     /// `ask` behaviors the user has not allowed.
     pub blocked: Vec<String>,
+    /// Why the judges' verdicts stop this approval, each naming its override.
+    pub refused: Vec<String>,
     pub change: Change,
     #[serde(skip)]
     pub config: SourcesConfig,
@@ -41,11 +59,24 @@ pub struct Approval {
 
 impl Approval {
     pub fn writes(&self) -> bool {
-        self.blocked.is_empty() && !matches!(self.change, Change::Covered { .. })
+        self.blocked.is_empty()
+            && self.refused.is_empty()
+            && !matches!(self.change, Change::Covered { .. })
     }
 }
 
-/// Decide the change approving `candidates` makes to `config`.
+/// Selectors of the reviewed skills judged `safety`.
+fn judged(candidates: &[Candidate], reviews: &[Review], safety: SkillSafety) -> Vec<String> {
+    candidates
+        .iter()
+        .zip(reviews)
+        .filter(|(_, review)| review.safety == safety)
+        .map(|(candidate, _)| candidate.selector.clone())
+        .collect()
+}
+
+/// Decide the change approving `candidates` makes to `config`, held to the
+/// judges' `reviews` (in the same order; a missing review is no verdict).
 ///
 /// # Errors
 /// Returns mixed repositories, or a change that would exceed the source limits.
@@ -53,8 +84,10 @@ pub fn approve(
     selector: &Selector,
     candidates: Vec<Candidate>,
     config: &SourcesConfig,
-    allow: &[String],
+    consent: &Consent,
+    reviews: &[Review],
 ) -> Result<Approval, DiscoveryError> {
+    let allow = &consent.allow;
     let Some(first) = candidates.first() else {
         return Err(DiscoveryError::Invalid(format!(
             "{selector} names no skills"
@@ -87,12 +120,40 @@ pub fn approve(
 
     config = config.check()?;
 
+    let reviews: Vec<Review> = (0..candidates.len())
+        .map(|index| {
+            reviews
+                .get(index)
+                .cloned()
+                .unwrap_or_else(|| Review::undetermined("not reviewed"))
+        })
+        .collect();
+    let mut refused = Vec::new();
+    let unsafe_ = judged(&candidates, &reviews, SkillSafety::Unsafe);
+    let unvetted = judged(&candidates, &reviews, SkillSafety::Undetermined);
+
+    if !unsafe_.is_empty() && !consent.accept_risk {
+        refused.push(format!(
+            "the judges found {} unsafe; --accept-risk adds it anyway",
+            unsafe_.join(", ")
+        ));
+    }
+
+    if !unvetted.is_empty() && !consent.unvetted {
+        refused.push(format!(
+            "no judge reached a verdict on {}; --unvetted adds it anyway",
+            unvetted.join(", ")
+        ));
+    }
+
     Ok(Approval {
         selector: selector.to_string(),
         url,
         dir,
         skills: candidates,
+        reviews,
         blocked: blocked.into_iter().collect(),
+        refused,
         change,
         config,
     })

@@ -14,6 +14,7 @@ use chauffeur_capability_rules::{
     Rulebook, Rules, RulesConfig, Trigger, load_dirs, load_rulebooks, rulebooks_for,
 };
 use chauffeur_capability_skill_exposure::{SkillExposure, SkillExposureConfig};
+use chauffeur_capability_skill_review::{SkillReview, SkillReviewConfig};
 use chauffeur_capability_tool_exposure::{ToolExposure, ToolExposureConfig};
 use chauffeur_core::{
     Backstop, Capability, Engine, Judging, LearnedShapes, LearningConfig, RedactionConfig,
@@ -202,12 +203,15 @@ fn capabilities(
             idle_reminders,
         );
     let gate = EventGateConfig::load(&config("event-gate.json"))?;
+    let review =
+        SkillReview::default().with_config(SkillReviewConfig::load(&config("skill-review.json"))?);
     let mut capabilities: Vec<Box<dyn Capability>> = vec![
         Box::new(Judging::new(router)),
         Box::new(Judging::new(skills)),
         Box::new(Judging::new(tools)),
         Box::new(permission),
         Box::new(Judging::new(rules)),
+        Box::new(Judging::new(review)),
     ];
 
     match sourcefed {

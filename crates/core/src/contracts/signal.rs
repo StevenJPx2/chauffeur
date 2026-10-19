@@ -285,6 +285,34 @@ pub enum SignalKind {
         #[serde(default)]
         monitor: String,
     },
+    /// Someone asks, before adding a skill, whether agents can safely follow
+    /// it. Not an agent's activity: nothing of it enters the situation.
+    SkillReview {
+        name: String,
+        /// Where it is published, such as a repository and folder.
+        source: String,
+        /// What is known of its origin and any flags a registry raised.
+        #[serde(default)]
+        provenance: String,
+        /// Its `SKILL.md`, in full.
+        instructions: String,
+        /// Every other file it carries.
+        #[serde(default)]
+        files: Vec<SkillFile>,
+    },
+}
+
+/// Files one reviewed skill may list; their contents share one budget.
+pub const MAX_SKILL_FILES: usize = 256;
+
+/// A file a reviewed skill carries, with its text when the host could read it.
+#[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct SkillFile {
+    pub path: String,
+    /// `None` for a binary, oversized, or unreadable file.
+    #[serde(default)]
+    pub content: Option<String>,
 }
 
 /// What the user asked of a rulebook.
@@ -401,8 +429,53 @@ impl SignalKind {
                 validate_permission_lists(resources, user_requests)
             }
             SignalKind::UserMessage { .. } => validate_user_message(self),
+            SignalKind::SkillReview {
+                name,
+                source,
+                provenance,
+                instructions,
+                files,
+            } => validate_skill_review(name, source, provenance, instructions, files),
         }
     }
+}
+
+fn validate_skill_review(
+    name: &str,
+    source: &str,
+    provenance: &str,
+    instructions: &str,
+    files: &[SkillFile],
+) -> Result<(), String> {
+    if name.trim().is_empty() || instructions.trim().is_empty() {
+        return Err("a skill review needs the skill's name and instructions".into());
+    }
+
+    bounded(name, "skill name")?;
+    bounded(source, "skill source")?;
+    prompt_bounded(provenance, "skill provenance")?;
+    prompt_bounded(instructions, "skill instructions")?;
+
+    if files.len() > MAX_SKILL_FILES {
+        return Err(format!(
+            "a skill review lists at most {MAX_SKILL_FILES} files"
+        ));
+    }
+
+    let mut content = 0_usize;
+
+    for file in files {
+        bounded(&file.path, "skill file path")?;
+        content += file.content.as_ref().map_or(0, String::len);
+    }
+
+    if content > MAX_PROMPT_BYTES {
+        return Err(format!(
+            "a skill review's file contents exceed {MAX_PROMPT_BYTES} bytes"
+        ));
+    }
+
+    Ok(())
 }
 
 /// Hosts that predate `host_decision` sent only requests they would ask about

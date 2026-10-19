@@ -10,6 +10,7 @@ members = [
   "plugins/openai",
   "capabilities/model-router",
   "capabilities/skill-exposure",
+  "capabilities/skill-review",
   "capabilities/tool-exposure",
   "capabilities/permission",
   "capabilities/rules",
@@ -39,6 +40,7 @@ chauffeur-plugin-anthropic = { path = "plugins/anthropic" }
 chauffeur-plugin-openai = { path = "plugins/openai" }
 chauffeur-capability-model-router = { path = "capabilities/model-router" }
 chauffeur-capability-skill-exposure = { path = "capabilities/skill-exposure" }
+chauffeur-capability-skill-review = { path = "capabilities/skill-review" }
 chauffeur-capability-tool-exposure = { path = "capabilities/tool-exposure" }
 chauffeur-capability-permission = { path = "capabilities/permission" }
 chauffeur-capability-rules = { path = "capabilities/rules" }

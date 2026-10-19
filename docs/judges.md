@@ -96,8 +96,9 @@ general-purpose LLM. It ships off. Each reasoning names a profile in
 - the model, its reasoning effort, and output limit;
 - a timeout for each call.
 
-The shipped `completion-review` profile uses GPT-6 Luna through the
-`openai/codex` backend. That backend uses your ChatGPT subscription through
+The shipped `completion-review` and `skill-review` profiles use GPT-6 Luna
+through the `openai/codex` backend; `skill-review` reviews a skill before
+`chauffeur skill approve` adds it (see [remote skills](remote-skills.md#the-safety-review)). That backend uses your ChatGPT subscription through
 the Codex CLI's login:
 
 - It reads `$CODEX_HOME/auth.json`, else `~/.codex/auth.json`. Log in with

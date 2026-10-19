@@ -153,7 +153,7 @@ impl Repository<'_> {
     }
 
     /// The contents of `objects`, in order, fetched first in one request when missing.
-    async fn blobs(&self, objects: &[&str]) -> Result<Vec<Vec<u8>>, SourceError> {
+    pub(super) async fn blobs(&self, objects: &[&str]) -> Result<Vec<Vec<u8>>, SourceError> {
         if objects.is_empty() {
             return Ok(Vec::new());
         }
@@ -292,6 +292,51 @@ impl Repository<'_> {
             validator: Validator::default(),
             skills,
         }))
+    }
+
+    /// The regular files under `dir` at `commit`, relative to `dir`, with
+    /// their blob IDs. Only trees are fetched; read contents with [`Self::blobs`].
+    pub(super) async fn files_at(
+        &self,
+        url: &str,
+        commit: &str,
+        dir: &str,
+    ) -> Result<Vec<(String, String)>, SourceError> {
+        if !is_commit(commit) {
+            return Err(SourceError::Invalid("not a full commit ID"));
+        }
+
+        self.ensure(url).await?;
+        self.run(&[
+            "fetch",
+            "--quiet",
+            "--filter=blob:none",
+            "--depth=1",
+            "--no-tags",
+            "--no-write-fetch-head",
+            "origin",
+            commit,
+        ])
+        .await?;
+
+        let tree = self.run(&["ls-tree", "-rz", "--full-tree", commit]).await?;
+        let tree =
+            std::str::from_utf8(&tree).map_err(|_| SourceError::Invalid("non-UTF-8 Git paths"))?;
+        let prefix = if dir == "." {
+            String::new()
+        } else {
+            format!("{dir}/")
+        };
+
+        Ok(tree
+            .split('\0')
+            .filter_map(Entry::parse)
+            .filter_map(|entry| {
+                let path = entry.path.strip_prefix(&prefix)?;
+
+                valid_path(path).then(|| (path.to_owned(), entry.object.to_owned()))
+            })
+            .collect())
     }
 
     /// Every `SKILL.md` under the selected roots, with its folder's regular files.

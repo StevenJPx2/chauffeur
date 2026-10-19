@@ -1,0 +1,19 @@
+[package]
+name = "chauffeur-capability-skill-review"
+description = "Chauffeur capability: judge whether a skill is safe to follow before it is added"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+
+[dependencies]
+chauffeur-core = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }
+
+[lints]
+workspace = true

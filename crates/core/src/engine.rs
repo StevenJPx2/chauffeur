@@ -7,7 +7,7 @@ use crate::capability::{Capability, Inference, PipeStep, Plan, Round, RunId};
 use crate::effect::{Effect, PermissionDecision};
 use crate::learning::{self, LearningConfig, Probe};
 use crate::redact::{LearnedShapes, Masking, RedactionConfig, Redactor};
-use crate::signal::Signal;
+use crate::signal::{Signal, SignalKind};
 use crate::situation::{Situation, SituationTexts};
 use crate::system_one::{Answer, Question, QuestionKind, SystemOne, validate_answers};
 use crate::system_two::{
@@ -665,6 +665,11 @@ impl Engine {
     }
 
     fn record(&mut self, signal: &Signal) {
+        // A skill review is no agent's activity: it leaves no memory behind.
+        if matches!(signal.kind, SignalKind::SkillReview { .. }) {
+            return;
+        }
+
         if !self.situations.contains_key(&signal.agent_id) && self.situations.len() >= MAX_AGENTS {
             self.evict_oldest();
         }

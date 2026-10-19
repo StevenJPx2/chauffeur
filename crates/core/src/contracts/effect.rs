@@ -71,4 +71,24 @@ pub enum Effect {
     },
     /// Whether the integration event being gated reaches the agent.
     Gate { agent_id: String, deliver: bool },
+    /// The answer to a skill review: whether to add the skill.
+    SkillVerdict {
+        agent_id: String,
+        safety: SkillSafety,
+        /// Which judge decided: `system_one` or `system_two`; empty when none did.
+        judge: String,
+        /// Why, in a sentence; for `undetermined`, why no judge decided.
+        reason: String,
+        /// Each a cited file or section and what it asks the agent to do.
+        concerns: Vec<String>,
+    },
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, Eq, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum SkillSafety {
+    Safe,
+    Unsafe,
+    /// No judge reached a verdict; never read as safe.
+    Undetermined,
 }

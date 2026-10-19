@@ -368,7 +368,9 @@ fn describe(kind: &SignalKind, texts: &SituationTexts) -> Option<String> {
             ("command", &format!("{command:?}")),
             ("args", args),
         ])),
-        SignalKind::ModelSucceeded { .. } | SignalKind::TurnEnd { .. } => None,
+        SignalKind::ModelSucceeded { .. }
+        | SignalKind::TurnEnd { .. }
+        | SignalKind::SkillReview { .. } => None,
     }
 }
 

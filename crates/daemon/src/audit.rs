@@ -123,6 +123,7 @@ fn detail(kind: &SignalKind) -> String {
             args,
             ..
         } => format!("{rulebook} {command:?} {args}"),
+        SignalKind::SkillReview { name, source, .. } => format!("{name} from {source}"),
     }
 }
 

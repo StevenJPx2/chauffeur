@@ -189,6 +189,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "chauffeur-capability-skill-review"
+version = "0.1.0"
+dependencies = [
+ "chauffeur-core",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "chauffeur-capability-tool-exposure"
 version = "0.1.0"
 dependencies = [
@@ -232,6 +241,7 @@ dependencies = [
  "chauffeur-capability-permission",
  "chauffeur-capability-rules",
  "chauffeur-capability-skill-exposure",
+ "chauffeur-capability-skill-review",
  "chauffeur-capability-tool-exposure",
  "chauffeur-core",
  "chauffeur-judge-jev",
