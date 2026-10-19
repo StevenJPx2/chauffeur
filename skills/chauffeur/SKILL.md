@@ -98,10 +98,15 @@ chauffeur skill approve OWNER/REPOSITORY/SKILL --dry-run
 chauffeur skill approve OWNER/REPOSITORY/SKILL    # writes skill-sources.json
 ```
 
+The daemon also reviews each new upstream version before agents see it;
+`chauffeur skills` lists held versions under `held`, and
+`chauffeur skill accept SKILL` approves one when the user decides to.
+
 Approval asks the daemon's judges whether each skill is safe. Show the user
 the dry run's author, license, path, behaviors, and review first. Never pass
-`--allow`, `--accept-risk`, or `--unvetted` unless the user accepted the
-behaviors, the unsafe verdict, or the missing verdict it overrides.
+`--allow`, `--accept-risk`, `--unvetted`, or `skill accept` unless the user
+accepted the behaviors, the unsafe verdict, or the missing verdict it
+overrides.
 
 ## Restart or update
 

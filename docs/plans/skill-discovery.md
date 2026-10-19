@@ -1,8 +1,8 @@
 # Skill discovery through Skilld
 
-Status: built. Search, judged review, and approval run from the CLI.
-Re-reviewing new upstream revisions, dependency suggestions, and host surfaces
-are deferred.
+Status: built. Search, judged review, and approval run from the CLI; the
+daemon reviews each new upstream version before agents see it. Dependency
+suggestions and host surfaces are deferred.
 
 ## Decision
 
@@ -53,7 +53,7 @@ flowchart LR
 | Unsafe verdict | Refuse; `--accept-risk` overrides |
 | No verdict | Refuse; `--unvetted` overrides. Off, failed, or unsure-without-review never pass |
 | Partial content | System One cannot clear it; System Two is told what was not shown |
-| Upstream changes | Not yet re-reviewed: the daemon should review each new revision before exposing it |
+| Upstream changes | The daemon reviews each changed skill; agents keep the last approved version meanwhile, or none. `chauffeur skill accept` overrules. Versions cached before reviews existed start approved |
 
 ## Skilld interface
 
@@ -110,7 +110,10 @@ The file is rewritten whole and atomically; its content, including
    `SkillVerdict` effect in `crates/core`, the `skill-review` profile in
    `skills/config/judge.json`, Git gathering in `sources/review.rs`.
 
-Deferred: daemon re-review of each new revision of an approved source;
-suggestions from project dependencies (Skilld has no such
+7. Upstream re-review: `sources/vetting.rs` (content digests, approved
+   versions, verdicts, retries), `SourceStore::with_reviews`, the daemon's
+   skill worker, the `skill_accept` RPC and `chauffeur skill accept`.
+
+Deferred: suggestions from project dependencies (Skilld has no such
 interface, so Chauffeur would build search terms itself), and host-adapter
 surfaces.

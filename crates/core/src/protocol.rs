@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::effect::Effect;
+use crate::effect::{Effect, SkillSafety};
 use crate::signal::Signal;
 
 pub const METHOD_HEALTH: &str = "health";
@@ -13,6 +13,8 @@ pub const METHOD_SIGNAL: &str = "signal";
 pub const METHOD_RULEBOOKS: &str = "rulebooks";
 /// The shared remote skill catalog, including source revision and refresh status.
 pub const METHOD_SKILLS: &str = "skills";
+/// Approve a remote skill's held upstream version: [`SkillAcceptParams`].
+pub const METHOD_SKILL_ACCEPT: &str = "skill_accept";
 /// The wording a host shows the agent: `{ "host": "opencode" }` returns the
 /// host's texts, shipped and overlaid by the user's file.
 pub const METHOD_TEXTS: &str = "texts";
@@ -76,6 +78,38 @@ pub struct SkillSourceStatus {
 pub struct SkillsResult {
     pub skills: Vec<RemoteSkill>,
     pub sources: Vec<SkillSourceStatus>,
+    /// Upstream versions agents do not see yet, and why.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub held: Vec<HeldSkill>,
+}
+
+/// A remote skill whose latest version is not approved.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct HeldSkill {
+    pub id: String,
+    pub source_id: String,
+    /// The held upstream revision.
+    pub revision: String,
+    /// `None` while the judges have not answered.
+    pub safety: Option<SkillSafety>,
+    pub reason: String,
+    pub concerns: Vec<String>,
+    /// The approved revision agents see instead; `None` withholds the skill.
+    pub serving: Option<String>,
+}
+
+/// Approve a remote skill's latest version: `{ "id": "SKILL" }`.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct SkillAcceptParams {
+    pub id: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct SkillAcceptResult {
+    pub id: String,
+    pub source_id: String,
+    pub revision: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]

@@ -257,9 +257,21 @@ async fn a_configured_remote_skill_is_available_to_clients_and_hot_reloads_witho
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
 
-    let first = client.skills().await.unwrap();
+    // A new source's skill appears once the judges have reviewed it.
+    let mut first = client.skills().await.unwrap();
+
+    for _ in 0..80 {
+        if !first.skills.is_empty() {
+            break;
+        }
+
+        assert_eq!(first.held.len(), 1, "{first:?}");
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        first = client.skills().await.unwrap();
+    }
 
     assert_eq!(first.skills.len(), 1);
+    assert!(first.held.is_empty());
     assert_eq!(
         first.skills[0].description,
         "Review code with the team policy"
@@ -269,8 +281,8 @@ async fn a_configured_remote_skill_is_available_to_clients_and_hot_reloads_witho
             .content
             .contains("first remote instructions")
     );
-    // Files arrive when a skill is attached, not when it is listed.
-    assert!(!PathBuf::from(&first.skills[0].path).exists());
+    // The review read the files an agent gets, so they are on disk already.
+    assert!(PathBuf::from(&first.skills[0].path).exists());
     assert!(first.skills[0].content.contains("references/policy.md"));
     let cli = Command::new(env!("CARGO_BIN_EXE_chauffeur"))
         .arg("skills")

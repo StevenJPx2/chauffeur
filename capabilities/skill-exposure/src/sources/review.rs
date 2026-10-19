@@ -1,5 +1,5 @@
-//! A candidate as a skill-review signal, and the verdict read back from the
-//! daemon's effects. The judgment itself is the `skill-review` capability's.
+//! A skill as a review signal, and the verdict read back from the daemon's
+//! effects. The judgment itself is the `skill-review` capability's.
 
 use std::collections::HashMap;
 use std::fmt::Write as _;
@@ -17,7 +17,7 @@ const MAX_REVIEW_FILE: usize = 16 * 1024;
 /// File contents one review reads, besides `SKILL.md`.
 const MAX_REVIEW_FILES_BYTES: usize = 48 * 1024;
 
-/// A skill's text as a review reads it, at the commit Skilld reviewed.
+/// A skill's text as a review reads it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Gathered {
     pub instructions: String,
@@ -45,6 +45,62 @@ fn text(bytes: Vec<u8>) -> Option<String> {
     String::from_utf8(bytes)
         .ok()
         .filter(|text| !text.contains('\0'))
+}
+
+/// Scripts first, then the rest in order: what runs is read when not
+/// everything fits.
+pub(super) fn reading_order<T>(files: &mut [(String, T)]) {
+    files.sort_by_key(|(path, _)| !runs(path));
+}
+
+/// Which files to read, by size where known (unknown counts as the cap):
+/// each at most 16 KiB, 48 KiB in all.
+pub(super) fn chosen(sizes: impl IntoIterator<Item = Option<u64>>) -> Vec<bool> {
+    let mut reserved = 0_usize;
+
+    sizes
+        .into_iter()
+        .map(|size| {
+            let size = size.map_or(MAX_REVIEW_FILE, |size| {
+                usize::try_from(size).unwrap_or(usize::MAX)
+            });
+            let fits = size <= MAX_REVIEW_FILE && reserved + size <= MAX_REVIEW_FILES_BYTES;
+
+            if fits {
+                reserved += size;
+            }
+
+            fits
+        })
+        .collect()
+}
+
+/// The files as a review shows them: readable text within the limits, the
+/// rest named without content.
+pub(super) fn shown(files: impl IntoIterator<Item = (String, Option<Vec<u8>>)>) -> Vec<SkillFile> {
+    let mut total = 0;
+
+    files
+        .into_iter()
+        .map(|(path, bytes)| {
+            let content = bytes
+                .filter(|bytes| bytes.len() <= MAX_REVIEW_FILE)
+                .and_then(text)
+                .filter(|text| total + text.len() <= MAX_REVIEW_FILES_BYTES);
+
+            total += content.as_ref().map_or(0, String::len);
+
+            SkillFile { path, content }
+        })
+        .collect()
+}
+
+/// `SKILL.md` as a review reads it: whole, text, and not empty.
+pub(super) fn instructions(bytes: Vec<u8>) -> Option<String> {
+    Some(bytes)
+        .filter(|bytes| bytes.len() <= MAX_PROMPT_BYTES)
+        .and_then(text)
+        .filter(|text| !text.trim().is_empty())
 }
 
 /// The skill's `SKILL.md` and readable text files at the commit Skilld
@@ -75,30 +131,17 @@ pub async fn gather(candidate: &Candidate, scratch: &Path) -> Result<Gathered, D
         return Err(named("it carries too many files to review"));
     }
 
-    // When not everything fits, what runs is read first.
-    tree.sort_by_key(|(path, _)| !runs(path));
+    reading_order(&mut tree);
 
     let sizes: HashMap<&str, u64> = candidate
         .files
         .iter()
         .map(|file| (file.path.as_str(), file.size))
         .collect();
-    let mut reserved = 0_usize;
-    let wanted: Vec<bool> = tree
-        .iter()
-        .map(|(path, _)| {
-            let size = sizes.get(path.as_str()).map_or(MAX_REVIEW_FILE, |size| {
-                usize::try_from(*size).unwrap_or(usize::MAX)
-            });
-            let fits = size <= MAX_REVIEW_FILE && reserved + size <= MAX_REVIEW_FILES_BYTES;
-
-            if fits {
-                reserved += size;
-            }
-
-            fits
-        })
-        .collect();
+    let wanted = chosen(
+        tree.iter()
+            .map(|(path, _)| sizes.get(path.as_str()).copied()),
+    );
     let mut objects = vec![main.as_str()];
 
     objects.extend(
@@ -111,31 +154,17 @@ pub async fn gather(candidate: &Candidate, scratch: &Path) -> Result<Gathered, D
     let mut blobs = repository.blobs(&objects).await?.into_iter();
     let instructions = blobs
         .next()
-        .filter(|bytes| bytes.len() <= MAX_PROMPT_BYTES)
-        .and_then(text)
-        .filter(|text| !text.trim().is_empty())
+        .and_then(instructions)
         .ok_or_else(|| named("its SKILL.md is empty, binary, or too large to review"))?;
-    let mut total = 0;
-    let files = tree
+    let read: Vec<(String, Option<Vec<u8>>)> = tree
         .into_iter()
         .zip(wanted)
-        .map(|((path, _), wanted)| {
-            let content = wanted
-                .then(|| blobs.next())
-                .flatten()
-                .filter(|bytes| bytes.len() <= MAX_REVIEW_FILE)
-                .and_then(text)
-                .filter(|text| total + text.len() <= MAX_REVIEW_FILES_BYTES);
-
-            total += content.as_ref().map_or(0, String::len);
-
-            SkillFile { path, content }
-        })
+        .map(|((path, _), wanted)| (path, wanted.then(|| blobs.next()).flatten()))
         .collect();
 
     Ok(Gathered {
         instructions,
-        files,
+        files: shown(read),
     })
 }
 
@@ -157,6 +186,33 @@ impl Review {
             judge: String::new(),
             reason: reason.into(),
             concerns: Vec::new(),
+        }
+    }
+}
+
+/// A skill to review: who asks, what it is, and where it comes from.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ReviewRequest {
+    pub agent_id: String,
+    pub name: String,
+    pub source: String,
+    pub provenance: String,
+    pub gathered: Gathered,
+}
+
+impl ReviewRequest {
+    #[must_use]
+    pub fn signal(self, at: u64) -> Signal {
+        Signal {
+            agent_id: self.agent_id,
+            at,
+            kind: SignalKind::SkillReview {
+                name: self.name,
+                source: self.source,
+                provenance: self.provenance,
+                instructions: self.gathered.instructions,
+                files: self.gathered.files,
+            },
         }
     }
 }
@@ -192,17 +248,14 @@ pub fn review_signal(
         }
     }
 
-    Signal {
+    ReviewRequest {
         agent_id,
-        at,
-        kind: SignalKind::SkillReview {
-            name: candidate.name.clone(),
-            source: format!("{} {}", candidate.url, candidate.dir),
-            provenance,
-            instructions: gathered.instructions,
-            files: gathered.files,
-        },
+        name: candidate.name.clone(),
+        source: format!("{} {}", candidate.url, candidate.dir),
+        provenance,
+        gathered,
     }
+    .signal(at)
 }
 
 /// The verdict among a review's effects; none is undetermined.

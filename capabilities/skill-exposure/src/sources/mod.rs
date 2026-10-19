@@ -10,6 +10,7 @@ mod parse;
 mod review;
 mod skilld;
 mod store;
+mod vetting;
 
 #[cfg(test)]
 mod discovery_tests;
@@ -18,11 +19,12 @@ mod tests;
 
 pub use approve::{Approval, Change, Consent, approve, read_config, write_config};
 pub use model::{Source, SourcesConfig};
-pub use review::{Gathered, Review, gather, read_verdict, review_signal};
+pub use review::{Gathered, Review, ReviewRequest, gather, read_verdict, review_signal};
 pub use skilld::{
     Behavior, Candidate, CandidateFile, DiscoveryError, Found, Selector, SkilldClient, Tier,
 };
 pub use store::SourceStore;
+pub use vetting::ReviewJob;
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;

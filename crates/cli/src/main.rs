@@ -81,6 +81,16 @@ async fn skill(args: &[String]) -> Result<(), String> {
     match (args.first().map(String::as_str), args.get(1)) {
         (Some("discover"), _) => discover::discover(&args[1..]).await,
         (Some("approve"), _) => discover::approve_skill(&args[1..]).await,
+        (Some("accept"), Some(id)) => {
+            let accepted = client()?.accept_skill(id).await?;
+
+            println!(
+                "Accepted {} from source {} at revision {}; agents see this version now.",
+                accepted.id, accepted.source_id, accepted.revision
+            );
+
+            Ok(())
+        }
         (Some("validate"), Some(path)) => validate_skill(path),
         (Some("validate-project"), Some(path)) => {
             for rule in chauffeur_capability_rules::load_project(path)? {
@@ -90,7 +100,7 @@ async fn skill(args: &[String]) -> Result<(), String> {
             Ok(())
         }
         _ => Err(format!(
-            "usage: chauffeur skill validate PATH | validate-project WORKSPACE | discover WORDS... [--limit N] [--json] | approve {}",
+            "usage: chauffeur skill validate PATH | validate-project WORKSPACE | discover WORDS... [--limit N] [--json] | approve {} | accept SKILL",
             discover::APPROVE_USAGE
         )),
     }

@@ -660,3 +660,144 @@ async fn git_checks_are_one_request_and_scripts_arrive_executable_on_attach() {
     drop(group);
     drain.await.unwrap();
 }
+
+fn verdict(safety: chauffeur_core::SkillSafety, judge: &str) -> Review {
+    Review {
+        safety,
+        judge: judge.into(),
+        reason: format!("{safety:?}"),
+        concerns: Vec::new(),
+    }
+}
+
+/// The one due review, by skill.
+fn due(store: &SourceStore, now: u64) -> Vec<ReviewJob> {
+    store.due_reviews(now, &std::collections::HashSet::new())
+}
+
+#[tokio::test]
+async fn reviewed_sources_show_only_approved_versions() {
+    use chauffeur_core::SkillSafety::{Safe, Undetermined, Unsafe};
+
+    let fixture = Fixture::new().await;
+    fixture.configure_http();
+    fixture.skill("first", "1");
+    let mut store = fixture.store().with_reviews();
+
+    store.restore().await.unwrap();
+
+    // A new source's skill waits for the judges.
+    let waiting = store.refresh(1000).await.unwrap();
+    let jobs = due(&store, 1000);
+
+    assert!(waiting.skills.is_empty());
+    assert_eq!(waiting.held[0].reason, "awaiting review");
+    assert_eq!(waiting.held[0].serving, None);
+    assert_eq!(jobs.len(), 1);
+
+    // The review reads the files an agent would get.
+    let request = store.review_request(&jobs[0]).await.unwrap();
+
+    assert!(request.gathered.instructions.contains("first"));
+    assert_eq!(request.gathered.files[0].path, "references/policy.md");
+    assert_eq!(request.gathered.files[0].content.as_deref(), Some("first"));
+    assert!(request.provenance.contains("No earlier version"));
+    assert!(request.signal(1000).validate().is_ok());
+
+    store
+        .record(&jobs[0], &verdict(Safe, "system_one"), 1000)
+        .await
+        .unwrap();
+
+    let approved = store.catalog();
+
+    assert!(approved.skills[0].content.ends_with("first"));
+    assert!(approved.held.is_empty());
+    assert!(due(&store, 1000).is_empty());
+
+    // An update is held; agents keep the approved version.
+    fixture.skill("second", "2");
+
+    let updated = store.refresh(1120).await.unwrap();
+    let jobs = due(&store, 1120);
+
+    assert!(updated.skills[0].content.ends_with("first"));
+    assert_eq!(updated.skills[0].revision, approved.skills[0].revision);
+    assert_eq!(
+        updated.held[0].serving.as_deref(),
+        Some(approved.skills[0].revision.as_str())
+    );
+    assert!(
+        store
+            .review_request(&jobs[0])
+            .await
+            .unwrap()
+            .provenance
+            .contains("This is an update")
+    );
+
+    // A judge's unsafe verdict stands until upstream changes again.
+    store
+        .record(&jobs[0], &verdict(Unsafe, "system_two"), 1120)
+        .await
+        .unwrap();
+
+    let refused = store.catalog();
+
+    assert_eq!(refused.held[0].safety, Some(Unsafe));
+    assert!(refused.skills[0].content.ends_with("first"));
+    assert!(due(&store, 99_999).is_empty());
+
+    // You can overrule it.
+    let accepted = store.accept("review").await.unwrap();
+
+    assert_eq!(accepted.revision, updated.held[0].revision);
+    assert!(store.catalog().skills[0].content.ends_with("second"));
+    assert!(store.accept("review").await.is_err());
+    assert!(store.accept("missing").await.is_err());
+
+    // A review no judge answered is tried again later.
+    fixture.skill("third", "3");
+    store.refresh(1180).await.unwrap();
+
+    let jobs = due(&store, 1180);
+
+    store
+        .record(&jobs[0], &verdict(Undetermined, ""), 1180)
+        .await
+        .unwrap();
+    assert!(due(&store, 1180 + 899).is_empty());
+    assert_eq!(due(&store, 1180 + 900).len(), 1);
+
+    // The record survives a restart.
+    let mut restarted = fixture.store().with_reviews();
+
+    restarted.restore().await.unwrap();
+    assert!(restarted.catalog().skills[0].content.ends_with("second"));
+}
+
+#[tokio::test]
+async fn sources_cached_before_reviews_keep_what_they_list() {
+    let fixture = Fixture::new().await;
+    fixture.configure_http();
+    fixture.skill("first", "1");
+    let mut unreviewed = fixture.store();
+
+    unreviewed.restore().await.unwrap();
+    unreviewed.refresh(1000).await.unwrap();
+
+    let mut reviewed = fixture.store().with_reviews();
+    let catalog = reviewed.restore().await.unwrap();
+
+    assert!(catalog.skills[0].content.ends_with("first"));
+    assert!(catalog.held.is_empty());
+    assert!(due(&reviewed, 1000).is_empty());
+
+    // An earlier HTTP version not on disk cannot be served, so the skill waits.
+    fixture.skill("second", "2");
+
+    let updated = reviewed.refresh(1060).await.unwrap();
+
+    assert!(updated.skills.is_empty());
+    assert_eq!(updated.held[0].serving, None);
+}

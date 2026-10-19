@@ -31,8 +31,8 @@ use axum::{Json, Router};
 use chauffeur_capability_rules::Rulebook;
 use chauffeur_core::{
     DaemonRequest, DaemonResponse, Effect, METHOD_HEALTH, METHOD_RULEBOOKS, METHOD_SHUTDOWN,
-    METHOD_SIGNAL, METHOD_SKILLS, METHOD_TEXTS, Reloading, RulebooksResult, SignalParams,
-    SignalResult, Watch,
+    METHOD_SIGNAL, METHOD_SKILL_ACCEPT, METHOD_SKILLS, METHOD_TEXTS, Reloading, RulebooksResult,
+    SignalParams, SignalResult, SkillAcceptParams, Watch,
 };
 pub use chauffeur_plugin_sourcefed::SourcefedConfig;
 use serde_json::json;
@@ -209,7 +209,7 @@ pub async fn serve(options: DaemonOptions) -> Result<(), String> {
     let listener = tokio::net::TcpListener::bind(address)
         .await
         .map_err(|error| format!("bind daemon to {address}: {error}"))?;
-    let skill_worker = skills::SkillWorker::start(skill_config, skill_cache)?;
+    let skill_worker = skills::SkillWorker::start(skill_config, skill_cache, engine.clone())?;
     let state = AppState {
         engine,
         token: options.token,
@@ -265,6 +265,12 @@ async fn rpc(
                 serde_json::to_value(catalog.as_ref()).map_err(|error| error.to_string())
             }
             Err(error) => Err(error),
+        },
+        METHOD_SKILL_ACCEPT => match serde_json::from_value::<SkillAcceptParams>(request.params) {
+            Ok(params) => state.skills.accept(params.id).await.and_then(|accepted| {
+                serde_json::to_value(accepted).map_err(|error| error.to_string())
+            }),
+            Err(error) => Err(format!("invalid params: {error}")),
         },
         method => Err(format!("unknown method {method}")),
     };

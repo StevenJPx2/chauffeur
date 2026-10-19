@@ -69,10 +69,10 @@ Skilld's patterns found in its files, then adds it to `skill-sources.json`:
 - `--dry-run` shows the change and the reviews; `--json` prints them for scripts.
 
 Approved skills are fetched from GitHub like any other source; Skilld is never
-asked during a prompt. The source follows the default branch; later revisions
-are not reviewed again yet. Approval rewrites the file with one source per
-line, keeping every setting, and writes through a symlink. `SKILLD_API_URL`
-points at another Skilld origin.
+asked during a prompt. The source follows the default branch, and every new
+version is reviewed again before agents see it (below). Approval rewrites the
+file with one source per line, keeping every setting, and writes through a
+symlink. `SKILLD_API_URL` points at another Skilld origin.
 
 ### The safety review
 
@@ -93,6 +93,27 @@ judges it as a `skill_review` signal:
 Bars, wording, and whether to review live in `skill-review.json`; the profile
 in `judge.json`, where System Two must be enabled. Each review is in the audit
 log. A daemon that is not running gives no verdict.
+
+### Upstream updates
+
+The daemon reviews every source's skills the same way whenever their content
+changes upstream, from the files it would hand an agent:
+
+- A skill's content is identified by its text and file blobs, so a commit that
+  leaves it unchanged needs no review.
+- Until a new version is judged safe, agents keep the last approved version.
+  With none, or for an HTTP source whose earlier files are not on disk, the
+  skill is withheld.
+- An unsafe or `insufficient_evidence` verdict stands until upstream changes
+  again. A review no judge answered is retried after 15 minutes, doubling to
+  four hours.
+- `chauffeur skills` lists held versions under `held`, with the verdict and the
+  revision agents see instead. `chauffeur skill accept SKILL` approves the
+  latest version yourself.
+
+Skills cached before reviews existed start approved as they are; a newly added
+source is reviewed before its skills appear. Each source's record is
+`reviews.json` in its cache folder.
 
 ### Your descriptions
 
