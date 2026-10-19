@@ -2,21 +2,29 @@
 //! per-skill files fetched only when a skill is attached. The daemon owns
 //! scheduling; no judge or host adapter does source I/O.
 
+mod approve;
 mod git;
 mod http;
 mod model;
 mod parse;
+mod skilld;
 mod store;
 
 #[cfg(test)]
+mod discovery_tests;
+#[cfg(test)]
 mod tests;
 
+pub use approve::{Approval, Change, approve, read_config, write_config};
 pub use model::{Source, SourcesConfig};
+pub use skilld::{Behavior, Candidate, DiscoveryError, Found, Selector, SkilldClient, Tier};
 pub use store::SourceStore;
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+/// The largest `skill-sources.json` the daemon reads or approval writes.
+pub(super) const MAX_CONFIG: usize = 16_384;
 pub(super) const MAX_FILE: usize = 1024 * 1024;
 pub(super) const MAX_FILES: usize = 512;
 pub(super) const MAX_BYTES: usize = 16 * 1024 * 1024;

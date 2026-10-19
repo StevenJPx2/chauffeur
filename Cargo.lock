@@ -203,9 +203,11 @@ version = "0.1.0"
 dependencies = [
  "chauffeur-capability-permission",
  "chauffeur-capability-rules",
+ "chauffeur-capability-skill-exposure",
  "chauffeur-core",
  "chauffeur-daemon",
  "chauffeur-mcp",
+ "serde",
  "serde_json",
  "tokio",
 ]

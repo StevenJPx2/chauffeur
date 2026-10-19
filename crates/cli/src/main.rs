@@ -1,6 +1,7 @@
 //! Chauffeur CLI. All behavior goes through the daemon protocol.
 
 mod audit;
+mod discover;
 mod setup;
 
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
@@ -34,7 +35,7 @@ async fn run(args: Vec<String>) -> Result<(), String> {
     match command {
         "daemon" => run_daemon(&args[1..]).await,
         "mcp" => chauffeur_mcp::run_stdio(client()?).await,
-        "skill" => skill(&args[1..]),
+        "skill" => skill(&args[1..]).await,
         "signal" => signal(&args[1..]).await,
         "health" => client()?.health().await,
         "skills" => {
@@ -76,8 +77,10 @@ fn audit(args: &[String]) -> Result<(), String> {
     audit::run(args, &path)
 }
 
-fn skill(args: &[String]) -> Result<(), String> {
+async fn skill(args: &[String]) -> Result<(), String> {
     match (args.first().map(String::as_str), args.get(1)) {
+        (Some("discover"), _) => discover::discover(&args[1..]).await,
+        (Some("approve"), _) => discover::approve_skill(&args[1..]).await,
         (Some("validate"), Some(path)) => validate_skill(path),
         (Some("validate-project"), Some(path)) => {
             for rule in chauffeur_capability_rules::load_project(path)? {
@@ -86,7 +89,7 @@ fn skill(args: &[String]) -> Result<(), String> {
 
             Ok(())
         }
-        _ => Err("usage: chauffeur skill validate PATH | validate-project WORKSPACE".into()),
+        _ => Err("usage: chauffeur skill validate PATH | validate-project WORKSPACE | discover WORDS... [--limit N] [--json] | approve OWNER/REPOSITORY[/SKILL] [--allow ID]... [--dry-run] [--json]".into()),
     }
 }
 
@@ -178,5 +181,5 @@ pub(crate) fn option<'a>(args: &'a [String], name: &str) -> Option<&'a str> {
 }
 
 fn usage() -> String {
-    "usage: chauffeur daemon [--port PORT] | mcp | health | skills | audit [N] [--brief] [--follow] | skill validate PATH | signal --file PATH | setup opencode [--service] [--force] [--dry-run] | --version".into()
+    "usage: chauffeur daemon [--port PORT] | mcp | health | skills | audit [N] [--brief] [--follow] | skill validate PATH | skill discover WORDS... | skill approve OWNER/REPOSITORY[/SKILL] | signal --file PATH | setup opencode [--service] [--force] [--dry-run] | --version".into()
 }

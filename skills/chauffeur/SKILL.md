@@ -89,6 +89,18 @@ skill is attached. The attached text lists every file by full path for that
 revision. A remote skill shadows a local one of the same name. See
 `docs/remote-skills.md` for formats, bounds, and failure behaviour.
 
+To find new ones, search the Skilld registry and add a skill only when the
+user approves it:
+
+```sh
+chauffeur skill discover WORDS...                 # candidates; adds nothing
+chauffeur skill approve OWNER/REPOSITORY/SKILL --dry-run
+chauffeur skill approve OWNER/REPOSITORY/SKILL    # writes skill-sources.json
+```
+
+Show the user the dry run's author, license, path, and behaviors first. Never
+pass `--allow` unless the user accepted the behaviors it names.
+
 ## Restart or update
 
 The macOS LaunchAgent `xyz.stjhn.chauffeur` runs the daemon; the OpenCode

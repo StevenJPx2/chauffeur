@@ -9,7 +9,7 @@ use tokio::fs;
 use tokio::io::AsyncReadExt;
 
 use super::{
-    Check, ListedSkill, Listing, MAX_LISTED_FILES, MAX_REVISIONS, Source, SourceError,
+    Check, ListedSkill, Listing, MAX_CONFIG, MAX_LISTED_FILES, MAX_REVISIONS, Source, SourceError,
     SourcesConfig, git::Repository, http, valid_path,
 };
 
@@ -70,7 +70,7 @@ impl SourceStore {
     }
 
     async fn configuration(&mut self) -> Result<(), SourceError> {
-        let config = match read(&self.config_path, 16_384).await {
+        let config = match read(&self.config_path, MAX_CONFIG).await {
             Ok(bytes) => serde_json::from_slice::<SourcesConfig>(&bytes)?.check()?,
             Err(SourceError::Io(error)) if error.kind() == std::io::ErrorKind::NotFound => {
                 SourcesConfig::default()

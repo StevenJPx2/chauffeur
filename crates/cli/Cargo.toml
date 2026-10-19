@@ -15,8 +15,10 @@ path = "src/main.rs"
 chauffeur-core = { workspace = true, features = ["client"] }
 chauffeur-capability-permission = { workspace = true }
 chauffeur-capability-rules = { workspace = true }
+chauffeur-capability-skill-exposure = { workspace = true, features = ["sources"] }
 chauffeur-daemon = { workspace = true }
 chauffeur-mcp = { workspace = true }
+serde = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true }
 

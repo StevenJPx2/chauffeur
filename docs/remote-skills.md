@@ -41,6 +41,36 @@ This repository publishes its own skills the same way. To follow the
 }
 ```
 
+### Find skills with Skilld
+
+The [Skilld](https://skilld.dev) registry indexes skills that maintainers
+publish on GitHub. Search it, then approve what you want to follow:
+
+```sh
+chauffeur skill discover nuxt ui           # selectors, stars, descriptions
+chauffeur skill approve nuxt/ui/nuxt-ui    # one skill
+chauffeur skill approve emilkowalski/skills --dry-run   # a whole repository
+```
+
+Search sends only the words you type. Approval reads the skill's provenance
+from Skilld (repository, path, commit, author, license) and the behaviors
+Skilld's patterns found in its files, then adds it to `skill-sources.json`:
+
+- A repository you already follow gains the path; otherwise a new Git source
+  is added. A path you already follow writes nothing.
+- Approving `OWNER/REPOSITORY` follows the deepest folder holding all of its
+  skills, so skills published there later arrive too.
+- A behavior Skilld marks `ask` (running downloaded code, root, credentials,
+  destructive commands, hidden text) stops approval until you name it with
+  `--allow ID`. An empty list proves nothing.
+- `--dry-run` shows the change; `--json` prints it for scripts.
+
+Approved skills are fetched from GitHub like any other source; Skilld is never
+asked during a prompt. The source follows the default branch, and the reviewed
+commit is only shown. Approval rewrites the file with one source per line,
+keeping every setting, and writes through a symlink. `SKILLD_API_URL` points
+at another Skilld origin.
+
 ### Your descriptions
 
 The judge reads only the first 400 bytes of a skill's description, and an
