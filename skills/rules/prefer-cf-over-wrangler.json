@@ -1,0 +1,23 @@
+{
+  "schema_version": 2,
+  "id": "prefer-cf-over-wrangler",
+  "name": "Prefer cf over Wrangler",
+  "on": "tool_result",
+  "when": {
+    "tools": ["shell", "execute"],
+    "input_excludes": ["cf ", " cf", "\"cf\"", "'cf'", "wrangler tail", "wrangler secret"]
+  },
+  "steps": [
+    {
+      "id": "misuse",
+      "question": "Does this call use the Wrangler CLI (a `wrangler` command or `npx wrangler`) to manage, develop, or deploy Cloudflare resources or Workers, where the cf CLI or a Cloudflare MCP tool can do it directly? Answer no when the call already uses cf or a Cloudflare MCP tool, and no for live logs (`wrangler tail`) and single secrets (`wrangler secret put`), which cf does not yet support.",
+      "yes_at_or_above": 0.7,
+      "minimum_confidence": 0.4
+    }
+  ],
+  "then": {
+    "delivery": "steer",
+    "text": "Chauffeur: Prefer the cf CLI or a Cloudflare MCP tool over Wrangler for Cloudflare work; cf covers the public Cloudflare API and Workers projects (see https://developers.cloudflare.com/cf/). Keep Wrangler only for live logs (`wrangler tail`) and single secrets, which cf does not yet support."
+  },
+  "cooldown_seconds": 120
+}

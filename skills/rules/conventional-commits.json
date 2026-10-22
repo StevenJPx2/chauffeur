@@ -1,0 +1,32 @@
+{
+  "schema_version": 2,
+  "id": "conventional-commits",
+  "name": "Conventional commit messages",
+  "on": "tool_result",
+  "when": {
+    "tools": ["shell", "execute"],
+    "input_excludes": [
+      "feat:", "feat(",
+      "fix:", "fix(",
+      "docs:", "docs(",
+      "chore:", "chore(",
+      "refactor:", "refactor(",
+      "perf:", "perf(",
+      "test:", "test(",
+      "build:", "build("
+    ]
+  },
+  "steps": [
+    {
+      "id": "nonconventional",
+      "question": "Does this call create a git commit whose message does not follow the Conventional Commits format (a lowercase type such as feat, fix, docs, style, refactor, perf, test, build, ci, chore, or revert, optionally with a scope in parentheses, followed by a colon and a short description)? Answer no for merge commits, commits created by git itself, and messages that already follow the format.",
+      "yes_at_or_above": 0.7,
+      "minimum_confidence": 0.4
+    }
+  ],
+  "then": {
+    "delivery": "steer",
+    "text": "Chauffeur: Use Conventional Commits for commit messages, e.g. `feat(scope): short description` or `fix: ...` (see https://www.conventionalcommits.org/)."
+  },
+  "cooldown_seconds": 120
+}
