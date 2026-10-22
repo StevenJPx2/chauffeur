@@ -4,7 +4,7 @@ import type { PermissionEvaluation } from "@opencode/plugin/effect/permission"
 import { Effect } from "effect"
 import { Daemon } from "./daemon.js"
 import { type HistoryMessage, Host } from "./host.js"
-import { signal, TEXT_BYTES, TEXT_CODE_POINTS, type Resource, type SignalKind } from "./protocol.js"
+import { RESOURCE_BYTES, RESOURCES_TOTAL_BYTES, signal, TEXT_CODE_POINTS, type Resource, type SignalKind } from "./protocol.js"
 import { clip, clipStart, isIntegrationMessage, userText } from "./text.js"
 import { fill, Texts } from "./texts.js"
 
@@ -68,9 +68,9 @@ function request(event: PermissionEvaluation, hostDecision: "allow" | "ask"): Ef
       .slice(-MAX_USER_REQUESTS)
 
     const resources = yield* Effect.try({
-      try: () => event.resources.map((requested) => FILE_ACTIONS.has(event.action)
+      try: () => withinTotal(event.resources.map((requested) => FILE_ACTIONS.has(event.action)
         ? resolveResource(workspace, requested)
-        : resource(requested, requested)),
+        : resource(requested, requested))),
       catch: (error) => String(error),
     })
 
@@ -118,11 +118,19 @@ function resolveResource(workspace: string, requested: string): Resource {
 
 /** Never clip a safety target: hidden command suffixes and path tails matter. */
 function resource(requested: string, resolved: string): Resource {
-  if (Buffer.byteLength(requested, "utf8") > TEXT_BYTES || Buffer.byteLength(resolved, "utf8") > TEXT_BYTES) {
-    throw new Error(`permission resource exceeds ${TEXT_BYTES} bytes`)
+  if (Buffer.byteLength(requested, "utf8") > RESOURCE_BYTES || Buffer.byteLength(resolved, "utf8") > RESOURCE_BYTES) {
+    throw new Error(`permission resource exceeds ${RESOURCE_BYTES} bytes`)
   }
 
   return { requested, resolved }
+}
+
+function withinTotal(resources: Resource[]): Resource[] {
+  const total = resources.reduce((sum, { requested, resolved }) => sum + Buffer.byteLength(requested, "utf8") + Buffer.byteLength(resolved, "utf8"), 0)
+
+  if (total > RESOURCES_TOTAL_BYTES) throw new Error(`permission resources exceed ${RESOURCES_TOTAL_BYTES} bytes together`)
+
+  return resources
 }
 
 function realOrSelf(path: string): string {

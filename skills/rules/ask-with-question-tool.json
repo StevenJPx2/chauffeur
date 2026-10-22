@@ -4,13 +4,12 @@
   "name": "Ask with the question tool",
   "on": "turn_end",
   "when": {
-    "tools_not_called": ["question"],
     "session_kind": "top_level"
   },
   "steps": [
     {
       "id": "asked-in-prose",
-      "question": "Does the agent's closing message ask the user for something it is waiting on, such as a choice between ways forward, a preference, information or access it lacks, or permission to go on? Answer no when the message only reports what it did, when the question is one it answers itself, or when its question is part of the answer to a question the user asked.",
+      "question": "Does the agent's closing message leave something for the user to decide or supply, such as a choice between ways forward, a preference, information or access it lacks, or permission to go on? Count questions under a heading like Open questions, and questions offered with a suggested or recommended answer, even when the user asked for findings or a plan. Answer no when the message only reports what it did, when it settles a question itself and needs nothing back, or when the questions are content the user asked for that are meant for someone else.",
       "yes_at_or_above": 0.7,
       "minimum_confidence": 0.4
     }

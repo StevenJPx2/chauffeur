@@ -16,6 +16,8 @@ const DIRECTORY_JSON: &[u8] =
     include_bytes!("../../../skills/permission/external-directory-gate.json");
 const WRITE_GUARD_JSON: &[u8] =
     include_bytes!("../../../skills/permission/shell-file-write-guard.json");
+const READ_GUARD_JSON: &[u8] =
+    include_bytes!("../../../skills/permission/shell-file-read-guard.json");
 
 /// System One answers each contract question with this P(yes), or fails.
 /// Core's own harm and secret probes are answered no.
@@ -427,4 +429,63 @@ fn an_abstaining_guard_leaves_the_decision_to_the_other_contracts() {
 
     // Alone, an abstaining guard decides nothing: the host's own ask stands.
     assert!(shell_with_guard(0.9, 0.1, &[WRITE_GUARD_JSON]).is_empty());
+}
+
+#[test]
+fn the_read_guard_denies_before_execution_even_when_the_host_or_shell_gate_allows() {
+    let command = "python3 -c 'from pathlib import Path; print(Path(\"app/app.vue\").read_text().replace(\"scss\", \"css\"))'";
+
+    for host in [PermissionDecision::Allow, PermissionDecision::Ask] {
+        let skills = [SHELL_JSON, READ_GUARD_JSON]
+            .into_iter()
+            .map(|json| Skill::from_json(json).unwrap())
+            .collect();
+        let capabilities: Vec<Box<dyn Capability>> = vec![Box::new(Permission::new(skills))];
+        let mut engine = Engine::new(
+            Box::new(Scripted {
+                reply: Some(0.95),
+                calls: Arc::new(Mutex::new(0)),
+            }),
+            capabilities,
+        )
+        .unwrap();
+
+        // No cooldown: a second attempt must still be denied. A high shell-gate
+        // approval cannot override the read guard's deny.
+        for at in [1, 2] {
+            let mut signal = request(at, "shell", command, command);
+            if let SignalKind::PermissionRequest { host_decision, .. } = &mut signal.kind {
+                *host_decision = host;
+            }
+            let (decided, message) = decision(&engine.ingest(&signal).unwrap());
+            assert_eq!(decided, PermissionDecision::Deny);
+            assert!(message.unwrap().contains("read tool"));
+        }
+    }
+}
+
+#[test]
+fn a_negative_unsure_or_failed_read_guard_leaves_the_host_decision_intact() {
+    for p in [Some(0.1), Some(0.5), None] {
+        for host in [PermissionDecision::Allow, PermissionDecision::Ask] {
+            let (mut engine, _) = engine(p, READ_GUARD_JSON);
+            let mut signal = request(1, "shell", "pnpm build", "pnpm build");
+            if let SignalKind::PermissionRequest { host_decision, .. } = &mut signal.kind {
+                *host_decision = host;
+            }
+            assert!(engine.ingest(&signal).unwrap().is_empty());
+        }
+    }
+}
+
+#[test]
+fn the_read_guard_does_not_judge_the_dedicated_read_tool() {
+    let (mut engine, calls) = engine(Some(0.95), READ_GUARD_JSON);
+    assert!(
+        engine
+            .ingest(&request(1, "read", "app/app.vue", "/work/app/app/app.vue"))
+            .unwrap()
+            .is_empty()
+    );
+    assert_eq!(*calls.lock().unwrap(), 0);
 }

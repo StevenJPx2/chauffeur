@@ -167,14 +167,23 @@ test("a long command reaches the backstop whole, including a dangerous suffix", 
   expect(sent[0]?.kind).toMatchObject({ resources: [{ requested: command, resolved: command }] })
 })
 
+test("a shell command carrying a heredoc prompt is judged whole", async () => {
+  const sent: Signal[] = []
+  const command = `opencode run --auto "$(cat <<'EOF'\n${"Deep dive. ".repeat(450)}\nEOF\n)"`
+  const event = await evaluate(replying(sent, []), { sessionID, action: "shell", resources: [command], effect: "allow" })
+
+  expect(event.effect).toBe("allow")
+  expect(sent[0]?.kind).toMatchObject({ resources: [{ requested: command, resolved: command }] })
+})
+
 test("a resource larger than the engine's byte bound asks instead of clipping", async () => {
   const sent: Signal[] = []
-  const command = `echo '${"é".repeat(1100)}'`
+  const command = `echo '${"é".repeat(8_200)}'`
   const event = await evaluate(replying(sent, []), { sessionID, action: "shell", resources: [command], effect: "allow" })
 
   expect(event.effect).toBe("ask")
   expect(sent).toHaveLength(0)
-  expect(event.message).toContain("exceeds 2048 bytes")
+  expect(event.message).toContain("exceeds 16384 bytes")
 })
 
 test("a stalled history lookup cannot hang permission evaluation forever", async () => {

@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "identity": {
+    "id": "shell-file-read-guard",
+    "name": "File reads through the shell",
+    "version": "1.0.0"
+  },
+  "match": {
+    "events": ["permission.evaluate"],
+    "actions": ["shell"],
+    "host_decisions": ["ask", "allow"]
+  },
+  "predicates": {
+    "required_evidence": ["resource_present"],
+    "forbidden_evidence": []
+  },
+  "decision": {
+    "id": "reads_project_files_by_shell",
+    "type": "noul",
+    "instructions": "Does this shell command bypass the read tool by displaying project source/config/tests/docs or returning transformed source from a file? Only local files on disk count. Answer NO for content fetched over the network, such as gh api (including raw READMEs and file contents), gh repo view, curl or wget, even when piped to head, cat, grep or jq: the read tool cannot open remote files. Answer NO for a structured-data query selecting JSON fields with jq, Python or Node, even from config: json.load(open('package.json'))['scripts'] is a query, not a source viewer. Also NO for git diff/show/log/blame, which review changes the read tool cannot show; inline-text/stdin computation without a project-file read, rg/grep searches, listings, metadata/counts, logs, temporary files, binary analysis, or normal builds/tests/formatters/compilers/generators reading their inputs: running a compiler, bundler or formatter directly on a file path, such as sass file.scss, tsc or prettier, is a normal invocation even when it prints its output. Otherwise YES for cat/head/tail/sed -n/awk printers and Python read_text/open or Node readFile/readFileSync that display project files. Also YES for an ad hoc script that reads source from a file, transforms or compiles it and prints rewritten source for a later edit. Piping output or not writing a file does not exempt this. A Python/Node source-file reader feeding a compiler and printing rewritten source is not a normal compiler invocation.",
+    "minimum_confidence": 0.4,
+    "positive_at_or_above": 0.7,
+    "negative_at_or_below": 0.3
+  },
+  "outcomes": {
+    "positive": {
+      "effect": "deny",
+      "message": "Chauffeur: Read project source, configuration, tests and docs with the read tool, not shell printers or Python/Node file reads, including scripts that print transformed source. Read the file first; use build tools for compilation and edit or patch tools for changes."
+    },
+    "negative": {
+      "effect": "abstain",
+      "message": "Unused: this guard has no opinion on commands that do not bypass the read tool."
+    },
+    "uncertain": {
+      "effect": "abstain",
+      "message": "Unused: an unsure answer leaves the command to the other contracts."
+    },
+    "missing_evidence": {
+      "effect": "abstain",
+      "message": "Unused: an empty command is left to the other contracts."
+    },
+    "judge_failure": {
+      "effect": "abstain",
+      "message": "Unused: a failed judgment is left to the other contracts."
+    },
+    "cooldown": {
+      "effect": "abstain",
+      "message": "Unused: this contract has no cooldown."
+    }
+  },
+  "cooldown_seconds": 0
+}

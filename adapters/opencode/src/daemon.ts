@@ -2,6 +2,7 @@ import { spawn } from "node:child_process"
 import { Context, Duration, Effect, Option, Schema } from "effect"
 import { daemonLaunch, PLUGIN_VERSION } from "./package.js"
 import { RpcReply, RulebooksReply, SignalReply, SkillsReply, type HostEffect, type RulebookEntry, type Signal, type SignalParams } from "./protocol.js"
+import { postRpc } from "./rpc-http.js"
 
 const DEFAULT_URL = "http://127.0.0.1:18790"
 
@@ -182,28 +183,24 @@ function request<S extends Schema.Top>(
 ): Effect.Effect<S["Type"], DaemonError, S["DecodingServices"]> {
   return Effect.gen(function* () {
     const response = yield* Effect.tryPromise({
-      try: (abort) => fetch(`${endpoint.url}/rpc`, {
-        method: "POST",
-        headers: endpoint.headers,
-        body: JSON.stringify({ id: 1, method, params }),
-        signal: abort,
-      }),
+      try: (abort) => postRpc(`${endpoint.url}/rpc`, endpoint.headers, JSON.stringify({ id: 1, method, params }), abort),
       catch: (cause) => new DaemonError({ message: `chauffeur daemon unreachable: ${String(cause)}` }),
     })
 
+    const ok = response.status >= 200 && response.status < 300
     const status = new DaemonError({ message: `chauffeur daemon returned ${response.status}` })
 
-    const envelope = yield* Effect.tryPromise({
-      try: () => response.json(),
+    const envelope = yield* Effect.try({
+      try: () => JSON.parse(response.body),
       catch: () => new DaemonError({ message: "invalid chauffeur RPC response" }),
     }).pipe(
       Effect.flatMap(Schema.decodeUnknownEffect(RpcReply)),
-      Effect.mapError(() => response.ok ? new DaemonError({ message: "invalid chauffeur RPC response" }) : status),
+      Effect.mapError(() => ok ? new DaemonError({ message: "invalid chauffeur RPC response" }) : status),
     )
 
     if (envelope.error !== undefined) return yield* new DaemonError({ message: envelope.error })
 
-    if (!response.ok) return yield* status
+    if (!ok) return yield* status
 
     if (envelope.result === undefined) return yield* new DaemonError({ message: "chauffeur daemon response has no result" })
 

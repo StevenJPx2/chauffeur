@@ -15,11 +15,16 @@ const servers: Array<{ stop: () => void }> = []
 
 const configured = process.env.CHAUFFEUR_DAEMON_URL
 
+const configuredToken = process.env.CHAUFFEUR_DAEMON_TOKEN
+
 afterEach(() => {
   for (const server of servers.splice(0)) server.stop()
 
   if (configured === undefined) delete process.env.CHAUFFEUR_DAEMON_URL
   else process.env.CHAUFFEUR_DAEMON_URL = configured
+
+  if (configuredToken === undefined) delete process.env.CHAUFFEUR_DAEMON_TOKEN
+  else process.env.CHAUFFEUR_DAEMON_TOKEN = configuredToken
 })
 
 /** A daemon that answers health checks and replies to signals with `reply`. */
@@ -111,3 +116,58 @@ test("a non-JSON error reply reports its HTTP status", async () => {
 
   expect(Exit.isFailure(exit) && String(exit.cause)).toContain("chauffeur daemon returned 502")
 })
+
+test("RPC carries the configured bearer token and complete UTF-8 JSON", async () => {
+  const seen: Array<{ path: string; token: string | null; contentType: string | null }> = []
+
+  const server = Bun.serve({
+    hostname: "127.0.0.1",
+    port: 0,
+    async fetch(request) {
+      const wire = await request.json()
+
+      seen.push({ path: new URL(request.url).pathname, token: request.headers.get("authorization"), contentType: request.headers.get("content-type") })
+
+      return Response.json({ result: wire.method === "health" ? { ok: true } : { effects: [{ type: "permission", agent_id: "ses_daemon", decision: "ask", message: "café 🌍" }] } })
+    },
+  })
+
+  servers.push(server)
+  process.env.CHAUFFEUR_DAEMON_URL = `http://127.0.0.1:${server.port}/prefix`
+  process.env.CHAUFFEUR_DAEMON_TOKEN = "test-token"
+
+  expect(await send()).toEqual(Exit.succeed([{ type: "permission", agent_id: "ses_daemon", decision: "ask", message: "café 🌍" }]))
+  expect(seen).toEqual(Array.from({ length: 2 }, () => ({ path: "/prefix/rpc", token: "Bearer test-token", contentType: "application/json" })))
+})
+
+for (const headersSent of [false, true]) {
+  test(`a deadline closes the socket ${headersSent ? "during a stalled body" : "before response headers"}`, async () => {
+    const disconnected = Promise.withResolvers<void>()
+
+    const server = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      idleTimeout: 0,
+      async fetch(request) {
+        const wire = await request.json()
+
+        if (wire.method === "health") return Response.json({ result: { ok: true } })
+
+        return new Response(new ReadableStream({
+          start(controller) {
+            if (headersSent) controller.enqueue(new TextEncoder().encode('{"result":'))
+          },
+          cancel() { disconnected.resolve() },
+        }))
+      },
+    })
+
+    servers.push(server)
+    process.env.CHAUFFEUR_DAEMON_URL = `http://127.0.0.1:${server.port}`
+    const client = await Effect.runPromise(Daemon.connect)
+    const exit = await Effect.runPromiseExit(client.signal(turnEnd, "50 millis"))
+
+    expect(Exit.isFailure(exit) && String(exit.cause)).toContain("timed out")
+    await Effect.runPromise(Effect.promise(() => disconnected.promise).pipe(Effect.timeout("1 second")))
+  })
+}

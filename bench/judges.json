@@ -34,6 +34,12 @@
     "key_env": "OPENROUTER_API_KEY"
   },
   {
+    "name": "d1-ultra",
+    "url": "https://api.liquid.ai/decisions/v1/systemone",
+    "model": "d1-ultra",
+    "key_env": "LIQUID_AI_KEY"
+  },
+  {
     "name": "nimble",
     "url": "http://localhost:11434/v1/systemone",
     "model": "nimble"

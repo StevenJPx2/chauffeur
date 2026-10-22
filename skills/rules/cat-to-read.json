@@ -7,14 +7,14 @@
   "steps": [
     {
       "id": "misuse",
-      "question": "Does this call view a file's contents to read it, with cat, head, tail, sed -n, awk, or a similar printer, instead of the read tool? Answer no when the output is filtered by a search such as rg or grep, or piped into another program to process rather than to read.",
+      "question": "Does this call read project source, config, tests or docs from the filesystem to show contents or return rewritten source instead of using the read tool? Count cat/head/tail/sed/awk and Python read_text/open or Node readFile/readFileSync, including ad hoc scripts that read source, transform or compile it and print the result for a later edit. Piping output or not writing a file does not exempt it. Answer no for content fetched over the network, such as gh api raw READMEs or files, curl or wget, even piped to head or cat; git commands such as git diff, show, log or blame, which review changes the read tool cannot show; computation on inline text or stdin without a project-file read; rg/grep searches, listings, metadata/counts, structured-data queries for specific values, logs, temporary files, binary analysis, and normal builds/tests/formatters/compilers/generators reading their own inputs.",
       "yes_at_or_above": 0.65,
       "minimum_confidence": 0.4
     }
   ],
   "then": {
     "delivery": "steer",
-    "text": "Chauffeur: View files with the read tool, not cat, head, tail, or sed -n."
+    "text": "Chauffeur: Read project files with the read tool, not shell printers or Python/Node file reads, including scripts that print transformed source. Use build tools for compilation and edit or patch tools for changes."
   },
   "cooldown_seconds": 120
 }

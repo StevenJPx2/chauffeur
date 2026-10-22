@@ -38,6 +38,21 @@ export function userText(value: string): string {
   return Buffer.byteLength(value, "utf8") <= PROMPT_BYTES ? value : ""
 }
 
+/**
+ * Both ends of a long text within `bytes` of UTF-8, whole code points, joined
+ * by an ellipsis. The tail gets three quarters: a closing message ends on what
+ * it needs from the user, often above a closing note such as its sources.
+ */
+export function clipEndsBytes(value: string, bytes: number): string {
+  if (Buffer.byteLength(value, "utf8") <= bytes) return value
+
+  const budget = bytes - Buffer.byteLength("…", "utf8")
+  const head = clipBytes(value, Math.floor(budget / 4))
+  const tail = [...clipBytes([...value].reverse().join(""), budget - Buffer.byteLength(head, "utf8"))].reverse().join("")
+
+  return `${head}…${tail}`
+}
+
 /** Truncate to whole code points within `bytes` of UTF-8. */
 export function clipBytes(value: string, bytes: number): string {
   let used = 0

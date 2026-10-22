@@ -1,9 +1,9 @@
 import { Effect, Stream } from "effect"
 import { Daemon } from "./daemon.js"
 import { Host, type HistoryMessage, type SessionID, type SessionInfo } from "./host.js"
-import { signal, TEXT_CODE_POINTS, type ContextEffect, type HostEffect, type Signal } from "./protocol.js"
+import { signal, TEXT_BYTES, TEXT_CODE_POINTS, type ContextEffect, type HostEffect, type Signal } from "./protocol.js"
 import { deliverContext } from "./skills.js"
-import { clip, clipEnds, isIntegrationMessage, userText } from "./text.js"
+import { clip, clipEndsBytes, isIntegrationMessage, userText } from "./text.js"
 import { type HostTexts, Texts } from "./texts.js"
 import type { Todo } from "./todo-data.js"
 import { readTodos } from "./todos.js"
@@ -73,8 +73,8 @@ function makeTurnSignal(
     workspace: session ? clip(String(session.location.directory), TEXT_CODE_POINTS) : "",
     subagent: session?.parentID !== undefined,
     user_request: user?.type === "user" ? userText(user.text) : "",
-    // Both ends: a closing message often ends on the question the user answers next.
-    summary: clipEnds(summary, TEXT_CODE_POINTS),
+    // Both ends, by bytes: a closing message often ends on the question the user answers next.
+    summary: clipEndsBytes(summary, TEXT_BYTES),
     todos,
   })
 }

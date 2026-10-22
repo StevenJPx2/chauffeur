@@ -7,6 +7,12 @@ export type { Todo } from "./todo-data.js"
 /** The engine's byte bound for each signal text field. */
 export const TEXT_BYTES = 2_048
 
+/** The engine's bound for one permission resource, which is never clipped. */
+export const RESOURCE_BYTES = 16_384
+
+/** The engine's bound for all of one request's resources, both forms together. */
+export const RESOURCES_TOTAL_BYTES = 131_072
+
 /** Four bytes per code point keeps clipped descriptive text within that bound. */
 export const TEXT_CODE_POINTS = TEXT_BYTES / 4
 

@@ -1,0 +1,107 @@
+[
+  {
+    "name": "source printer",
+    "deny": true,
+    "command": "cat app/app.vue"
+  },
+  {
+    "name": "source excerpt",
+    "deny": true,
+    "command": "sed -n '20,80p' src/main.ts"
+  },
+  {
+    "name": "Python source printer",
+    "deny": true,
+    "command": "python3 -c 'from pathlib import Path; print(Path(\"app/app.vue\").read_text())'"
+  },
+  {
+    "name": "Node transformed source",
+    "deny": true,
+    "command": "node -e 'const fs = require(\"fs\"); console.log(fs.readFileSync(\"src/main.ts\", \"utf8\").replace(\"old\", \"new\"))'"
+  },
+  {
+    "name": "source piped through a transformer",
+    "deny": true,
+    "command": "cat app/app.vue | sed 's/backdrop-blur-sm/backdrop-blur-xs/g'"
+  },
+  {
+    "name": "Rive session Sass workaround",
+    "deny": true,
+    "command": "cd www && python3 -c 'from pathlib import Path; import subprocess; root=Path(\"/work/app/www\"); style=(root/\"app/app.vue\").read_text().split(\"<style lang=\\\"scss\\\">\",1)[1].rsplit(\"</style>\",1)[0]; result=subprocess.run([str(root/\"node_modules/.bin/sass\"),\"--stdin\",\"--no-source-map\",\"--style=expanded\"],input=style,text=True,capture_output=True,check=True).stdout; print(result.replace(\"@tailwind base;\", \"\").replace(\"@tailwind components;\", \"\").replace(\"@tailwind utilities;\", \"\").replace(\"@screen md\", \"@media (min-width: 768px)\").replace(\"backdrop-blur-sm\", \"backdrop-blur-xs\"))'"
+  },
+  {
+    "name": "normal build",
+    "deny": false,
+    "command": "pnpm build"
+  },
+  {
+    "name": "compiler reading its own input",
+    "deny": false,
+    "command": "sass app/assets/css/site.scss --no-source-map --style=expanded"
+  },
+  {
+    "name": "source search",
+    "deny": false,
+    "command": "rg -n 'backdrop-blur-sm' app --glob '*.vue'"
+  },
+  {
+    "name": "structured config query",
+    "deny": false,
+    "command": "python3 -c 'import json; print(json.load(open(\"package.json\"))[\"scripts\"])'"
+  },
+  {
+    "name": "structured audit query",
+    "deny": false,
+    "command": "jq -c 'select(.signal == \"permission_request\") | {at, effects}' audit.jsonl"
+  },
+  {
+    "name": "logs",
+    "deny": false,
+    "command": "tail -n 50 /var/log/app.log"
+  },
+  {
+    "name": "temporary output",
+    "deny": false,
+    "command": "python3 -c 'from pathlib import Path; print(Path(\"/tmp/build-output.txt\").read_text())'"
+  },
+  {
+    "name": "binary image analysis",
+    "deny": false,
+    "command": "python3 -c 'from PIL import Image; print(Image.open(\"shots/rest.png\").size)'"
+  },
+  {
+    "name": "remote README through gh",
+    "deny": false,
+    "command": "gh api -H 'Accept: application/vnd.github.raw' repos/StevenJPx2/audiobook-studio/readme | head -45"
+  },
+  {
+    "name": "remote READMEs in a loop through gh",
+    "deny": false,
+    "command": "for r in workhorse dotfiles audiobook-studio; do echo \"=== $r\"; gh api -H 'Accept: application/vnd.github.raw' repos/StevenJPx2/$r/readme 2>/dev/null | grep -v '^\\s*$' | head -28 | cut -c1-220; done"
+  },
+  {
+    "name": "remote source file through gh",
+    "deny": false,
+    "command": "gh api -H 'Accept: application/vnd.github.raw' repos/StevenJPx2/venda/contents/apps/landing/wrangler.jsonc | head -60"
+  },
+  {
+    "name": "remote raw file through curl",
+    "deny": false,
+    "command": "curl -sL https://raw.githubusercontent.com/StevenJPx2/venda/HEAD/README.md | head -40"
+  },
+  {
+    "name": "reviewing changes with git",
+    "deny": false,
+    "command": "git diff -- capabilities/permission/tests/contracts.rs skills/rules/cat-to-read.json"
+  },
+  {
+    "name": "metadata and counts",
+    "deny": false,
+    "command": "wc -l src/main.ts"
+  },
+  {
+    "name": "stdin computation without a file read",
+    "deny": false,
+    "command": "python3 -c 'import sys; print(sys.stdin.read().replace(\"old\", \"new\"))'"
+  }
+]

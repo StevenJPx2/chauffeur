@@ -13,6 +13,12 @@ pub const MAX_AVAILABLE_MODELS: usize = 256;
 pub const MAX_CATALOG_ENTRIES: usize = 128;
 pub const MAX_DESCRIPTION_BYTES: usize = 400;
 pub const MAX_RESOURCES: usize = 32;
+/// A permission resource, which reaches safety checks whole and is never
+/// clipped: room for a shell command carrying a heredoc prompt.
+pub const MAX_RESOURCE_BYTES: usize = 16_384;
+/// All of one request's resources, requested and resolved forms together,
+/// so a signal stays within the daemon's request body limit.
+pub const MAX_RESOURCES_TOTAL_BYTES: usize = 131_072;
 pub const MAX_USER_REQUESTS: usize = 8;
 
 /// A resource named in a permission request.
@@ -583,10 +589,26 @@ fn validate_permission_lists(
         ));
     }
 
-    resources.iter().try_for_each(|resource| {
-        bounded(&resource.requested, "resource")?;
-        bounded(&resource.resolved, "resource")
-    })?;
+    if resources
+        .iter()
+        .any(|resource| resource.requested.len().max(resource.resolved.len()) > MAX_RESOURCE_BYTES)
+    {
+        return Err(format!(
+            "signal resource exceeds {MAX_RESOURCE_BYTES} bytes"
+        ));
+    }
+
+    let total: usize = resources
+        .iter()
+        .map(|resource| resource.requested.len() + resource.resolved.len())
+        .sum();
+
+    if total > MAX_RESOURCES_TOTAL_BYTES {
+        return Err(format!(
+            "signal resources exceed {MAX_RESOURCES_TOTAL_BYTES} bytes together"
+        ));
+    }
+
     user_requests
         .iter()
         .try_for_each(|text| prompt_bounded(text, "user request"))
@@ -694,4 +716,53 @@ fn prompt_bounded(value: &str, field: &str) -> Result<(), String> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn shell(commands: &[String]) -> Signal {
+        Signal {
+            agent_id: "a".into(),
+            at: 1,
+            kind: SignalKind::PermissionRequest {
+                action: "shell".into(),
+                resources: commands
+                    .iter()
+                    .map(|command| Resource {
+                        requested: command.clone(),
+                        resolved: command.clone(),
+                    })
+                    .collect(),
+                request: String::new(),
+                workspace: String::new(),
+                user_requests: Vec::new(),
+                host_decision: PermissionDecision::Allow,
+            },
+        }
+    }
+
+    #[test]
+    fn a_shell_command_with_a_heredoc_prompt_is_judged_whole() {
+        assert_eq!(shell(&["x".repeat(MAX_RESOURCE_BYTES)]).validate(), Ok(()));
+        assert_eq!(
+            shell(&["x".repeat(MAX_RESOURCE_BYTES + 1)]).validate(),
+            Err(format!(
+                "signal resource exceeds {MAX_RESOURCE_BYTES} bytes"
+            ))
+        );
+    }
+
+    #[test]
+    fn resources_together_stay_within_their_total() {
+        let near_limit = vec![
+            "x".repeat(MAX_RESOURCE_BYTES);
+            MAX_RESOURCES_TOTAL_BYTES / MAX_RESOURCE_BYTES / 2
+        ];
+        assert_eq!(shell(&near_limit).validate(), Ok(()));
+
+        let over = vec!["x".repeat(MAX_RESOURCE_BYTES); MAX_RESOURCES];
+        assert!(shell(&over).validate().unwrap_err().contains("together"));
+    }
 }

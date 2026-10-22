@@ -366,7 +366,7 @@ Contracts in `skills/permission/` (strict JSON, validated at daemon start;
 configuration. The adapter reports every request the host does not deny,
 with the host's own decision. Task-approval contracts judge only requests the
 host would **ask** about; allowed requests still reach the backstop,
-irreversible-harm question, and shell-file-write guard. For each ask, every
+irreversible-harm question, and shell-file-read/write guards. For each ask, every
 contract matching the
 `permission.evaluate` event and the requested action:
 
@@ -385,7 +385,9 @@ host (deny, then ask, then allow; prompt and remind ask with their reminder). A
 host denial always stands; the adapter asks when the engine fails or misses
 the 2-second budget, including session-history lookup. No matching contract
 leaves the host's decision. Permission resources are never clipped: commands
-and paths reach safety checks whole, or ask if either exceeds 2,048 UTF-8 bytes.
+and paths reach safety checks whole, or ask if one exceeds 16 KiB of UTF-8 or a
+request's resources exceed 128 KiB together. 16 KiB fits a shell command that
+carries a heredoc prompt, such as `opencode run "$(cat <<'EOF' … EOF)"`.
 
 Three task-approval contracts ship, none with a cooldown. Each asks Jev whether
 the request
@@ -402,6 +404,19 @@ answer, or a failed judgment leaves the ask to the user:
 - `external-directory-gate`: directories outside the project, such as a
   sibling repository the task depends on. Credential stores (`~/.ssh`,
   `~/.aws`), system directories, and unrelated directories are a no.
+
+Two shell guards also judge commands the host would allow, denying a confident
+violation before execution without a cooldown. The write guard catches scripted
+project-file rewrites; the read guard catches shell printers and Python/Node
+file reads that show project source or print transformed source for a later
+edit. Piping output or compiling it in memory does not exempt an ad hoc source
+reader. Only local files count: content fetched over the network (`gh api`
+raw files and READMEs, `curl`) is exempt because the read tool cannot open
+it. Normal build tools reading their inputs, `git diff`/`show`/`log`, searches,
+structured-data queries, logs, temporary files and binary analysis are exempt. A negative,
+unsure or failed judgment abstains, leaving other contracts and the host's
+decision intact. The `cat-to-read` tool-result rule is a reminder after a missed
+read, not the pre-execution enforcement boundary.
 
 ### Rules
 
@@ -673,7 +688,11 @@ Installed as a package, it also registers the hand-over skills in
   rulebook stays silent about open todos so the todo plugin's reminder is the
   only one. `tool.transform` also appends the cheaper-subagent instruction to
   the host's `subagent` description, so the agent reads it before launching.
-- **`permission`:** `permission.hook("evaluate")`, answered within 5 seconds.
+- **Daemon RPC transport:** dedicated `node:http` / `node:https` sockets, not
+  Bun's shared fetch pool. Long-lived MCP and SourceFed event streams cannot
+  consume the transport's slots and queue permission checks. Each hook's
+  deadline aborts the socket, including a stalled response body.
+- **`permission`:** `permission.hook("evaluate")`, answered within 2 seconds.
 - **`model`:** `session.switchModel` (with the variant) plus the retry
   decision; the session's model comes from `session.get`.
 - **`tools`:** the hidden list is recorded on the user message's
