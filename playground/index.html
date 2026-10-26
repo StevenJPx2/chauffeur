@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Chauffeur playground</title>
+  </head>
+  <body>
+    <main v-scope v-cloak>
+      <h1>Chauffeur playground</h1>
+      <wa-tab-group :active="selected" @wa-tab-show="show($event.detail.name)">
+        <wa-tab v-for="feature in features" :key="feature.id" slot="nav" :panel="feature.id">{{ feature.title }}</wa-tab>
+        <wa-tab-panel v-for="feature in features" :key="feature.id" :name="feature.id">
+          <div v-scope="feature.view()"></div>
+        </wa-tab-panel>
+      </wa-tab-group>
+    </main>
+
+    <!-- One template per feature, named by its view's `$template`. -->
+    <template id="state-machine">
+      <div class="wa-grid">
+        <div class="wa-stack">
+          <!-- Choose by `selected`, not `:value`: petite-vue's value binding also writes `el._value`, which wa-select keeps as an array. -->
+          <wa-select label="Example" @change="load($event.target.value)">
+            <wa-option v-for="name in names" :key="name" :value="name" :selected="name === example">{{ name }}</wa-option>
+          </wa-select>
+          <wa-textarea label="Plan" hint="Steps in order; a gate may only name earlier steps. Judges: person (answered here) or keywords (a rule: TODO → yes, done → no, else unsure)." :value="source" @input="source = $event.target.value" rows="18" spellcheck="false"></wa-textarea>
+          <div class="wa-cluster">
+            <wa-button variant="brand" @click="start()">Start again</wa-button>
+          </div>
+          <wa-callout v-if="error" variant="danger">{{ error }}</wa-callout>
+        </div>
+        <div class="wa-stack">
+          <wa-card v-if="questions.length">
+            <span slot="header">Round {{ round }}</span>
+            <div class="wa-stack">
+              <div v-for="question in questions" :key="question.id" class="question">
+                <div v-if="question.ruling" class="ruling">
+                  <strong>{{ question.id }}</strong> · {{ question.judge }} rule
+                  <wa-badge variant="neutral">{{ question.ruling }}</wa-badge>
+                  <small>{{ question.request }}</small>
+                </div>
+                <wa-radio-group v-else :name="question.id" :label="`${question.id} · ${question.judge}`" :hint="question.request" orientation="horizontal" :value="question.answer" @change="question.answer = $event.target.value">
+                  <!-- `failed` is the core's distinct failure outcome; the rest are this page's values. -->
+                  <wa-radio appearance="button" value="yes">yes</wa-radio>
+                  <wa-radio appearance="button" value="no">no</wa-radio>
+                  <wa-radio appearance="button" value="unsure">unsure</wa-radio>
+                  <wa-radio appearance="button" value="failed">failed</wa-radio>
+                </wa-radio-group>
+              </div>
+              <div class="wa-cluster">
+                <wa-button variant="brand" @click="answer()">Answer round</wa-button>
+                <wa-button appearance="outlined" variant="danger" @click="fail()">Fail round</wa-button>
+              </div>
+            </div>
+          </wa-card>
+          <wa-card v-if="verdict.length">
+            <span slot="header">Verdict</span>
+            <ul class="verdict">
+              <li v-for="line in verdict" :key="line.id">
+                <code>{{ line.id }}</code>
+                <wa-badge :variant="line.resolution === 'skipped' ? 'neutral' : line.resolution === 'failed' ? 'danger' : 'brand'">{{ line.resolution }}</wa-badge>
+              </li>
+            </ul>
+          </wa-card>
+          <wa-card>
+            <span slot="header">Events</span>
+            <ol class="events">
+              <li v-for="event in events">{{ event }}</li>
+            </ol>
+          </wa-card>
+        </div>
+      </div>
+    </template>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

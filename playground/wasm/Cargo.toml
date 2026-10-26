@@ -1,0 +1,33 @@
+[package]
+name = "chauffeur-playground"
+description = "The Rust side of the playground, compiled to WebAssembly for the browser page"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+chauffeur-core = { workspace = true }
+wasm-bindgen = { workspace = true }
+
+[lints]
+workspace = true
+
+# wasm-opt validates against only the features it is told about; these are
+# the ones Rust's wasm32 target enables (`rustc --print cfg`).
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = [
+  "-O",
+  "--enable-bulk-memory",
+  "--enable-bulk-memory-opt",
+  "--enable-multivalue",
+  "--enable-mutable-globals",
+  "--enable-nontrapping-float-to-int",
+  "--enable-reference-types",
+  "--enable-sign-ext",
+]
