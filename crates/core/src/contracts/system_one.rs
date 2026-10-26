@@ -2,6 +2,8 @@
 
 use std::fmt;
 
+use crate::judge::Facts;
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ChoiceOption {
     pub value: String,
@@ -26,6 +28,10 @@ pub struct Question {
     pub id: String,
     pub instructions: String,
     pub kind: QuestionKind,
+    /// Plain values for a judge that decides from facts rather than text,
+    /// such as the facts judge. A model judge reads only the instructions,
+    /// so a question that may be routed to one states the same facts there.
+    pub facts: Facts,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -73,7 +79,9 @@ impl fmt::Display for SystemOneError {
 impl std::error::Error for SystemOneError {}
 
 /// A typed-decision model. Implementations answer every question in one call
-/// and return answers only after [`validate_answers`] accepts them.
+/// and return answers only after [`validate_answers`] accepts them. The
+/// engine reaches it as a [`crate::judge::Judge`] through
+/// [`crate::judge::SystemOneJudge`].
 pub trait SystemOne: Send {
     fn name(&self) -> &str;
 
@@ -110,6 +118,28 @@ pub fn validate_answers(questions: &[Question], answers: &[Answer]) -> Result<()
     }
 
     Ok(())
+}
+
+/// Check answers to some of `questions`: each to a distinct question asked,
+/// in range. For judges that leave a question unanswered.
+pub fn validate_some_answers(
+    questions: &[Question],
+    answers: &[Answer],
+) -> Result<(), SystemOneError> {
+    let mut seen = std::collections::HashSet::new();
+
+    answers.iter().try_for_each(|answer| {
+        let question = questions
+            .iter()
+            .find(|question| question.id == answer.id)
+            .ok_or_else(|| SystemOneError(format!("unasked answer {}", answer.id)))?;
+
+        if !seen.insert(&answer.id) {
+            return Err(SystemOneError(format!("repeated answer {}", answer.id)));
+        }
+
+        validate_answer(question, answer)
+    })
 }
 
 fn validate_answer(question: &Question, answer: &Answer) -> Result<(), SystemOneError> {
@@ -191,6 +221,7 @@ mod tests {
                     },
                 ],
             },
+            facts: Facts::new(),
         };
         let good = Answer {
             id: "q".into(),

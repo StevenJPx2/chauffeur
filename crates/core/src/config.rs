@@ -142,7 +142,7 @@ pub fn read_json_files(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::judge::Threshold;
+    use crate::judgment::Threshold;
 
     #[derive(Debug, serde::Deserialize, PartialEq)]
     #[serde(deny_unknown_fields)]

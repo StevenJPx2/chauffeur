@@ -4,11 +4,11 @@
 
 use std::sync::{Arc, Mutex};
 
-use chauffeur_core::judge::strategy::{self, Escalation, Screened};
+use chauffeur_core::judgment::strategy::{self, Escalation, Screened};
 use chauffeur_core::{
-    Answer, AnswerValue, Delivery, Effect, Engine, Evidence, Judge, Judged, Judging, Question,
-    QuestionKind, Reasoned, Reasoning, ReasoningFailure, Rule, Schema, Signal, SignalKind,
-    Situation, Step, SystemOne, SystemOneError, SystemTwo,
+    Answer, AnswerValue, Delivery, Effect, Engine, Evidence, Facts, Judged, Judging, Judgment,
+    Question, QuestionKind, Reasoned, Reasoning, ReasoningFailure, Rule, Schema, Signal,
+    SignalKind, Situation, Step, SystemOne, SystemOneError, SystemTwo,
 };
 use serde_json::json;
 
@@ -54,12 +54,13 @@ impl Judged for Review {
         "goal"
     }
 
-    fn judge(&mut self, _: &Situation, signal: &Signal) -> Option<Judge<Option<bool>>> {
+    fn judge(&mut self, _: &Situation, signal: &Signal) -> Option<Judgment<Option<bool>>> {
         matches!(signal.kind, SignalKind::TurnEnd { .. }).then(|| {
             let question = Question {
                 id: "done".into(),
                 instructions: "Is the goal done?".into(),
                 kind: QuestionKind::Noul,
+                facts: Facts::new(),
             };
 
             strategy::escalate(
@@ -71,7 +72,7 @@ impl Judged for Review {
                     Screened::Unsure | Screened::Failed => None,
                 },
                 |_| {
-                    Judge::reason(request(), |outcome: Reasoned| {
+                    Judgment::reason(request(), |outcome: Reasoned| {
                         outcome.ok().map(|verdict| verdict["verdict"] == "continue")
                     })
                 },

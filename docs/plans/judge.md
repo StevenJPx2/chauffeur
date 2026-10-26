@@ -51,7 +51,7 @@ Every rule is false, or `None`, for a failed call.
 
 ## Strategies are compositions
 
-`judge::strategy` provides the common ones, built only from the factory:
+`judgment::strategy` provides the common ones, built only from the factory:
 
 ```rust
 // one question, one rule

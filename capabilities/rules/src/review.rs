@@ -1,7 +1,7 @@
 //! Optional review of an unsure or failed step, within two inference rounds.
 
-use chauffeur_core::judge::strategy::{self, Escalation, Screened};
-use chauffeur_core::{Evidence, Judge, Question, Reasoning, Rule, Schema, SignalKind, Template};
+use chauffeur_core::judgment::strategy::{self, Escalation, Screened};
+use chauffeur_core::{Evidence, Judgment, Question, Reasoning, Rule, Schema, SignalKind, Template};
 use serde::{Deserialize, Serialize};
 
 use crate::Step;
@@ -121,9 +121,9 @@ fn schema() -> Schema {
 /// Ask steps in order, with reviews only for the configured screened outcomes.
 pub(crate) fn chain(
     mut steps: std::vec::IntoIter<(Question, Step, Option<Reasoning>)>,
-) -> Judge<bool> {
+) -> Judgment<bool> {
     let Some((question, step, request)) = steps.next() else {
-        return Judge::done(true);
+        return Judgment::done(true);
     };
     let yes = Rule::yes(step.yes_at_or_above, step.minimum_confidence);
     let judge = match (step.review.filter(|review| review.enabled), request) {
@@ -139,7 +139,7 @@ pub(crate) fn chain(
             },
             |screened| screened == Screened::Yes,
             move |_| {
-                Judge::reason(request, move |outcome| {
+                Judgment::reason(request, move |outcome| {
                     outcome
                         .ok()
                         .and_then(|value| serde_json::from_value::<Verdict>(value).ok())
@@ -158,7 +158,7 @@ pub(crate) fn chain(
         if held {
             chain(steps)
         } else {
-            Judge::done(false)
+            Judgment::done(false)
         }
     })
 }

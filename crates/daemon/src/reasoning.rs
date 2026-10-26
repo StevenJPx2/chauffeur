@@ -29,6 +29,14 @@ const OUTPUT_TOKENS: std::ops::RangeInclusive<u32> = 16..=8_192;
 #[serde(deny_unknown_fields)]
 struct JudgeFile {
     system_two: SystemTwoConfig,
+    /// Read by [`crate::judges`].
+    #[serde(default)]
+    #[expect(dead_code, reason = "routes are read where the engine is built")]
+    routes: serde::de::IgnoredAny,
+    /// Read by [`crate::judges`].
+    #[serde(default)]
+    #[expect(dead_code, reason = "facts rules are read where the engine is built")]
+    facts: serde::de::IgnoredAny,
 }
 
 #[derive(Clone, Debug, Deserialize)]

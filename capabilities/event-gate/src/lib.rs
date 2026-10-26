@@ -10,10 +10,10 @@ use std::path::Path;
 use std::sync::Arc;
 
 use chauffeur_capability_monitors::Monitors;
-use chauffeur_core::judge::strategy;
+use chauffeur_core::judgment::strategy;
 use chauffeur_core::{
-    Effect, Judge, Judged, Question, QuestionKind, Signal, SignalKind, Situation, Template,
-    Threshold, load_layered,
+    Effect, Facts, Judged, Judgment, Question, QuestionKind, Signal, SignalKind, Situation,
+    Template, Threshold, load_layered,
 };
 use serde::Deserialize;
 
@@ -158,7 +158,7 @@ impl Judged for EventGate {
         ID
     }
 
-    fn judge(&mut self, _: &Situation, signal: &Signal) -> Option<Judge<bool>> {
+    fn judge(&mut self, _: &Situation, signal: &Signal) -> Option<Judgment<bool>> {
         let SignalKind::IntegrationEvent {
             source,
             kind,
@@ -177,7 +177,7 @@ impl Judged for EventGate {
             .iter()
             .any(|withheld| withheld == body.trim())
         {
-            return Some(Judge::done(true));
+            return Some(Judgment::done(true));
         }
 
         let origin = self.origin(&signal.agent_id, monitor);
@@ -205,6 +205,7 @@ impl Judged for EventGate {
                 ("marked", &marked),
             ]),
             kind: QuestionKind::Noul,
+            facts: Facts::new(),
         };
 
         Some(strategy::single(question, self.config.withhold.no()))

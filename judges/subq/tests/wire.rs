@@ -5,7 +5,7 @@ use std::net::TcpListener;
 use std::thread;
 use std::time::Duration;
 
-use chauffeur_core::{AnswerValue, ChoiceOption, Question, QuestionKind, SystemOne};
+use chauffeur_core::{AnswerValue, ChoiceOption, Facts, Question, QuestionKind, SystemOne};
 use chauffeur_judge_subq::{DEFAULT_MODEL, SubqClient, SubqConfig};
 use serde_json::{Value, json};
 
@@ -77,6 +77,7 @@ fn questions() -> Vec<Question> {
             id: "rules/check".into(),
             instructions: "Needed?".into(),
             kind: QuestionKind::Noul,
+            facts: Facts::new(),
         },
         Question {
             id: "skill-exposure/pick".into(),
@@ -93,6 +94,7 @@ fn questions() -> Vec<Question> {
                     },
                 ],
             },
+            facts: Facts::new(),
         },
         Question {
             id: "urgency".into(),
@@ -100,6 +102,7 @@ fn questions() -> Vec<Question> {
             kind: QuestionKind::Score {
                 levels: vec!["routine".into(), "urgent".into()],
             },
+            facts: Facts::new(),
         },
     ]
 }

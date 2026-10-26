@@ -1,4 +1,59 @@
-# Hosted decision judges
+# Judges
+
+A judge is whatever answers what a capability asks. Every judge fills the same
+role, `chauffeur_core::Judge`: it is handed a batch of questions and
+reasonings and returns a ruling for each. Three kinds ship:
+
+| Judge        | What it is                                     | Answers                                        |
+| ------------ | ---------------------------------------------- | ---------------------------------------------- |
+| `system_one` | a fast hosted classifier: Jev or SubQ          | typed questions (yes/no, choice, score)        |
+| `system_two` | a general-purpose LLM that reasons             | reasonings over evidence, to a schema          |
+| `facts`      | plain code, no model                           | yes/no questions, from the facts they carry    |
+
+A capability never knows which judge answered. Each question carries its
+facts (named whole numbers, such as `idle_seconds`) beside its wording, so a
+judge that reads facts and a model that reads text can both answer it.
+
+## Routes
+
+Every question goes to `system_one` and every reasoning to `system_two`,
+unless `routes` in [`skills/config/judge.json`](../skills/config/judge.json)
+names another judge for its ID (`capability/question`):
+
+```json
+{
+  "routes": { "model-router/renew_context": "facts" },
+  "facts": {
+    "model-router/renew_context": {
+      "all": [
+        { "fact": "idle_seconds", "at_least": { "fact": "cache_seconds" } },
+        { "fact": "context_tokens", "at_least": { "fact": "context_budget" } }
+      ]
+    }
+  }
+}
+```
+
+The model router computes `context_budget` from `renewal.budget` in
+`model-router.json`: `share` of the model's window, clamped between
+`min_tokens` and `max_tokens` (the ceiling when the window is unknown).
+`cache_seconds` comes from `renewal.cache_seconds`, by provider.
+
+- A `facts` rule holds when `all` (or `any`) of its conditions hold. A
+  condition compares one fact `at_least` or `at_most` a number, or another
+  fact scaled by `times`. A holding rule answers yes with certainty; otherwise
+  no. A question with no rule, or missing a fact its rule reads, goes
+  unanswered, and its capability applies its usual failure posture.
+- Your `~/.config/chauffeur/judge.json` can add routes and rules or replace one
+  (`{ "routes": { "model-router/renew_context": "system_one" } }` hands the
+  question back to Jev). A route to an unknown judge, or to `facts` without a
+  rule, stops the daemon with an error naming it. Edits apply without a restart.
+- The engine runs the facts judge itself while it plans a round, with no I/O:
+  a signal whose questions all go to it never waits on a model, and a System
+  One failure does not lose its answers. System One and System Two run on the
+  daemon's worker pools, as before.
+
+## System One providers
 
 Chauffeur supports two System One providers:
 

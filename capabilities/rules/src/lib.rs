@@ -17,8 +17,8 @@ use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use chauffeur_core::{
-    Effect, Judge, Judged, Question, QuestionKind, Signal, SignalKind, Situation, Todo, TodoState,
-    TodoStatus, load_layered,
+    Effect, Facts, Judged, Judgment, Question, QuestionKind, Signal, SignalKind, Situation, Todo,
+    TodoState, TodoStatus, load_layered,
 };
 use serde::{Deserialize, Deserializer, Serialize};
 
@@ -224,7 +224,7 @@ impl Rules {
         trigger: Trigger,
         workspace: &str,
         tool: Option<&str>,
-    ) -> Judge<Vec<Rule>> {
+    ) -> Judgment<Vec<Rule>> {
         let agent = &signal.agent_id;
         let book = self.books.rules(agent, trigger);
         let tools = self.histories.turn_tools(agent);
@@ -259,7 +259,7 @@ impl Rules {
             review::chain(steps.into_iter()).map(move |held| held.then_some(rule))
         });
 
-        Judge::all(judges.collect()).map(|held| held.into_iter().flatten().collect())
+        Judgment::all(judges.collect()).map(|held| held.into_iter().flatten().collect())
     }
 
     fn record_fired(&mut self, agent: &str, rule: &Rule, at: u64) {
@@ -319,9 +319,9 @@ impl Judged for Rules {
         self.books.load(saved.books);
     }
 
-    fn judge(&mut self, _: &Situation, signal: &Signal) -> Option<Judge<Verdict>> {
+    fn judge(&mut self, _: &Situation, signal: &Signal) -> Option<Judgment<Verdict>> {
         let agent = signal.agent_id.as_str();
-        let rules = |judge: Judge<Vec<Rule>>| {
+        let rules = |judge: Judgment<Vec<Rule>>| {
             judge.map(|rules| Verdict {
                 rules,
                 notice: None,
@@ -369,7 +369,7 @@ impl Judged for Rules {
                 rulebook,
                 args,
                 workspace,
-            } => Some(Judge::done(Verdict {
+            } => Some(Judgment::done(Verdict {
                 rules: Vec::new(),
                 notice: Some(self.books.command(
                     agent,
@@ -598,6 +598,7 @@ fn question(
         id: question_id(rule, step),
         instructions,
         kind: QuestionKind::Noul,
+        facts: Facts::new(),
     }
 }
 

@@ -1,0 +1,18 @@
+[package]
+name = "chauffeur-judge-facts"
+description = "A deterministic judge: answers yes/no questions from the facts they carry, by configured rules"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+
+[dependencies]
+chauffeur-core = { workspace = true }
+serde = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }
+
+[lints]
+workspace = true

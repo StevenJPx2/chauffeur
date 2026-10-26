@@ -317,8 +317,11 @@ fn build_engine(
         .map_err(|error| format!("{}: {error}", redaction_path.display()))?;
     let learning = LearningConfig::load(&options.config_dir.join("learning.json"))?;
     let situation = SituationTexts::load(&options.config_dir.join("situation.json"))?;
+    let (routes, facts) = crate::judges::load(&options.config_dir)?;
 
     Ok(Engine::hosted(capabilities)?
+        .with_judge(Box::new(facts))
+        .with_routes(routes)
         .with_backstop(backstop.with_learned(learned_backstop))
         .with_redactor(redactor)
         .with_learning(learning)

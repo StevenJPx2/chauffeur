@@ -1,15 +1,19 @@
 //! Sense → Classify → Act: batch each bounded round across capabilities.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
+use std::time::Duration;
 
 use crate::backstop::Backstop;
 use crate::capability::{Capability, Inference, PipeStep, Plan, Round, RunId};
 use crate::effect::{Effect, PermissionDecision};
+use crate::judge::{Docket, Judge, Routes, SYSTEM_ONE, SYSTEM_TWO, SystemOneJudge, SystemTwoJudge};
 use crate::learning::{self, LearningConfig, Probe};
 use crate::redact::{LearnedShapes, Masking, RedactionConfig, Redactor};
 use crate::signal::{Signal, SignalKind};
 use crate::situation::{Situation, SituationTexts};
-use crate::system_one::{Answer, Question, QuestionKind, SystemOne, validate_answers};
+use crate::system_one::{
+    Answer, Question, QuestionKind, SystemOne, validate_answers, validate_some_answers,
+};
 use crate::system_two::{
     self, ACTIVITY, Evidence, Reasoned, Reasoning, ReasoningAttempt, ReasoningFailure, SystemTwo,
 };
@@ -25,12 +29,18 @@ pub const MAX_RUNS: usize = 64;
 const MIN_STATE_CHARS: usize = 2_048;
 /// Bumped when the saved state's shape changes; older state is ignored.
 const STATE_VERSION: u32 = 1;
+/// The time a local judge is given; it decides without I/O.
+const LOCAL_TIMEOUT: Duration = Duration::from_secs(1);
 
 pub struct Engine {
-    system_one: Option<Box<dyn SystemOne>>,
-    /// `None` leaves every reasoning unavailable, so capabilities apply their
-    /// failure posture.
-    system_two: Option<Box<dyn SystemTwo>>,
+    /// Every judge the engine holds, by name. Local judges rule while a round
+    /// is planned; the engine's own [`SYSTEM_ONE`] and [`SYSTEM_TWO`] answer
+    /// in [`Engine::ingest`], and a host that runs them itself asks them the
+    /// rest. A missing System Two leaves every reasoning unavailable, so
+    /// capabilities apply their failure posture.
+    judges: Vec<Box<dyn Judge>>,
+    /// Which judge answers each ask.
+    routes: Routes,
     capabilities: Vec<Box<dyn Capability>>,
     situations: HashMap<String, Situation>,
     backstop: Backstop,
@@ -55,7 +65,8 @@ pub enum Step {
     Done(Vec<Effect>),
     /// Ask System One these questions, if any, and run each reasoning on
     /// System Two; finish with [`Engine::finish`], or [`Engine::finish_round`]
-    /// when there are reasonings. Finishing may produce another round.
+    /// when there are reasonings. Finishing may produce another round. Asks
+    /// routed to a local judge are already answered and never appear here.
     Ask {
         state: String,
         questions: Vec<Question>,
@@ -75,9 +86,27 @@ struct Run {
     probe: Probe,
     round: usize,
     irreversible: bool,
+    /// This round's asks for the host: System One questions and System Two
+    /// reasonings.
     questions: Vec<Question>,
     reasonings: Vec<Reasoning>,
+    /// This round's rulings from local judges.
+    local: Local,
     trace: Trace,
+}
+
+/// What local judges ruled in one round, and the asks left for the host.
+#[derive(Default)]
+struct Local {
+    answers: Vec<Answer>,
+    reasoned: Vec<(String, Reasoned)>,
+}
+
+/// A round's asks once local judges have ruled.
+struct Split {
+    questions: Vec<Question>,
+    reasonings: Vec<Reasoning>,
+    local: Local,
 }
 
 impl Engine {
@@ -85,11 +114,7 @@ impl Engine {
         system_one: Box<dyn SystemOne>,
         capabilities: Vec<Box<dyn Capability>>,
     ) -> Result<Self, String> {
-        let mut engine = Self::hosted(capabilities)?;
-
-        engine.system_one = Some(system_one);
-
-        Ok(engine)
+        Ok(Self::hosted(capabilities)?.with_judge(Box::new(SystemOneJudge(system_one))))
     }
 
     /// An engine whose host asks System One: drive it with [`Engine::begin`]
@@ -104,8 +129,8 @@ impl Engine {
         }
 
         Ok(Self {
-            system_one: None,
-            system_two: None,
+            judges: Vec::new(),
+            routes: Routes::default(),
             capabilities,
             situations: HashMap::new(),
             trace: Trace::default(),
@@ -122,9 +147,40 @@ impl Engine {
 
     /// Reason with `system_two`. Without one, every reasoning is unavailable.
     #[must_use]
-    pub fn with_system_two(mut self, system_two: Box<dyn SystemTwo>) -> Self {
-        self.system_two = Some(system_two);
+    pub fn with_system_two(self, system_two: Box<dyn SystemTwo>) -> Self {
+        self.with_judge(Box::new(SystemTwoJudge(system_two)))
+    }
+
+    /// Add `judge`, replacing any judge of the same name.
+    #[must_use]
+    pub fn with_judge(mut self, judge: Box<dyn Judge>) -> Self {
+        self.judges.retain(|held| held.name() != judge.name());
+        self.judges.push(judge);
         self
+    }
+
+    /// Send each ask its route names to that judge.
+    #[must_use]
+    pub fn with_routes(mut self, routes: Routes) -> Self {
+        self.routes = routes;
+        self
+    }
+
+    fn judge(&mut self, name: &str) -> Option<&mut Box<dyn Judge>> {
+        self.judges.iter_mut().find(|judge| judge.name() == name)
+    }
+
+    fn is_local(&self, name: &str) -> bool {
+        self.judges
+            .iter()
+            .any(|judge| judge.name() == name && judge.local())
+    }
+
+    /// Whether question `id`'s judge is the host's System One.
+    fn host_answers(&self, id: &str) -> bool {
+        let judge = self.routes.question(id);
+
+        judge == SYSTEM_ONE && !self.is_local(judge)
     }
 
     /// Replace the shipped learning bars, for example with your `learning.json`.
@@ -233,8 +289,7 @@ impl Engine {
             .map(|(id, _)| *id)
     }
 
-    /// Run one signal to completion with the engine's own System One and
-    /// System Two.
+    /// Run one signal to completion with the engine's own judges.
     pub fn ingest(&mut self, signal: &Signal) -> Result<Vec<Effect>, String> {
         let (run, mut step) = self.start(signal)?;
 
@@ -248,25 +303,41 @@ impl Engine {
                 } => (state, questions, reasonings),
             };
             let started = std::time::Instant::now();
-            let result = match self.system_one.as_mut() {
+            let result = match self.judge(SYSTEM_ONE) {
                 _ if questions.is_empty() => Ok(Vec::new()),
-                Some(system_one) => system_one.ask(&state, &questions).map_err(|error| error.0),
+                Some(judge) => {
+                    judge
+                        .judge(&Docket {
+                            state: &state,
+                            questions: &questions,
+                            reasonings: &[],
+                            timeout: Duration::MAX,
+                        })
+                        .answers
+                }
                 None => Err("no System One provider".to_string()),
             };
-            let reasoned = reasonings
-                .iter()
-                .map(|request| {
-                    let executor = self
-                        .system_two
-                        .as_deref_mut()
-                        .map(|executor| executor as &mut dyn SystemTwo);
-
-                    (
-                        request.id.clone(),
-                        system_two::run_attempt(executor, request, std::time::Duration::MAX),
-                    )
-                })
-                .collect();
+            let reasoned = match self.judge(SYSTEM_TWO) {
+                Some(judge) if !reasonings.is_empty() => {
+                    judge
+                        .judge(&Docket {
+                            state: &state,
+                            questions: &[],
+                            reasonings: &reasonings,
+                            timeout: Duration::MAX,
+                        })
+                        .reasoned
+                }
+                _ => reasonings
+                    .iter()
+                    .map(|request| {
+                        (
+                            request.id.clone(),
+                            system_two::run_attempt(None, request, Duration::MAX),
+                        )
+                    })
+                    .collect(),
+            };
             let elapsed = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
             step = self
                 .resume_attempts(run, result, reasoned, elapsed)
@@ -379,6 +450,10 @@ impl Engine {
             .iter()
             .map(|question| TracedQuestion::new(question, 1))
             .collect();
+
+        let split = self.rule_locally(&state, questions, reasonings, 1, &mut trace);
+        let to_host = !split.questions.is_empty() || !split.reasonings.is_empty();
+
         self.runs.insert(
             id,
             Run {
@@ -389,20 +464,135 @@ impl Engine {
                 probe: Probe::new(command, &masking),
                 round: 1,
                 irreversible: false,
-                questions: questions.clone(),
-                reasonings: reasonings.clone(),
+                questions: split.questions.clone(),
+                reasonings: split.reasonings.clone(),
+                local: split.local,
                 trace,
             },
         );
+
+        // Local judges answered everything: nothing to ask the host.
+        if !to_host {
+            let step = self
+                .resume_attempts(id, Ok(Vec::new()), Vec::new(), 0)
+                .unwrap_or(Step::Done(Vec::new()));
+
+            return Ok((id, step));
+        }
 
         Ok((
             id,
             Step::Ask {
                 state,
-                questions,
-                reasonings,
+                questions: split.questions,
+                reasonings: split.reasonings,
             },
         ))
+    }
+
+    /// Hand each ask routed to a local judge to that judge, with each judge's
+    /// asks in one call, and keep their rulings for the round. Questions for
+    /// System One and reasonings for System Two are left for the host. An ask
+    /// routed to a judge the engine does not hold goes unanswered: a question
+    /// reads as unanswered and a reasoning as unavailable.
+    fn rule_locally(
+        &mut self,
+        state: &str,
+        questions: Vec<Question>,
+        reasonings: Vec<Reasoning>,
+        round: usize,
+        trace: &mut Trace,
+    ) -> Split {
+        let mut host = Split {
+            questions: Vec::new(),
+            reasonings: Vec::new(),
+            local: Local::default(),
+        };
+        let mut dockets: BTreeMap<String, (Vec<Question>, Vec<Reasoning>)> = BTreeMap::new();
+
+        for question in questions {
+            let judge = self.routes.question(&question.id).to_string();
+
+            if self.is_local(&judge) {
+                dockets.entry(judge).or_default().0.push(question);
+            } else if judge == SYSTEM_ONE {
+                host.questions.push(question);
+            } else {
+                trace
+                    .error
+                    .get_or_insert(format!("{}: no judge {judge}", question.id));
+            }
+        }
+
+        for request in reasonings {
+            let judge = self.routes.reasoning(&request.id).to_string();
+
+            if self.is_local(&judge) {
+                dockets.entry(judge).or_default().1.push(request);
+            } else if judge == SYSTEM_TWO {
+                host.reasonings.push(request);
+            } else {
+                let outcome: Reasoned =
+                    Err(ReasoningFailure::Unavailable(format!("no judge {judge}")));
+
+                trace
+                    .reasonings
+                    .push(TracedReasoning::new(&request, &outcome, round));
+                host.local.reasoned.push((request.id, outcome));
+            }
+        }
+
+        for (name, (questions, reasonings)) in dockets {
+            let Some(judge) = self.judge(&name) else {
+                continue;
+            };
+            let rulings = judge.judge(&Docket {
+                state,
+                questions: &questions,
+                reasonings: &reasonings,
+                timeout: LOCAL_TIMEOUT,
+            });
+
+            match rulings.answers.and_then(|answers| {
+                validate_some_answers(&questions, &answers)
+                    .map(|()| answers)
+                    .map_err(|error| error.0)
+            }) {
+                Ok(answers) => {
+                    trace.answers.extend(
+                        answers
+                            .iter()
+                            .map(|answer| TracedAnswer::new(answer, round)),
+                    );
+                    host.local.answers.extend(answers);
+                }
+                Err(error) => {
+                    trace.error.get_or_insert(format!("{name}: {error}"));
+                }
+            }
+
+            let mut reasoned: HashMap<String, ReasoningAttempt> =
+                rulings.reasoned.into_iter().collect();
+
+            for request in &reasonings {
+                let outcome = reasoned
+                    .remove(&request.id)
+                    .map_or_else(
+                        || Err(ReasoningFailure::Unavailable("no outcome".into())),
+                        |attempt| attempt.outcome,
+                    )
+                    .and_then(|verdict| {
+                        system_two::validate_verdict(request, &verdict).map(|()| verdict)
+                    });
+
+                trace
+                    .reasonings
+                    .push(TracedReasoning::new(request, &outcome, round));
+                host.local.reasoned.push((request.id.clone(), outcome));
+            }
+        }
+
+        host
     }
 
     /// Abandon `run`: no capability acts on it, and a later result for it is
@@ -565,8 +755,32 @@ impl Engine {
     }
 
     /// Continue a hosted run, retaining each attempt's execution metadata in
-    /// its trace while capabilities read validated outcomes only.
+    /// its trace while capabilities read validated outcomes only. A next
+    /// round that local judges answer whole continues at once.
     pub fn resume_attempts(
+        &mut self,
+        run: RunId,
+        result: Result<Vec<Answer>, String>,
+        reasoned: Vec<(String, ReasoningAttempt)>,
+        elapsed_ms: u64,
+    ) -> Option<Step> {
+        let mut step = self.resume_round(run, result, reasoned, elapsed_ms)?;
+
+        while let Step::Ask {
+            questions,
+            reasonings,
+            ..
+        } = &step
+            && questions.is_empty()
+            && reasonings.is_empty()
+        {
+            step = self.resume_round(run, Ok(Vec::new()), Vec::new(), 0)?;
+        }
+
+        Some(step)
+    }
+
+    fn resume_round(
         &mut self,
         run: RunId,
         result: Result<Vec<Answer>, String>,
@@ -577,7 +791,10 @@ impl Engine {
 
         pending.trace.elapsed_ms = pending.trace.elapsed_ms.saturating_add(elapsed_ms);
         let answers = checked_answers(&mut pending, result);
-        let reasoned = checked(&mut pending, reasoned);
+        let mut reasoned = checked(&mut pending, reasoned);
+        let local = std::mem::take(&mut pending.local);
+
+        reasoned.extend(local.reasoned);
         if pending.round == 1 {
             pending.irreversible = answers.as_deref().is_some_and(|answers| {
                 let (learned, irreversible) = self.learn(&pending.probe, answers);
@@ -590,16 +807,27 @@ impl Engine {
             answers: answers.as_deref(),
             reasoned: &reasoned,
         };
-        let (effects, next) =
-            self.advance(run, &pending.signal, &pending.asks, &round, pending.round);
+        let (effects, next) = self.advance(
+            run,
+            &pending.signal,
+            &pending.asks,
+            &round,
+            &local.answers,
+            pending.round,
+        );
         pending.settled.extend(effects);
 
-        // A failed System One call ends System One's rounds; a next round of
-        // System Two alone may still run.
+        // A failed System One call ends System One's rounds; a next round
+        // that asks System One nothing may still run.
         let next_allowed = answers.is_some()
-            || next
-                .iter()
-                .all(|(_, inference)| inference.questions.is_empty());
+            || next.iter().all(|(index, inference)| {
+                let prefix = self.prefix(*index);
+
+                inference
+                    .questions
+                    .iter()
+                    .all(|question| !self.host_answers(&format!("{prefix}{}", question.id)))
+            });
 
         if !next.is_empty() && pending.round < MAX_ROUNDS && next_allowed {
             pending.asks = next;
@@ -619,13 +847,21 @@ impl Engine {
                     .iter()
                     .map(|question| TracedQuestion::new(question, pending.round)),
             );
-            pending.questions = questions.clone();
-            pending.reasonings = reasonings.clone();
+            let split = self.rule_locally(
+                &state,
+                questions,
+                reasonings,
+                pending.round,
+                &mut pending.trace,
+            );
+            pending.questions = split.questions.clone();
+            pending.reasonings = split.reasonings.clone();
+            pending.local = split.local;
             self.runs.insert(run, pending);
             return Some(Step::Ask {
                 state,
-                questions,
-                reasonings,
+                questions: split.questions,
+                reasonings: split.reasonings,
             });
         }
 
@@ -735,14 +971,16 @@ impl Engine {
             .collect()
     }
 
-    /// Hand each asking capability its own outcomes, IDs restored. One that
-    /// asked System One nothing this round is not told of its failure.
+    /// Hand each asking capability its own outcomes, IDs restored: System
+    /// One's answers with local judges' answers beside them. One that asked
+    /// System One nothing this round is not told of its failure.
     fn advance(
         &mut self,
         run: RunId,
         signal: &Signal,
         asks: &[(usize, Inference)],
         round: &Round<'_>,
+        local_answers: &[Answer],
         number: usize,
     ) -> (Vec<Effect>, Vec<(usize, Inference)>) {
         let mut effects = Vec::new();
@@ -750,22 +988,32 @@ impl Engine {
 
         for (index, inference) in asks {
             let prefix = self.prefix(*index);
-            let local: Option<Vec<Answer>> = if inference.questions.is_empty() {
-                Some(Vec::new())
-            } else {
-                round.answers.map(|answers| {
-                    answers
-                        .iter()
-                        .filter_map(|answer| {
-                            let id = answer.id.strip_prefix(&prefix)?;
+            let own = |answers: &[Answer]| -> Vec<Answer> {
+                answers
+                    .iter()
+                    .filter_map(|answer| {
+                        let id = answer.id.strip_prefix(&prefix)?;
 
-                            Some(Answer {
-                                id: id.to_string(),
-                                ..answer.clone()
-                            })
+                        Some(Answer {
+                            id: id.to_string(),
+                            ..answer.clone()
                         })
-                        .collect()
+                    })
+                    .collect()
+            };
+            let asked_host = inference
+                .questions
+                .iter()
+                .any(|question| self.host_answers(&format!("{prefix}{}", question.id)));
+            let local: Option<Vec<Answer>> = if asked_host {
+                round.answers.map(|answers| {
+                    let mut answers = own(answers);
+
+                    answers.extend(own(local_answers));
+                    answers
                 })
+            } else {
+                Some(own(local_answers))
             };
             let reasoned: Vec<(String, Reasoned)> = round
                 .reasoned
@@ -876,6 +1124,7 @@ mod tests {
     use std::sync::{Arc, Mutex};
 
     use super::*;
+    use crate::judge::Facts;
     use crate::signal::SignalKind;
     use crate::system_one::{Answer, AnswerValue, QuestionKind, SystemOneError};
 
@@ -935,11 +1184,13 @@ mod tests {
                     id: "a".into(),
                     instructions: "?".into(),
                     kind: QuestionKind::Noul,
+                    facts: Facts::new(),
                 },
                 Question {
                     id: "b".into(),
                     instructions: "?".into(),
                     kind: QuestionKind::Noul,
+                    facts: Facts::new(),
                 },
             ])
         }
@@ -1013,6 +1264,98 @@ mod tests {
         assert_eq!(effects, vec![keep("one:a,b"), keep("two:a,b")]);
     }
 
+    /// Plain code as a judge: yes to every yes/no question, in place.
+    struct Always;
+
+    impl Judge for Always {
+        fn name(&self) -> &str {
+            "always"
+        }
+
+        fn local(&self) -> bool {
+            true
+        }
+
+        fn judge(&mut self, docket: &Docket<'_>) -> crate::judge::Rulings {
+            crate::judge::Rulings {
+                answers: Ok(docket
+                    .questions
+                    .iter()
+                    .map(|question| Answer {
+                        id: question.id.clone(),
+                        value: AnswerValue::Noul(1.0),
+                        confidence: Some(1.0),
+                    })
+                    .collect()),
+                reasoned: Vec::new(),
+            }
+        }
+    }
+
+    fn routed(fail: bool, calls: &Arc<Mutex<Vec<usize>>>, routes: &[(&str, &str)]) -> Engine {
+        engine(fail, calls)
+            .with_judge(Box::new(Always))
+            .with_routes(Routes::new(
+                routes
+                    .iter()
+                    .map(|(id, judge)| ((*id).to_string(), (*judge).to_string()))
+                    .collect(),
+            ))
+    }
+
+    #[test]
+    fn a_question_routed_to_a_local_judge_is_answered_in_place_beside_system_one() {
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let effects = routed(false, &calls, &[("one/b", "always")])
+            .ingest(&signal())
+            .unwrap();
+
+        // System One is asked only the three questions still routed to it.
+        assert_eq!(*calls.lock().unwrap(), vec![3]);
+        assert_eq!(effects, vec![keep("one:a,b"), keep("two:a,b")]);
+    }
+
+    #[test]
+    fn a_capability_answered_wholly_by_a_local_judge_never_waits_on_system_one() {
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let routes = [
+            ("one/a", "always"),
+            ("one/b", "always"),
+            ("two/a", "always"),
+            ("two/b", "always"),
+        ];
+        let effects = routed(true, &calls, &routes).ingest(&signal()).unwrap();
+
+        assert!(calls.lock().unwrap().is_empty());
+        assert_eq!(effects, vec![keep("one:a,b"), keep("two:a,b")]);
+
+        // System One down: a capability that also asked it applies its
+        // failure posture; one answered locally does not.
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let effects = routed(true, &calls, &routes[..2])
+            .ingest(&signal())
+            .unwrap();
+
+        assert_eq!(effects, vec![keep("one:a,b"), keep("two:none")]);
+    }
+
+    #[test]
+    fn a_question_routed_to_a_judge_the_engine_lacks_goes_unanswered() {
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let mut engine = routed(false, &calls, &[("one/a", "missing")]);
+        let effects = engine.ingest(&signal()).unwrap();
+
+        assert_eq!(effects, vec![keep("one:b"), keep("two:a,b")]);
+        assert!(
+            engine
+                .trace()
+                .error
+                .as_deref()
+                .unwrap()
+                .contains("no judge missing")
+        );
+    }
+
     /// One request counts against the provider's input limit, so a round that
     /// asks at length leaves a shorter window of activity to read it in.
     #[test]
@@ -1057,6 +1400,7 @@ mod tests {
                     id: "q".into(),
                     instructions: "why ".repeat(self.chars),
                     kind: QuestionKind::Noul,
+                    facts: Facts::new(),
                 }])
             }
 
@@ -1219,6 +1563,7 @@ mod tests {
                 id: "first".into(),
                 instructions: "first?".into(),
                 kind: QuestionKind::Noul,
+                facts: Facts::new(),
             }])
         }
 
@@ -1232,7 +1577,7 @@ mod tests {
             let answers = outcome.answers;
 
             if round == 1 && answers.is_some_and(|answers| matches!(answers.first(), Some(Answer { value: AnswerValue::Noul(p), .. }) if *p > 0.7)) {
-                return PipeStep::Next(vec![Question { id: "second".into(), instructions: "second?".into(), kind: QuestionKind::Noul }]);
+                return PipeStep::Next(vec![Question { id: "second".into(), instructions: "second?".into(), kind: QuestionKind::Noul, facts: Facts::new() }]);
             }
 
             PipeStep::Done(

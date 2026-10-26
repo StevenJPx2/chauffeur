@@ -10,7 +10,8 @@ use serde::Deserialize;
 
 use crate::backstop::Backstop;
 use crate::config::load_layered;
-use crate::judge::Threshold;
+use crate::judge::Facts;
+use crate::judgment::Threshold;
 use crate::redact::{Masking, Redactor, Shape, describe};
 use crate::signal::{Signal, SignalKind};
 use crate::system_one::{Answer, Question, QuestionKind};
@@ -118,6 +119,7 @@ pub fn harm(signal: &Signal, texts: &LearningTexts) -> Option<(String, Question)
         id: HARM.into(),
         instructions: texts.irreversible.render(&[("command", &command)]),
         kind: QuestionKind::Noul,
+        facts: Facts::new(),
     };
 
     Some((command, question))
@@ -138,6 +140,7 @@ pub fn secrets(masking: &Masking, texts: &LearningTexts) -> Vec<Question> {
                 .secret
                 .render(&[("shape", &describe(index + 1, shape, key))]),
             kind: QuestionKind::Noul,
+            facts: Facts::new(),
         })
         .collect()
 }

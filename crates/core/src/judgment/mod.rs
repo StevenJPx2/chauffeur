@@ -1,8 +1,8 @@
-//! A judgment as a state machine. A [`Judge`] either has finished with a
+//! A judgment as a state machine. A [`Judgment`] either has finished with a
 //! value or is waiting on a round: System One questions, System Two
 //! reasonings, or both. Each round's outcome moves it to its next state.
-//! Five primitives build every judge: [`Judge::done`], [`Judge::ask`],
-//! [`Judge::reason`], [`Judge::then`], and [`Judge::all`]. Judging strategies
+//! Five primitives build every judgment: [`Judgment::done`], [`Judgment::ask`],
+//! [`Judgment::reason`], [`Judgment::then`], and [`Judgment::all`]. Judging strategies
 //! ([`strategy`]) are compositions of them.
 
 mod judged;
@@ -19,10 +19,10 @@ use crate::system_one::{Answer, Question};
 use crate::system_two::{Reasoned, Reasoning};
 
 /// What a judge does with the next round's outcome.
-type Next<T> = Box<dyn FnOnce(&Round<'_>) -> Judge<T> + Send>;
+type Next<T> = Box<dyn FnOnce(&Round<'_>) -> Judgment<T> + Send>;
 
 /// A judgment in progress, or its result.
-pub enum Judge<T> {
+pub enum Judgment<T> {
     /// Finished, with its value.
     Done(T),
     /// Waiting on this round; its outcome chooses the next state.
@@ -33,7 +33,7 @@ pub enum Judge<T> {
     },
 }
 
-impl<T: Send + 'static> Judge<T> {
+impl<T: Send + 'static> Judgment<T> {
     /// A judge that has finished, asking nothing.
     #[must_use]
     pub fn done(value: T) -> Self {
@@ -80,15 +80,15 @@ impl<T: Send + 'static> Judge<T> {
     #[must_use]
     pub fn then<U: Send + 'static>(
         self,
-        f: impl FnOnce(T) -> Judge<U> + Send + 'static,
-    ) -> Judge<U> {
+        f: impl FnOnce(T) -> Judgment<U> + Send + 'static,
+    ) -> Judgment<U> {
         match self {
             Self::Done(value) => f(value),
             Self::Asking {
                 questions,
                 reasonings,
                 next,
-            } => Judge::Asking {
+            } => Judgment::Asking {
                 questions,
                 reasonings,
                 next: Box::new(move |round| next(round).then(f)),
@@ -99,9 +99,9 @@ impl<T: Send + 'static> Judge<T> {
     /// This judge and `other` side by side, in the same rounds; finishes
     /// with both values once both have.
     #[must_use]
-    pub fn zip<U: Send + 'static>(self, other: Judge<U>) -> Judge<(T, U)> {
+    pub fn zip<U: Send + 'static>(self, other: Judgment<U>) -> Judgment<(T, U)> {
         match (self, other) {
-            (Self::Done(left), Judge::Done(right)) => Judge::Done((left, right)),
+            (Self::Done(left), Judgment::Done(right)) => Judgment::Done((left, right)),
             (left, right) => {
                 let questions = joined(left.questions(), right.questions());
                 let reasonings = joined(left.reasonings(), right.reasonings());
@@ -111,7 +111,7 @@ impl<T: Send + 'static> Judge<T> {
                     "judges run together must ask distinct IDs"
                 );
 
-                Judge::Asking {
+                Judgment::Asking {
                     questions,
                     reasonings,
                     next: Box::new(move |round| {
@@ -126,14 +126,14 @@ impl<T: Send + 'static> Judge<T> {
     /// or rounds ran out, before it finished: a judge whose rules all refused
     /// can be told apart from one that was never answered.
     #[must_use]
-    pub fn unless_failed(self) -> Judge<Option<T>> {
+    pub fn unless_failed(self) -> Judgment<Option<T>> {
         match self {
-            Self::Done(value) => Judge::Done(Some(value)),
+            Self::Done(value) => Judgment::Done(Some(value)),
             Self::Asking {
                 questions,
                 reasonings,
                 next,
-            } => Judge::Asking {
+            } => Judgment::Asking {
                 questions,
                 reasonings,
                 next: Box::new(move |round| match round.answers {
@@ -146,8 +146,8 @@ impl<T: Send + 'static> Judge<T> {
 
     /// This judge's value, transformed by `f`.
     #[must_use]
-    pub fn map<U: Send + 'static>(self, f: impl FnOnce(T) -> U + Send + 'static) -> Judge<U> {
-        self.then(|value| Judge::done(f(value)))
+    pub fn map<U: Send + 'static>(self, f: impl FnOnce(T) -> U + Send + 'static) -> Judgment<U> {
+        self.then(|value| Judgment::done(f(value)))
     }
 
     /// The System One questions this round asks; none once finished.
@@ -208,7 +208,7 @@ impl<T: Send + 'static> Judge<T> {
     }
 }
 
-impl<T: Send + 'static> Judge<Vec<T>> {
+impl<T: Send + 'static> Judgment<Vec<T>> {
     /// Run `judges` side by side: each round asks every one still asking,
     /// System One questions in one call. Finishes, in order, once all of
     /// them have.
@@ -218,9 +218,12 @@ impl<T: Send + 'static> Judge<Vec<T>> {
     /// In debug builds, when two judges ask the same ID in one round: their
     /// outcomes could not be told apart. IDs are the caller's to keep unique.
     #[must_use]
-    pub fn all(judges: Vec<Judge<T>>) -> Self {
-        if judges.iter().all(|judge| matches!(judge, Judge::Done(_))) {
-            return Self::Done(judges.into_iter().map(Judge::settle).collect());
+    pub fn all(judges: Vec<Judgment<T>>) -> Self {
+        if judges
+            .iter()
+            .all(|judge| matches!(judge, Judgment::Done(_)))
+        {
+            return Self::Done(judges.into_iter().map(Judgment::settle).collect());
         }
 
         let questions: Vec<Question> = judges

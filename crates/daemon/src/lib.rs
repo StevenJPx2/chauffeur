@@ -3,6 +3,7 @@
 mod audit;
 mod engine;
 mod judge;
+mod judges;
 mod learned;
 mod ranking;
 mod reasoning;

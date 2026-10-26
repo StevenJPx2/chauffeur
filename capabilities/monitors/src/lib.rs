@@ -14,10 +14,10 @@ use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::Arc;
 
-use chauffeur_core::judge::strategy::{self, Candidate};
+use chauffeur_core::judgment::strategy::{self, Candidate};
 use chauffeur_core::{
-    Delivery, Effect, Judge, Judged, Question, QuestionKind, Signal, SignalKind, Situation,
-    Template, Threshold, load_layered,
+    Delivery, Effect, Facts, Judged, Judgment, Question, QuestionKind, Signal, SignalKind,
+    Situation, Template, Threshold, load_layered,
 };
 use serde::Deserialize;
 
@@ -186,7 +186,7 @@ impl Judged for FollowWork {
         }
     }
 
-    fn judge(&mut self, _: &Situation, signal: &Signal) -> Option<Judge<Option<Outcome>>> {
+    fn judge(&mut self, _: &Situation, signal: &Signal) -> Option<Judgment<Option<Outcome>>> {
         let SignalKind::ToolResult {
             tool,
             ok: true,
@@ -276,5 +276,6 @@ fn question(template: &Template, index: usize, watch: &Watch, call: (&str, &str)
             ("watch", &watch.describe()),
         ]),
         kind: QuestionKind::Noul,
+        facts: Facts::new(),
     }
 }

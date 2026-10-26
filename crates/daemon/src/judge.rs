@@ -239,6 +239,7 @@ mod tests {
                 id: "q".into(),
                 instructions: "Needed?".into(),
                 kind: QuestionKind::Noul,
+                facts: chauffeur_core::Facts::new(),
             }],
         )
     }

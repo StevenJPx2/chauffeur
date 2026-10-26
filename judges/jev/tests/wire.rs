@@ -6,7 +6,7 @@ use std::net::TcpListener;
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
-use chauffeur_core::{AnswerValue, ChoiceOption, Question, QuestionKind, SystemOne};
+use chauffeur_core::{AnswerValue, ChoiceOption, Facts, Question, QuestionKind, SystemOne};
 use chauffeur_judge_jev::{JevClient, JevConfig};
 
 const LIVE_RESPONSE: &str = r#"{"model":"jev-1.13.0","answers":{"pick":{"type":"choice","choice":"openai/gpt-6-sol","confidence":0.53,"probabilities":{"openai/gpt-6-sol":0.76,"stay":0.24}},"ok":{"type":"noul","noul":0.97},"lvl":{"type":"score","score":1.01,"confidence":0.54,"legend":{"0":"low","1":"medium","2":"high"},"probabilities":{"0":0.15,"1":0.69,"2":0.16}}},"usage":{"input_tokens":397,"output_tokens":73}}"#;
@@ -28,11 +28,13 @@ fn questions() -> Vec<Question> {
                     },
                 ],
             },
+            facts: Facts::new(),
         },
         Question {
             id: "ok".into(),
             instructions: "Coding task?".into(),
             kind: QuestionKind::Noul,
+            facts: Facts::new(),
         },
         Question {
             id: "lvl".into(),
@@ -40,6 +42,7 @@ fn questions() -> Vec<Question> {
             kind: QuestionKind::Score {
                 levels: vec!["low".into(), "medium".into(), "high".into()],
             },
+            facts: Facts::new(),
         },
     ]
 }

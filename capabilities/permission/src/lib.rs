@@ -9,7 +9,7 @@ mod evidence;
 use std::collections::HashMap;
 
 use chauffeur_core::{
-    Answer, Capability, ChoiceOption, Effect, PermissionDecision, PipeStep, Plan, Question,
+    Answer, Capability, ChoiceOption, Effect, Facts, PermissionDecision, PipeStep, Plan, Question,
     QuestionKind, Round, RunId, Signal, SignalKind, Situation, Template,
 };
 
@@ -289,6 +289,7 @@ fn question(template: &Template, skill: &Skill, request: &SignalKind) -> Questio
             ("instructions", &decision.instructions),
         ]),
         kind,
+        facts: Facts::new(),
     }
 }
 

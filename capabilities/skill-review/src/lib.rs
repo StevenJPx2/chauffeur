@@ -6,11 +6,11 @@
 
 use std::path::Path;
 
-use chauffeur_core::judge::strategy::{self, Escalation, Screened};
+use chauffeur_core::judgment::strategy::{self, Escalation, Screened};
 use chauffeur_core::system_two::MAX_REASONING_INPUT_BYTES;
 use chauffeur_core::{
-    Effect, Evidence, Judge, Judged, Question, QuestionKind, Reasoned, Reasoning, Schema, Signal,
-    SignalKind, Situation, SkillFile, SkillSafety, Template, Threshold, load_layered,
+    Effect, Evidence, Facts, Judged, Judgment, Question, QuestionKind, Reasoned, Reasoning, Schema,
+    Signal, SignalKind, Situation, SkillFile, SkillSafety, Template, Threshold, load_layered,
 };
 use serde::Deserialize;
 
@@ -396,7 +396,7 @@ impl Judged for SkillReview {
         ID
     }
 
-    fn judge(&mut self, _: &Situation, signal: &Signal) -> Option<Judge<Outcome>> {
+    fn judge(&mut self, _: &Situation, signal: &Signal) -> Option<Judgment<Outcome>> {
         let SignalKind::SkillReview {
             name,
             source,
@@ -420,6 +420,7 @@ impl Judged for SkillReview {
             id: QUESTION.into(),
             instructions: config.texts.question.render(&[("skill", &text)]),
             kind: QuestionKind::Noul,
+            facts: Facts::new(),
         };
         let screen = strategy::screen(question, config.safe.yes(), config.unsafe_at.no())
             // System One cannot clear what it did not see.
@@ -472,8 +473,8 @@ impl Judged for SkillReview {
                 }
             },
             move |_| match review {
-                Some(request) => Judge::reason(request, read_review),
-                None => Judge::done(Outcome::undetermined("no review is enabled")),
+                Some(request) => Judgment::reason(request, read_review),
+                None => Judgment::done(Outcome::undetermined("no review is enabled")),
             },
         ))
     }

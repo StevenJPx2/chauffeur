@@ -1,4 +1,4 @@
-//! A capability that judges through a [`Judge`]: it composes one from a
+//! A capability that judges through a [`Judgment`]: it composes one from a
 //! signal and acts on the value it finishes with. [`Judging`] adapts it to
 //! [`Capability`], holding the judge between rounds.
 
@@ -10,7 +10,7 @@ use crate::engine::MAX_ROUNDS;
 use crate::signal::Signal;
 use crate::situation::Situation;
 
-use super::Judge;
+use super::Judgment;
 
 pub trait Judged: Send {
     /// What a finished judge hands to [`Judged::act`].
@@ -21,7 +21,7 @@ pub trait Judged: Send {
 
     /// The judge for `signal`, or `None` when the signal is not this
     /// capability's concern. A judge that is already done asks nothing.
-    fn judge(&mut self, situation: &Situation, signal: &Signal) -> Option<Judge<Self::Verdict>>;
+    fn judge(&mut self, situation: &Situation, signal: &Signal) -> Option<Judgment<Self::Verdict>>;
 
     /// Turn the finished judge's value into effects.
     fn act(&mut self, signal: &Signal, verdict: Self::Verdict) -> Vec<Effect>;
@@ -39,7 +39,7 @@ pub trait Judged: Send {
 pub struct Judging<C: Judged> {
     capability: C,
     /// Each run's judge between its rounds.
-    pending: HashMap<RunId, Judge<C::Verdict>>,
+    pending: HashMap<RunId, Judgment<C::Verdict>>,
 }
 
 impl<C: Judged> Judging<C> {
@@ -69,7 +69,7 @@ impl<C: Judged> Judging<C> {
     }
 
     /// Keep `judge` for `run`'s next round, and say what that round asks.
-    fn wait(&mut self, run: RunId, judge: Judge<C::Verdict>) -> Inference {
+    fn wait(&mut self, run: RunId, judge: Judgment<C::Verdict>) -> Inference {
         let inference = judge.inference();
 
         self.pending.insert(run, judge);
@@ -93,7 +93,7 @@ impl<C: Judged> Capability for Judging<C> {
 
         match self.capability.judge(situation, signal) {
             None => Plan::Skip,
-            Some(Judge::Done(verdict)) => match self.capability.act(signal, verdict) {
+            Some(Judgment::Done(verdict)) => match self.capability.act(signal, verdict) {
                 effects if effects.is_empty() => Plan::Skip,
                 effects => Plan::Settled(effects),
             },
@@ -122,7 +122,7 @@ impl<C: Judged> Capability for Judging<C> {
         };
 
         match judge.step_round(outcome) {
-            Judge::Done(verdict) => self.finish(signal, verdict),
+            Judgment::Done(verdict) => self.finish(signal, verdict),
             judge
                 if round >= MAX_ROUNDS
                     || (outcome.answers.is_none() && !judge.questions().is_empty()) =>

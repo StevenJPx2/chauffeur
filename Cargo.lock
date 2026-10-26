@@ -244,6 +244,7 @@ dependencies = [
  "chauffeur-capability-skill-review",
  "chauffeur-capability-tool-exposure",
  "chauffeur-core",
+ "chauffeur-judge-facts",
  "chauffeur-judge-jev",
  "chauffeur-judge-subq",
  "chauffeur-plugin-anthropic",
@@ -253,6 +254,15 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
+]
+
+[[package]]
+name = "chauffeur-judge-facts"
+version = "0.1.0"
+dependencies = [
+ "chauffeur-core",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

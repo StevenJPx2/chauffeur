@@ -4,8 +4,8 @@
 //! can need several: hidden groups are revealed, and
 //! the namespaces' best matches reach the running turn.
 
-use chauffeur_core::judge::strategy::Candidate;
-use chauffeur_core::{CodeModeNamespace, Question, QuestionKind, Rule};
+use chauffeur_core::judgment::strategy::Candidate;
+use chauffeur_core::{CodeModeNamespace, Facts, Question, QuestionKind, Rule};
 
 use crate::config::ToolTexts;
 use crate::{Grant, code_mode};
@@ -38,6 +38,7 @@ pub fn candidates(
                 ("tools", listing),
             ]),
             kind: QuestionKind::Noul,
+            facts: Facts::new(),
         },
         rule: needed,
     });
@@ -52,6 +53,7 @@ pub fn candidates(
                 ("examples", &code_mode::examples(namespace)),
             ]),
             kind: QuestionKind::Noul,
+            facts: Facts::new(),
         },
         rule: needed,
     });

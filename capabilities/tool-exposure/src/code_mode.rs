@@ -5,7 +5,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use chauffeur_core::{CodeModeNamespace, Delivery, Effect, Question, QuestionKind};
+use chauffeur_core::{CodeModeNamespace, Delivery, Effect, Facts, Question, QuestionKind};
 
 use crate::config::ToolTexts;
 
@@ -111,6 +111,7 @@ pub fn question(namespace: &CodeModeNamespace, texts: &ToolTexts) -> Question {
             ("examples", &examples(namespace)),
         ]),
         kind: QuestionKind::Noul,
+        facts: Facts::new(),
     }
 }
 

@@ -17,10 +17,10 @@ mod request;
 
 use std::collections::HashSet;
 
-use chauffeur_core::judge::strategy::{self, Candidate};
+use chauffeur_core::judgment::strategy::{self, Candidate};
 use chauffeur_core::{
-    CatalogEntry, ChoiceOption, CodeModeNamespace, Delivery, Effect, Judge, Judged, Question,
-    QuestionKind, Rule, Signal, SignalKind, Situation,
+    CatalogEntry, ChoiceOption, CodeModeNamespace, Delivery, Effect, Facts, Judged, Judgment,
+    Question, QuestionKind, Rule, Signal, SignalKind, Situation,
 };
 
 use code_mode::Surfaced;
@@ -156,7 +156,7 @@ impl ToolExposure {
     /// At a user message: every group, hidden on a confident no at the first
     /// message and revealed on a confident yes later, beside every Code Mode
     /// namespace not yet surfaced, all in one round.
-    fn message(&mut self, signal: &Signal) -> Option<Judge<Verdict>> {
+    fn message(&mut self, signal: &Signal) -> Option<Judgment<Verdict>> {
         let SignalKind::UserMessage {
             first_in_context,
             tools,
@@ -193,7 +193,7 @@ impl ToolExposure {
         let namespaces = self.namespace_candidates(&signal.agent_id, code_mode);
 
         if groups.is_empty() && namespaces.is_empty() {
-            return Some(Judge::done(Verdict::Message {
+            return Some(Judgment::done(Verdict::Message {
                 first,
                 heard: true,
                 groups: Vec::new(),
@@ -251,7 +251,7 @@ impl ToolExposure {
         &self,
         candidates: Vec<Candidate<String>>,
         first: bool,
-    ) -> Judge<(Vec<String>, Vec<String>)> {
+    ) -> Judgment<(Vec<String>, Vec<String>)> {
         if first && self.config.code_mode.trim {
             strategy::fan_out_with(candidates, self.config.hide.no())
         } else {
@@ -274,7 +274,7 @@ impl ToolExposure {
 
     /// After a missing-tool result: which hidden direct tool fits, then,
     /// a round later, whether the agent clearly needs it.
-    fn recover(&self, signal: &Signal) -> Option<Judge<Verdict>> {
+    fn recover(&self, signal: &Signal) -> Option<Judgment<Verdict>> {
         let SignalKind::ToolResult {
             user_request,
             evidence,
@@ -299,16 +299,16 @@ impl ToolExposure {
         let texts = self.config.texts.clone();
 
         Some(
-            Judge::ask(choose, move |answer| pick.chosen(answer)).then(move |chosen| {
+            Judgment::ask(choose, move |answer| pick.chosen(answer)).then(move |chosen| {
                 let Some((tool, description)) =
                     chosen.and_then(|chosen| candidates.into_iter().find(|(id, _)| *id == chosen))
                 else {
-                    return Judge::done(Verdict::Recover(None));
+                    return Judgment::done(Verdict::Recover(None));
                 };
                 let confirm =
                     confirm_question(&tool, &description, &user_request, &evidence, &texts);
 
-                Judge::ask(confirm, move |answer| {
+                Judgment::ask(confirm, move |answer| {
                     Verdict::Recover(
                         (pick.chosen(answer).as_deref() == Some(REVEAL_NEEDED)).then_some(tool),
                     )
@@ -319,7 +319,7 @@ impl ToolExposure {
 
     /// At an agent's request: every hidden group and Code Mode namespace,
     /// judged against what it asked for in one round.
-    fn request(&self, signal: &Signal) -> Option<Judge<Verdict>> {
+    fn request(&self, signal: &Signal) -> Option<Judgment<Verdict>> {
         let SignalKind::AgentRequest {
             need,
             user_request,
@@ -489,7 +489,7 @@ impl Judged for ToolExposure {
         self.surfaced.load(state);
     }
 
-    fn judge(&mut self, _: &Situation, signal: &Signal) -> Option<Judge<Verdict>> {
+    fn judge(&mut self, _: &Situation, signal: &Signal) -> Option<Judgment<Verdict>> {
         match signal.kind {
             SignalKind::UserMessage { .. } => self.message(signal),
             SignalKind::ToolResult { .. } => self.recover(signal),
@@ -570,6 +570,7 @@ fn hide_question(group: &Group<'_>, listed: usize, texts: &ToolTexts) -> Questio
             ("tools", &listing(group, listed, texts)),
         ]),
         kind: QuestionKind::Noul,
+        facts: Facts::new(),
     }
 }
 
@@ -581,6 +582,7 @@ fn reveal_question(group: &Group<'_>, listed: usize, texts: &ToolTexts) -> Quest
             ("tools", &listing(group, listed, texts)),
         ]),
         kind: QuestionKind::Noul,
+        facts: Facts::new(),
     }
 }
 
@@ -600,7 +602,7 @@ fn choose_question(
         .collect();
 
     options.push(ChoiceOption {
-        value: chauffeur_core::judge::NONE.into(),
+        value: chauffeur_core::judgment::NONE.into(),
         description: texts.no_tool.as_str().to_string(),
     });
 
@@ -610,6 +612,7 @@ fn choose_question(
             .choose
             .render(&[("user_request", user_request), ("evidence", evidence)]),
         kind: QuestionKind::Choice { options },
+        facts: Facts::new(),
     }
 }
 
@@ -644,5 +647,6 @@ fn confirm_question(
                 })
                 .collect(),
         },
+        facts: Facts::new(),
     }
 }

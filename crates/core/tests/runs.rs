@@ -3,10 +3,10 @@
 //! nothing.
 
 use chauffeur_core::engine::{MAX_AGENTS, MAX_RUNS};
-use chauffeur_core::judge::strategy::{self, Chained};
+use chauffeur_core::judgment::strategy::{self, Chained};
 use chauffeur_core::{
-    Answer, AnswerValue, Capability, Delivery, Effect, Engine, Judge, Judged, Judging, Question,
-    QuestionKind, Round, Rule, RunId, Signal, SignalKind, Situation, Step,
+    Answer, AnswerValue, Capability, Delivery, Effect, Engine, Facts, Judged, Judging, Judgment,
+    Question, QuestionKind, Round, Rule, RunId, Signal, SignalKind, Situation, Step,
 };
 
 const YES: Rule = Rule::yes(0.7, 0.4);
@@ -20,6 +20,7 @@ fn step(id: &str) -> (Question, Rule) {
             id: id.into(),
             instructions: format!("does {id} hold?"),
             kind: QuestionKind::Noul,
+            facts: Facts::new(),
         },
         YES,
     )
@@ -32,7 +33,7 @@ impl Judged for FollowUp {
         "follow-up"
     }
 
-    fn judge(&mut self, _: &Situation, signal: &Signal) -> Option<Judge<Vec<String>>> {
+    fn judge(&mut self, _: &Situation, signal: &Signal) -> Option<Judgment<Vec<String>>> {
         matches!(signal.kind, SignalKind::TurnEnd { .. }).then(|| {
             strategy::chain([
                 Chained {

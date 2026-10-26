@@ -1,10 +1,10 @@
 //! A judged capability through the engine: questions are namespaced and
 //! merged, a chain runs across rounds, and a verdict is always acted on.
 
-use chauffeur_core::judge::strategy::{self, Chained};
+use chauffeur_core::judgment::strategy::{self, Chained};
 use chauffeur_core::{
-    Answer, AnswerValue, Delivery, Effect, Engine, Judge, Judged, Judging, Question, QuestionKind,
-    Rule, Signal, SignalKind, Situation, Step,
+    Answer, AnswerValue, Delivery, Effect, Engine, Facts, Judged, Judging, Judgment, Question,
+    QuestionKind, Rule, Signal, SignalKind, Situation, Step,
 };
 
 const YES: Rule = Rule::yes(0.7, 0.4);
@@ -18,6 +18,7 @@ fn step(id: &str) -> (Question, Rule) {
             id: id.into(),
             instructions: format!("does {id} hold?"),
             kind: QuestionKind::Noul,
+            facts: Facts::new(),
         },
         YES,
     )
@@ -30,7 +31,7 @@ impl Judged for FollowUp {
         "follow-up"
     }
 
-    fn judge(&mut self, _: &Situation, signal: &Signal) -> Option<Judge<Vec<String>>> {
+    fn judge(&mut self, _: &Situation, signal: &Signal) -> Option<Judgment<Vec<String>>> {
         matches!(signal.kind, SignalKind::TurnEnd { .. }).then(|| {
             strategy::chain([
                 Chained {

@@ -2,7 +2,7 @@
 //! one System One call, so a request gets every skill it needs. Exact facts
 //! about the prompt choose a skill's wording and the rule its answer meets.
 
-use chauffeur_core::judge::strategy::Candidate;
+use chauffeur_core::judgment::strategy::Candidate;
 use chauffeur_core::{CatalogEntry, Question, QuestionKind, Rule, Signal, SignalKind};
 
 use crate::{SkillExposureConfig, SkillTexts};
@@ -100,6 +100,7 @@ pub fn candidates(
                     id: format!("{}{}", basis.prefix(), skill.id),
                     instructions: instructions(signal, skill, basis, &config.texts),
                     kind: QuestionKind::Noul,
+                    facts: chauffeur_core::Facts::new(),
                 },
                 rule: basis.rule(config),
             }

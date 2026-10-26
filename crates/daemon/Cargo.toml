@@ -10,6 +10,7 @@ repository.workspace = true
 [dependencies]
 chauffeur-core = { workspace = true }
 chauffeur-judge-jev = { workspace = true }
+chauffeur-judge-facts = { workspace = true }
 chauffeur-judge-subq = { workspace = true }
 chauffeur-plugin-anthropic = { workspace = true }
 chauffeur-plugin-openai = { workspace = true }

@@ -1,8 +1,9 @@
 use serde_json::{Value, json};
 
 use super::strategy::{self, Candidate, Chained, Escalation, Screened};
-use super::{Judge, NONE, Rule};
+use super::{Judgment, NONE, Rule};
 use crate::capability::Round;
+use crate::judge::Facts;
 use crate::system_one::{Answer, AnswerValue, ChoiceOption, Question, QuestionKind};
 use crate::system_two::{Reasoned, Reasoning, ReasoningFailure, Schema};
 
@@ -11,6 +12,7 @@ fn noul_question(id: &str) -> Question {
         id: id.into(),
         instructions: format!("is {id} so?"),
         kind: QuestionKind::Noul,
+        facts: Facts::new(),
     }
 }
 
@@ -18,6 +20,7 @@ fn choice_question(id: &str, options: &[&str]) -> Question {
     Question {
         id: id.into(),
         instructions: "which?".into(),
+        facts: Facts::new(),
         kind: QuestionKind::Choice {
             options: options
                 .iter()
@@ -49,7 +52,7 @@ fn picked(id: &str, value: &str, confidence: f32) -> Answer {
 /// Drive `judge` through `rounds` (`None`: the call failed), then settle.
 /// Returns its value and the question IDs each round asked.
 fn run<T: Send + 'static>(
-    judge: Judge<T>,
+    judge: Judgment<T>,
     rounds: Vec<Option<Vec<Answer>>>,
 ) -> (T, Vec<Vec<String>>) {
     let mut judge = judge;
@@ -79,7 +82,7 @@ const YES: Rule = Rule::yes(0.7, 0.4);
 
 #[test]
 fn done_asks_nothing_and_ask_reads_its_answer_or_a_failure() {
-    let (value, asked) = run(Judge::done(7), vec![Some(vec![])]);
+    let (value, asked) = run(Judgment::done(7), vec![Some(vec![])]);
 
     assert_eq!((value, asked.len()), (7, 0));
     assert!(
@@ -98,7 +101,7 @@ fn then_asks_its_continuation_in_the_following_round() {
         if held {
             strategy::single(noul_question("second"), YES)
         } else {
-            Judge::done(false)
+            Judgment::done(false)
         }
     });
     let (held, asked) = run(
@@ -119,7 +122,7 @@ fn all_asks_side_by_side_and_finishes_in_order_when_the_slowest_does() {
     let slow = strategy::single(noul_question("slow-1"), YES)
         .then(|_| strategy::single(noul_question("slow-2"), YES));
     let (values, asked) = run(
-        Judge::all(vec![quick, slow, Judge::done(true)]),
+        Judgment::all(vec![quick, slow, Judgment::done(true)]),
         vec![
             Some(vec![noul("quick", 0.2), noul("slow-1", 0.9)]),
             Some(vec![noul("slow-2", 0.9)]),
@@ -134,7 +137,7 @@ fn all_asks_side_by_side_and_finishes_in_order_when_the_slowest_does() {
 #[test]
 #[should_panic(expected = "distinct IDs")]
 fn judges_run_together_cannot_share_a_question_id() {
-    let _ = Judge::all(vec![
+    let _ = Judgment::all(vec![
         strategy::single(noul_question("same"), YES),
         strategy::single(noul_question("same"), YES),
     ]);
@@ -143,7 +146,7 @@ fn judges_run_together_cannot_share_a_question_id() {
 #[test]
 fn zip_runs_judges_of_different_values_side_by_side() {
     let count = strategy::single(noul_question("group"), YES).map(usize::from);
-    let name = Judge::ask(choice_question("pick", &["safari", NONE]), |answer| {
+    let name = Judgment::ask(choice_question("pick", &["safari", NONE]), |answer| {
         Rule::pick(0.4).chosen(answer)
     });
     let ((count, name), asked) = run(
@@ -167,7 +170,7 @@ fn unless_failed_tells_a_failed_call_from_rules_that_refused() {
         Some(Vec::new())
     );
     assert_eq!(run(judge(), vec![None]).0, None);
-    assert_eq!(run(Judge::done(3).unless_failed(), vec![]).0, Some(3));
+    assert_eq!(run(Judgment::done(3).unless_failed(), vec![]).0, Some(3));
 }
 
 #[test]
@@ -306,7 +309,7 @@ fn a_failed_second_round_keeps_what_the_first_admitted() {
 #[test]
 fn a_pick_then_confirm_is_composed_from_the_primitives() {
     let recover = || {
-        Judge::ask(
+        Judgment::ask(
             choice_question("choose", &["browser_open", NONE]),
             |answer| Rule::pick(0.4).chosen(answer),
         )
@@ -314,9 +317,9 @@ fn a_pick_then_confirm_is_composed_from_the_primitives() {
             Some(tool) => {
                 let confirm = noul_question(&format!("confirm/{tool}"));
 
-                Judge::ask(confirm, move |answer| YES.holds(answer).then_some(tool))
+                Judgment::ask(confirm, move |answer| YES.holds(answer).then_some(tool))
             }
-            None => Judge::done(None),
+            None => Judgment::done(None),
         })
     };
     let (revealed, asked) = run(
@@ -344,7 +347,7 @@ type Outcome = (Option<Vec<Answer>>, Vec<(String, Reasoned)>);
 type Asked = (Vec<String>, Vec<String>);
 
 /// [`run`] with System Two: returns the value and what each round asked.
-fn run_rounds<T: Send + 'static>(judge: Judge<T>, rounds: Vec<Outcome>) -> (T, Vec<Asked>) {
+fn run_rounds<T: Send + 'static>(judge: Judgment<T>, rounds: Vec<Outcome>) -> (T, Vec<Asked>) {
     let mut judge = judge;
     let mut asked = Vec::new();
 
@@ -406,7 +409,7 @@ const NO: Rule = Rule::no(0.3, 0.4);
 
 /// System One screens; unsure answers, and failed calls when asked to,
 /// go to a System Two review.
-fn screened(when: Escalation) -> Judge<Option<bool>> {
+fn screened(when: Escalation) -> Judgment<Option<bool>> {
     strategy::escalate(
         strategy::screen(noul_question("done"), YES, NO),
         when,
@@ -415,13 +418,13 @@ fn screened(when: Escalation) -> Judge<Option<bool>> {
             Screened::No => Some(false),
             Screened::Unsure | Screened::Failed => None,
         },
-        |_| Judge::reason(review("review"), complete),
+        |_| Judgment::reason(review("review"), complete),
     )
 }
 
 #[test]
 fn a_reasoning_reads_its_verdict_or_why_there_is_none() {
-    let judge = || Judge::reason(review("review"), complete);
+    let judge = || Judgment::reason(review("review"), complete);
 
     assert_eq!(
         run_rounds(
@@ -522,9 +525,9 @@ fn a_failed_screen_falls_back_to_system_two_only_when_asked_to() {
 #[test]
 fn both_tiers_fan_out_side_by_side_and_combine() {
     let fast = strategy::single(noul_question("fast"), YES).map(Some);
-    let deep = Judge::reason(review("deep"), complete);
+    let deep = Judgment::reason(review("deep"), complete);
     let (values, asked) = run_rounds(
-        Judge::all(vec![fast, deep]),
+        Judgment::all(vec![fast, deep]),
         vec![(
             Some(vec![noul("fast", 0.9)]),
             vec![verdict("deep", "continue")],
@@ -539,9 +542,9 @@ fn both_tiers_fan_out_side_by_side_and_combine() {
 
     // A failed reasoning leaves the other branch's answer intact.
     let (values, _) = run_rounds(
-        Judge::all(vec![
+        Judgment::all(vec![
             strategy::single(noul_question("fast"), YES).map(Some),
-            Judge::reason(review("deep"), complete),
+            Judgment::reason(review("deep"), complete),
         ]),
         vec![(
             Some(vec![noul("fast", 0.9)]),
@@ -568,7 +571,7 @@ fn a_fan_out_can_feed_one_review_of_what_it_admitted() {
             },
         )]);
 
-        Judge::reason(request, move |outcome| {
+        Judgment::reason(request, move |outcome| {
             outcome.ok().map_or(admitted, |verdict| {
                 verdict["keep"]
                     .as_array()
@@ -608,6 +611,6 @@ fn a_fan_out_can_feed_one_review_of_what_it_admitted() {
 #[test]
 #[should_panic(expected = "distinct IDs")]
 fn a_question_and_a_reasoning_run_together_cannot_share_an_id() {
-    let _ =
-        strategy::single(noul_question("same"), YES).zip(Judge::reason(review("same"), complete));
+    let _ = strategy::single(noul_question("same"), YES)
+        .zip(Judgment::reason(review("same"), complete));
 }

@@ -16,17 +16,17 @@ use std::collections::{HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
 
-use chauffeur_core::judge::strategy;
+use chauffeur_core::judgment::strategy;
 use chauffeur_core::{
-    CatalogEntry, ChoiceOption, Delivery, Effect, Judge, Judged, Question, QuestionKind, Signal,
-    SignalKind, Situation,
+    CatalogEntry, ChoiceOption, Delivery, Effect, Facts, Judged, Judgment, Question, QuestionKind,
+    Signal, SignalKind, Situation,
 };
 
 pub use config::{Budget, Drift, Ranking, SkillExposureConfig, SkillTexts};
 
 pub const ID: &str = "skill-exposure";
 /// The drift option that hands over nothing.
-pub const NONE: &str = chauffeur_core::judge::NONE;
+pub const NONE: &str = chauffeur_core::judgment::NONE;
 /// Skills judged per signal. Beyond it, pinned and better-ranked skills win.
 pub const MAX_OPTIONS: usize = 64;
 const MAX_AGENTS: usize = 256;
@@ -112,7 +112,7 @@ impl SkillExposure {
     }
 
     /// The pinned and closest-ranked skills, judged in one round.
-    fn fan_out(&self, signal: &Signal) -> Option<Judge<Vec<String>>> {
+    fn fan_out(&self, signal: &Signal) -> Option<Judgment<Vec<String>>> {
         let agent = self.agents.get(&signal.agent_id)?;
         let judged = fanout::judged(signal, &agent.offerable(), &self.config);
         let candidates = fanout::candidates(signal, &judged, &self.config);
@@ -150,7 +150,7 @@ impl SkillExposure {
     }
 
     /// At most one hand-over; a browser-only one after actual browser use.
-    fn drift(&self, signal: &Signal) -> Option<Judge<Vec<String>>> {
+    fn drift(&self, signal: &Signal) -> Option<Judgment<Vec<String>>> {
         let agent = self.agents.get(&signal.agent_id)?;
         let drift = &self.config.drift;
         let offerable: Vec<_> = agent
@@ -173,7 +173,7 @@ impl SkillExposure {
         let instructions = texts.drift.render(&[("action", &action)]);
 
         Some(
-            Judge::ask(
+            Judgment::ask(
                 choice(DRIFT, &instructions, &offerable, texts),
                 move |answer| pick.chosen(answer),
             )
@@ -199,7 +199,7 @@ impl Judged for SkillExposure {
         }
     }
 
-    fn judge(&mut self, _: &Situation, signal: &Signal) -> Option<Judge<Vec<String>>> {
+    fn judge(&mut self, _: &Situation, signal: &Signal) -> Option<Judgment<Vec<String>>> {
         match &signal.kind {
             SignalKind::UserMessage {
                 skills, ranking, ..
@@ -297,5 +297,6 @@ fn choice(id: &str, instructions: &str, skills: &[&CatalogEntry], texts: &SkillT
         id: id.into(),
         instructions: instructions.into(),
         kind: QuestionKind::Choice { options },
+        facts: Facts::new(),
     }
 }

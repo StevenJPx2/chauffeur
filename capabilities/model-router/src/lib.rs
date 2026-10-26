@@ -12,10 +12,10 @@ use std::sync::Arc;
 pub use config::{ErrorWords, MAX_CANDIDATES, ModelRouterConfig, SwitchBack};
 pub use provider::{MAX_TIER_ROWS, Provider, Rating, Tier, TierEntry, TierTable};
 
-use chauffeur_core::judge::strategy;
+use chauffeur_core::judgment::strategy;
 use chauffeur_core::{
-    ChoiceOption, Effect, Judge, Judged, ModelRef, Question, QuestionKind, Signal, SignalKind,
-    Situation,
+    ChoiceOption, Effect, Facts, Judged, Judgment, ModelRef, Question, QuestionKind, Signal,
+    SignalKind, Situation,
 };
 use serde::{Deserialize, Serialize};
 
@@ -323,7 +323,7 @@ impl ModelRouter {
         &mut self,
         signal: &Signal,
         current: Option<&ModelRef>,
-    ) -> Option<Judge<Verdict>> {
+    ) -> Option<Judgment<Verdict>> {
         let origin = self.origins.get(&signal.agent_id)?;
 
         // Config may have changed since this origin was saved.
@@ -356,6 +356,7 @@ impl ModelRouter {
                 ("error", &origin.error),
             ]),
             kind: QuestionKind::Noul,
+            facts: Facts::new(),
         };
 
         let bar = self.config.switch_back.bar.yes();
@@ -380,7 +381,7 @@ impl ModelRouter {
 
     /// On a model error, the failover judgment, or `None` when the error is
     /// not the router's to handle.
-    fn failover(&mut self, signal: &Signal) -> Option<Judge<Verdict>> {
+    fn failover(&mut self, signal: &Signal) -> Option<Judgment<Verdict>> {
         let SignalKind::ModelError {
             model,
             error_type,
@@ -420,7 +421,7 @@ impl ModelRouter {
 
         // A tool already ran in the failed step; retrying elsewhere could repeat it.
         if *tool_executed {
-            return Some(Judge::done(Verdict::Keep));
+            return Some(Judgment::done(Verdict::Keep));
         }
 
         self.mark_attempted(&signal.agent_id, model);
@@ -430,7 +431,7 @@ impl ModelRouter {
         let candidates = self.candidates(&signal.agent_id, model, available);
 
         if candidates.is_empty() {
-            return Some(Judge::done(Verdict::Keep));
+            return Some(Judgment::done(Verdict::Keep));
         }
 
         let error = format!("{error_type}: {}", clip(message, MAX_ERROR_CHARS));
@@ -443,13 +444,13 @@ impl ModelRouter {
         if !may_wait && candidates.len() == 1 {
             let to = candidates.into_iter().next()?;
 
-            return Some(Judge::done(Verdict::Switch { from, to, error }));
+            return Some(Judgment::done(Verdict::Switch { from, to, error }));
         }
 
         let question = self.question(model, &error, &candidates, may_wait);
         let rule = self.config.pick_confidence.pick();
 
-        Some(Judge::ask(question, move |answer| {
+        Some(Judgment::ask(question, move |answer| {
             pick(rule.chosen(answer), candidates, from, error)
         }))
     }
@@ -505,6 +506,7 @@ impl ModelRouter {
             id: QUESTION.into(),
             instructions,
             kind: QuestionKind::Choice { options },
+            facts: Facts::new(),
         }
     }
 }
@@ -586,7 +588,7 @@ impl Judged for ModelRouter {
         }
     }
 
-    fn judge(&mut self, _: &Situation, signal: &Signal) -> Option<Judge<Verdict>> {
+    fn judge(&mut self, _: &Situation, signal: &Signal) -> Option<Judgment<Verdict>> {
         match &signal.kind {
             SignalKind::ModelSucceeded { model } => {
                 if self

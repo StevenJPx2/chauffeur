@@ -17,6 +17,7 @@ members = [
   "capabilities/monitors",
   "capabilities/event-gate",
   "judges/jev",
+  "judges/facts",
   "judges/http",
   "judges/subq",
   "bench",
@@ -34,6 +35,7 @@ chauffeur-core = { path = "crates/core", default-features = false }
 chauffeur-daemon = { path = "crates/daemon" }
 chauffeur-mcp = { path = "crates/mcp" }
 chauffeur-judge-jev = { path = "judges/jev" }
+chauffeur-judge-facts = { path = "judges/facts" }
 chauffeur-judge-http = { path = "judges/http" }
 chauffeur-judge-subq = { path = "judges/subq" }
 chauffeur-plugin-anthropic = { path = "plugins/anthropic" }

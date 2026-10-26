@@ -1,4 +1,4 @@
-//! Common judging strategies, each a composition of [`Judge`]'s primitives.
+//! Common judging strategies, each a composition of [`Judgment`]'s primitives.
 //! A capability composes its own when these do not fit.
 
 use serde::Deserialize;
@@ -6,7 +6,7 @@ use serde::Deserialize;
 use crate::system_one::Question;
 
 use super::rule::probability;
-use super::{Judge, Rule};
+use super::{Judgment, Rule};
 
 /// What one System One answer settled, read against a confident yes and a
 /// confident no.
@@ -57,15 +57,15 @@ pub struct Chained<K> {
 
 /// One question and one rule: whether it holds.
 #[must_use]
-pub fn single(question: Question, rule: Rule) -> Judge<bool> {
-    Judge::ask(question, move |answer| rule.holds(answer))
+pub fn single(question: Question, rule: Rule) -> Judgment<bool> {
+    Judgment::ask(question, move |answer| rule.holds(answer))
 }
 
 /// One question read as a confident `yes`, a confident `no`, unsure, or a
 /// failed call.
 #[must_use]
-pub fn screen(question: Question, yes: Rule, no: Rule) -> Judge<Screened> {
-    Judge::ask(question, move |answer| match answer {
+pub fn screen(question: Question, yes: Rule, no: Rule) -> Judgment<Screened> {
+    Judgment::ask(question, move |answer| match answer {
         None => Screened::Failed,
         Some(_) if yes.holds(answer) => Screened::Yes,
         Some(_) if no.holds(answer) => Screened::No,
@@ -78,16 +78,16 @@ pub fn screen(question: Question, yes: Rule, no: Rule) -> Judge<Screened> {
 /// `settle` reads it.
 #[must_use]
 pub fn escalate<T: Send + 'static>(
-    screen: Judge<Screened>,
+    screen: Judgment<Screened>,
     when: Escalation,
     settle: impl FnOnce(Screened) -> T + Send + 'static,
-    review: impl FnOnce(Screened) -> Judge<T> + Send + 'static,
-) -> Judge<T> {
+    review: impl FnOnce(Screened) -> Judgment<T> + Send + 'static,
+) -> Judgment<T> {
     screen.then(move |screened| {
         if when.covers(screened) {
             review(screened)
         } else {
-            Judge::done(settle(screened))
+            Judgment::done(settle(screened))
         }
     })
 }
@@ -97,7 +97,7 @@ pub fn escalate<T: Send + 'static>(
 #[must_use]
 pub fn fan_out<K: Send + 'static>(
     candidates: impl IntoIterator<Item = Candidate<K>>,
-) -> Judge<Vec<K>> {
+) -> Judgment<Vec<K>> {
     let judges = candidates
         .into_iter()
         .map(
@@ -106,7 +106,7 @@ pub fn fan_out<K: Send + 'static>(
                  question,
                  rule,
              }| {
-                Judge::ask(question, move |answer| {
+                Judgment::ask(question, move |answer| {
                     rule.holds(answer)
                         .then(|| (key, answer.and_then(probability).unwrap_or_default()))
                 })
@@ -114,7 +114,7 @@ pub fn fan_out<K: Send + 'static>(
         )
         .collect();
 
-    Judge::all(judges).map(|held: Vec<Option<(K, f32)>>| {
+    Judgment::all(judges).map(|held: Vec<Option<(K, f32)>>| {
         let mut held: Vec<(K, f32)> = held.into_iter().flatten().collect();
 
         held.sort_by(|a, b| b.1.total_cmp(&a.1));
@@ -129,7 +129,7 @@ pub fn fan_out<K: Send + 'static>(
 pub fn fan_out_with<K: Clone + Send + 'static>(
     candidates: impl IntoIterator<Item = Candidate<K>>,
     other: Rule,
-) -> Judge<(Vec<K>, Vec<K>)> {
+) -> Judgment<(Vec<K>, Vec<K>)> {
     let judges = candidates
         .into_iter()
         .map(
@@ -138,7 +138,7 @@ pub fn fan_out_with<K: Clone + Send + 'static>(
                  question,
                  rule,
              }| {
-                Judge::ask(question, move |answer| {
+                Judgment::ask(question, move |answer| {
                     let p = answer.and_then(probability).unwrap_or_default();
 
                     (key, p, rule.holds(answer), other.holds(answer))
@@ -147,7 +147,7 @@ pub fn fan_out_with<K: Clone + Send + 'static>(
         )
         .collect();
 
-    Judge::all(judges).map(|read: Vec<(K, f32, bool, bool)>| {
+    Judgment::all(judges).map(|read: Vec<(K, f32, bool, bool)>| {
         let others = read
             .iter()
             .filter(|(_, _, _, other)| *other)
@@ -168,7 +168,9 @@ pub fn fan_out_with<K: Clone + Send + 'static>(
 /// Every candidate's steps in order, candidates side by side; the keys whose
 /// every step held, in candidate order.
 #[must_use]
-pub fn chain<K: Send + 'static>(candidates: impl IntoIterator<Item = Chained<K>>) -> Judge<Vec<K>> {
+pub fn chain<K: Send + 'static>(
+    candidates: impl IntoIterator<Item = Chained<K>>,
+) -> Judgment<Vec<K>> {
     let judges = candidates
         .into_iter()
         .map(|Chained { key, steps }| {
@@ -176,20 +178,22 @@ pub fn chain<K: Send + 'static>(candidates: impl IntoIterator<Item = Chained<K>>
         })
         .collect();
 
-    Judge::all(judges).map(|held: Vec<Option<K>>| held.into_iter().flatten().collect())
+    Judgment::all(judges).map(|held: Vec<Option<K>>| held.into_iter().flatten().collect())
 }
 
 /// Whether every step holds, asking each only after the previous held.
-fn steps_hold(mut steps: impl Iterator<Item = (Question, Rule)> + Send + 'static) -> Judge<bool> {
+fn steps_hold(
+    mut steps: impl Iterator<Item = (Question, Rule)> + Send + 'static,
+) -> Judgment<bool> {
     let Some((question, rule)) = steps.next() else {
-        return Judge::done(true);
+        return Judgment::done(true);
     };
 
     single(question, rule).then(move |held| {
         if held {
             steps_hold(steps)
         } else {
-            Judge::done(false)
+            Judgment::done(false)
         }
     })
 }

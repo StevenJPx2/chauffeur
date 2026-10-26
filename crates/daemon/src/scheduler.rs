@@ -815,7 +815,7 @@ mod tests {
     use std::thread::sleep;
 
     use chauffeur_core::{
-        AnswerValue, Delivery, Judge, Judged, Judging, PermissionDecision, Reasoned, Schema,
+        AnswerValue, Delivery, Judged, Judging, Judgment, PermissionDecision, Reasoned, Schema,
         Situation, SystemOneError, Watch,
     };
     use serde_json::json;
@@ -849,17 +849,18 @@ mod tests {
             "probe"
         }
 
-        fn judge(&mut self, _: &Situation, signal: &Signal) -> Option<Judge<Effect>> {
+        fn judge(&mut self, _: &Situation, signal: &Signal) -> Option<Judgment<Effect>> {
             let agent = signal.agent_id.clone();
             let question = |instructions: &str| Question {
                 id: "q".into(),
                 instructions: instructions.into(),
                 kind: chauffeur_core::QuestionKind::Noul,
+                facts: chauffeur_core::Facts::new(),
             };
 
             match &signal.kind {
                 SignalKind::PermissionRequest { .. } => {
-                    Some(Judge::ask(question("allow?"), move |answer| {
+                    Some(Judgment::ask(question("allow?"), move |answer| {
                         Effect::Permission {
                             agent_id: agent,
                             decision: if answer.is_some() {
@@ -884,7 +885,7 @@ mod tests {
                         )]),
                     };
 
-                    Some(Judge::reason(request, move |outcome| {
+                    Some(Judgment::reason(request, move |outcome| {
                         label(
                             agent,
                             if outcome.is_ok() {
@@ -898,7 +899,7 @@ mod tests {
                 SignalKind::TurnEnd { summary, .. } => {
                     let summary = summary.clone();
 
-                    Some(Judge::ask(question(&summary), move |answer| {
+                    Some(Judgment::ask(question(&summary), move |answer| {
                         label(agent, if answer.is_some() { &summary } else { "failed" })
                     }))
                 }
