@@ -170,12 +170,7 @@ play at 80x. Measured in it, and in a second session with warming off:
 | The same prompt with warming off | Nothing | 4,940 read, 2,816 written: the conversation was re-sent |
 | Prompt 3, 5½ min after the last keep-alive | GPT-6 Luna summarized in 5 s; the prompt ran on Sonnet | 0 read, 8,057 written: the cache had expired, as Chauffeur judged |
 
-An earlier run asked Claude Haiku for the summary, and it failed: an Anthropic
-sign-in through a subscription plugin reaches only the agent's own requests.
-OpenCode then summarized on the session's model, and Chauffeur now passes over
-a provider that cannot serve summaries for 24 hours, which is why GPT-6 Luna
-wrote this one. Leave OpenCode's own `warming` setting off, or sessions are
-warmed twice.
+Leave OpenCode's own `warming` setting off, or sessions are warmed twice.
 
 ### And quietly
 
