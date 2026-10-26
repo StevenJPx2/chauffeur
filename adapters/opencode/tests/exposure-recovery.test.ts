@@ -24,7 +24,7 @@ test("a recorded mid-turn reveal survives adapter restart and reaches the next t
     tool: { list: () => Effect.succeed([browser]) },
   })
 
-  const first = await install(installExposure, host, noDaemon)
+  const first = await install(installExposure(), host, noDaemon)
 
   expect(await Effect.runPromise(first.value.candidates(session(sessionID)))).toEqual([{ ...browser, bytes: 0 }])
   expect(await Effect.runPromise(first.value.reveal(session(sessionID), ["browser_open"]))).toBe(true)
@@ -33,7 +33,7 @@ test("a recorded mid-turn reveal survives adapter restart and reaches the next t
 
   await first.close()
 
-  const restarted = await install(installExposure, host, noDaemon)
+  const restarted = await install(installExposure(), host, noDaemon)
   const request = { sessionID, tools: { browser_open: { description: browser.description } } }
 
   await hooks.emit("context", request)
@@ -55,7 +55,7 @@ test("a missing registration cannot be revealed", async () => {
     tool: { list: () => Effect.succeed([]) },
   })
 
-  const exposure = await install(installExposure, host, noDaemon)
+  const exposure = await install(installExposure(), host, noDaemon)
 
   expect(await Effect.runPromise(exposure.value.reveal(session(sessionID), ["browser_open"]))).toBe(false)
   expect(stored.get(`hidden/${sessionID}`)).toEqual(["browser_open"])

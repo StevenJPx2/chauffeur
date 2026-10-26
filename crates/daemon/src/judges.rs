@@ -76,20 +76,89 @@ mod tests {
     }
 
     #[test]
-    fn a_route_sends_a_question_to_the_facts_judge_and_the_rest_to_system_one() {
+    fn the_shipped_file_sends_context_renewal_to_the_facts_judge() {
+        let (routes, _) = load(&dir("shipped", None)).unwrap();
+
+        assert_eq!(routes.question("model-router/renew_context"), FACTS);
+        assert_eq!(routes.question("skill-exposure/x"), SYSTEM_ONE);
+    }
+
+    #[test]
+    fn your_route_can_hand_a_question_back_to_system_one() {
         let path = dir(
-            "routed",
-            Some(
-                r#"{
-                    "routes": { "x/y": "facts" },
-                    "facts": { "x/y": { "all": [{ "fact": "n", "at_least": 1 }] } }
-                }"#,
-            ),
+            "back",
+            Some(r#"{ "routes": { "model-router/renew_context": "system_one" } }"#),
         );
         let (routes, _) = load(&path).unwrap();
 
-        assert_eq!(routes.question("x/y"), FACTS);
-        assert_eq!(routes.question("skill-exposure/x"), SYSTEM_ONE);
+        assert_eq!(routes.question("model-router/renew_context"), SYSTEM_ONE);
+    }
+
+    /// The shipped router and judges, with no System One at all: the
+    /// renewal question never reaches a model.
+    fn engine() -> chauffeur_core::Engine {
+        use std::sync::Arc;
+
+        use chauffeur_capability_model_router::{ModelRouter, ModelRouterConfig, Provider};
+        use chauffeur_core::{Engine, Judging};
+
+        let (routes, facts) = load(&dir("engine", None)).unwrap();
+        let providers: Vec<Arc<dyn Provider>> = vec![Arc::new(
+            chauffeur_plugin_anthropic::AnthropicProvider::default(),
+        )];
+
+        Engine::hosted(vec![Box::new(Judging::new(ModelRouter::new(
+            providers,
+            ModelRouterConfig::default(),
+        )))])
+        .unwrap()
+        .with_judge(Box::new(facts))
+        .with_routes(routes)
+    }
+
+    fn resumed(idle_seconds: u64, context_tokens: u64) -> chauffeur_core::Signal {
+        use chauffeur_core::{AvailableModel, ModelRef, Signal, SignalKind};
+
+        let model = |id: &str| ModelRef {
+            provider: "anthropic".into(),
+            model: id.into(),
+            variant: None,
+        };
+
+        Signal {
+            agent_id: "ses".into(),
+            at: 1,
+            kind: SignalKind::ContextResumed {
+                model: model("claude-opus-5-5"),
+                context_tokens,
+                context_window: 1_000_000,
+                idle_seconds,
+                available: ["claude-opus-5-5", "claude-haiku-5"]
+                    .map(|id| AvailableModel {
+                        model: model(id),
+                        usable: true,
+                    })
+                    .to_vec(),
+            },
+        }
+    }
+
+    #[test]
+    fn a_cold_long_context_is_compacted_by_the_fast_model_without_any_model_judging_it() {
+        use chauffeur_core::Effect;
+
+        let mut engine = engine();
+        let effects = engine.ingest(&resumed(1_800, 600_000)).unwrap();
+
+        assert!(matches!(
+            effects.as_slice(),
+            [Effect::Compact { model, .. }] if model.model == "claude-haiku-5"
+        ));
+        // A 1M window renews at the 100k ceiling, not at a share of it.
+        assert!(!engine.ingest(&resumed(1_800, 105_000)).unwrap().is_empty());
+        // Warm cache, or a context under the budget: left as it is.
+        assert!(engine.ingest(&resumed(60, 600_000)).unwrap().is_empty());
+        assert!(engine.ingest(&resumed(1_800, 90_000)).unwrap().is_empty());
     }
 
     #[test]

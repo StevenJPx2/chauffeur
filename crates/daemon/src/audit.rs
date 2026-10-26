@@ -116,6 +116,20 @@ fn detail(kind: &SignalKind) -> String {
             ..
         } => format!("{source} {kind}: {summary}"),
         SignalKind::ModelSucceeded { model } => model.key(),
+        SignalKind::ContextResumed {
+            model,
+            context_tokens,
+            idle_seconds,
+            ..
+        } => format!(
+            "{} {context_tokens} tokens, idle {idle_seconds}s",
+            model.key()
+        ),
+        SignalKind::ContextIdle {
+            model,
+            context_tokens,
+            ..
+        } => format!("{} {context_tokens} tokens", model.key()),
         SignalKind::TurnEnd { summary, .. } => summary.clone(),
         SignalKind::Rulebook {
             command,

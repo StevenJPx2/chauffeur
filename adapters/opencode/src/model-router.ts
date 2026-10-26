@@ -249,12 +249,12 @@ function followUp(sessionID: SessionID, failed: ModelRef, error: ModelFailure, t
   }).pipe(Effect.catch((error) => Effect.logError("chauffeur: model follow-up failed", error)))
 }
 
-function modelKey(model: ModelRef): string {
+export function modelKey(model: ModelRef): string {
   return `${model.provider}/${model.model}${model.variant ? `#${model.variant}` : ""}`
 }
 
 /** Usable models first; the engine accepts at most MAX_MODELS. */
-function available(models: ReadonlyArray<HostModel & { readonly enabled: boolean; readonly status: string }>) {
+export function available(models: ReadonlyArray<HostModel & { readonly enabled: boolean; readonly status: string }>) {
   return models
     .map((model) => ({ model: ref(model), usable: model.enabled && model.status === "active" }))
     .toSorted((a, b) => Number(b.usable) - Number(a.usable))

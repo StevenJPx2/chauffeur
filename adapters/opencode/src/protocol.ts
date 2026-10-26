@@ -30,6 +30,9 @@ export type ModelRef = typeof ModelRef.Type
 
 export type CatalogEntry = { id: string; description: string; bytes: number }
 
+/** A model's prices in millionths of a US dollar per million tokens; 0 where unknown. */
+export type CachePrices = { input: number; cache_read: number; cache_write: number }
+
 /** A catalog entry within the engine's bounds; `bytes` is the size of `content`, what attaching it adds. */
 export function catalogEntry(id: string, description: string, content: string): CatalogEntry {
   return {
@@ -78,6 +81,15 @@ export type SignalKind =
     available: Array<{ model: ModelRef; usable: boolean }>
   }
   | { type: "model_succeeded"; model: ModelRef }
+  | {
+    type: "context_resumed"
+    model: ModelRef
+    context_tokens: number
+    context_window: number
+    idle_seconds: number
+    available: Array<{ model: ModelRef; usable: boolean }>
+  }
+  | { type: "context_idle"; model: ModelRef; context_tokens: number; prices: CachePrices }
   | { type: "integration_event"; source: string; kind: string; summary: string; body: string; actionable: boolean; monitor: string }
 
 export type Signal = { agent_id: string; at: number; kind: SignalKind }
@@ -136,6 +148,8 @@ const HostEffect = Schema.Union([
     text: Schema.NullOr(Schema.String),
   }),
   Schema.Struct({ type: Schema.Literal("gate"), agent_id: Schema.String, deliver: Schema.Boolean }),
+  Schema.Struct({ type: Schema.Literal("compact"), agent_id: Schema.String, model: ModelRef }),
+  Schema.Struct({ type: Schema.Literal("warm"), agent_id: Schema.String, every_seconds: Schema.Number, times: Schema.Number }),
 ])
 
 export type HostEffect = typeof HostEffect.Type

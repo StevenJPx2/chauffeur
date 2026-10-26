@@ -1,5 +1,5 @@
 import { type Plugin, Skill } from "@opencode/plugin/effect"
-import type { SessionPrompt } from "@opencode/plugin/effect/session"
+import type { SessionContext, SessionPrompt } from "@opencode/plugin/effect/session"
 import { Effect, Schema, type Scope } from "effect"
 import { warnClippedSkills } from "./clipped-skills.js"
 import { codeModeNamespaces } from "./code-mode.js"
@@ -9,6 +9,7 @@ import { hostModel, ref, sameModel } from "./model-router.js"
 import { mcpSettled } from "./mcp-settle.js"
 import { applyNamespaces } from "./namespaces.js"
 import { ASK_TOOL } from "./ask-tool.js"
+import { currentContext, NO_RENEWAL, type RenewalControl } from "./renewal.js"
 import { Texts, type TextsSource } from "./texts.js"
 import { TODO_TOOL } from "./todo-data.js"
 import { catalogEntry, signal, TEXT_CODE_POINTS, type CatalogEntry, type CodeModeNamespace, type ContextEffect, type HostEffect, type ModelRef } from "./protocol.js"
@@ -111,22 +112,26 @@ class HiddenTools {
  * unneeded for the context, bringing them back when the engine says so.
  * Everything is derived from session history, so a restart loses nothing.
  */
-export const installExposure: Effect.Effect<ExposureControl, never, Host | Daemon | Texts | Scope.Scope> = Effect.gen(function* () {
+export const installExposure = (renewal: RenewalControl = NO_RENEWAL): Effect.Effect<ExposureControl, never, Host | Daemon | Texts | Scope.Scope> => Effect.gen(function* () {
   const host = yield* Host
   const daemon = yield* Daemon
   const texts = yield* Texts
   const hidden = new HiddenTools(host)
 
+  // Only named tools are removed, so a tool the engine never judged stays.
+  const hide = (event: SessionContext) => hidden.current(event.sessionID).pipe(Effect.map((set) => {
+    for (const name of set ?? []) delete event.tools[name]
+  }))
+
   yield* host.session.hook("context", (event) => Effect.gen(function* () {
     hidden.requests.record(String(event.sessionID), String(event.agent), new Set(Object.keys(event.tools)))
-
-    const set = yield* hidden.current(event.sessionID)
-
-    if (set === null) return
-
-    // Only named tools are removed, so a tool the engine never judged stays.
-    for (const name of set) delete event.tools[name]
+    yield* hide(event)
   }))
+
+  // Compaction and warming requests carry the agent's tools too: the same
+  // tools keep their prompt prefix, and with it the prompt cache, shared.
+  yield* host.session.hook("compaction", hide)
+  yield* host.session.hook("generate", hide)
 
   yield* host.session.hook("prompt", (event) => {
     // A sourcefed event, not the user: it reaches the engine from sourcefed.
@@ -135,7 +140,9 @@ export const installExposure: Effect.Effect<ExposureControl, never, Host | Daemo
     const sessionID = String(event.sessionID)
 
     return Effect.gen(function* () {
-      const { firstInContext, skills, model, agent, workspace } = yield* admission(host, event, (set) => hidden.remember(sessionID, set))
+      // A compaction queued ahead of this prompt starts a new context for it.
+      const renewed = yield* renewal.renew(event.sessionID)
+      const { firstInContext, skills, model, agent, workspace } = yield* admission(host, event, (set) => hidden.remember(sessionID, set), renewed)
       const requestTools = hidden.requests.forAgent(agent)
 
       hidden.requests.admit(sessionID, agent)
@@ -266,11 +273,12 @@ function hideTools(host: Plugin.Context, event: SessionPrompt, effect: ToolsEffe
 /**
  * The prompt's context, whether it starts one, the skills to judge, and the
  * session's model. A subagent's first prompt continues its parent's context
- * instead of starting one.
+ * instead of starting one. A `renewed` prompt follows a compaction queued
+ * ahead of it, so it starts a context of its own.
  */
-function admission(host: Plugin.Context, event: SessionPrompt, remember: (set: Hidden) => void) {
+function admission(host: Plugin.Context, event: SessionPrompt, remember: (set: Hidden) => void, renewed: boolean) {
   return Effect.gen(function* () {
-    const context = currentContext(yield* host.session.context({ sessionID: event.sessionID }))
+    const context = renewed ? [] : currentContext(yield* host.session.context({ sessionID: event.sessionID }))
     const fresh = !context.some((message) => message.type === "user" && !isIntegrationMessage(message.metadata))
     const session = yield* host.session.get({ sessionID: event.sessionID })
 
@@ -354,13 +362,6 @@ function attach(effect: ContextEffect, event: SessionPrompt): void {
 /** The context's hidden tools after applying the engine's decision. */
 function hiddenAfter(effect: ToolsEffect, hidden: Hidden): string[] {
   return [...new Set([...(hidden ?? []), ...effect.hide])].filter((tool) => !effect.reveal.includes(tool))
-}
-
-/** Messages since the most recent compaction, which begins a new context. */
-function currentContext(messages: ReadonlyArray<HistoryMessage>): HistoryMessage[] {
-  const lastCompaction = messages.findLastIndex((message) => message.type === "compaction")
-
-  return messages.slice(lastCompaction + 1)
 }
 
 function restoreHidden(host: Plugin.Context, sessionID: SessionID): Effect.Effect<Hidden, unknown> {

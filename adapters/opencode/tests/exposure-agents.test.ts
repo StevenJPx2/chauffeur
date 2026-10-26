@@ -38,7 +38,7 @@ test("another agent's requests do not change the tools a default-agent session j
     return []
   }) }
 
-  const plugin = await install(installExposure, host, daemon)
+  const plugin = await install(installExposure(), host, daemon)
   const prompt = (sessionID: string) => hooks.emit("prompt", { sessionID, prompt: { text: "Update the notes" } })
 
   const request = (sessionID: string, agent: string, names: ReadonlyArray<string>) =>

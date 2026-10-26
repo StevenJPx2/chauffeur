@@ -7,6 +7,13 @@
     "after_seconds": 300,
     "bar": { "at": 0.7, "confidence": 0.4 }
   },
+  "renewal": {
+    "cache_seconds": { "anthropic": 300, "openai": 1800, "deepseek": 3600, "*": 300 },
+    "budget": { "share": 0.215, "min_tokens": 50000, "max_tokens": 100000 },
+    "warming": { "max_seconds": 3600, "lead_seconds": 60, "min_tokens": 20000 },
+    "pins": [],
+    "bar": { "at": 0.7, "confidence": 0.4 }
+  },
   "max_candidates": 8,
   "limit": {
     "messages": [
@@ -67,7 +74,8 @@
     "recommended_note": "; recommended",
     "last_resort_note": "; last resort, used only when no other model is available",
     "stay": "Keep {model} and wait for the limit to clear.",
-    "switch_back": "About {minutes} minutes ago the coding agent's model {model} failed with this usage limit: {error}. Has that limit most likely cleared by now? Short per-minute rate limits and temporary overloads clear within minutes; limits that reset in hours, and exhausted quotas or balances, have not cleared."
+    "switch_back": "About {minutes} minutes ago the coding agent's model {model} failed with this usage limit: {error}. Has that limit most likely cleared by now? Short per-minute rate limits and temporary overloads clear within minutes; limits that reset in hours, and exhausted quotas or balances, have not cleared.",
+    "renew_context": "The user is about to continue a coding agent's session on {model}. Its conversation holds {tokens} tokens of a {window}-token window, and it has been idle {idle_minutes} minutes, longer than the provider keeps a prompt cache ({cache_minutes} minutes), so the next request would re-read the whole conversation at full price. Should a cheaper model summarize the conversation first, so the agent continues from a short summary plus its most recent exchanges? Answer yes when the cache has expired and the conversation holds at least {budget} tokens."
   },
   "unusable": {
     "messages": [

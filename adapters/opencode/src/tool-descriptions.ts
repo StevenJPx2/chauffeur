@@ -19,7 +19,13 @@ export const installToolDescriptions: Effect.Effect<void, never, Host | Texts | 
   const host = yield* Host
   const texts = yield* Texts
 
-  yield* host.session.hook("context", (event) => Effect.sync(() => rewriteDescriptions(event.tools, texts.current())))
+  const rewrite = (event: SessionContext) => Effect.sync(() => rewriteDescriptions(event.tools, texts.current()))
+
+  // On every request that carries the agent's tools, so compaction and
+  // warming requests keep the agent loop's prompt prefix and its cache.
+  yield* host.session.hook("context", rewrite)
+  yield* host.session.hook("compaction", rewrite)
+  yield* host.session.hook("generate", rewrite)
 })
 
 /** Rewrite `tools`' descriptions in place from `texts`. */

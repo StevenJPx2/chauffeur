@@ -1,4 +1,15 @@
 {
+  "routes": {
+    "model-router/renew_context": "facts"
+  },
+  "facts": {
+    "model-router/renew_context": {
+      "all": [
+        { "fact": "idle_seconds", "at_least": { "fact": "cache_seconds" } },
+        { "fact": "context_tokens", "at_least": { "fact": "context_budget" } }
+      ]
+    }
+  },
   "system_two": {
     "enabled": false,
     "profiles": {

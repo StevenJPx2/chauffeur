@@ -27,6 +27,7 @@ document describes the current architecture.
 | Ephemeral enhancements                                                                                                                              | not yet built |
 | Code Mode tool surfacing, skill-list removal, audit log, child-session inheritance                                                                  | built         |
 | Configured remote skill sources: cheap change checks, shared parsing, files fetched on attach                                                     | built         |
+| Generic judges (System One, System Two, and the deterministic facts judge) with per-question routes; context renewal on a cold resume             | built         |
 
 ## Three planes
 
@@ -90,7 +91,8 @@ Public discovery and automatic cache reclamation are deferred.
 
 ## Routing
 
-Every capability is reached through System One. Facts such as a 429, a
+Every capability is reached through a judge, System One unless a route names
+another (see Judges). Facts such as a 429, a
 secret-pattern hit, or idle duration become features of the question. A
 capability may ask several questions (one per skill, say). The engine
 namespaces them as `capability/question` and batches every ready capability's
@@ -123,19 +125,38 @@ it. Each must end at a word boundary. The shipped ones cover force-pushes to
 rewrite history others have pulled; force-pushing a rebased feature branch
 matches none.
 
+## Judges
+
+A judge is whatever answers what a capability asks:
+`chauffeur_core::Judge` takes a batch of questions and reasonings and returns
+a ruling for each. System One and System Two are judges through
+`SystemOneJudge` and `SystemTwoJudge`; the facts judge (`judges/facts`) is
+plain code that answers a yes/no question from the facts it carries
+(`Question::facts`, named whole numbers) by a rule in `judge.json`. Each
+question goes to `system_one` and each reasoning to `system_two` unless
+`judge.json`'s `routes` names another judge for its namespaced ID, so moving a
+question between a model and code is configuration, not a capability change.
+The engine runs local judges (no I/O, such as facts) itself while it plans a
+round: their answers sit beside System One's in the capability's `Round`, a
+round they answer whole never reaches the host, and a System One failure
+fails only the capabilities that asked System One. A question routed to a
+judge the engine lacks goes unanswered. Routes and rules are described in
+[judge configuration](docs/judges.md#routes).
+
 ## System One
 
-`SystemOne` is the single inference interface: typed questions (choice, score,
+`SystemOne` is the fast-classifier interface: typed questions (choice, score,
 noul) in one call, typed answers out, validated against the questions before
 any capability sees them.
 
-A judgment is a state machine, `chauffeur_core::judge::Judge<T>`: finished
-with a value, or asking questions whose answers (or `None` for a failed call)
-choose its next state. Four primitives build every judge: `done`, `ask`,
+A judgment is a state machine, `chauffeur_core::judgment::Judgment<T>`:
+finished with a value, or asking questions whose answers (or `None` for a
+failed call) choose its next state; whichever judge answers them. Four
+primitives build every judgment: `done`, `ask`,
 `then` (continue in the next round), and `all` (side by side in one round;
 `zip` for two value types); `unless_failed` tells an unanswered judgment from
 rules that refused. Rules (`Rule::yes`, `Rule::no`, `Rule::unless_no`,
-`Rule::pick`) hold every threshold and refuse a failed call. `judge::strategy`
+`Rule::pick`) hold every threshold and refuse a failed call. `judgment::strategy`
 composes the common strategies, `single`, `fan_out`, and `chain`; a capability
 composes others where it needs them. A capability implements `Judged`
 (`judge` a signal, `act` on the verdict) and runs as `Judging::new(capability)`,
@@ -174,7 +195,7 @@ true`) the shipped list. Unknown credential-like strings (24+ characters
 
 ## Effects
 
-Effects are the host's actions, not capabilities' concepts. Core defines five,
+Effects are the host's actions, not capabilities' concepts. Core defines these,
 and no effect names the capability that asked, so a new capability needs no
 new effect and no adapter change:
 
@@ -186,6 +207,7 @@ new effect and no adapter change:
 | `namespaces` | withholds or restores whole Code Mode namespaces in this session                                                                                                                                                                       | tool exposure (Code Mode trimming)                     |
 | `context`    | adds skills (the host resolves their bodies) and text to the conversation, at a `delivery`: `prompt` (with the user message being admitted), `steer` (the running turn), `resume` (wakes an idle agent), or `wait` (for the next turn) | skill exposure, tool exposure (Code Mode notes), rules |
 | `gate`       | delivers or withholds the integration event being gated                                                                                                                                                                                | event gate                                             |
+| `compact`    | compacts the context before the prompt being admitted, with the named model writing the summary; the agent keeps its own model                                                                                                         | model router (context renewal)                         |
 
 Every `context` delivery lands in history at the tail, so the cached prefix
 stays intact. Ephemeral context, appended to one request in the `context` hook,
@@ -320,7 +342,7 @@ come first in that prefix.
 
 | Capability                  | Question                                                                                                                                                               | Triggered by                                                          | Effect                                               | Status |
 | --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- | ---------------------------------------------------- | ------ |
-| Model router                | switch, and to which same-tier model, or stay? has the limit on the model left behind cleared?                                                                         | model usage-limit error; user message after a switch                  | decision                                             | built  |
+| Model router                | switch, and to which same-tier model, or stay? has the limit on the model left behind cleared? should a cheaper model summarize this cold context first? (facts judge)   | model usage-limit error; user message after a switch; context resumed | decision; compaction                                 | built  |
 | Permission / skill contract | each matching contract's typed question                                                                                                                                | permission request                                                    | decision                                             | built  |
 | Skill exposure              | does the request need each offered skill? (fan-out) is the agent using a generic approach where a skill fits?                                                          | user message; tool result and turn end; `ask_chauffeur`               | persistent                                           | built  |
 | Tool exposure               | will the task need this tool group? does the latest request need a hidden group now? which hidden groups and Code Mode namespaces cover the agent's request? (fan-out) | first user message of a context; later user messages; `ask_chauffeur` | tool set; Code Mode note                             | built  |
@@ -627,6 +649,74 @@ a trade-off against the cache: Jev judges the fact far better. At P ≥ 0.7 and
 confidence ≥ 0.4 the adapter switches back before the prompt runs. A model the
 user picked themselves forgets the origin.
 
+**Context renewal.** A prompt that continues a context with a measured reply
+first sends `context_resumed`: the session's model, the prompt size at that
+reply (input, cache read and write, output, reasoning, as OpenCode measures
+it), the model's window, the seconds since the provider last touched its
+prompt cache (that reply's end, or a later warming request), and the host's
+models. The router picks a summary model: a `renewal.pins` entry, else a
+fast-tier model on the agent's own provider, then on another provider used
+directly (recommended first), else a last-resort free model; never a
+blacklisted one, nor one on a provider the agent hit a limit on. With none,
+nothing is asked. Otherwise it asks `renew_context`, carrying the facts
+`idle_seconds`, `cache_seconds` (`renewal.cache_seconds` per provider:
+Anthropic 300, as OpenCode writes 5-minute caches; OpenAI 1800, its shortest
+default lifetime; DeepSeek 3600, whose disk cache lasts hours; others 300),
+`context_tokens`, `context_budget`, and `context_window` when the host knows
+it. The budget (`renewal.budget`) is a share of the window (0.215) kept
+between a floor (50,000 tokens) and a ceiling (100,000): a 1M-token window
+renews at 100k, a 350k one at about 75k, a 200k one at 50k, and an unknown
+one at the ceiling. Re-reading a cold context costs its whole length at the
+cache-write rate, while a summary leaves about 30k (system prompt and tools,
+the summary, and OpenCode's verbatim tail of at most 15k), so renewal saves
+money from about 40k up. The floor matches the smallest trigger Anthropic's
+own compaction accepts, and the ceiling keeps the summary request under
+100k tokens, where Claude Haiku 5.5's price rises fivefold.
+The shipped `judge.json` routes the question to the facts judge: renew when
+idle at least the cache lifetime and the context at least the budget. A yes
+is a `compact` effect. The adapter queues
+OpenCode's compaction ahead of the prompt (`session.compact`, which runs
+before waiting prompts), treats the prompt as the first of a new context, and
+in OpenCode's `compaction` hook has `generate.text` on the summary model
+write the summary from the older transcript (tool output clipped to 1,250
+characters, oldest exchanges dropped to fit the summary model's window, an
+earlier summary always kept) with OpenCode's template, from
+`hosts/opencode.json` `compaction`. OpenCode keeps its recent exchanges
+verbatim beside it. The session's own model never changes, so the prompt runs
+on it. A summary that fails, times out (3 minutes), or skips the template
+leaves the compaction to OpenCode's own model; a failed decision leaves the
+context as it is. A summary the host cannot serve at all
+(`Generate.UnavailableError` or `Generate.ModelSelectionError`, such as an
+Anthropic sign-in through a subscription plugin that reaches only session
+requests, an empty balance, or a spent free allowance) has the adapter pass
+over that provider for 24 hours, kept in plugin storage: its models go to the
+engine as unusable in later `context_resumed` signals, so the router picks a
+summary model elsewhere.
+
+**Session warming.** When a session the user drives finishes a turn, the
+adapter sends `context_idle`: the session's model, its context size, and the
+model's prices at that size (the host's price tier the context reaches, in
+millionths of a dollar per million tokens). The router answers with no
+question: a `warm` effect asking for a transient request every
+`cache_seconds - renewal.warming.lead_seconds` (60), so Anthropic every 4
+minutes and OpenAI every 29, for as many times as fit within
+`renewal.warming.max_seconds` (3600) of the turn's end and as pay for
+themselves. A warming request reads the context at the cache-read price, and a
+prompt after the cache expired pays the cache-write price instead, so warming
+stops once its reads would cost more than that difference: 14 times on Claude
+Opus 5.5 (reads at 0.05x, writes at 1.25x), 11 on a model reading at 0.1x.
+An unknown cache-read price, a context under `min_tokens` (20,000), or a
+provider the agent hit a usage limit on is not warmed. The adapter sends each
+request with OpenCode's `session.generate`, the keep-alive prompt from
+`hosts/opencode.json` `warming`, and stops at the session's next execution or
+request of its own; subagents' sessions are never warmed. Chauffeur's tool
+edits run on `generate` and `compaction` requests as well as the agent loop's,
+as OpenCode's own plugins do, so a warming request carries the same prompt
+prefix and refreshes the cache the next prompt reads. Once warming stops, the
+cache expires on its own, and the next prompt's `context_resumed` measures
+idle time from the last warming request. Leave OpenCode's own `warming`
+setting off, or both warm the session.
+
 ## Coupling
 
 The adapter sends **Signals** and applies **Effects**; it holds no policy.
@@ -706,6 +796,10 @@ Installed as a package, it also registers the hand-over skills in
   metadata: `delivery: "steer"`, `resume: true`, or `resume: false`. The
   `execute.after` hook waits at most 3 s.
 - **`gate`:** the `chauffeur.gate` plugin RPC's reply.
+- **`compact`:** `session.compact` from the prompt hook, before admission,
+  and `session.hook("compaction")` sets the hook's `result` to the summary
+  `generate.text` wrote on the effect's model, only for a compaction
+  Chauffeur queued.
 - **Skill loading:** a `skill` deny rule on every agent via `agent.transform`.
 
 ## Workspace
@@ -729,6 +823,7 @@ Installed as a package, it also registers the hand-over skills in
 | `judges/http`                         | Shared bounded System One HTTP transport, validation and recordings |
 | `judges/jev`                          | Jev provider defaults |
 | `judges/subq`                         | SubQ Snap provider defaults |
+| `judges/facts`                        | the facts judge: deterministic rules over a question's facts |
 | `adapters/opencode`                   | signals in, effects out; an Effect plugin whose hooks share the plugin scope                                                                                                                                                                               |
 
 ## Failure and bounds

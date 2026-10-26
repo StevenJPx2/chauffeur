@@ -3,8 +3,8 @@ use std::sync::Arc;
 use chauffeur_capability_model_router::{ModelRouter, ModelRouterConfig, STAY};
 use chauffeur_capability_model_router::{Provider, Tier, TierEntry};
 use chauffeur_core::{
-    Answer, AnswerValue, AvailableModel, Capability, Effect, Judging, ModelRef, Plan, QuestionKind,
-    Signal, SignalKind, Situation,
+    Answer, AnswerValue, AvailableModel, CachePrices, Capability, Effect, Judging, ModelRef, Plan,
+    QuestionKind, Signal, SignalKind, Situation,
 };
 
 struct Table(&'static str, Vec<TierEntry>);
@@ -963,4 +963,285 @@ fn a_lasting_limit_never_offers_stay_and_one_candidate_switches_without_asking()
     };
 
     assert_eq!(effects, switch("openai/sol"));
+}
+
+/// A prompt resuming a 600k-token context on anthropic/opus after 20 idle
+/// minutes, with `available` models.
+fn resumed(available: &[&str], window: u64) -> Signal {
+    Signal {
+        agent_id: "session".into(),
+        at: 1,
+        kind: SignalKind::ContextResumed {
+            model: model("anthropic/opus"),
+            context_tokens: 600_000,
+            context_window: window,
+            idle_seconds: 1_200,
+            available: available
+                .iter()
+                .map(|key| AvailableModel {
+                    model: model(key),
+                    usable: true,
+                })
+                .collect(),
+        },
+    }
+}
+
+fn renew(p: f32) -> Answer {
+    Answer {
+        id: "renew_context".into(),
+        value: AnswerValue::Noul(p),
+        confidence: Some(1.0),
+    }
+}
+
+fn compact(key: &str) -> Vec<Effect> {
+    vec![Effect::Compact {
+        agent_id: "session".into(),
+        model: model(key),
+    }]
+}
+
+#[test]
+fn a_resumed_context_asks_with_its_facts_and_a_yes_compacts_with_the_fast_model() {
+    let mut router = router(&[]);
+    let signal = resumed(
+        &["anthropic/opus", "anthropic/haiku", "openai/spark"],
+        1_000_000,
+    );
+    let Plan::Ask(questions) = router.plan(&Situation::default(), &signal) else {
+        panic!("expected the renewal question")
+    };
+    let facts = &questions[0].facts;
+
+    assert_eq!(questions[0].id, "renew_context");
+    assert_eq!(facts["idle_seconds"], 1_200);
+    assert_eq!(facts["cache_seconds"], 300);
+    assert_eq!(facts["context_tokens"], 600_000);
+    assert_eq!(facts["context_window"], 1_000_000);
+    assert_eq!(facts["context_budget"], 100_000);
+    assert!(questions[0].instructions.contains("idle 20 minutes"));
+    assert!(questions[0].instructions.contains("at least 100000 tokens"));
+
+    // The agent's own provider's fast model writes the summary.
+    assert_eq!(
+        router.decide(&signal, Some(&[renew(1.0)])),
+        compact("anthropic/haiku")
+    );
+
+    router.plan(&Situation::default(), &signal);
+    assert!(router.decide(&signal, Some(&[renew(0.0)])).is_empty());
+    router.plan(&Situation::default(), &signal);
+    assert!(router.decide(&signal, None).is_empty());
+}
+
+#[test]
+fn an_unknown_window_is_left_out_of_the_facts() {
+    let Plan::Ask(questions) =
+        router(&[]).plan(&Situation::default(), &resumed(&["anthropic/haiku"], 0))
+    else {
+        panic!("expected the renewal question")
+    };
+
+    assert!(!questions[0].facts.contains_key("context_window"));
+    assert_eq!(questions[0].facts["context_budget"], 100_000);
+    assert!(questions[0].instructions.contains("unknown"));
+}
+
+#[test]
+fn the_budget_is_a_share_of_the_window_between_a_floor_and_a_ceiling() {
+    let budget = defaults().renewal.budget;
+
+    assert_eq!(budget.tokens(2_000_000), 100_000);
+    assert_eq!(budget.tokens(1_000_000), 100_000);
+    assert_eq!(budget.tokens(350_000), 75_250);
+    assert_eq!(budget.tokens(128_000), 50_000);
+    assert_eq!(budget.tokens(32_000), 50_000);
+    assert_eq!(budget.tokens(0), 100_000);
+
+    for bad in [
+        r#"{ "share": 0, "min_tokens": 1, "max_tokens": 2 }"#,
+        r#"{ "share": 1.5, "min_tokens": 1, "max_tokens": 2 }"#,
+        r#"{ "share": 0.2, "min_tokens": 3, "max_tokens": 2 }"#,
+        r#"{ "share": 0.2, "min_tokens": 0, "max_tokens": 0 }"#,
+    ] {
+        let config = ModelRouterConfig {
+            renewal: chauffeur_capability_model_router::Renewal {
+                budget: serde_json::from_str(bad).expect("a budget"),
+                ..defaults().renewal
+            },
+            ..defaults()
+        };
+
+        assert!(config.checked().is_err(), "{bad}");
+    }
+}
+
+#[test]
+fn the_summary_model_is_a_pin_then_fast_then_free_and_never_blacklisted() {
+    let decide = |config: ModelRouterConfig, available: &[&str]| {
+        let mut router = router_with(config);
+        let signal = resumed(available, 1_000_000);
+
+        router.plan(&Situation::default(), &signal);
+        router.decide(&signal, Some(&[renew(1.0)]))
+    };
+    let pinned = ModelRouterConfig {
+        renewal: chauffeur_capability_model_router::Renewal {
+            pins: vec!["openai/spark".into()],
+            ..defaults().renewal
+        },
+        ..defaults()
+    };
+    let everything = [
+        "anthropic/opus",
+        "anthropic/haiku",
+        "openai/spark",
+        "opencode/x-free",
+    ];
+
+    assert_eq!(decide(pinned, &everything), compact("openai/spark"));
+    // Without the agent's own fast model, another provider's.
+    assert_eq!(
+        decide(
+            defaults(),
+            &["anthropic/opus", "openai/spark", "opencode/x-free"]
+        ),
+        compact("openai/spark")
+    );
+    // No fast model at all: a free one.
+    assert_eq!(
+        decide(defaults(), &["anthropic/opus", "opencode/x-free"]),
+        compact("opencode/x-free")
+    );
+    let blocked = ModelRouterConfig {
+        blacklist: vec!["anthropic/haiku".into()],
+        ..defaults()
+    };
+    assert_eq!(
+        decide(blocked, &["anthropic/haiku", "openai/spark"]),
+        compact("openai/spark")
+    );
+}
+
+/// Prices in millionths of a dollar per million tokens: input, cache read, cache write.
+fn prices(input: u64, cache_read: u64, cache_write: u64) -> CachePrices {
+    CachePrices {
+        input,
+        cache_read,
+        cache_write,
+    }
+}
+
+/// A session on `key` going idle with a 120k-token context.
+fn idle(key: &str, prices: CachePrices) -> Signal {
+    Signal {
+        agent_id: "session".into(),
+        at: 1,
+        kind: SignalKind::ContextIdle {
+            model: model(key),
+            context_tokens: 120_000,
+            prices,
+        },
+    }
+}
+
+fn warm(every_seconds: u64, times: u32) -> Plan {
+    Plan::Settled(vec![Effect::Warm {
+        agent_id: "session".into(),
+        every_seconds,
+        times,
+    }])
+}
+
+#[test]
+fn an_idle_context_is_warmed_before_its_cache_expires_for_at_most_an_hour() {
+    let plan = |key: &str, prices: CachePrices| {
+        router(&[]).plan(&Situation::default(), &idle(key, prices))
+    };
+
+    // Opus 5.5 reads its cache at 0.05x: 24 warms would still pay, so the
+    // hour decides: every 4 minutes, the last at 56.
+    assert_eq!(
+        plan("anthropic/opus", prices(4_000_000, 200_000, 5_000_000)),
+        warm(240, 14)
+    );
+    // At 0.1x, 11 warms cost as much as re-reading the context cold.
+    assert_eq!(
+        plan("anthropic/sonnet", prices(3_000_000, 300_000, 3_750_000)),
+        warm(240, 11)
+    );
+    // OpenAI keeps its cache 30 minutes: warmed twice within the hour.
+    assert_eq!(
+        plan("openai/sol", prices(5_000_000, 250_000, 6_250_000)),
+        warm(1_740, 2)
+    );
+    // No write price is the input price.
+    assert_eq!(
+        plan("openai/luna", prices(2_000_000, 200_000, 0)),
+        warm(1_740, 2)
+    );
+}
+
+#[test]
+fn a_context_that_caching_cannot_save_or_a_limited_provider_is_not_warmed() {
+    let opus = prices(4_000_000, 200_000, 5_000_000);
+    let plan = |signal: &Signal| router(&[]).plan(&Situation::default(), signal);
+
+    // No known cache price, or one a subscription makes free.
+    assert_eq!(
+        plan(&idle("anthropic/opus", prices(4_000_000, 0, 5_000_000))),
+        Plan::Skip
+    );
+    assert_eq!(
+        plan(&idle("anthropic/opus", CachePrices::default())),
+        Plan::Skip
+    );
+    // A small context costs little to re-read.
+    let mut small = idle("anthropic/opus", opus);
+    if let SignalKind::ContextIdle { context_tokens, .. } = &mut small.kind {
+        *context_tokens = 8_000;
+    }
+    assert_eq!(plan(&small), Plan::Skip);
+
+    // Warming off.
+    let off = ModelRouterConfig {
+        renewal: chauffeur_capability_model_router::Renewal {
+            warming: chauffeur_capability_model_router::Warming {
+                max_seconds: 0,
+                ..defaults().renewal.warming
+            },
+            ..defaults().renewal
+        },
+        ..defaults()
+    };
+    assert_eq!(
+        router_with(off).plan(&Situation::default(), &idle("anthropic/opus", opus)),
+        Plan::Skip
+    );
+
+    // A provider the agent hit a usage limit on.
+    let mut limited = router(&[]);
+    let failed = limit(false);
+    limited.plan(&Situation::default(), &failed);
+    limited.decide(&failed, Some(&[choice("openai/sol", 0.9)]));
+    assert_eq!(
+        limited.plan(&Situation::default(), &idle("anthropic/opus", opus)),
+        Plan::Skip
+    );
+    assert_eq!(
+        limited.plan(&Situation::default(), &idle("openai/sol", opus)),
+        warm(1_740, 2)
+    );
+}
+
+#[test]
+fn nothing_is_asked_when_no_model_can_write_the_summary() {
+    assert_eq!(
+        router(&[]).plan(
+            &Situation::default(),
+            &resumed(&["anthropic/opus"], 1_000_000)
+        ),
+        Plan::Skip
+    );
 }

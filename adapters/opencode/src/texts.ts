@@ -30,6 +30,16 @@ const HostTextsSchema = Schema.Struct({
     failed: Schema.String,
   }),
   model_router: Schema.Struct({ label: Schema.String, continue: Schema.String, stranded: Schema.String }),
+  /** The summary a cheaper model writes when Chauffeur renews a cold context. */
+  compaction: Schema.Struct({
+    request: Schema.String,
+    first: Schema.String,
+    update: Schema.String,
+    template: Schema.String,
+    omitted: Schema.String,
+  }),
+  /** The transient prompt that keeps an idle session's prompt cache warm. */
+  warming: Schema.Struct({ prompt: Schema.String }),
   permission: Schema.Struct({ failed: Schema.String }),
   labels: Schema.Struct({ context: Schema.String, exposure: Schema.String }),
 })

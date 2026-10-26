@@ -11,10 +11,12 @@ import { installModelRouter } from "./model-router.js"
 import { installPermission } from "./permission.js"
 import { installRulebooks } from "./rulebooks.js"
 import { installRemoteSkills } from "./remote-skills.js"
+import { installRenewal } from "./renewal.js"
 import { claimSkillLoading, hostLoadsSkills } from "./skills.js"
 import { installToolDescriptions } from "./tool-descriptions.js"
 import { followDaemonTexts, Texts } from "./texts.js"
 import { installToolResults } from "./tool-results.js"
+import { installWarming } from "./warming.js"
 
 export { ChauffeurRpc } from "./gate.js"
 
@@ -23,7 +25,9 @@ const capabilities = Effect.gen(function* () {
   if (!hostLoadsSkills()) yield* claimSkillLoading
   yield* installModelRouter
 
-  const exposure = yield* installExposure
+  const warming = yield* installWarming
+  const renewal = yield* installRenewal(warming)
+  const exposure = yield* installExposure(renewal)
 
   yield* installPermission
   yield* installToolResults(exposure)

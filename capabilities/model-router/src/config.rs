@@ -1,9 +1,10 @@
 //! The router's tunable defaults, shipped in `skills/config/model-router.json`
 //! and overlaid by your `model-router.json`.
 
+use std::collections::BTreeMap;
 use std::path::Path;
 
-use chauffeur_core::{Confidence, ModelRef, Template, Threshold, load_layered};
+use chauffeur_core::{CachePrices, Confidence, ModelRef, Template, Threshold, load_layered};
 use serde::Deserialize;
 
 use crate::provider::glob;
@@ -31,6 +32,8 @@ pub struct ModelRouterConfig {
     /// posture applies.
     pub pick_confidence: Confidence,
     pub switch_back: SwitchBack,
+    /// When a prompt resumes a context whose prompt cache has expired.
+    pub renewal: Renewal,
     /// Options offered to System One, after ordering; keeps the choice small.
     pub max_candidates: usize,
     /// A usage limit that another model avoids.
@@ -63,6 +66,9 @@ pub struct RouterTexts {
     pub stay: Template,
     /// Whether the original limit has cleared: `{minutes}`, `{model}`, `{error}`.
     pub switch_back: Template,
+    /// Whether to renew a resumed context: `{model}`, `{idle_minutes}`,
+    /// `{cache_minutes}`, `{tokens}`, `{window}`, `{budget}`.
+    pub renew_context: Template,
 }
 
 impl RouterTexts {
@@ -85,6 +91,18 @@ impl RouterTexts {
                 &self.switch_back,
                 &["minutes", "model", "error"][..],
             ),
+            (
+                "texts.renew_context",
+                &self.renew_context,
+                &[
+                    "model",
+                    "idle_minutes",
+                    "cache_minutes",
+                    "tokens",
+                    "window",
+                    "budget",
+                ][..],
+            ),
         ] {
             template.check(field, allowed)?;
         }
@@ -101,6 +119,173 @@ pub struct SwitchBack {
     pub after_seconds: u64,
     /// Switch back on a confident yes at this bar.
     pub bar: Threshold,
+}
+
+/// Renewing a long context whose prompt cache has expired: a cheaper model
+/// summarizes it before the prompt runs on the agent's own model. Whether to
+/// is judged from facts, by the judge `judge.json` routes
+/// `model-router/renew_context` to.
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct Renewal {
+    /// Seconds each provider keeps an unread prompt cache, by provider ID;
+    /// `*` for every other provider.
+    pub cache_seconds: BTreeMap<String, u64>,
+    /// How long a context grows before renewing it pays.
+    pub budget: Budget,
+    /// Keeping an idle context's prompt cache warm, so renewal waits until
+    /// warming stops and the cache expires.
+    pub warming: Warming,
+    /// Preferred summary models as `provider/model`, offered before the fast
+    /// tier.
+    pub pins: Vec<String>,
+    /// Renew on a yes at this bar.
+    pub bar: Threshold,
+}
+
+/// The tokens a context may hold before it is worth renewing: a share of
+/// the model's window, never under `min_tokens` nor over `max_tokens`. A
+/// large window still renews at the ceiling; a small one renews sooner, but
+/// not so soon that a summary costs more than it saves.
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct Budget {
+    /// Share of the context window, above 0 and at most 1.
+    pub share: f64,
+    pub min_tokens: u64,
+    pub max_tokens: u64,
+}
+
+impl Budget {
+    /// The budget for a `window`-token model; the ceiling when the window is
+    /// unknown (0).
+    #[must_use]
+    pub fn tokens(&self, window: u64) -> u64 {
+        if window == 0 {
+            return self.max_tokens;
+        }
+
+        #[expect(
+            clippy::cast_precision_loss,
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            reason = "a window is far below 2^52 and the share is positive"
+        )]
+        let share = (window as f64 * self.share).round() as u64;
+
+        share.clamp(self.min_tokens, self.max_tokens)
+    }
+
+    fn checked(self) -> Result<Self, String> {
+        if !(self.share > 0.0 && self.share <= 1.0) {
+            return Err("renewal.budget.share must be above 0 and at most 1".into());
+        }
+
+        if self.max_tokens == 0 || self.min_tokens > self.max_tokens {
+            return Err("renewal.budget needs max_tokens above 0 and min_tokens no larger".into());
+        }
+
+        Ok(self)
+    }
+}
+
+/// Warming sends a transient request on an idle session's context shortly
+/// before its prompt cache would expire, so the user's next prompt re-reads
+/// it at the cache price. It stops `max_seconds` after the session's own last
+/// request, and sooner when more warming would cost more than re-reading the
+/// context cold.
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct Warming {
+    /// Warm for at most this long after the session's last request; 0 turns
+    /// warming off.
+    pub max_seconds: u64,
+    /// Warm this long before the cache would expire.
+    pub lead_seconds: u64,
+    /// A smaller context is left to go cold: re-reading it costs little.
+    pub min_tokens: u64,
+}
+
+/// Longest a session may be kept warm.
+const MAX_WARMING_SECONDS: u64 = 24 * 60 * 60;
+
+impl Warming {
+    /// How often to warm a `context_tokens` context whose provider keeps an
+    /// unread cache for `cache_seconds`, and how many times, at `prices`.
+    /// `None` when warming is off or would not pay.
+    ///
+    /// Each warming request re-reads the context at the cache-read price. A
+    /// prompt after the cache expired pays the cache-write price instead of
+    /// that read, so warming pays while its reads together cost less than
+    /// the difference. An unknown cache-read price means no known caching;
+    /// an unknown cache-write price is the input price, as for a provider
+    /// that does not charge for writes.
+    #[must_use]
+    pub fn plan(
+        &self,
+        cache_seconds: u64,
+        context_tokens: u64,
+        prices: CachePrices,
+    ) -> Option<(u64, u32)> {
+        if self.max_seconds == 0
+            || context_tokens < self.min_tokens
+            || cache_seconds <= self.lead_seconds
+            || prices.cache_read == 0
+        {
+            return None;
+        }
+
+        let every = cache_seconds - self.lead_seconds;
+        let in_time = (self.max_seconds - 1) / every;
+        let write = if prices.cache_write > 0 {
+            prices.cache_write
+        } else {
+            prices.input
+        };
+        let paid_for = write.saturating_sub(prices.cache_read) / prices.cache_read;
+        let times = u32::try_from(in_time.min(paid_for)).unwrap_or(u32::MAX);
+
+        (times > 0).then_some((every, times))
+    }
+
+    fn checked(self) -> Result<Self, String> {
+        if self.max_seconds > MAX_WARMING_SECONDS {
+            return Err(format!(
+                "renewal.warming.max_seconds is at most {MAX_WARMING_SECONDS}"
+            ));
+        }
+
+        Ok(self)
+    }
+}
+
+impl Renewal {
+    /// How long `provider` keeps an unread prompt cache.
+    #[must_use]
+    pub fn cache_seconds(&self, provider: &str) -> u64 {
+        self.cache_seconds
+            .get(provider)
+            .or_else(|| self.cache_seconds.get("*"))
+            .copied()
+            .unwrap_or_default()
+    }
+
+    fn checked(mut self) -> Result<Self, String> {
+        if !self.cache_seconds.contains_key("*") {
+            return Err("renewal.cache_seconds needs a `*` entry for other providers".into());
+        }
+
+        if self.pins.len() > MAX_PINS || self.pins.iter().any(|pin| !pin.contains('/')) {
+            return Err(format!(
+                "renewal.pins holds at most {MAX_PINS} provider/model entries"
+            ));
+        }
+
+        self.budget = self.budget.checked()?;
+        self.warming = self.warming.checked()?;
+
+        Ok(self)
+    }
 }
 
 /// Words that classify a model error, matched case-insensitively.
@@ -165,6 +350,7 @@ impl ModelRouterConfig {
         self.lasting = self.lasting.checked("lasting")?;
         self.unusable = self.unusable.checked("unusable")?;
         self.texts = self.texts.checked()?;
+        self.renewal = self.renewal.checked()?;
 
         Ok(self)
     }

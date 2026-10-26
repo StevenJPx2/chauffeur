@@ -1,6 +1,9 @@
 //! Model router: when a usage limit is hit, System One picks an equivalent
 //! model from the same tier, or decides to stay. Later, System One may switch
 //! the agent back to the model it left once the limit has likely cleared.
+//! When a prompt resumes a long context whose prompt cache has expired, it
+//! asks whether a cheaper model should summarize the context first; the
+//! shipped `judge.json` has the facts judge answer that.
 //! Run it as `Judging::new(ModelRouter::new(providers, config))`.
 
 mod config;
@@ -9,7 +12,9 @@ mod provider;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-pub use config::{ErrorWords, MAX_CANDIDATES, ModelRouterConfig, SwitchBack};
+pub use config::{
+    Budget, ErrorWords, MAX_CANDIDATES, ModelRouterConfig, Renewal, SwitchBack, Warming,
+};
 pub use provider::{MAX_TIER_ROWS, Provider, Rating, Tier, TierEntry, TierTable};
 
 use chauffeur_core::judgment::strategy;
@@ -23,6 +28,8 @@ pub const ID: &str = "model-router";
 pub const STAY: &str = "stay";
 const QUESTION: &str = "choice";
 const SWITCH_BACK: &str = "switch_back";
+/// The renewal question; `judge.json` routes `model-router/renew_context`.
+pub const RENEW_CONTEXT: &str = "renew_context";
 const MAX_TRACKED_AGENTS: usize = 256;
 const MAX_ERROR_CHARS: usize = 200;
 
@@ -364,6 +371,138 @@ impl ModelRouter {
         Some(strategy::single(question, bar).map(Verdict::SwitchBack))
     }
 
+    /// When a prompt resumes a context, whether a cheaper model should
+    /// summarize it first. The question carries its facts, so a judge that
+    /// decides from facts can answer it as well as a model can. Nothing is
+    /// asked when no cheaper model is available to write the summary.
+    fn renewal(&self, signal: &Signal) -> Option<Judgment<Verdict>> {
+        let SignalKind::ContextResumed {
+            model,
+            context_tokens,
+            context_window,
+            idle_seconds,
+            available,
+        } = &signal.kind
+        else {
+            return None;
+        };
+        let summarizer = self.summarizer(&signal.agent_id, model, available)?;
+        let cache_seconds = self.config.renewal.cache_seconds(&model.provider);
+        let budget = self.config.renewal.budget.tokens(*context_window);
+        let fact = |value: u64| i64::try_from(value).unwrap_or(i64::MAX);
+        let mut facts = Facts::from([
+            ("idle_seconds".to_string(), fact(*idle_seconds)),
+            ("cache_seconds".to_string(), fact(cache_seconds)),
+            ("context_tokens".to_string(), fact(*context_tokens)),
+            ("context_budget".to_string(), fact(budget)),
+        ]);
+
+        // An unknown window is no fact: a rule that reads it leaves the
+        // question unanswered rather than judging against zero.
+        if *context_window > 0 {
+            facts.insert("context_window".into(), fact(*context_window));
+        }
+
+        let question = Question {
+            id: RENEW_CONTEXT.into(),
+            instructions: self.config.texts.renew_context.render(&[
+                ("model", &model.key()),
+                ("idle_minutes", &(idle_seconds / 60).to_string()),
+                ("cache_minutes", &(cache_seconds / 60).to_string()),
+                ("tokens", &context_tokens.to_string()),
+                (
+                    "window",
+                    &if *context_window > 0 {
+                        context_window.to_string()
+                    } else {
+                        "unknown".to_string()
+                    },
+                ),
+                ("budget", &budget.to_string()),
+            ]),
+            kind: QuestionKind::Noul,
+            facts,
+        };
+
+        Some(
+            strategy::single(question, self.config.renewal.bar.yes())
+                .map(move |renew| Verdict::Renew(renew.then_some(summarizer))),
+        )
+    }
+
+    /// When a session goes idle, whether to keep its prompt cache warm, and
+    /// how. Decided from the provider's cache lifetime and the model's
+    /// prices, with no question; a provider the agent hit a usage limit on is
+    /// not warmed.
+    fn warming(&self, signal: &Signal) -> Option<Judgment<Verdict>> {
+        let SignalKind::ContextIdle {
+            model,
+            context_tokens,
+            prices,
+        } = &signal.kind
+        else {
+            return None;
+        };
+
+        if self
+            .exhausted
+            .get(&signal.agent_id)
+            .is_some_and(|providers| providers.contains(&model.provider))
+        {
+            return None;
+        }
+
+        let renewal = &self.config.renewal;
+        let (every_seconds, times) = renewal.warming.plan(
+            renewal.cache_seconds(&model.provider),
+            *context_tokens,
+            *prices,
+        )?;
+
+        Some(Judgment::done(Verdict::Warm {
+            every_seconds,
+            times,
+        }))
+    }
+
+    /// The model to write a summary for an agent on `current`: a pinned
+    /// summary model, else a fast-tier model on the agent's own provider,
+    /// then on another provider you use directly, recommended first, else a
+    /// last-resort model such as a free one. Never a blacklisted model, nor
+    /// one on a provider the agent hit a usage limit on.
+    fn summarizer(
+        &self,
+        agent_id: &str,
+        current: &ModelRef,
+        available: &[chauffeur_core::AvailableModel],
+    ) -> Option<ModelRef> {
+        let exhausted = self.exhausted.get(agent_id);
+        let usable: Vec<ModelRef> = self
+            .expanded(available)
+            .into_iter()
+            .filter(|model| !self.config.is_blacklisted(model))
+            .filter(|model| exhausted.is_none_or(|providers| !providers.contains(&model.provider)))
+            .collect();
+        let pinned = self.config.renewal.pins.iter().find_map(|pin| {
+            usable.iter().find(|model| {
+                format!("{}/{}", model.provider, model.model) == *pin || model.key() == *pin
+            })
+        });
+        let fast = || {
+            usable
+                .iter()
+                .filter(|model| self.tier(model) == Some(Tier::Fast))
+                .min_by_key(|model| (model.provider != current.provider, !self.recommended(model)))
+        };
+        let free = || {
+            usable
+                .iter()
+                .find(|model| self.config.is_last_resort(model))
+        };
+
+        pinned.or_else(fast).or_else(free).cloned()
+    }
+
     /// Return to the model left behind, forgetting the failover.
     fn return_to_origin(&mut self, agent_id: &str) -> Vec<Effect> {
         let Some(origin) = self.origins.remove(agent_id) else {
@@ -525,6 +664,11 @@ pub enum Verdict {
     },
     /// Whether to return to the model the agent left.
     SwitchBack(bool),
+    /// The model to summarize the resumed context with, or `None` to leave
+    /// the context as it is.
+    Renew(Option<ModelRef>),
+    /// Keep the idle context's prompt cache warm.
+    Warm { every_seconds: u64, times: u32 },
 }
 
 /// The model a failover judgment picked. A failed or unsure judgment falls
@@ -610,6 +754,8 @@ impl Judged for ModelRouter {
 
                 self.switch_back(signal, model.as_ref())
             }
+            SignalKind::ContextResumed { .. } => self.renewal(signal),
+            SignalKind::ContextIdle { .. } => self.warming(signal),
             SignalKind::ToolResult { .. }
             | SignalKind::PermissionRequest { .. }
             | SignalKind::IntegrationEvent { .. }
@@ -644,7 +790,16 @@ impl Judged for ModelRouter {
                 }]
             }
             Verdict::SwitchBack(true) => self.return_to_origin(&agent_id),
-            Verdict::SwitchBack(false) => Vec::new(),
+            Verdict::SwitchBack(false) | Verdict::Renew(None) => Vec::new(),
+            Verdict::Renew(Some(model)) => vec![Effect::Compact { agent_id, model }],
+            Verdict::Warm {
+                every_seconds,
+                times,
+            } => vec![Effect::Warm {
+                agent_id,
+                every_seconds,
+                times,
+            }],
         }
     }
 }

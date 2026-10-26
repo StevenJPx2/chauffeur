@@ -369,6 +369,8 @@ fn describe(kind: &SignalKind, texts: &SituationTexts) -> Option<String> {
             ("args", args),
         ])),
         SignalKind::ModelSucceeded { .. }
+        | SignalKind::ContextResumed { .. }
+        | SignalKind::ContextIdle { .. }
         | SignalKind::TurnEnd { .. }
         | SignalKind::SkillReview { .. } => None,
     }

@@ -134,6 +134,20 @@ impl ModelRef {
     }
 }
 
+/// A model's prices for a prompt of one size, in millionths of a US dollar
+/// per million tokens ($4 per million is `4_000_000`); 0 where the host does
+/// not know a price.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, Eq, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct CachePrices {
+    #[serde(default)]
+    pub input: u64,
+    #[serde(default)]
+    pub cache_read: u64,
+    #[serde(default)]
+    pub cache_write: u64,
+}
+
 /// A model the host can switch to. Only enabled, active models are usable.
 #[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
 #[serde(deny_unknown_fields)]
@@ -273,6 +287,33 @@ pub enum SignalKind {
     },
     ModelSucceeded {
         model: ModelRef,
+    },
+    /// A user prompt is about to continue a context that already holds a
+    /// measured reply: how large that context is and how long it sat idle.
+    ContextResumed {
+        /// The session's model, which the prompt will run on.
+        model: ModelRef,
+        /// The prompt's size at the context's latest reply, in tokens, as
+        /// the provider measured it.
+        context_tokens: u64,
+        /// The model's input window in tokens; 0 when the host does not know it.
+        #[serde(default)]
+        context_window: u64,
+        /// Seconds since the provider last read or wrote the context's prompt
+        /// cache: since its latest reply ended, or a later warming request.
+        idle_seconds: u64,
+        available: Vec<AvailableModel>,
+    },
+    /// A session the user drives finished its turn, leaving its context in
+    /// the provider's prompt cache.
+    ContextIdle {
+        /// The session's model.
+        model: ModelRef,
+        /// The prompt's size at the context's latest reply, in tokens.
+        context_tokens: u64,
+        /// The model's prices at that size.
+        #[serde(default)]
+        prices: CachePrices,
     },
     /// An event from an integration watching the agent's work, such as a
     /// sourcefed monitor on its pull request or Jira issue.
@@ -417,7 +458,12 @@ impl SignalKind {
                 available,
                 ..
             } => validate_model_error(model, error_type, message, available),
-            SignalKind::ModelSucceeded { model } => validate_model(model),
+            SignalKind::ModelSucceeded { model } | SignalKind::ContextIdle { model, .. } => {
+                validate_model(model)
+            }
+            SignalKind::ContextResumed {
+                model, available, ..
+            } => validate_model_error(model, "", "", available),
             SignalKind::IntegrationEvent { .. } => validate_integration_event(self),
             SignalKind::PermissionRequest {
                 action,

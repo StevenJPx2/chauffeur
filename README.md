@@ -128,22 +128,57 @@ it lacks, then use what Chauffeur grants to finish the task.
 
 ![The agent asks Chauffeur for a Slack-posting skill and uses slackcli to finish the handoff](docs/media/ask.gif)
 
+### Model routing: past usage limits, and cheaper long sessions
+
+Chauffeur's model router keeps the agent on a model that can serve it, and
+keeps long sessions from paying full price after a break.
+
+**Failover.** A usage limit covers the whole provider account, so on a limit
+Chauffeur:
+
+- switches to the same tier on another provider you use directly (your
+  Anthropic or OpenAI subscription), recommended models first, never an
+  OpenCode copy of them;
+- uses OpenCode Zen's free models only when nothing else is left;
+- skips blacklisted models even when pinned; OpenCode Go is blocked by
+  default (`"blacklist": ["opencode-go/*"]` in `model-router.json`);
+- switches back once the limit has likely cleared.
+
+![Opus hits a usage limit, then GPT-6.1 Sol does; Chauffeur switches each time and the task finishes on a free model](docs/media/failover.gif)
+
+In this clip, a local endpoint stands in for Anthropic and returns a usage
+limit. The GPT-6.1 Sol limit that follows is a real one.
+
+**Warm caches, then a cheap summary.** When a session goes idle, Chauffeur
+keeps its prompt cache warm, sending a keep-alive just before the provider's
+cache would expire. It stops after an hour, or sooner once more keep-alives
+would cost more than re-sending the conversation. When you come back after the
+cache has expired, and the conversation is long (a share of the model's
+window, between 50k and 100k tokens), a cheaper model summarizes it first.
+Your prompt still runs on your own model.
+
+![Chauffeur warms an idle session so the next prompt reads its cache, then compacts it once warming stops and the cache expires](docs/media/warming.gif)
+
+The clip is a real Claude Sonnet 5.5 session with shortened limits (warming
+for at most 5 minutes, summarizing from 8k tokens), driven and recorded with
+[termctrl](https://github.com/anomalyco/terminal-control); the idle stretches
+play at 80x. Measured in it, and in a second session with warming off:
+
+| Moment | What Chauffeur did | What the provider billed |
+|---|---|---|
+| Prompt 2, 6½ min after the last reply | One keep-alive at 4 min, so no summary | 7,625 tokens read from cache, 148 written |
+| The same prompt with warming off | Nothing | 4,940 read, 2,816 written: the conversation was re-sent |
+| Prompt 3, 5½ min after the last keep-alive | GPT-6 Luna summarized in 5 s; the prompt ran on Sonnet | 0 read, 8,057 written: the cache had expired, as Chauffeur judged |
+
+An earlier run asked Claude Haiku for the summary, and it failed: an Anthropic
+sign-in through a subscription plugin reaches only the agent's own requests.
+OpenCode then summarized on the session's model, and Chauffeur now passes over
+a provider that cannot serve summaries for 24 hours, which is why GPT-6 Luna
+wrote this one. Leave OpenCode's own `warming` setting off, or sessions are
+warmed twice.
+
 ### And quietly
 
-- **Model failover.** A usage limit covers the whole provider account, so on a
-  limit Chauffeur:
-  - switches to the same tier on another provider you use directly (your
-    Anthropic or OpenAI subscription), recommended models first, never an
-    OpenCode copy of them;
-  - uses OpenCode Zen's free models only when nothing else is left;
-  - skips blacklisted models even when pinned; OpenCode Go is blocked by
-    default (`"blacklist": ["opencode-go/*"]` in `model-router.json`);
-  - switches back once the limit has likely cleared.
-
-  ![Opus hits a usage limit, then GPT-6.1 Sol does; Chauffeur switches each time and the task finishes on a free model](docs/media/failover.gif)
-
-  In this clip, a local endpoint stands in for Anthropic and returns a usage
-  limit. The GPT-6.1 Sol limit that follows is a real one.
 - **Cheaper subagents.** When the agent hands routine work (searching, reading,
   mechanical edits) to a subagent, Chauffeur steers it to a cheaper model from
   the same provider, such as Sonnet under Opus.

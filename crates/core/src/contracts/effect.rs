@@ -71,6 +71,17 @@ pub enum Effect {
     },
     /// Whether the integration event being gated reaches the agent.
     Gate { agent_id: String, deliver: bool },
+    /// Compact the agent's context before the prompt being admitted, with
+    /// `model` writing the summary. The agent keeps its own model.
+    Compact { agent_id: String, model: ModelRef },
+    /// Keep the idle agent's prompt cache warm: a transient request on its
+    /// context every `every_seconds`, at most `times` times. The agent's next
+    /// request of its own ends the warming.
+    Warm {
+        agent_id: String,
+        every_seconds: u64,
+        times: u32,
+    },
     /// The answer to a skill review: whether to add the skill.
     SkillVerdict {
         agent_id: String,
