@@ -149,20 +149,21 @@ const { intents } = await connect().navigate(
 flowchart LR
     Callers["Callers<br/>sourcefed, opencode-history,<br/>host adapters, scripts"] -- "event and context" --> Daemon["Chauffeur daemon"]
     Rules[("Rule files<br/>built-in, integrations,<br/>user, project")] --> Daemon
-    Daemon --> Strategy["Each matching rule's plan<br/>facts, System One, System Two"]
+    Daemon --> Strategy["Each matching rule's strategy<br/>facts, System One, System Two"]
     Strategy -- "intents" --> Callers
 ```
 
 - **The strategy is the rule's.** A rule can screen with facts, classify with
   System One and review only what System One leaves unsure with System Two.
   Changing the strategy changes a rule file, never a caller.
-- **Answers are yes/no, a pick or a ranking**, built from the pieces in
-  [Strategies](#strategies).
+- **Answers are yes/no, a pick, a level on a scale or a ranking**, built from
+  the pieces in [Strategies](#strategies).
 - **No intent means the caller's default.** A rule that matches nothing in its
   `then`, or whose judges fail, returns no intent: sourcefed then delivers the
   event, and recall attaches nothing.
-- **An inline `plan` replaces `on`** for scripts, the playground and tests. It
-  runs only that plan and returns its verdict.
+- **An inline `strategy` replaces `on`** for scripts, the playground and
+  tests, with its own `judges` and `asks`. It runs only that strategy and
+  returns its verdict.
 
 Native behaviors answer the same events as rule files. The model router, for
 instance, answers `context_resumed` with a `compact` intent.
@@ -236,21 +237,23 @@ behavior's own state. Only a host adapter carries out host actions.
 ### Judges
 
 Every judge takes one `Ask` and returns one `Answer`. Judges come in four
-tiers. A step names its tier in `judge`, and may name a model in `model`:
+tiers. A rule names its judges in `judges`, each with a tier, an optional
+model and a confidence, and a step's `judge` names one of them or a tier:
 
-| Step | Answered by |
+| In a rule | Answered by |
 |---|---|
-| `"judge": "system-one"` | The tier's models, in the user's fallback order |
-| `"judge": "system-one", "model": "glide"` | GLiDE; the tier's fallback order applies if GLiDE is unavailable or not configured, and the run's events say so |
+| `"quick": { "tier": "system-one", "confidence": 0.7 }` | The tier's models, in the user's fallback order |
+| `"careful": { "tier": "system-one", "model": "glide", "confidence": 0.7 }` | GLiDE; the tier's fallback order applies if GLiDE is unavailable or not configured, and the run's events say so |
+| A step with `"judge": "facts"` | The tier itself, with no model and no confidence |
 
-Naming the model lets one plan use two models of the same tier, such as Jev
-for a fast screen and GLiDE, more accurate but slower, for what Jev leaves
+Naming the model lets one strategy use two models of the same tier, such as
+Jev for a fast screen and GLiDE, more accurate but slower, for what Jev leaves
 unsure. A rule shared with someone who lacks GLiDE still runs, on their
 System One.
 
 ```mermaid
 flowchart TB
-    Step["Plan step<br/>judge, model, confidence"] -- "Ask and evidence" --> Tiers
+    Step["Step<br/>judge: tier, model, confidence"] -- "Ask and evidence" --> Tiers
     subgraph Tiers["Tiers: one Ask in, one Answer out"]
         Facts["facts<br/>match, select, BM25, embedding"]
         S1["system-one<br/>Jev, SubQ, GLiDE, a local model"]
@@ -258,7 +261,7 @@ flowchart TB
         Person["person<br/>the user, through the host"]
     end
     Tiers -- "Answer" --> Confidence["Runtime applies the step's confidence"]
-    Confidence -- "outcome or failed" --> Plan["Plan: gates and then"]
+    Confidence -- "outcome or failed" --> Plan["Strategy: after and then"]
 ```
 
 #### The contract
@@ -282,8 +285,8 @@ implements core's `Judge` interface for every tier.
 
 #### Confidence
 
-The step, not the judge, decides when an answer is sure enough. Its
-`confidence` is how sure the judge must be of an answer, from 0 to 1:
+The rule, not the model, decides when an answer is sure enough. A named
+judge's `confidence` is how sure it must be of an answer, from 0 to 1:
 
 | `confidence` | Outcome |
 |---|---|
@@ -303,7 +306,7 @@ A judge that cannot answer settles as `failed` whatever the confidence, so a
 failure never reads as `no`. On a scale, a split such as medium 0.45 and high
 0.43 is `unsure`; when the question is "medium or higher", ask it as yes/no.
 The runtime applies confidence the same way for every tier, in thousandths so
-comparisons stay exact, and judges never see it. Each step's confidence is
+comparisons stay exact, and models never see it. Each judge's confidence is
 tuned in its rule file against labelled cases.
 
 #### Tiers
@@ -371,45 +374,77 @@ to use. Code exists only once per API format, in `crates/judges`:
 
 ### Strategies
 
-A strategy is a rule's `plan`, built from four pieces. Chauffeur has no list
-of built-in strategies: any combination of the pieces is one.
+A strategy is a rule's `strategy`: a list of steps, built from four pieces.
+Chauffeur has no list of built-in strategies: any combination of the pieces is
+one.
 
 | Piece | What it does |
 |---|---|
 | Step | Asks one judge one question; its confidence turns the answer into an outcome |
-| Gate | Runs a step only when earlier outcomes match |
-| `for_each` | Copies a step once per candidate, in one round; inside a copy, `step[item]` names the same candidate's copy of an earlier step |
+| `after` | Waits for earlier steps, then runs the step or skips it by their outcomes |
+| `for_each` | Copies a step once per candidate, in one round |
 | Earlier outcomes | A step may read earlier steps' outcomes as its evidence |
+
+#### `after`
+
+A step waits until every step its `after` names has finished. Then it runs if
+every `all` entry is met and, when there are `any` entries, at least one of
+them is; otherwise it is skipped. A step without `after` runs in round 1.
+
+```jsonc
+"after": ["fast", "slow"]                                     // all: wait for both, whatever they settled to
+"after": [{ "step": "fast", "when": ["unsure", "failed"] }]   // all: run only if fast was unsure or failed
+"after": { "all": [ … ], "any": [ … ] }                       // every all entry, and at least one any entry
+```
+
+- A string entry is met once that step finishes, even when it was skipped.
+- An object entry is met only when the step settled to an outcome in `when`.
+  A skipped step never matches.
+- `failed` and `unsure` are reserved, so no label can use either name.
+- `relevant[*]` names every copy `for_each` made of `relevant`. Inside a copy,
+  `relevant[item]` names the same candidate's copy.
+- `after` names only earlier steps, so a strategy cannot loop. Every strategy
+  has a known maximum of rounds and calls before it starts.
 
 Combining answers is a step too. The `facts` function `select` reads earlier
 outcomes and settles to one: `first` settled in a list, `top` N, all at or
 above `min`, `majority`, or `mean`. A new way to combine is a new facts
-function. The protocol lowers `for_each` and `[item]` to ordinary core steps
-and gates, so core runs every strategy alike.
+function. The protocol lowers `for_each`, wildcards and named judges and asks
+to plain core steps, so core runs every strategy alike.
 
 | Strategy | Built from |
 |---|---|
-| Escalate | A step gated on an earlier step's `unsure` or failure |
+| Escalate | A step `after` an earlier one, `when` it is `unsure` or `failed` |
 | Rank | A `for_each` step, then `select` with `top` and `min` |
 | Collect all that pass | A `for_each` step, then `select` with `min` |
-| Check the survivors | Two `for_each` steps, the second gated on `first[item]` being `yes` |
-| Vote | Parallel steps, `select` with `majority`, and a review gated on `unsure` |
+| Check the survivors | Two `for_each` steps, the second `after` `first[item]` `when` `yes` |
+| Vote | Parallel steps, `select` with `majority`, and a review `after` the vote `when` `unsure` |
 
 Escalating from Jev to GLiDE, then to System Two:
 
 ```jsonc
-"plan": { "steps": [
-  { "id": "fast",   "judge": "system-one", "model": "jev",   "confidence": 0.7, "ask": { … } },
-  { "id": "slow",   "judge": "system-one", "model": "glide", "confidence": 0.7, "ask": { … },
-    "gates": [{ "mode": "any", "sources": ["fast"], "on": ["unsure", { "failed": true }] }] },
-  { "id": "review", "judge": "system-two",                   "confidence": 0.7, "ask": { … },
-    "gates": [{ "mode": "any", "sources": ["slow"], "on": ["unsure", { "failed": true }] }] },
-  { "id": "answer", "judge": "facts", "ask": { "select": { "first": ["review", "slow", "fast"] } } }
-] }
+"judges": {
+  "quick":    { "tier": "system-one", "model": "jev",   "confidence": 0.7 },
+  "careful":  { "tier": "system-one", "model": "glide", "confidence": 0.7 },
+  "reasoner": { "tier": "system-two",                   "confidence": 0.7 }
+},
+"strategy": [
+  { "id": "fast",   "judge": "quick",    "ask": "needs-agent" },
+  { "id": "slow",   "judge": "careful",  "ask": "needs-agent", "after": [{ "step": "fast", "when": ["unsure", "failed"] }] },
+  { "id": "review", "judge": "reasoner", "ask": "needs-agent", "after": [{ "step": "slow", "when": ["unsure", "failed"] }] },
+  { "id": "answer", "judge": "facts", "ask": { "select": { "first": ["review", "slow", "fast"] } },
+    "after": ["fast", "slow", "review"] }
+]
 ```
 
-A plan is a graph without cycles, so every strategy has a known maximum of
-rounds and calls before it starts. Nothing loops or retries until confident.
+```text
+"thanks, looks good 👍"
+round 1   fast    jev    yes 0.52               → unsure
+round 2   slow    glide  yes 0.18, no 0.82      → no
+          review  skipped: slow was not unsure or failed
+          answer  fast, slow and review have finished → asked
+round 3   answer  select first                  → no
+```
 
 The v1 experiment's direct `judge(policy)` and `complete(profile)` calls are
 not the primary v2 plugin API: each exposes only one inference request and
@@ -420,7 +455,7 @@ path and cannot bypass plan limits, redaction or deadlines.
 #### Viewing a strategy
 
 `chauffeur strategy show` prints a rule's plan as a tree, with each step's
-round, its model as the user's configuration resolves it, its gates and its
+round, its model as the user's configuration resolves it, its `after` and its
 confidence:
 
 ```text
@@ -451,7 +486,7 @@ through it with recorded answers.
   order, then its intents or verdict. Each navigation's event buffer is bounded
   and overflow is an explicit event. Closing the connection cancels it.
 - One admission permit covers queued, waiting and active work. Capacity per
-  source (built-in, integration, user and project rules, and inline plans), plan size,
+  source (built-in, integration, user and project rules, and inline strategies), strategy size,
   evidence bytes, node count, depth, fan-out, rounds, attempts and output size
   are checked before dispatch.
 - Deadlines include queueing, preparation, every inference round and delivery.
@@ -468,13 +503,18 @@ through it with recorded answers.
 Three rule files. A rule file needs no code: dropping it into a rules folder
 is the whole install.
 
-A rule file has four parts:
+A rule file has these parts:
 
 | Field | Meaning |
 |---|---|
-| `on`, `when` | The event that triggers the rule, and a cheap deterministic filter on it; a step with its own `when` is skipped when that filter fails |
-| `plan` | The plan, in the same JSON as an inline plan and the playground |
+| `on`, `when` | The event that triggers the rule, and a cheap deterministic filter on it |
+| `judges` | Named judges: a tier, an optional model and a confidence |
+| `asks` | Named questions, so steps that ask the same question share it |
+| `strategy` | The steps, in order: each with an `id`, a `judge` (a named judge or a tier), an `ask` (a named question or one written inline), and `after` |
 | `then` | Intents by outcome, first match wins; no match returns no intent |
+
+Names in `judges` and `asks` are referred to only by a step's `judge` and
+`ask`. Step IDs are referred to only by `after`, `select` and `then`.
 
 Rules load from four sources, and edits apply without a restart:
 
@@ -491,23 +531,19 @@ keeps a file the user changed.
 
 ### Commit messages (rule file)
 
-v1's `conventional-commits` rule, with its question as a one-step plan:
+v1's `conventional-commits` rule, with its question as a one-step strategy:
 
 ```jsonc
 // .chauffeur/rules/conventional-commits.json
 {
   "on": "tool_result",
   "when": { "tools": ["shell"] },
-  "plan": { "steps": [{
-    "id": "nonconventional",
-    "judge": "system-one",
-    "confidence": 0.7,
-    "ask": {
-      "question": "yes-no",
-      "evidence": ["tool_call"],
-      "instructions": "Does this call create a git commit whose message does not follow Conventional Commits?"
-    }
-  }] },
+  "judges": { "quick": { "tier": "system-one", "confidence": 0.7 } },
+  "strategy": [
+    { "id": "nonconventional", "judge": "quick",
+      "ask": { "question": "yes-no", "evidence": ["tool_call"],
+               "instructions": "Does this call create a git commit whose message does not follow Conventional Commits?" } }
+  ],
   "then": [{ "if": { "nonconventional": "yes" }, "steer": "Use Conventional Commits, such as `feat(scope): short description`." }],
   "cooldown_seconds": 120
 }
@@ -516,37 +552,29 @@ v1's `conventional-commits` rule, with its question as a one-step plan:
 ### Event triage (integration rule)
 
 sourcefed installs this rule with its System One screen. This user added the
-System Two review for Slack messages, which System One leaves unsure or fails
+System Two review for Slack messages that System One leaves unsure or fails
 on.
 
 ```jsonc
 // ~/.config/chauffeur/rules/sourcefed/triage.json
 {
   "on": "integration_event",
-  "plan": { "steps": [
-    {
-      "id": "screen",
-      "judge": "system-one",
-      "confidence": 0.7,
-      "ask": {
-        "question": "yes-no",
-        "evidence": ["thread", "event"],
-        "instructions": "Does the new event ask the agent to do or change something?"
-      }
-    },
-    {
-      "id": "review",
-      "judge": "system-two",
-      "when": { "sources": ["slack"] },
-      "gates": [{ "mode": "any", "sources": ["screen"], "on": ["unsure", { "failed": true }] }],
-      "confidence": 0.6,
-      "ask": {
-        "question": { "choose": ["act", "ignore"] },
-        "evidence": ["thread", "event"],
-        "instructions": "Should the agent act on the new message? Cite the evidence."
-      }
-    }
-  ] },
+  "judges": {
+    "quick":    { "tier": "system-one", "confidence": 0.7 },
+    "reasoner": { "tier": "system-two", "confidence": 0.6 }
+  },
+  "asks": {
+    "needs-agent": { "question": "yes-no", "evidence": ["thread", "event"],
+                     "instructions": "Does the new event ask the agent to do or change something?" }
+  },
+  "strategy": [
+    { "id": "screen",   "judge": "quick", "ask": "needs-agent" },
+    { "id": "is-slack", "judge": "facts", "ask": { "match": { "source": "slack" } } },
+    { "id": "review",   "judge": "reasoner",
+      "ask": { "question": { "choose": ["act", "ignore"] }, "evidence": ["thread", "event"],
+               "instructions": "Should the agent act on the new message? Cite the evidence." },
+      "after": [{ "step": "screen", "when": ["unsure", "failed"] }, { "step": "is-slack", "when": ["yes"] }] }
+  ],
   "then": [
     { "if": { "screen": "no" }, "withhold": "event" },
     { "if": { "review": "ignore" }, "withhold": "event" }
@@ -567,22 +595,19 @@ returned; the code gathers them and attaches the result.
 // ~/.config/chauffeur/rules/opencode-history/recall.json
 {
   "on": "recall",
-  "plan": { "steps": [
-    {
-      "id": "helps",
-      "judge": "system-one",
-      "for_each": "candidates",
-      "ask": {
-        "question": "yes-no",
-        "evidence": ["message", "candidate"],
-        "instructions": "Would this passage materially help the agent answer the message, beyond what it already says?"
-      }
-    },
-    { "id": "best", "judge": "facts", "ask": { "select": { "from": "helps", "top": 3, "min": 0.7 } } }
-  ] },
+  "strategy": [
+    { "id": "helps", "judge": "system-one", "for_each": "candidates",
+      "ask": { "question": "yes-no", "evidence": ["message", "candidate"],
+               "instructions": "Would this passage materially help the agent answer the message, beyond what it already says?" } },
+    { "id": "best", "judge": "facts", "after": ["helps[*]"],
+      "ask": { "select": { "from": "helps[*]", "top": 3, "min": 0.7 } } }
+  ],
   "then": [{ "attach": "best" }]
 }
 ```
+
+`helps` has no named judge, so it uses the user's System One with no
+confidence and settles to each passage's probability, which `select` ranks.
 
 Its code is the [`navigate` call](#chauffeurnavigate) with a 1.5 s signal.
 All candidates share one round, so Jev answers them in one call. An error or a
@@ -602,37 +627,56 @@ missed deadline attaches nothing.
 
 ## Core plan model
 
-A plan is an ordered directed acyclic graph. It contains named steps, each
-carrying a generic request payload `Q`; a caller chooses the outcome type `O`.
-Core does not know what either means. A step may have several gates; every gate
-must pass.
+A plan is an ordered list of named steps. Each step carries a request of the
+caller's type `Q`; the caller also chooses the outcome type `O`. Core does not
+know what either means. Rule files lower to this form: the protocol resolves
+named judges and asks, `for_each` copies and wildcards before core sees a plan.
 
 ```text
-Step<Q> = { id, judge: name, request: Q, gates: [Gate<O>] }
-Gate<O> = { mode: any | all, sources: [preceding step IDs], on: [Outcome<O>] }
-Outcome<O> = Value(O) | Failed
+Step<Q, O>   = { id, judge: name, request: Q, after: After<O> }
+After<O>     = { all: [Need<O>], any: [Need<O>] }
+Need<O>      = { step: an earlier step's ID, when: [Outcome<O>] or none }
+Outcome<O>   = Value(O) | Failed
 StepState<O> = Pending | Asked | Settled(Outcome<O>) | Skipped
 ```
 
-`Skipped` is a machine state, not a classifier outcome. A failed provider call
-settles asked steps as `Failed`; a user-defined outcome such as `Unsure` is a
-normal `Value(O)`. A step runs at most once. Gates only reference preceding
-steps, so a finite plan terminates after at most one round per step.
+`Skipped` is a machine state, not an outcome. A failed model call settles
+asked steps as `Failed`; an outcome such as `Unsure` is an ordinary
+`Value(O)`.
 
-### Gate behavior
+### `after` in core
 
-- **Any:** run as soon as one source settles to a value listed in `on`. Skip
-  once all sources are terminal and none matched.
-- **All:** skip as soon as a source is terminal without a listed value. Run
-  once every source matches.
-- A skipped source is terminal and is not a match. `Failed` can match when
-  explicitly listed in `on`.
+One rule decides every step, the one in [Strategies](#after):
 
-These are proposed semantics for review. Gates on one step combine with AND;
-within a gate, `Any` and `All` short-circuit once their result is known.
-Independent ready steps share a round.
+- A step stays `Pending` until every step its `after` names is `Settled` or
+  `Skipped`.
+- It is then `Asked` if every `all` need is met and, when `any` has needs, at
+  least one `any` need is met. Otherwise it is `Skipped`.
+- A need without `when` is met by any finish. A need with `when` is met only
+  by a settled outcome it lists; `Skipped` never matches.
+- A step with an empty `after` is asked in round 1. Steps asked together share
+  a round, and each judge answers its share of a round in one call.
+- `after` names only earlier steps, so every plan finishes within one round
+  per step.
 
-### Judges
+The escalation from [Strategies](#strategies), in Rust:
+
+```rust
+let unsure_or_failed = [Value(Unsure), Failed];
+let plan = Plan::new([
+    Step::new("fast", "system-one:jev", ask),
+    Step::new("slow", "system-one:glide", ask).after([Need::when("fast", unsure_or_failed.clone())]),
+    Step::new("review", "system-two", ask).after([Need::when("slow", unsure_or_failed)]),
+    Step::new("answer", "facts", select_first).after(["fast", "slow", "review"]),
+]);
+```
+
+A step ID alone is a need without `when`, and `after_any` fills the `any`
+list. A named judge lowers to a panel name of its tier and model, such as
+`system-one:glide`. Rust and rule files build the same steps, so a strategy
+reads the same in both.
+
+### The `Judge` interface
 
 A judge answers a step's request. Core defines the interface; it has no
 dependencies and is synchronous:
@@ -646,10 +690,10 @@ pub trait Judge<Q, O> {
 // Any `Fn(&Q) -> Outcome<O>` is a judge.
 ```
 
-A step names its judge, because plans are data: rule files and inline plans
-can only refer to judges the host already holds, and configuration can
-limit which judges a project's rules may use. A `Panel` maps names to judges. `plan.run(&panel)` validates
-the plan, rejects a name the panel lacks before asking anything, and then asks
+A step names its judge, because plans are data: rule files and inline
+strategies can only refer to judges the host already holds, and configuration
+can limit which judges a project's rules may use. A `Panel` maps names to
+judges. `plan.run(&panel)` validates the plan, rejects a name the panel lacks before asking anything, and then asks
 each judge its share of every round in one `judge_all` call. A batch with the
 wrong number of answers settles as `Failed`. The round-by-round API remains for
 the playground and the runtime; each `Question` reports its step, judge and
@@ -658,36 +702,6 @@ request.
 Judges are synchronous so rules stay plain functions. The runtime runs slow
 judges such as Jev on bounded worker threads, with deadlines and cancellation;
 neither core nor the interface changes for that.
-
-### Composable plans
-
-The public helpers are conveniences that lower to this same plan model:
-
-```rust
-let screen_then_review = ask("screen", "system-one", screen_question)
-    .then_on(
-        When::any([Outcome::Value(Unsure), Outcome::Failed]),
-        ask("review", "system-two", review_question),
-    );
-
-let candidates_then_review = all([
-    ask("skill-slack", "system-one", slack_question),
-    ask("skill-jira", "system-one", jira_question),
-    ask("skill-memory", "system-one", memory_question),
-])
-.then_if_any(Outcome::Value(Yes), ask("review", "system-two", review_question));
-```
-
-`ask`, `all`, `then_on` and `then_if_any` are ordinary functions/builders, not
-a privileged list of built-in strategies. A plugin can define `fan_out`,
-`screen_then_review`, or its own strategy by composing them. The playground
-edits the same plan structure, so Rust builders, rule files and inline plans
-have one meaning.
-
-Composition lowers to the DAG: `all` combines independent plans;
-`then_on`/`then_if_any` add a gate to each root of the following plan, referring
-to the terminal steps of the preceding plan. If a step already has gates, the
-composition gate joins that list. Names are unique across the composed plan.
 
 ## State machine and event model
 
@@ -710,7 +724,7 @@ Each transition includes:
 - the next state: `Ask { round, questions }` or `Done { verdict }`;
 - the events produced by the transition.
 
-The proposed event vocabulary is `Started`, `RoundReady`, `StepSettled`,
+The event vocabulary is `Started`, `RoundReady`, `StepSettled`,
 `StepSkipped` and `Finished`. Events have stable step IDs, round numbers and
 settled outcomes; they contain no transport or provider-specific types. A
 runtime may offer a local observer callback around transitions; the only
@@ -731,21 +745,23 @@ The Vite application uses petite-vue for reactivity and Web Awesome for UI
 components. Each feature under test is a tab; its Rust implementation is
 compiled to WASM.
 
-The **State machine** tab will contain:
+The **State machine** tab contains:
 
-- A JSON plan editor with examples for single, chain, fan-out, screen/review,
-  fallback and fan-out/review.
-- A validation area for invalid IDs, gates or plan structure.
-- The current ready steps, with controls to manually select a value or failure
-  reply for each step.
+- A plan editor with an example for each row of the
+  [strategies table](#strategies): escalate, rank, collect all that pass,
+  check the survivors, and vote, plus a step with both `all` and `any`.
+- A validation area for duplicate IDs, `after` naming a later or unknown step,
+  and empty `when` lists.
+- The steps asked in the current round, with controls to pick each one's
+  outcome or failure by hand.
 - A transition-event timeline and final per-step verdict.
 - Reset/replay controls and a sharable plan fragment in the URL.
 
 The playground invokes the same core state transitions as the native runtime;
-it does not contain a second implementation of gate semantics.
+it does not contain a second implementation of `after`.
 
 The Vite development loop rebuilds Rust changes in `playground/wasm/` and
-`crates/`, and reloads the page. The State machine tab is the only tab.
+`crates/`, and reloads the page. Slice 2 adds the Strategy tab.
 
 ## Package layout
 
@@ -798,43 +814,51 @@ the core event schema is stable.
 
 ### Slice 1 — core plan and state machine
 
-Status: implemented and reviewed. Steps name a judge; core defines the
-`Judge` interface, `Panel` and `Plan::run` (`crates/core/src/judge.rs`). The
-playground seats a deterministic `keywords` rule judge beside `person`.
+Status: to be rewritten to the [core plan model](#core-plan-model) above,
+replacing the gate-based core on the branch. `crates/core` stays
+dependency-free.
 
-Files: `crates/core/Cargo.toml`, `crates/core/src/{lib,plan,gate,state,event}.rs`,
-Kani harnesses in `crates/core/src/proofs.rs`, scenarios in
-`crates/core/tests/scenarios.rs`. Playground:
-`playground/wasm/src/state_machine.rs`,
-`playground/src/features/state-machine.ts` and its template in
-`playground/index.html`.
+| File | Contents |
+|---|---|
+| `crates/core/src/plan.rs` | `Plan`, `Step` with `after` and `after_any`, `After`, `Need` (`Need::when`, and a step ID as a need without `when`), `Outcome` |
+| `crates/core/src/after.rs` | The one rule: a step's decision from its needs' states (`Wait`, `Run`, `Skip`), and one pass over the plan in order |
+| `crates/core/src/state.rs` | Validation, `start`, `Round` (`questions`, `answer`, `fail`), `Plan::run` |
+| `crates/core/src/judge.rs` | `Judge`, `Panel` |
+| `crates/core/src/event.rs` | Events and `Verdict` |
+| `crates/core/src/proofs.rs` | Kani harnesses |
+| `crates/core/tests/scenarios.rs` | Scenario tests |
+| `playground/wasm/src/state_machine.rs`, `playground/src/features/state-machine.ts`, `playground/index.html` | The State machine tab on the new model |
 
-- Implement the generic plan graph, builder composition, `start`/`answer`
-  transitions and transition events.
-- Add small Kani harnesses separately for Any/All gate resolution, skip
-  propagation, each step asked at most once and bounded termination. Do not
-  combine plan shape, reply parsing and result interpretation into one proof.
-- Add scenario tests for the playground strategies and invalid transition
-  order. Keep each proof to one invariant, a small fixed graph and a small
-  outcome enum.
-- Run strict clippy, scenario tests, Kani, Miri, and the browser playground.
-- Stop for user review before adding observability or the daemon.
+Scenario tests:
 
-Kani results, each run alone (`cargo kani -p chauffeur-core --harness <name>`):
+- Each row of the [strategies table](#strategies), with a `select`-like rule
+  judge standing in for facts: escalate, rank, collect all that pass, check
+  the survivors, vote.
+- `after` alone: a string need waits for a skipped step and then runs; an
+  object need never matches a skipped step; `failed` matches only when listed;
+  a step with both `all` and `any` runs only when both hold.
+- Validation: an empty plan, a duplicate ID, `after` naming a later or unknown
+  step, an empty `when` list, and a judge the panel lacks, each rejected
+  before any judge is asked.
+- The round API: a reply naming an unknown, unasked or repeated step, or
+  missing one, returns the unchanged round; each judge answers its share of a
+  round in one call; a batch of the wrong length settles as `Failed`.
 
-| Harness | Property | Time |
-|---|---|---|
-| `any_gate_runs_on_a_match_and_skips_when_none_remains_possible` | `Any` gate decision | 83 s |
-| `all_gate_runs_when_every_source_matches_and_skips_on_a_terminal_mismatch` | `All` gate decision | 150 s |
-| `a_gate_decision_is_final` | Short-circuiting is sound | 44 s |
-| `a_step_runs_only_when_every_gate_runs` | Gates on one step combine with AND | 188 s |
-| `one_pass_settles_every_decidable_step` | Skips propagate within one pass | 488 s |
-| `a_pass_only_moves_pending_steps_forward` | Each step is asked at most once | 240 s |
-| `a_pass_with_no_open_round_asks_or_finishes` | A run never stalls | 156 s |
+Kani harnesses, each one invariant over at most three steps and a small
+outcome enum:
 
-The last two give termination within one round per step; `proofs.rs` states the
-argument. Gate proofs cover three sources and every outcome subset; whole-plan
-proofs cover every three-step plan whose gates name one source and one outcome.
+| Harness | Property |
+|---|---|
+| `a_step_waits_until_every_need_has_finished` | No decision while a named step is `Pending` or `Asked` |
+| `a_decision_follows_the_rule` | `Run` exactly when every `all` need and, if any, one `any` need is met |
+| `a_skipped_step_meets_only_needs_without_when` | Skipped never matches a `when` |
+| `one_pass_settles_every_decidable_step` | Skips propagate within one pass |
+| `a_pass_only_moves_pending_steps_forward` | Each step is asked at most once |
+| `a_pass_with_no_open_round_asks_or_finishes` | A run never stalls, so it finishes within one round per step |
+
+Verification: strict Clippy, the scenario tests and doctests, Kani, Miri, and
+the playground in a real browser, with each example stepped through by hand.
+Stop for review before slice 2.
 
 ### Slice 2 — Navigate: protocol, judges, rules, runtime and daemon
 
@@ -871,7 +895,7 @@ EOF
 # → {"intents": [{"rule": "opencode-history/recall", "attach": ["p4"]}]}
 ```
 
-A request with `plan` in place of `on` ends with `{"verdict": {…}}`.
+A request with `strategy` in place of `on` ends with `{"verdict": {…}}`.
 `$CHAUFFEUR_SOCKET` defaults to `chauffeur/daemon.sock` in the user's runtime
 directory: `$XDG_RUNTIME_DIR`, or `$TMPDIR` on macOS. A plugin-RPC binding
 takes the same request as an object and returns the intents or verdict.
@@ -879,20 +903,20 @@ takes the same request as an object and returns the intents or verdict.
 - **Outcomes** are an answer such as `yes` or `ignore`, `unsure`, a
   probability from 0 to 1 with at most three decimals, or a list of candidate
   names, compared by equality. The runtime turns each `Answer` into an outcome
-  with the step's [confidence](#confidence). Gates match answers, so a step
-  that gates others has a confidence.
+  with its judge's [confidence](#confidence). `when` matches answers, so a
+  step that others wait on `when` it answers a certain way has a confidence.
 - **Intents** carry the rule that produced them. A rule's intents are dropped
-  if its plan misses the deadline; other rules' intents still return.
-- **Verdicts** give each step `{"settled": <outcome>}`, `{"failed": true}` or
-  `{"skipped": true}`. A gate names failure as `{"failed": true}`, so a judge's
-  failure never collides with a label.
+  if its strategy misses the deadline; other rules' intents still return.
+- **Verdicts** give each step `{"settled": <outcome>}`, `"failed"` or
+  `"skipped"`. `failed` and `unsure` are reserved, so a judge's failure never
+  collides with a label.
 - **Evidence** is named once per navigation and referenced by steps, so a
   batched provider call carries each block once.
 - **Versioning:** `protocol` is required; the daemon answers
   `unsupported_protocol` with the versions it accepts, and each binding reports
   it as `unavailable`.
-- **Limits**, checked before admission: 32 steps per plan, counting each
-  copy `for_each` makes; 16 gates per step; 64 evidence blocks and
+- **Limits**, checked before admission: 32 steps per strategy, counting each
+  copy `for_each` makes; 16 `after` entries per step; 64 evidence blocks and
   candidates; 256 KiB of evidence; 30 s deadline. Each rejection names its
   limit.
 
@@ -900,7 +924,7 @@ takes the same request as an object and returns the intents or verdict.
 
 | Path | Contents |
 |---|---|
-| `crates/protocol/src/{lib,request,plan,rule,intent,limits,error}.rs` | Serde wire types for requests, plans, rule files and intents; validation and limits; lowering plans, `for_each` copies and `[item]` gates to `chauffeur_core::Plan<Ask, Outcome>`; typed errors |
+| `crates/protocol/src/{lib,request,strategy,rule,intent,limits,error}.rs` | Serde wire types for requests, strategies, rule files and intents; validation and limits; lowering named judges and asks, `for_each` copies, wildcards and `[item]` to `chauffeur_core::Plan<Ask, Outcome>`; typed errors |
 | `crates/protocol/schema/navigate.json`, `crates/protocol/fixtures/` | The one `navigate` schema every binding uses, and the valid and invalid requests each binding's tests replay |
 | `crates/judges/src/{ask,confidence,tiers,config}.rs` | `Ask` and `Answer` for yes/no, choice and scale; converting each model's reply to probabilities; applying confidence; resolving a step's `judge` and `model` against shipped and user `models.json` in fallback order, refusing any model entry from a project |
 | `crates/judges/src/{facts,replay}.rs` | The `match` and `select` facts functions, and the `replay` format, which answers from recorded scores for tests |
@@ -911,7 +935,7 @@ takes the same request as an object and returns the intents or verdict.
 | `crates/daemon/src/{main,socket}.rs` | Creates the socket directory `0700` and refuses one it does not own; one navigation per connection, JSON lines out, closing cancels; `--models FILE` replaces the user's models, for tests |
 | `crates/daemon/src/rules.rs` | Loads rule files from the four sources, refuses System Two in a project rule the user has not allowed, reloads on change, matches `on` and `when`, and runs matching rules concurrently |
 | `crates/cli/src/navigate.rs` | `chauffeur navigate`: one request on stdin, the socket's JSON lines on stdout; exit 0 with intents or a verdict, 1 when rejected, 2 when the daemon is unavailable |
-| `crates/cli/src/strategy.rs` | `chauffeur strategy show <rule>` and `--file`: the plan as a tree, with rounds, resolved models, gates, confidence and the maximum rounds and model calls |
+| `crates/cli/src/strategy.rs` | `chauffeur strategy show <rule>` and `--file`: the strategy as a tree, with rounds, resolved models, `after`, confidence and the maximum rounds and model calls |
 | `clients/typescript/src/index.ts` | `@fdcn/chauffeur-client`: `connect().navigate(request, { signal })` over the socket, no dependencies; closing on abort cancels the navigation |
 | `adapters/opencode/src/rpc.ts` | `Chauffeur`, the OpenCode binding defined from `navigate.json`, exported as `@fdcn/chauffeur/rpc`; forwards each call through the client |
 | `playground/wasm`, `playground/src/features/strategy.ts` | Parses plans through `crates/protocol`, so the page, rule files and inline plans share one JSON format; draws a rule's strategy tree and steps through it with recorded answers |
@@ -943,8 +967,8 @@ recorded scores.
   verdict; Jev's `noul`, choice and score replies and GLiDE's level replies
   convert to the probabilities `main`'s wire tests expect.
 - Strategies: each row of the [strategies table](#strategies) runs as a rule
-  with recorded answers; `[item]` gates skip exactly the candidates whose
-  earlier copy did not match.
+  with recorded answers; `after` with `[item]` skips exactly the candidates
+  whose earlier copy did not match.
 - Daemon socket: an unknown judge, an unsupported protocol, an oversized line
   and a closed connection each fail safely; events arrive in order; another
   user's socket directory is refused.
@@ -974,9 +998,10 @@ request/response, invalid replies and provider errors, replaying `main`'s
 `judges/{jev,subq,glide}/tests/wire.rs`; then run the Jev-to-GLiDE escalation
 from [Strategies](#strategies) against both with real keys, and compare its
 answers with `main`'s `CHAUFFEUR_JUDGE_ESCALATE=glide` on the same cases.
-Report the plan, answers, rounds, elapsed time and model-call count. Run
-opencode-history's recall replay live through `navigate`: one Jev call per message, judge time within
-the replay's 278 ms p50 and 318 ms p95 plus local overhead.
+Report the strategy, answers, rounds, elapsed time and model-call count. Run
+opencode-history's recall replay live through `navigate`: one Jev call per
+message, judge time within the replay's 278 ms p50 and 318 ms p95 plus local
+overhead.
 
 ### Slice 4 — System Two models
 
@@ -1045,7 +1070,7 @@ a machine with personal rules; rc release-gate runs from the bench.
 | Event observation API | Core returns transition events; runtime offers an observer callback, and the daemon streams them to the caller from a bounded log. Judges are the only user code core calls |
 | Plan outcome types | Native plans choose `O: Clone + Eq`; protocol outcomes are an answer, `unsure`, a probability in thousandths (written as a decimal) or a list of candidate names, with `Failed` a distinct machine result |
 | Slice 2 dependencies | `serde` and `serde_json` in protocol. The daemon's socket and the runtime use `std` only; core stays dependency-free |
-| Gate source semantics | Any/All over preceding step IDs; skipped is terminal non-match; failures match only when named |
+| `after` semantics | Wait for every named earlier step; then `all` and, if present, one `any` must be met; a skipped step meets only a need without `when`; `failed` matches only when listed |
 | Rule-file trust | A project's `.chauffeur/rules/` may use facts and System One; System Two needs the user's `~/.config/chauffeur` to allow it for that project. Integration rules sit in the user's folder and are trusted as the user's |
 | Rule reload | The daemon polls rule folders' modification times with `std`; a file watcher needs a dependency |
 | o11y backend | Begin with a small event-consumer crate; choose a tracing/logging dependency only when implementing it |
