@@ -445,9 +445,56 @@ fn approval_extends_the_source_already_following_the_repository() {
 }
 
 #[test]
+fn configuration_accepts_32_sources_and_rejects_the_33rd() {
+    let mut full = config(
+        (0..32)
+            .map(|n| {
+                git(
+                    &format!("s{n}"),
+                    &format!("https://github.com/o/r{n}.git"),
+                    &["."],
+                )
+            })
+            .collect(),
+    );
+
+    assert!(full.clone().check().is_ok());
+    full.sources
+        .push(git("extra", "https://github.com/x/y.git", &["."]));
+    let error = full.check().unwrap_err();
+
+    assert!(error.to_string().contains("at most 32 sources"), "{error}");
+}
+
+#[test]
+fn approval_allows_the_32nd_source() {
+    let existing = config(
+        (0..31)
+            .map(|n| {
+                git(
+                    &format!("s{n}"),
+                    &format!("https://github.com/o/r{n}.git"),
+                    &["."],
+                )
+            })
+            .collect(),
+    );
+    let approval = approve(
+        &selector("x/y/z"),
+        vec![candidate("https://github.com/x/y.git", "z")],
+        &existing,
+        &[],
+    )
+    .unwrap();
+
+    assert!(approval.writes());
+    assert_eq!(approval.config.sources.len(), 32);
+}
+
+#[test]
 fn approval_respects_the_source_limits_and_unique_ids() {
     let full = config(
-        (0..16)
+        (0..32)
             .map(|n| {
                 git(
                     &format!("s{n}"),
@@ -465,7 +512,7 @@ fn approval_respects_the_source_limits_and_unique_ids() {
     )
     .unwrap_err();
 
-    assert!(error.to_string().contains("maximum 16 sources"), "{error}");
+    assert!(error.to_string().contains("maximum 32 sources"), "{error}");
 
     let paths: Vec<String> = (0..16).map(|n| format!("skills/{n}")).collect();
     let crowded = config(vec![git(

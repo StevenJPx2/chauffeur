@@ -75,7 +75,7 @@ HTTP on loopback.
 | No source for the repository | Add a Git source for `repositoryUrl.git` with the path; the ID derives from the repository name |
 | A source already follows the repository | Add the path to it; drop paths the new one now covers |
 | The path is already covered | Report it and write nothing |
-| 16 sources or 16 paths would be exceeded | Refuse, naming the limit |
+| 32 sources or 16 paths would be exceeded | Refuse, naming the limit |
 
 The file is rewritten whole and atomically; its content, including
 `descriptions`, is preserved, but hand formatting is not.

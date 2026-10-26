@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use super::{SourceError, valid_path};
 
-pub(super) const MAX_SOURCES: usize = 16;
+pub(super) const MAX_SOURCES: usize = 32;
 /// Paths one Git source follows.
 pub(super) const MAX_PATHS: usize = 16;
 
@@ -158,7 +158,7 @@ impl SourcesConfig {
     pub(super) fn check(self) -> Result<Self, SourceError> {
         if self.sources.len() > MAX_SOURCES || !(60..=604_800).contains(&self.refresh_seconds) {
             return Err(SourceError::Invalid(
-                "at most 16 sources; refresh_seconds must be in 60..=604800",
+                "at most 32 sources; refresh_seconds must be in 60..=604800",
             ));
         }
 

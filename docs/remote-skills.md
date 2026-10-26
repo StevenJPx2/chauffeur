@@ -289,7 +289,7 @@ daemon client's `skills()` method. Source states are:
 
 ## Bounds
 
-- At most 16 sources, with unique IDs, and 256 description overrides of at
+- At most 32 sources, with unique IDs, and 256 description overrides of at
   most 4 KiB each.
 - Check intervals from 60 seconds to seven days.
 - At most 16 Git directories searched per source.
