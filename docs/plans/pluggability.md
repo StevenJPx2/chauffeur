@@ -14,7 +14,8 @@ reasoner or a person. Provider plugins supply the model-backed judges.
 
 Most extensions are data: a rule file in `.chauffeur/` declares when to ask,
 the plan to run and what to do with the verdict. Code that needs a judgment is
-an ordinary OpenCode plugin calling `chauffeur.run`. Chauffeur never runs code
+a host plugin or hook script calling `chauffeur.run` through Chauffeur's adapter
+for that host. Chauffeur never runs code
 from a repository, and no plugin needs a token.
 
 The initial slices are:
@@ -119,7 +120,7 @@ Chauffeur is extended in three ways, each submitting the same plan JSON:
 ```mermaid
 flowchart LR
     Rules[".chauffeur/rules/*.json<br/>data: when, plan, then"] --> Daemon
-    Plugin["OpenCode plugin<br/>code with its own data"] -- "chauffeur.run" --> Adapter["OpenCode adapter"]
+    Plugin["Host plugin or hook<br/>code with its own data"] -- "chauffeur.run" --> Adapter["Host adapter<br/>OpenCode, CLI, …"]
     Adapter -- "Unix socket" --> Daemon["Chauffeur daemon"]
     Native["Native Rust behavior<br/>linked into the bundle"] --> Daemon
     Daemon --> Runtime["Runtime: admit, redact,<br/>run, deadline"]
@@ -128,7 +129,7 @@ flowchart LR
 | Way | Who writes it | Use it for |
 |---|---|---|
 | Rule file | The user, a project, or Chauffeur's shipped defaults | A question about what the agent does, and a steer, skill or permission answer |
-| OpenCode plugin | A plugin author | Judgment over data only the plugin holds, such as opencode-history's index |
+| Host plugin or hook | A plugin or script author | Judgment over data only the caller holds, such as opencode-history's index |
 | Native behavior | Chauffeur | Behavior that needs Chauffeur's own state, such as the model router |
 
 | Owner | Responsibility | Boundary |
@@ -139,7 +140,23 @@ flowchart LR
 | `crates/daemon` | The socket, rule-file loading, and the default judges and behaviors | Listens only on a socket the user owns |
 | Behavior plugins | Questions, evidence selection, domain state, verdict interpretation and action intents | Never call host APIs directly |
 | Provider plugins | System One classification and System Two reasoning, transport and credentials | Expose provider-neutral results to the runtime |
-| Host adapters | Report host observations, enforce approved actions, and serve `chauffeur.run` to other plugins | Host denials remain authoritative |
+| Host adapters | Report host observations, enforce approved actions, and expose `chauffeur.run` to their host's plugins | Host denials remain authoritative |
+
+### One `chauffeur.run`, every host
+
+`chauffeur.run` is a Chauffeur operation, not an OpenCode one. Its request and
+result are defined once, as `crates/protocol/schema/run.json`, and every
+adapter exposes it through its host's own extension mechanism:
+
+| Binding | Caller | Mechanism |
+|---|---|---|
+| `adapters/opencode` | OpenCode plugins | OpenCode plugin RPC: `ctx.rpc(Chauffeur).run(request)` |
+| `chauffeur run` | Hook scripts in any host, Git hooks, CI on the same machine | One request on stdin; events and the verdict as JSON lines on stdout |
+| `adapters/<host>` | That host's plugins | The host's plugin-to-plugin mechanism, where it has one; otherwise its hooks call `chauffeur run` |
+
+Every binding forwards to the daemon socket unchanged. Adding a host adds a
+binding, never a new request format. The schema's fixtures run in the protocol
+crate's tests and in each binding's tests.
 
 ### Stateless invocation and inference tiers
 
@@ -178,8 +195,9 @@ path and cannot bypass plan limits, redaction or deadlines.
   A cloned repository's rules are data the user did not write: they run under
   the same limits, and System Two stays off for them unless
   `~/.config/chauffeur` turns it on for that project.
-- OpenCode plugins are trusted code, as OpenCode loads them. They reach
-  Chauffeur only through `chauffeur.run`; payloads are never authority.
+- Host plugins and hook scripts are trusted code, as their host or the user
+  runs them. They reach Chauffeur only through `chauffeur.run`; payloads are
+  never authority.
 - One connection carries one run: the request, then the run's events in order,
   then the verdict. Each run's event buffer is bounded and overflow is an
   explicit event. Closing the connection cancels the run.
@@ -294,9 +312,10 @@ with System Two in slice 4.
 ### Per-turn recall (OpenCode plugin)
 
 opencode-history needs code: its candidates come from its own search index.
-It calls `chauffeur.run`, an OpenCode plugin RPC that Chauffeur's adapter
-registers, as sourcefed calls v1's `chauffeur.gate`. OpenCode loads both
-plugins, so no token or address is configured.
+It calls `chauffeur.run` through the OpenCode adapter's binding, an OpenCode
+plugin RPC, as sourcefed calls v1's `chauffeur.gate`. OpenCode loads both
+plugins, so no token or address is configured. The same request works from any
+other binding.
 
 ```ts
 import { Chauffeur } from "@fdcn/chauffeur/rpc"
@@ -508,7 +527,8 @@ plugins/
     permission/          # Permission contracts and guards
     rules/               # Rules and rulebooks
 adapters/
-  opencode/              # Host observation, action enforcement, `chauffeur.run`
+  opencode/              # Host observation, action enforcement, `chauffeur.run` binding
+  <host>/                # Each further host: the same three duties
 playground/
   wasm/                  # Thin wasm-bindgen bridge to core
   src/features/          # One interactive tab per feature under test
@@ -580,22 +600,25 @@ proofs cover every three-step plan whose gates name one source and one outcome.
 A caller sends a bounded declarative plan with its evidence and a deadline,
 and receives the run's events and its verdict. It sends data, never callbacks
 or code. The runtime seats judges on a panel by name. This slice builds the
-path `chauffeur.run` takes; rule files reuse it in slice 5.
+path `chauffeur.run` takes, with two bindings so no host shapes the request;
+rule files reuse the path in slice 5.
 
 ```mermaid
 flowchart LR
-    Plugin["OpenCode plugin"] -- "chauffeur.run" --> Adapter["adapters/opencode<br/>OpenCode plugin RPC"]
-    Adapter -- "Unix socket, JSON lines" --> Daemon["crates/daemon<br/>one run per connection"]
+    Plugin["OpenCode plugin"] -- "plugin RPC" --> OpenCode["adapters/opencode"]
+    Script["Hook script"] -- "stdin" --> Cli["chauffeur run"]
+    OpenCode -- "Unix socket, JSON lines" --> Daemon["crates/daemon<br/>one run per connection"]
+    Cli -- "Unix socket, JSON lines" --> Daemon
     Daemon --> Runtime["crates/runtime<br/>admit, redact, run, deadline"]
-    Runtime --> Core["crates/core<br/>rounds and events"]
 ```
 
 #### Wire contract
 
-One JSON line in, the run's events and its verdict out:
+One JSON request in, the run's events and its verdict out as JSON lines. The
+socket carries exactly what `chauffeur run` reads and prints:
 
 ```sh
-nc -U "$CHAUFFEUR_SOCKET" <<'EOF'
+chauffeur run <<'EOF'
 {"protocol": 1, "deadline_ms": 1500, "evidence": {"message": "…", "p1": "…"}, "plan": {"steps": [{"id": "p1", "judge": "system-one", "ask": {"kind": "noul", "instructions": "Would p1 help?", "evidence": ["message", "p1"]}}]}}
 EOF
 # → {"event": {"started": {"steps": 1}}}
@@ -605,8 +628,8 @@ EOF
 ```
 
 `$CHAUFFEUR_SOCKET` defaults to `chauffeur/daemon.sock` in the user's runtime
-directory: `$XDG_RUNTIME_DIR`, or `$TMPDIR` on macOS. The adapter's
-`chauffeur.run` takes the same request as an object and returns the verdict.
+directory: `$XDG_RUNTIME_DIR`, or `$TMPDIR` on macOS. A plugin-RPC binding
+takes the same request as an object and returns the verdict.
 
 - **Outcomes** are a string or an integer, compared by equality. A `noul` step
   settles to its score, 0 to 1000. A step that gates others adds
@@ -618,7 +641,7 @@ directory: `$XDG_RUNTIME_DIR`, or `$TMPDIR` on macOS. The adapter's
 - **Evidence** is named once per run and referenced by steps, so a batched
   provider call carries each block once.
 - **Versioning:** `protocol` is required; the daemon answers
-  `unsupported_protocol` with the versions it accepts, and the adapter reports
+  `unsupported_protocol` with the versions it accepts, and each binding reports
   it as `unavailable`.
 - **Limits**, checked before admission: 32 steps, 16 gates per step, 64 evidence
   blocks, 256 KiB of evidence, 30 s deadline. Each rejection names its limit.
@@ -628,13 +651,15 @@ directory: `$XDG_RUNTIME_DIR`, or `$TMPDIR` on macOS. The adapter's
 | Path | Contents |
 |---|---|
 | `crates/protocol/src/{lib,plan,evidence,limits,error}.rs` | Serde wire types; validation and limits; lowering to `chauffeur_core::Plan<Ask, Outcome>`; typed errors |
+| `crates/protocol/schema/run.json`, `crates/protocol/fixtures/` | The one `chauffeur.run` schema every binding uses, and the valid and invalid requests each binding's tests replay |
 | `crates/runtime/src/admission.rs` | One permit per run, held from admission through delivery; per-source and global capacity |
 | `crates/runtime/src/run.rs` | Drives rounds on a bounded worker pool; checks the deadline and cancellation before each round; discards late results |
 | `crates/runtime/src/judges.rs` | `Send + Sync` panel by name; the `noul` label mapping; the fake System One that replays recorded scores |
 | `crates/runtime/src/redact.rs` | Redacts evidence before every provider judge, porting v1's rules and their cases |
 | `crates/runtime/src/events.rs` | Bounded per-run event log; overflow is an explicit event |
 | `crates/daemon/src/{main,socket}.rs` | Creates the socket directory `0700` and refuses one it does not own; one run per connection, JSON lines out, closing cancels; `--fake-system-one FILE` seats the fake for tests |
-| `adapters/opencode/src/rpc.ts` | `Chauffeur`, the `chauffeur.run` definition, exported as `@fdcn/chauffeur/rpc`; forwards each call to the socket and closes it when the caller's signal aborts |
+| `crates/cli/src/run.rs` | `chauffeur run`: one request on stdin, the socket's JSON lines on stdout; exit 0 with a verdict, 1 when rejected, 2 when the daemon is unavailable |
+| `adapters/opencode/src/rpc.ts` | `Chauffeur`, the OpenCode binding defined from `run.json`, exported as `@fdcn/chauffeur/rpc`; forwards each call to the socket and closes it when the caller's signal aborts |
 | `playground/wasm` | Parses plans through `crates/protocol`, so the page, rule files and `chauffeur.run` share one JSON format |
 
 #### Reference plugin: opencode-history recall
@@ -653,9 +678,10 @@ slice 2 runs it end to end against recorded scores.
 - Daemon socket: an unknown judge, an unsupported protocol, an oversized line
   and a closed connection each fail safely; events arrive in order; another
   user's socket directory is refused.
-- `chauffeur.run` in a real OpenCode with the daemon and the fake System One:
-  the playground examples return the same verdicts as `Plan::run`, and aborting
-  the caller cancels the run.
+- Both bindings against the daemon with the fake System One: the playground
+  examples return the same verdicts through `chauffeur run` and through a real
+  OpenCode's plugin RPC as through `Plan::run`; every fixture is accepted or
+  rejected identically by both; aborting either caller cancels the run.
 - Recall: Jev scores recorded by opencode-history's replay feed the fake System
   One; `chauffeur.run` attaches the same passages as the replay with the same
   selection rule. No agent session or history is sent.
@@ -725,7 +751,7 @@ a machine with personal rules; rc release-gate runs from the bench.
 - Pinned nightly, deny-level strict Clippy, formatting and stable MSRV check.
 - Miri over core and runtime scenarios; Kani proofs are small and each names
   one invariant.
-- Real boundary checks for browser WASM, the daemon socket, OpenCode's plugin RPC, provider HTTP and
+- Real boundary checks for browser WASM, the daemon socket, each `chauffeur.run` binding, provider HTTP and
   live Jev. Unit tests supplement these checks; they do not replace them.
 - Verify at each slice before proceeding. Keep functions under 70 non-blank,
   non-comment lines, use no production dependency without approval, and keep
