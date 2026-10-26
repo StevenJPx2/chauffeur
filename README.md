@@ -8,9 +8,10 @@ Core runs bounded **plans**: named steps joined by gates, each answered by a
 **judge**. A judge is anything that answers a request: a deterministic rule, a
 System One classifier, a System Two reasoner or a person. Most extensions are
 rule files in a `.chauffeur/` folder, holding data only: when to ask, the plan,
-and what to do with the verdict. Code that needs a judgment calls
-`chauffeur.run`, which every host adapter exposes to its host's plugins and
-`chauffeur run` exposes to scripts. Provider plugins supply the model judges.
+and what to do with the verdict. Programs report what happened with
+`chauffeur.observe`, or ask their own question with `chauffeur.run`, through
+the TypeScript client, the `chauffeur` CLI or a host adapter. Provider plugins
+supply the model judges.
 
 ```rust
 let plan = ask("screen", "rule", evidence)
@@ -24,7 +25,7 @@ let run = plan.run(&Panel::new().with("rule", &rule).with("model", &model))?;
 |---|---|---|
 | 0 | Browser playground: Rust compiled to WebAssembly | Built |
 | 1 | `crates/core`: plans, gates, judges, state machine, events | Built and reviewed |
-| 2 | Plan protocol, runtime, daemon socket, `chauffeur.run` for OpenCode plugins and scripts | Planned |
+| 2 | Plan protocol, runtime, daemon socket, `chauffeur.run` through the client, CLI and OpenCode | Planned |
 | 3 | Jev as the System One judge | Planned |
 | 4 | System Two reasoning backend | Planned |
 | 5 | Behavior plugins and OpenCode adapter, at parity with `main` | Planned |
