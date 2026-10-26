@@ -11,7 +11,12 @@
     "subagent",
     "webfetch",
     "websearch",
-    "history_search"
+    "history_search",
+    "agents_spawn",
+    "agents_send",
+    "agents_read",
+    "agents_list",
+    "agents_stop"
   ],
   "never_exposed": ["skill"],
   "hide": { "at": 0.3, "confidence": 0.4 },

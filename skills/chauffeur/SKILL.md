@@ -65,6 +65,11 @@ fails to load leaves the previous version running and logs why.
   `tool-exposure.json`. This list replaces the shipped list, so keep the
   existing base tools too. `history_search` belongs there: the agent may need
   earlier decisions even when the first prompt does not mention history.
+  The `opencode-agents` tools (`agents_spawn`, `agents_send`, `agents_read`,
+  `agents_list`, `agents_stop`) belong there too, so an ongoing agent
+  conversation never loses its tools. Their usage skill is published at
+  <https://github.com/StevenJPx2/opencode-agents/tree/master/skills/opencode-agents>;
+  follow that Git source's `skills/opencode-agents` path to offer it.
   Shipped defaults in `skills/config/` are compiled into the daemon; update
   the binary to ship a changed default, or use the local override for an
   immediate hot-reloaded change. Reveal an already-hidden tool with

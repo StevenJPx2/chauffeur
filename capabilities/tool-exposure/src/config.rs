@@ -259,6 +259,11 @@ mod tests {
                 "webfetch",
                 "websearch",
                 "history_search",
+                "agents_spawn",
+                "agents_send",
+                "agents_read",
+                "agents_list",
+                "agents_stop",
             ]
         );
         assert_eq!(config.never_exposed, ["skill"]);

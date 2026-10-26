@@ -267,8 +267,10 @@ come first in that prefix.
   `_` (`artifact` for `artifact_publish`). At a context's first user message,
   before any cache exists, the tool-exposure capability keeps a base set,
   OpenCode's built-in tools (read, edit, patch, write, shell, grep, glob,
-  question, subagent, webfetch, websearch; override in `tool-exposure.json` as
-  `{"base": [...]}`), and asks one question per other group. A group is hidden
+  question, subagent, webfetch, websearch), `history_search`, and the
+  `opencode-agents` conversation tools (`agents_spawn`, `agents_send`,
+  `agents_read`, `agents_list`, `agents_stop`; override in `tool-exposure.json`
+  as `{"base": [...]}`), and asks one question per other group. A group is hidden
   only when System One is confident it is not needed (P ≤ 0.3, confidence
   ≥ 0.4); the `skill` tool is always hidden. Effects name tools, so a tool the
   engine never judged is never removed. The adapter records the hidden list on

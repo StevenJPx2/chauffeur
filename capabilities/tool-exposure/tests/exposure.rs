@@ -227,6 +227,35 @@ fn history_search_is_always_available_even_when_other_history_tools_are_not_need
 }
 
 #[test]
+fn agent_conversation_tools_are_always_available_without_exposing_unrelated_agent_tools() {
+    let base = [
+        "agents_spawn",
+        "agents_send",
+        "agents_read",
+        "agents_list",
+        "agents_stop",
+    ];
+
+    assert_eq!(
+        exposure().plan(&Situation::default(), &message(true, &base)),
+        Plan::Skip
+    );
+
+    let mut tools = base.to_vec();
+    tools.extend(["agents_other", "skill"]);
+    let signal = message(true, &tools);
+
+    assert_eq!(
+        asked(&exposure().plan(&Situation::default(), &signal)),
+        vec!["agents"]
+    );
+    assert_eq!(
+        decided(&signal, Some(&[noul("agents", 0.05)])),
+        hidden(&["agents_other", "skill"])
+    );
+}
+
+#[test]
 fn hides_every_tool_of_a_confidently_unneeded_group_and_the_skill_tool() {
     let answers = [
         noul("github", 0.9),
