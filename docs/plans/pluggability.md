@@ -200,6 +200,140 @@ provider crate does not make it public or enabled. Embeddings are a shared,
 bounded local service; domain-specific vector caches and ranking stay with the
 behavior that owns them.
 
+## External plugin examples
+
+Three plugins built on the JavaScript SDK, each a separate process. Each sends
+a plan and its evidence, reads the verdict, and acts on its own host; Chauffeur
+judges and never acts for them. Recall and the commit hook need slice 2's SDK
+and slice 3's Jev; thread triage also needs System Two from slice 4.
+
+```mermaid
+flowchart LR
+    Recall["Per-turn recall<br/>fan-out, read scores"] --> Sdk["JavaScript SDK"]
+    Triage["Thread triage<br/>screen, then review"] --> Sdk
+    Hook["Commit-message hook<br/>all must agree"] --> Sdk
+    Sdk --> Chauffeur["Chauffeur daemon<br/>grant, plan, judges"]
+```
+
+Each plugin has a token and a grant from the host administrator:
+
+```jsonc
+// ~/.config/chauffeur/plugins.json
+{
+  "plugins": [
+    { "id": "opencode-history", "token_sha256": "…", "judges": ["system-one"], "capacity": 2 },
+    { "id": "thread-triage", "token_sha256": "…", "judges": ["system-one", "system-two"], "capacity": 1 },
+    { "id": "commit-msg", "token_sha256": "…", "judges": ["system-one"], "capacity": 1 }
+  ]
+}
+```
+
+### Per-turn recall (opencode-history)
+
+An OpenCode plugin. For each user message, one round rates up to eight
+candidate passages from earlier sessions; the plugin attaches at most three
+that score 700 or more to that message.
+
+```ts
+import { all, ask, connect } from "@fdcn/chauffeur-sdk"
+
+const chauffeur = connect({ token: options.chauffeurToken })
+
+const ids = candidates.map((_, i) => `p${i + 1}`)
+const plan = all(ids.map((id) => ask(id, "system-one", {
+  kind: "noul",
+  instructions: `Would ${id} materially help the agent answer new_message, beyond what it already says?`,
+  evidence: ["previous_reply", "new_message", id],
+})))
+
+const run = await chauffeur.run(plan, {
+  evidence: { previous_reply: previous, new_message: text, ...Object.fromEntries(ids.map((id, i) => [id, candidates[i].text])) },
+  deadlineMs: 1_500,
+  signal: hookSignal,
+})
+
+const attach = ids
+  .map((id, i) => ({ passage: candidates[i], score: run.outcome(id) }))
+  .filter((c): c is { passage: Candidate; score: number } => typeof c.score === "number" && c.score >= 700)
+  .sort((a, b) => b.score - a.score)
+  .slice(0, 3)
+```
+
+All eight steps share one round, so Jev answers them in one call. A missed
+deadline or an unreachable daemon attaches nothing.
+
+### Thread triage
+
+Watches a Slack thread an agent was given and decides whether a new message
+needs the agent. System One screens; System Two reviews only what System One
+leaves unsure or fails on.
+
+```ts
+import { ask, connect, failed } from "@fdcn/chauffeur-sdk"
+
+const chauffeur = connect({ token: process.env.CHAUFFEUR_TOKEN })
+const triage = ask("screen", "system-one", {
+  kind: "noul",
+  label: { yes: 700, no: 300 },
+  instructions: "Does the new message ask the agent to do or change something?",
+  evidence: ["thread", "message"],
+}).thenOn({ any: ["unsure", failed] }, ask("review", "system-two", {
+  kind: "verdict",
+  labels: ["act", "ignore"],
+  instructions: "Should the agent act on the new message? Cite the evidence.",
+  evidence: ["thread", "message"],
+}))
+
+const run = await chauffeur.run(triage, { evidence: { thread, message }, deadlineMs: 20_000 })
+if (run.outcome("screen") === "yes" || run.outcome("review") === "act") await notifyAgent(message)
+```
+
+Two rounds at most: `review` is skipped when the screen says `yes` or `no`.
+The `verdict` request kind is defined with System Two in slice 4.
+
+### Commit-message hook
+
+A Git `commit-msg` hook, outside any agent: no session or history exists, only
+the message and the staged diff. Both checks must pass.
+
+```ts
+#!/usr/bin/env bun
+import { all, ask, connect, Unavailable } from "@fdcn/chauffeur-sdk"
+
+const check = (id: string, instructions: string) =>
+  ask(id, "system-one", { kind: "noul", label: { yes: 700, no: 300 }, instructions, evidence: ["message", "diff"] })
+
+const plan = all([
+  check("type", "Does the conventional-commit type (feat, fix, docs…) match what the diff changes?"),
+  check("scope", "Does the scope name the area the diff changes?"),
+])
+
+try {
+  const run = await connect({ token: process.env.CHAUFFEUR_TOKEN }).run(plan, {
+    evidence: { message, diff: diff.slice(0, 200_000) },
+    deadlineMs: 3_000,
+  })
+  const failing = ["type", "scope"].filter((id) => run.outcome(id) === "no")
+  if (failing.length) {
+    console.error(`commit message: ${failing.join(" and ")} do not match the change`)
+    process.exit(1)
+  }
+} catch (error) {
+  if (!(error instanceof Unavailable)) throw error // no daemon: allow the commit
+}
+```
+
+### What each plugin can get back
+
+| Result | Meaning | SDK |
+|---|---|---|
+| Verdict | Every step settled, failed or skipped | `run.outcome(id)`: a score, a label, `failed`, or `skipped` |
+| Judge not granted | A step names a judge outside the plugin's grant; nothing ran | `Denied` |
+| Limit exceeded | The plan or evidence is over a named limit; nothing ran | `LimitExceeded` |
+| Busy | The plugin's or the daemon's capacity is in use | `Busy` |
+| Deadline | The deadline passed; unfinished steps are unanswered | `DeadlineExceeded`, with the events so far |
+| Unavailable | No daemon, or a protocol it does not accept | `Unavailable`, `UnsupportedProtocol` |
+
 ## Core plan model
 
 A plan is an ordered directed acyclic graph. It contains named steps, each
@@ -471,6 +605,9 @@ curl -s localhost:18790/v2/wait -H "authorization: Bearer $TOKEN" -d '{"run": "r
   settles to its score, 0 to 1000. A step that gates others adds
   `"label": {"yes": 700, "no": 300}` and settles to `yes`, `no` or `unsure`;
   gates match labels. Recall reads scores; screen-then-review gates on labels.
+- **Verdicts** give each step `{"settled": <outcome>}`, `{"failed": true}` or
+  `{"skipped": true}`. A gate names failure as `{"failed": true}`, so a judge's
+  failure never collides with a label.
 - **Evidence** is named once per run and referenced by steps, so a batched
   provider call carries each block once.
 - **Versioning:** `protocol` is required; the server answers
@@ -491,7 +628,7 @@ curl -s localhost:18790/v2/wait -H "authorization: Bearer $TOKEN" -d '{"run": "r
 | `crates/runtime/src/events.rs` | Bounded per-run event log with cursor reads; overflow is an explicit event |
 | `crates/rpc/src/{lib,auth,routes}.rs` | Loopback HTTP server: `hello`, `invoke`, `wait`, `cancel`; bearer token to grant; a missed `wait` lease cancels the run |
 | `crates/rpc/examples/loopback.rs` | Test server with the fake System One, for SDK and recall tests |
-| `sdk/javascript/src/{index,plan,client}.ts` | `ask`, `all`, `thenOn` builders matching core's; `client.run(plan, { evidence, deadlineMs, signal })` |
+| `sdk/javascript/src/{index,plan,client}.ts` | `ask`, `all`, `thenOn` builders matching core's; `connect(…).run(plan, { evidence, deadlineMs, signal })`; `run.outcome(id)`; typed errors |
 | `playground/wasm` | Parses plans through `crates/protocol`, so the page and RPC share one JSON format |
 
 Grants live in `~/.config/chauffeur/plugins.json`: plugin ID, token hash,
@@ -499,11 +636,8 @@ allowed judges and capacity. The token, not the ID, identifies the plugin.
 
 #### Reference plugin: opencode-history recall
 
-For each user message, opencode-history submits one round of up to eight
-`noul` steps, one per candidate passage, sharing the message and the end of the
-previous reply as evidence. It keeps at most three scores of 700 or more and
-attaches them itself. Its grant names only `system-one`. Its deadline is its
-context-hook wait; a missed deadline attaches nothing.
+[Per-turn recall](#per-turn-recall-opencode-history) is the reference external
+plugin; slice 2 runs it end to end against recorded scores.
 
 #### Verification
 
