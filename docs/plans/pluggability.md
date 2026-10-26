@@ -22,7 +22,7 @@ The initial slices are:
 1. a generic state machine that is playable in the browser;
 2. the plan protocol, the judge contract, rule files, the runtime and the
    daemon, reached through `chauffeur.navigate`;
-3. Jev as the first System One provider;
+3. System One providers: Jev, SubQ and GLiDE;
 4. the first System Two provider on the same plan/runtime path;
 5. behavior plugins and the OpenCode adapter, reaching parity with `main`;
 6. release and cutover: v2 replaces v1 as the shipped Chauffeur.
@@ -66,6 +66,7 @@ Branch point `73bc29e`. Watermark: `e7fbabf`.
 | `9b8e917` rules | Rule content for the rules behavior | 5 | `capabilities/rules/tests/rules.rs` |
 | `73bc29e` Homebrew release, CI | Release scripts and `check.yml` in v2 | 6 | `release.test.mjs`, `smoke.mjs` |
 | `f54db24`, `d66a385`, `e7fbabf` docs | Documentation only | — | — |
+| In progress on `main`: GLiDE provider, confidence escalation | `glide.json` over the `systemone` format; escalation is a rule's strategy, with `system-one/jev` then `system-one/glide` then `system-two` | 3 | `judges/glide/tests/wire.rs`, `docs/judges.md` escalation cases |
 
 Context renewal on v2:
 
@@ -155,8 +156,8 @@ flowchart LR
 - **The strategy is the rule's.** A rule can screen with facts, classify with
   System One and review only what System One leaves unsure with System Two.
   Changing the strategy changes a rule file, never a caller.
-- **Answers are yes/no, a pick or a ranking.** A ranking scores each candidate
-  and keeps the best; see [The cut](#the-cut).
+- **Answers are yes/no, a pick or a ranking**, built from the pieces in
+  [Strategies](#strategies).
 - **No intent means the caller's default.** A rule that matches nothing in its
   `then`, or whose judges fail, returns no intent: sourcefed then delivers the
   event, and recall attaches nothing.
@@ -235,18 +236,25 @@ behavior's own state. Only a host adapter carries out host actions.
 ### Judges
 
 Every judge takes one `Ask` and returns one `Answer`. Judges come in four
-tiers. A step names a tier, never a provider, and the user's configuration
-decides which provider answers for it, so a rule shared between people works
-with whatever models each of them has. A plan mixes tiers freely: facts can
-screen, System One can classify what facts leave unsure, and System Two can
-review what System One leaves unsure.
+tiers, each with one or more providers. A step names a tier, and may name the
+provider too:
+
+| `judge` | Answered by |
+|---|---|
+| `"system-one"` | The tier's providers, in the user's fallback order |
+| `"system-one/glide"` | GLiDE; the tier's fallback order applies if GLiDE is unavailable or not configured, and the run's events say so |
+
+Naming the provider lets one plan use two models of the same tier, such as
+Jev for a fast screen and GLiDE, more accurate but slower, for what Jev leaves
+unsure. A rule shared with someone who lacks GLiDE still runs, on their
+System One.
 
 ```mermaid
 flowchart TB
-    Step["Plan step<br/>judge: system-one, cut"] -- "Ask and evidence" --> Tiers
+    Step["Plan step<br/>judge: system-one/glide, cut"] -- "Ask and evidence" --> Tiers
     subgraph Tiers["Tiers: one Ask in, one Answer out"]
-        Facts["facts<br/>match, BM25, embedding"]
-        S1["system-one<br/>Jev, a local model"]
+        Facts["facts<br/>match, select, BM25, embedding"]
+        S1["system-one<br/>Jev, SubQ, GLiDE, a local model"]
         S2["system-two<br/>an OpenAI or Anthropic model"]
         Person["person<br/>the user, through the host"]
     end
@@ -277,24 +285,17 @@ the step's cut the same way for every tier, and judges never see it:
 | Yes/no | `"cut": {"yes": 700, "no": 300}` | `yes` at 700 or above, `no` at 300 or below, `unsure` between; `no` must be below `yes` |
 | Choice | none | The label |
 | Choice | `"cut": {"min": 600}` | The label at 600 or above, `unsure` below |
-| Ranking | `"keep": {"top": 3, "min": 700}` | The candidate names, best first: at most `top`, each scoring `min` or above |
 
 A judge that cannot answer settles as `{"failed": true}` whatever the cut, so
 a failure never reads as `no`. Each cut is tuned in its rule file against
 labelled cases.
 
-A ranking is a yes/no step with `"for_each": "candidates"`. The step asks its
-question once per candidate, naming it `candidate` in its evidence, all in one
-round, so a batching provider answers
-them in one call. Candidates whose judge fails are left out. Each candidate
-counts toward the step limit.
-
 #### Tiers
 
 | Tier | Answers with | Built-in providers |
 |---|---|---|
-| `facts` | Deterministic code: no model, network or credentials | `match` (equals, contains or a pattern over evidence), `bm25` (rank over the step's evidence), `embedding` (similarity from the shared local embedding service) |
-| `system-one` | A fast classifier, one batched call per round | `jev` |
+| `facts` | Deterministic code: no model, network or credentials | `match` (equals, contains or a pattern over evidence), `select` (combines earlier outcomes; see [Strategies](#strategies)), `bm25` (rank over the step's evidence), `embedding` (similarity from the shared local embedding service) |
+| `system-one` | A fast classifier, one batched call per round | `jev` (default), `subq`, `glide` |
 | `system-two` | A reasoning model, with a schema-checked answer that cites its evidence | Disabled until reviewed (slice 4) |
 | `person` | The user, asked through the host adapter | Each host adapter |
 
@@ -306,7 +307,7 @@ Code exists only once per API format, in `crates/judges`:
 
 | Format | Speaks |
 |---|---|
-| `jev` | Jev's TypeSafe API |
+| `systemone` | The `/v1/systemone` decisions API that Jev, SubQ Snap and Fastino GLiDE share; a provider entry sets GLiDE's reading of `score` as a level |
 | `openai` | OpenAI-compatible chat completions with structured output, which covers local servers such as Ollama |
 | `anthropic` | Anthropic Messages with schema-constrained output |
 | `replay` | Answers recorded in a file, for tests and the playground |
@@ -328,15 +329,16 @@ Code exists only once per API format, in `crates/judges`:
     }
   },
   "tiers": {
-    "system-one": ["jev", "local-qwen"],
+    "system-one": ["jev", "subq", "local-qwen"],
     "system-two": ["reviewer"]
   }
 }
 ```
 
-- Chauffeur ships its providers as the same JSON, such as `jev`, in
+- Chauffeur ships `jev`, `subq` and `glide` as the same JSON in
   `crates/judges/providers/`. The user's file adds providers and overrides
-  shipped ones by name.
+  shipped ones by name. Selecting a provider is configuration and takes effect
+  without a restart.
 - `tiers` lists providers in fallback order. The next provider answers only
   when one is unavailable, rate-limited or out of time, never because of what
   it answered. Escalating to another tier is the plan's job, not fallback's.
@@ -350,11 +352,70 @@ Code exists only once per API format, in `crates/judges`:
 - The `embedding` facts provider uses a shared, bounded local embedding
   service. Caches and ranking that belong to one behavior stay with it.
 
+### Strategies
+
+A strategy is a rule's `plan`, built from four pieces. Chauffeur has no list
+of built-in strategies: any combination of the pieces is one.
+
+| Piece | What it does |
+|---|---|
+| Step | Asks one judge one question; its cut turns the answer into an outcome |
+| Gate | Runs a step only when earlier outcomes match |
+| `for_each` | Copies a step once per candidate, in one round; inside a copy, `step[item]` names the same candidate's copy of an earlier step |
+| Earlier outcomes | A step may read earlier steps' outcomes as its evidence |
+
+Combining answers is a step too. The `facts` provider `select` reads earlier
+outcomes and settles to one: `first` settled in a list, `top` N, all at or
+above `min`, `majority`, or `mean`. A new way to combine is a new facts
+provider. The protocol lowers `for_each` and `[item]` to ordinary core steps
+and gates, so core runs every strategy alike.
+
+| Strategy | Built from |
+|---|---|
+| Escalate | A step gated on an earlier step's `unsure` or failure |
+| Rank | A `for_each` step, then `select` with `top` and `min` |
+| Collect all that pass | A `for_each` step, then `select` with `min` |
+| Check the survivors | Two `for_each` steps, the second gated on `first[item]` being `yes` |
+| Vote | Parallel steps, `select` with `majority`, and a review gated on `unsure` |
+
+Escalating from Jev to GLiDE, then to System Two:
+
+```jsonc
+"plan": { "steps": [
+  { "id": "fast",   "judge": "system-one/jev",   "cut": { "yes": 700, "no": 300 }, "ask": { … } },
+  { "id": "slow",   "judge": "system-one/glide", "cut": { "yes": 700, "no": 300 }, "ask": { … },
+    "gates": [{ "mode": "any", "sources": ["fast"], "on": ["unsure", { "failed": true }] }] },
+  { "id": "review", "judge": "system-two",       "cut": { "yes": 700, "no": 300 }, "ask": { … },
+    "gates": [{ "mode": "any", "sources": ["slow"], "on": ["unsure", { "failed": true }] }] },
+  { "id": "answer", "judge": "facts", "ask": { "select": { "first": ["review", "slow", "fast"] } } }
+] }
+```
+
+A plan is a graph without cycles, so every strategy has a known maximum of
+rounds and calls before it starts. Nothing loops or retries until confident.
+
 The v1 experiment's direct `judge(policy)` and `complete(profile)` calls are
 not the primary v2 plugin API: each exposes only one inference request and
 cannot express a screen, conditional escalation, fan-out or result assembly.
-Every navigation runs bounded declarative plans; inference requests are their
-steps.
+
+#### Viewing a strategy
+
+`chauffeur strategy show` prints a rule's plan as a tree, with each step's
+round, its provider as the user's configuration resolves it, its gates and its
+cut:
+
+```text
+$ chauffeur strategy show opencode-history/recall
+opencode-history/recall                        on recall
+├─ round 1  helps × candidates  system-one → jev
+└─ round 2  best               facts select   top 3, min 700, from helps
+then  attach best
+at most 2 rounds · 1 provider call · 31 candidates at most
+```
+
+`--file` shows an unsaved rule, and an unknown or unconfigured provider is
+marked where it appears. The playground draws the same tree from rule JSON and
+steps through it with recorded answers.
 A future one-step convenience API is acceptable only if it lowers to that same
 path and cannot bypass plan limits, redaction or deadlines.
 
@@ -489,18 +550,20 @@ returned; the code gathers them and attaches the result.
 // ~/.config/chauffeur/rules/opencode-history/recall.json
 {
   "on": "recall",
-  "plan": { "steps": [{
-    "id": "helps",
-    "judge": "system-one",
-    "for_each": "candidates",
-    "keep": { "top": 3, "min": 700 },
-    "ask": {
-      "question": "yes-no",
-      "evidence": ["message", "candidate"],
-      "instructions": "Would this passage materially help the agent answer the message, beyond what it already says?"
-    }
-  }] },
-  "then": [{ "attach": "helps" }]
+  "plan": { "steps": [
+    {
+      "id": "helps",
+      "judge": "system-one",
+      "for_each": "candidates",
+      "ask": {
+        "question": "yes-no",
+        "evidence": ["message", "candidate"],
+        "instructions": "Would this passage materially help the agent answer the message, beyond what it already says?"
+      }
+    },
+    { "id": "best", "judge": "facts", "ask": { "select": { "from": "helps", "top": 3, "min": 700 } } }
+  ] },
+  "then": [{ "attach": "best" }]
 }
 ```
 
@@ -785,8 +848,9 @@ chauffeur navigate <<'EOF'
 {"protocol": 1, "deadline_ms": 1500, "on": "recall", "evidence": {"message": "…"}, "candidates": {"p1": "…", "p4": "…"}}
 EOF
 # → {"event": {"rule_matched": {"rule": "opencode-history/recall"}}}
-# → {"event": {"round_ready": {"rule": "opencode-history/recall", "round": 1, "steps": ["helps"]}}}
-# → {"event": {"step_settled": {"rule": "opencode-history/recall", "step": "helps", "outcome": ["p4"]}}}
+# → {"event": {"round_ready": {"rule": "opencode-history/recall", "round": 1, "steps": ["helps[p1]", "helps[p4]"]}}}
+# → {"event": {"step_settled": {"rule": "opencode-history/recall", "step": "helps[p4]", "outcome": 910}}}
+# → {"event": {"step_settled": {"rule": "opencode-history/recall", "step": "best", "outcome": ["p4"]}}}
 # → {"intents": [{"rule": "opencode-history/recall", "attach": ["p4"]}]}
 ```
 
@@ -809,7 +873,7 @@ takes the same request as an object and returns the intents or verdict.
   `unsupported_protocol` with the versions it accepts, and each binding reports
   it as `unavailable`.
 - **Limits**, checked before admission: 32 steps per plan, counting each
-  candidate of a ranking; 16 gates per step; 64 evidence blocks and
+  copy `for_each` makes; 16 gates per step; 64 evidence blocks and
   candidates; 256 KiB of evidence; 30 s deadline. Each rejection names its
   limit.
 
@@ -817,10 +881,10 @@ takes the same request as an object and returns the intents or verdict.
 
 | Path | Contents |
 |---|---|
-| `crates/protocol/src/{lib,request,plan,rule,intent,limits,error}.rs` | Serde wire types for requests, plans, rule files and intents; validation and limits; lowering `for_each` and plans to `chauffeur_core::Plan<Ask, Outcome>`; typed errors |
+| `crates/protocol/src/{lib,request,plan,rule,intent,limits,error}.rs` | Serde wire types for requests, plans, rule files and intents; validation and limits; lowering plans, `for_each` copies and `[item]` gates to `chauffeur_core::Plan<Ask, Outcome>`; typed errors |
 | `crates/protocol/schema/navigate.json`, `crates/protocol/fixtures/` | The one `navigate` schema every binding uses, and the valid and invalid requests each binding's tests replay |
-| `crates/judges/src/{ask,cut,tiers,config}.rs` | `Ask` and `Answer`; applying cuts; seating each tier's providers in fallback order from shipped and user `providers.json`, refusing any from a project |
-| `crates/judges/src/{facts,replay}.rs` | The `match` facts provider and the `replay` format, which answers from recorded scores for tests |
+| `crates/judges/src/{ask,cut,tiers,config}.rs` | `Ask` and `Answer`; applying cuts; resolving `tier` and `tier/provider` against shipped and user `providers.json` in fallback order, refusing any provider from a project |
+| `crates/judges/src/{facts,replay}.rs` | The `match` and `select` facts providers, and the `replay` format, which answers from recorded scores for tests |
 | `crates/runtime/src/admission.rs` | One permit per navigation, held from admission through delivery; per-source and global capacity |
 | `crates/runtime/src/run.rs` | Drives rounds on a bounded worker pool; checks the deadline and cancellation before each round; discards late results |
 | `crates/runtime/src/redact.rs` | Redacts evidence before every provider judge, porting v1's rules and their cases |
@@ -828,9 +892,10 @@ takes the same request as an object and returns the intents or verdict.
 | `crates/daemon/src/{main,socket}.rs` | Creates the socket directory `0700` and refuses one it does not own; one navigation per connection, JSON lines out, closing cancels; `--providers FILE` replaces the user's providers, for tests |
 | `crates/daemon/src/rules.rs` | Loads rule files from the four sources, refuses System Two in a project rule the user has not allowed, reloads on change, matches `on` and `when`, and runs matching rules concurrently |
 | `crates/cli/src/navigate.rs` | `chauffeur navigate`: one request on stdin, the socket's JSON lines on stdout; exit 0 with intents or a verdict, 1 when rejected, 2 when the daemon is unavailable |
+| `crates/cli/src/strategy.rs` | `chauffeur strategy show <rule>` and `--file`: the plan as a tree, with rounds, resolved providers, gates, cuts and the maximum rounds and provider calls |
 | `clients/typescript/src/index.ts` | `@fdcn/chauffeur-client`: `connect().navigate(request, { signal })` over the socket, no dependencies; closing on abort cancels the navigation |
 | `adapters/opencode/src/rpc.ts` | `Chauffeur`, the OpenCode binding defined from `navigate.json`, exported as `@fdcn/chauffeur/rpc`; forwards each call through the client |
-| `playground/wasm` | Parses plans through `crates/protocol`, so the page, rule files and inline plans share one JSON format |
+| `playground/wasm`, `playground/src/features/strategy.ts` | Parses plans through `crates/protocol`, so the page, rule files and inline plans share one JSON format; draws a rule's strategy tree and steps through it with recorded answers |
 
 #### Reference caller: opencode-history recall
 
@@ -847,11 +912,17 @@ recorded scores.
   8 admit 8 and reject 73 with `capacity`.
 - Kani: a permit is released exactly once on every terminal path; the event
   log never exceeds its bound; every score from 0 to 1000 maps to exactly one
-  outcome under any valid cut, with both edges inclusive; a ranking keeps at
-  most `top` candidates, each at or above `min`, best first.
+  outcome under any valid cut, with both edges inclusive; `select` with `top`
+  and `min` keeps at most `top` candidates, each at or above `min`, best
+  first; every lowered plan has at most as many rounds as `strategy show`
+  reports.
 - Judges: fallback moves to the next provider only when one is unavailable,
-  rate-limited or out of time; a provider in a project's `.chauffeur/` is
-  refused; a key never appears in an event, error or verdict.
+  rate-limited or out of time; `system-one/glide` without GLiDE configured
+  runs on the tier's fallback order and reports it; a provider in a project's
+  `.chauffeur/` is refused; a key never appears in an event, error or verdict.
+- Strategies: each row of the [strategies table](#strategies) runs as a rule
+  with recorded answers; `[item]` gates skip exactly the candidates whose
+  earlier copy did not match.
 - Daemon socket: an unknown judge, an unsupported protocol, an oversized line
   and a closed connection each fail safely; events arrive in order; another
   user's socket directory is refused.
@@ -868,17 +939,20 @@ recorded scores.
   System One; navigating `recall` attaches the replay's top three passages
   scoring 700 or above. No agent session or history is sent.
 
-### Slice 3 — Jev integration
+### Slice 3 — System One providers: Jev, SubQ and GLiDE
 
-Implement the `jev` API format in `crates/judges` using the current TypeSafe
-API contract, including authentication, timeout, bounded response and explicit
-429/529 handling, and ship `providers/jev.json` as the default System One.
-Core and the runtime stay unaware of Jev.
+Implement the `systemone` API format in `crates/judges` using the current
+`/v1/systemone` contract, including authentication, timeout, bounded response,
+explicit 429/529 handling and GLiDE's level-valued `score`. Ship `jev.json`
+as the default System One, and `subq.json` and `glide.json` beside it. Core
+and the runtime stay unaware of any provider.
 
-Verification: loopback HTTP contract cases for documented request/response,
-invalid replies and provider errors; then run a screen/review plan through the
-playground/runtime against Jev with a real key. Report the plan, answers,
-rounds, elapsed time and provider-call count. Run opencode-history's recall
+Verification: loopback HTTP contract cases for each provider's documented
+request/response, invalid replies and provider errors, replaying `main`'s
+`judges/{jev,subq,glide}/tests/wire.rs`; then run the Jev-to-GLiDE escalation
+from [Strategies](#strategies) against both with real keys, and compare its
+answers with `main`'s `CHAUFFEUR_JUDGE_ESCALATE=glide` on the same cases.
+Report the plan, answers, rounds, elapsed time and provider-call count. Run opencode-history's recall
 replay live through `navigate`: one Jev call per message, judge time within
 the replay's 278 ms p50 and 318 ms p95 plus local overhead.
 
