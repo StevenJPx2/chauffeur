@@ -61,6 +61,14 @@ fails to load leaves the previous version running and logs why.
   `~/.config/chauffeur/<capability>.json`, such as
   `{ "needed": { "at": 0.8 } }` in `skill-exposure.json`. Unknown fields stop
   the daemon with an error naming them.
+- **A tool must always be available:** put its exact ID in `base` in
+  `tool-exposure.json`. This list replaces the shipped list, so keep the
+  existing base tools too. `history_search` belongs there: the agent may need
+  earlier decisions even when the first prompt does not mention history.
+  Shipped defaults in `skills/config/` are compiled into the daemon; update
+  the binary to ship a changed default, or use the local override for an
+  immediate hot-reloaded change. Reveal an already-hidden tool with
+  `ask_chauffeur` before adding it to `base`, or start a fresh context after.
 - **A steer or reminder:** add a rule to `~/.config/chauffeur/rules/` (all
   projects) or `.chauffeur/rules/` (one project). Formats are in
   `skills/README.md`. Phrase tool-result questions as "Does this call …?" and

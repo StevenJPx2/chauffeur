@@ -258,6 +258,7 @@ mod tests {
                 "subagent",
                 "webfetch",
                 "websearch",
+                "history_search",
             ]
         );
         assert_eq!(config.never_exposed, ["skill"]);

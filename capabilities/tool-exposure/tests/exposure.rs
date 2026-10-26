@@ -206,6 +206,27 @@ fn the_first_message_asks_once_per_group_of_non_base_tools() {
 }
 
 #[test]
+fn history_search_is_always_available_even_when_other_history_tools_are_not_needed() {
+    let signal = message(true, &["read", "history_search", "history_other", "skill"]);
+
+    assert_eq!(
+        asked(&exposure().plan(&Situation::default(), &signal)),
+        vec!["history"]
+    );
+    assert_eq!(
+        decided(&signal, Some(&[noul("history", 0.05)])),
+        hidden(&["history_other", "skill"])
+    );
+    assert_eq!(
+        exposure().plan(
+            &Situation::default(),
+            &message(true, &["read", "history_search"])
+        ),
+        Plan::Skip
+    );
+}
+
+#[test]
 fn hides_every_tool_of_a_confidently_unneeded_group_and_the_skill_tool() {
     let answers = [
         noul("github", 0.9),
