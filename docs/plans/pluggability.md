@@ -10,7 +10,7 @@ findings and checks that inform this plan.
 Chauffeur's core runs generic, bounded judgment plans. Each step names the
 tier of judge that answers it: facts (deterministic code), System One, System
 Two or a person. Every judge takes the same question and returns the same
-answer. Model providers are configuration; only each API format is code.
+answer. Models are configuration; only each API format is code.
 
 Callers such as sourcefed and opencode-history send a question with its
 context through `chauffeur.navigate`. Rule files, which are data, decide how to
@@ -22,8 +22,8 @@ The initial slices are:
 1. a generic state machine that is playable in the browser;
 2. the plan protocol, the judge contract, rule files, the runtime and the
    daemon, reached through `chauffeur.navigate`;
-3. System One providers: Jev, SubQ and GLiDE;
-4. the first System Two provider on the same plan/runtime path;
+3. System One models: Jev, SubQ and GLiDE;
+4. the first System Two models on the same plan/runtime path;
 5. behavior plugins and the OpenCode adapter, reaching parity with `main`;
 6. release and cutover: v2 replaces v1 as the shipped Chauffeur.
 
@@ -66,7 +66,7 @@ Branch point `73bc29e`. Watermark: `e7fbabf`.
 | `9b8e917` rules | Rule content for the rules behavior | 5 | `capabilities/rules/tests/rules.rs` |
 | `73bc29e` Homebrew release, CI | Release scripts and `check.yml` in v2 | 6 | `release.test.mjs`, `smoke.mjs` |
 | `f54db24`, `d66a385`, `e7fbabf` docs | Documentation only | — | — |
-| In progress on `main`: GLiDE provider, confidence escalation | `glide.json` over the `systemone` format; escalation is a rule's strategy, with `system-one/jev` then `system-one/glide` then `system-two` | 3 | `judges/glide/tests/wire.rs`, `docs/judges.md` escalation cases |
+| In progress on `main`: GLiDE provider, confidence escalation | `glide.json` over the `systemone` format; escalation is a rule's strategy: System One with `model: "jev"`, then `model: "glide"`, then System Two | 3 | `judges/glide/tests/wire.rs`, `docs/judges.md` escalation cases |
 
 Context renewal on v2:
 
@@ -103,7 +103,7 @@ flowchart TB
     Runtime --> O11y
     Daemon["crates/daemon<br/>Socket, rule files, default plugins"] --> Runtime
     Daemon --> Protocol
-    Judges["crates/judges<br/>Ask and Answer, cuts, tiers, providers"] --> Core
+    Judges["crates/judges<br/>Ask and Answer, cuts, tiers, models"] --> Core
     Runtime --> Judges
     Playground["playground<br/>WASM + interactive feature tabs"] --> Protocol
 ```
@@ -200,7 +200,7 @@ passages the `attach` intent names.
 | Owner | Responsibility | Boundary |
 |---|---|---|
 | `crates/core` | Generic plan composition, validation and state transitions | No transport, provider, host or domain policy |
-| `crates/judges` | The `Ask` and `Answer` contract, cuts, tiers, facts providers, API formats and provider configuration | No behavior policy |
+| `crates/judges` | The `Ask` and `Answer` contract, cuts, tiers, facts functions, API formats and model configuration | No behavior policy |
 | `crates/runtime` | Admission, run state, deadlines, cancellation, egress redaction and provider dispatch | Injects implementations; owns no behavior policy |
 | `crates/protocol` | One JSON form of requests, plans, evidence, events, verdicts and intents for rule files, `navigate` and the playground | Validates and limits before anything runs |
 | `crates/daemon` | The socket, rule-file loading and matching, and the default behaviors | Listens only on a socket the user owns |
@@ -236,22 +236,21 @@ behavior's own state. Only a host adapter carries out host actions.
 ### Judges
 
 Every judge takes one `Ask` and returns one `Answer`. Judges come in four
-tiers, each with one or more providers. A step names a tier, and may name the
-provider too:
+tiers. A step names its tier in `judge`, and may name a model in `model`:
 
-| `judge` | Answered by |
+| Step | Answered by |
 |---|---|
-| `"system-one"` | The tier's providers, in the user's fallback order |
-| `"system-one/glide"` | GLiDE; the tier's fallback order applies if GLiDE is unavailable or not configured, and the run's events say so |
+| `"judge": "system-one"` | The tier's models, in the user's fallback order |
+| `"judge": "system-one", "model": "glide"` | GLiDE; the tier's fallback order applies if GLiDE is unavailable or not configured, and the run's events say so |
 
-Naming the provider lets one plan use two models of the same tier, such as
-Jev for a fast screen and GLiDE, more accurate but slower, for what Jev leaves
+Naming the model lets one plan use two models of the same tier, such as Jev
+for a fast screen and GLiDE, more accurate but slower, for what Jev leaves
 unsure. A rule shared with someone who lacks GLiDE still runs, on their
 System One.
 
 ```mermaid
 flowchart TB
-    Step["Plan step<br/>judge: system-one/glide, cut"] -- "Ask and evidence" --> Tiers
+    Step["Plan step<br/>judge, model, cut"] -- "Ask and evidence" --> Tiers
     subgraph Tiers["Tiers: one Ask in, one Answer out"]
         Facts["facts<br/>match, select, BM25, embedding"]
         S1["system-one<br/>Jev, SubQ, GLiDE, a local model"]
@@ -292,30 +291,30 @@ labelled cases.
 
 #### Tiers
 
-| Tier | Answers with | Built-in providers |
+| Tier | Answers with | Built in |
 |---|---|---|
 | `facts` | Deterministic code: no model, network or credentials | `match` (equals, contains or a pattern over evidence), `select` (combines earlier outcomes; see [Strategies](#strategies)), `bm25` (rank over the step's evidence), `embedding` (similarity from the shared local embedding service) |
 | `system-one` | A fast classifier, one batched call per round | `jev` (default), `subq`, `glide` |
 | `system-two` | A reasoning model, with a schema-checked answer that cites its evidence | Disabled until reviewed (slice 4) |
 | `person` | The user, asked through the host adapter | Each host adapter |
 
-#### Providers are configuration
+#### Models are configuration
 
-A provider is registered the way a user registers a model provider anywhere
-else: a built-in API format plus the endpoint, model and credential to use.
-Code exists only once per API format, in `crates/judges`:
+A model is registered the way a user registers a model provider anywhere
+else: a name, a built-in API format, and the endpoint, model ID and credential
+to use. Code exists only once per API format, in `crates/judges`:
 
 | Format | Speaks |
 |---|---|
-| `systemone` | The `/v1/systemone` decisions API that Jev, SubQ Snap and Fastino GLiDE share; a provider entry sets GLiDE's reading of `score` as a level |
+| `systemone` | The `/v1/systemone` decisions API that Jev, SubQ Snap and Fastino GLiDE share; GLiDE's entry sets its reading of `score` as a level |
 | `openai` | OpenAI-compatible chat completions with structured output, which covers local servers such as Ollama |
 | `anthropic` | Anthropic Messages with schema-constrained output |
 | `replay` | Answers recorded in a file, for tests and the playground |
 
 ```jsonc
-// ~/.config/chauffeur/providers.json
+// ~/.config/chauffeur/models.json
 {
-  "providers": {
+  "models": {
     "local-qwen": {
       "format": "openai",
       "endpoint": "http://127.0.0.1:11434/v1",
@@ -335,21 +334,22 @@ Code exists only once per API format, in `crates/judges`:
 }
 ```
 
-- Chauffeur ships `jev`, `subq` and `glide` as the same JSON in
-  `crates/judges/providers/`. The user's file adds providers and overrides
-  shipped ones by name. Selecting a provider is configuration and takes effect
-  without a restart.
-- `tiers` lists providers in fallback order. The next provider answers only
-  when one is unavailable, rate-limited or out of time, never because of what
-  it answered. Escalating to another tier is the plan's job, not fallback's.
-- Providers load only from shipped and user configuration, never from a
-  project's `.chauffeur/`. A provider is a network endpoint, so a cloned
+- A step's `model` names an entry here. Chauffeur ships `jev`, `subq` and
+  `glide` as the same JSON in `crates/judges/models/`. The user's file adds
+  models and overrides shipped ones by name. Changes take effect without a
+  restart.
+- `tiers` lists models in fallback order. The next model answers only when
+  one is unavailable, rate-limited or out of time, never because of what it
+  answered. Escalating to another model or tier is the plan's job, not
+  fallback's.
+- Models load only from shipped and user configuration, never from a
+  project's `.chauffeur/`. A model entry is a network endpoint, so a cloned
   repository could otherwise send evidence wherever it chose.
 - A key is named, as an environment variable or a keychain entry, and is read
   only by `crates/judges`. It never reaches rule files, callers or audit.
-- A shipped provider is used once its key is present; a System Two provider
-  also needs the user to turn it on.
-- The `embedding` facts provider uses a shared, bounded local embedding
+- A shipped model is used once its key is present; a System Two model also
+  needs the user to turn it on.
+- The `embedding` facts function uses a shared, bounded local embedding
   service. Caches and ranking that belong to one behavior stay with it.
 
 ### Strategies
@@ -364,10 +364,10 @@ of built-in strategies: any combination of the pieces is one.
 | `for_each` | Copies a step once per candidate, in one round; inside a copy, `step[item]` names the same candidate's copy of an earlier step |
 | Earlier outcomes | A step may read earlier steps' outcomes as its evidence |
 
-Combining answers is a step too. The `facts` provider `select` reads earlier
+Combining answers is a step too. The `facts` function `select` reads earlier
 outcomes and settles to one: `first` settled in a list, `top` N, all at or
 above `min`, `majority`, or `mean`. A new way to combine is a new facts
-provider. The protocol lowers `for_each` and `[item]` to ordinary core steps
+function. The protocol lowers `for_each` and `[item]` to ordinary core steps
 and gates, so core runs every strategy alike.
 
 | Strategy | Built from |
@@ -382,10 +382,10 @@ Escalating from Jev to GLiDE, then to System Two:
 
 ```jsonc
 "plan": { "steps": [
-  { "id": "fast",   "judge": "system-one/jev",   "cut": { "yes": 700, "no": 300 }, "ask": { … } },
-  { "id": "slow",   "judge": "system-one/glide", "cut": { "yes": 700, "no": 300 }, "ask": { … },
+  { "id": "fast",   "judge": "system-one", "model": "jev",   "cut": { "yes": 700, "no": 300 }, "ask": { … } },
+  { "id": "slow",   "judge": "system-one", "model": "glide", "cut": { "yes": 700, "no": 300 }, "ask": { … },
     "gates": [{ "mode": "any", "sources": ["fast"], "on": ["unsure", { "failed": true }] }] },
-  { "id": "review", "judge": "system-two",       "cut": { "yes": 700, "no": 300 }, "ask": { … },
+  { "id": "review", "judge": "system-two",                   "cut": { "yes": 700, "no": 300 }, "ask": { … },
     "gates": [{ "mode": "any", "sources": ["slow"], "on": ["unsure", { "failed": true }] }] },
   { "id": "answer", "judge": "facts", "ask": { "select": { "first": ["review", "slow", "fast"] } } }
 ] }
@@ -397,11 +397,13 @@ rounds and calls before it starts. Nothing loops or retries until confident.
 The v1 experiment's direct `judge(policy)` and `complete(profile)` calls are
 not the primary v2 plugin API: each exposes only one inference request and
 cannot express a screen, conditional escalation, fan-out or result assembly.
+A future one-step convenience API is acceptable only if it lowers to the same
+path and cannot bypass plan limits, redaction or deadlines.
 
 #### Viewing a strategy
 
 `chauffeur strategy show` prints a rule's plan as a tree, with each step's
-round, its provider as the user's configuration resolves it, its gates and its
+round, its model as the user's configuration resolves it, its gates and its
 cut:
 
 ```text
@@ -410,14 +412,12 @@ opencode-history/recall                        on recall
 ├─ round 1  helps × candidates  system-one → jev
 └─ round 2  best               facts select   top 3, min 700, from helps
 then  attach best
-at most 2 rounds · 1 provider call · 31 candidates at most
+at most 2 rounds · 1 model call · 31 candidates at most
 ```
 
-`--file` shows an unsaved rule, and an unknown or unconfigured provider is
-marked where it appears. The playground draws the same tree from rule JSON and
-steps through it with recorded answers.
-A future one-step convenience API is acceptable only if it lowers to that same
-path and cannot bypass plan limits, redaction or deadlines.
+`--file` shows an unsaved rule, and an unknown or unconfigured model is marked
+where it appears. The playground draws the same tree from rule JSON and steps
+through it with recorded answers.
 
 ### Access, delivery and failure rules
 
@@ -577,7 +577,7 @@ missed deadline attaches nothing.
 |---|---|---|
 | Intents | Every matching rule ran | `intents`: each with its `rule`, possibly empty |
 | Verdict | An inline plan's steps settled, failed or were skipped | `verdict[id]`: `{ settled }`, `{ failed: true }` or `{ skipped: true }` |
-| Unknown judge | An inline plan names a tier with no provider, or one its source may not use; nothing ran. A rule that does is refused when it loads | `judge_unavailable` error |
+| Unknown judge | An inline plan names a tier with no model, or one its source may not use; nothing ran. A rule that does is refused when it loads | `judge_unavailable` error |
 | Limit exceeded | The plan or evidence is over a named limit; nothing ran | `limit_exceeded` error |
 | Busy | This source's or the daemon's capacity is in use | `busy` error |
 | Deadline | The deadline passed; unfinished steps are unanswered | `deadline` error, with the events so far |
@@ -738,7 +738,7 @@ crates/
   o11y/                 # Event consumers
   protocol/             # Plan, evidence and verdict JSON; validation and limits
   judges/               # Ask and Answer, cuts, tiers, facts, API formats
-    providers/          # Shipped provider configuration, such as jev.json
+    models/             # Shipped model entries, such as jev.json
   runtime/              # Admission, deadlines, workers, redaction, transition driver
   daemon/               # Socket, rule loading and matching, default behaviors
   cli/                  # `chauffeur` binary: navigate, setup and audit
@@ -883,16 +883,16 @@ takes the same request as an object and returns the intents or verdict.
 |---|---|
 | `crates/protocol/src/{lib,request,plan,rule,intent,limits,error}.rs` | Serde wire types for requests, plans, rule files and intents; validation and limits; lowering plans, `for_each` copies and `[item]` gates to `chauffeur_core::Plan<Ask, Outcome>`; typed errors |
 | `crates/protocol/schema/navigate.json`, `crates/protocol/fixtures/` | The one `navigate` schema every binding uses, and the valid and invalid requests each binding's tests replay |
-| `crates/judges/src/{ask,cut,tiers,config}.rs` | `Ask` and `Answer`; applying cuts; resolving `tier` and `tier/provider` against shipped and user `providers.json` in fallback order, refusing any provider from a project |
-| `crates/judges/src/{facts,replay}.rs` | The `match` and `select` facts providers, and the `replay` format, which answers from recorded scores for tests |
+| `crates/judges/src/{ask,cut,tiers,config}.rs` | `Ask` and `Answer`; applying cuts; resolving a step's `judge` and `model` against shipped and user `models.json` in fallback order, refusing any model entry from a project |
+| `crates/judges/src/{facts,replay}.rs` | The `match` and `select` facts functions, and the `replay` format, which answers from recorded scores for tests |
 | `crates/runtime/src/admission.rs` | One permit per navigation, held from admission through delivery; per-source and global capacity |
 | `crates/runtime/src/run.rs` | Drives rounds on a bounded worker pool; checks the deadline and cancellation before each round; discards late results |
 | `crates/runtime/src/redact.rs` | Redacts evidence before every provider judge, porting v1's rules and their cases |
 | `crates/runtime/src/events.rs` | Bounded per-run event log; overflow is an explicit event |
-| `crates/daemon/src/{main,socket}.rs` | Creates the socket directory `0700` and refuses one it does not own; one navigation per connection, JSON lines out, closing cancels; `--providers FILE` replaces the user's providers, for tests |
+| `crates/daemon/src/{main,socket}.rs` | Creates the socket directory `0700` and refuses one it does not own; one navigation per connection, JSON lines out, closing cancels; `--models FILE` replaces the user's models, for tests |
 | `crates/daemon/src/rules.rs` | Loads rule files from the four sources, refuses System Two in a project rule the user has not allowed, reloads on change, matches `on` and `when`, and runs matching rules concurrently |
 | `crates/cli/src/navigate.rs` | `chauffeur navigate`: one request on stdin, the socket's JSON lines on stdout; exit 0 with intents or a verdict, 1 when rejected, 2 when the daemon is unavailable |
-| `crates/cli/src/strategy.rs` | `chauffeur strategy show <rule>` and `--file`: the plan as a tree, with rounds, resolved providers, gates, cuts and the maximum rounds and provider calls |
+| `crates/cli/src/strategy.rs` | `chauffeur strategy show <rule>` and `--file`: the plan as a tree, with rounds, resolved models, gates, cuts and the maximum rounds and model calls |
 | `clients/typescript/src/index.ts` | `@fdcn/chauffeur-client`: `connect().navigate(request, { signal })` over the socket, no dependencies; closing on abort cancels the navigation |
 | `adapters/opencode/src/rpc.ts` | `Chauffeur`, the OpenCode binding defined from `navigate.json`, exported as `@fdcn/chauffeur/rpc`; forwards each call through the client |
 | `playground/wasm`, `playground/src/features/strategy.ts` | Parses plans through `crates/protocol`, so the page, rule files and inline plans share one JSON format; draws a rule's strategy tree and steps through it with recorded answers |
@@ -916,10 +916,10 @@ recorded scores.
   and `min` keeps at most `top` candidates, each at or above `min`, best
   first; every lowered plan has at most as many rounds as `strategy show`
   reports.
-- Judges: fallback moves to the next provider only when one is unavailable,
-  rate-limited or out of time; `system-one/glide` without GLiDE configured
-  runs on the tier's fallback order and reports it; a provider in a project's
-  `.chauffeur/` is refused; a key never appears in an event, error or verdict.
+- Judges: fallback moves to the next model only when one is unavailable,
+  rate-limited or out of time; `"model": "glide"` without GLiDE configured
+  runs on the tier's fallback order and reports it; a model entry in a
+  project's `.chauffeur/` is refused; a key never appears in an event, error or verdict.
 - Strategies: each row of the [strategies table](#strategies) runs as a rule
   with recorded answers; `[item]` gates skip exactly the candidates whose
   earlier copy did not match.
@@ -939,36 +939,36 @@ recorded scores.
   System One; navigating `recall` attaches the replay's top three passages
   scoring 700 or above. No agent session or history is sent.
 
-### Slice 3 — System One providers: Jev, SubQ and GLiDE
+### Slice 3 — System One models: Jev, SubQ and GLiDE
 
 Implement the `systemone` API format in `crates/judges` using the current
 `/v1/systemone` contract, including authentication, timeout, bounded response,
 explicit 429/529 handling and GLiDE's level-valued `score`. Ship `jev.json`
 as the default System One, and `subq.json` and `glide.json` beside it. Core
-and the runtime stay unaware of any provider.
+and the runtime stay unaware of any model.
 
 Verification: loopback HTTP contract cases for each provider's documented
 request/response, invalid replies and provider errors, replaying `main`'s
 `judges/{jev,subq,glide}/tests/wire.rs`; then run the Jev-to-GLiDE escalation
 from [Strategies](#strategies) against both with real keys, and compare its
 answers with `main`'s `CHAUFFEUR_JUDGE_ESCALATE=glide` on the same cases.
-Report the plan, answers, rounds, elapsed time and provider-call count. Run opencode-history's recall
-replay live through `navigate`: one Jev call per message, judge time within
+Report the plan, answers, rounds, elapsed time and model-call count. Run
+opencode-history's recall replay live through `navigate`: one Jev call per message, judge time within
 the replay's 278 ms p50 and 318 ms p95 plus local overhead.
 
-### Slice 4 — System Two providers
+### Slice 4 — System Two models
 
 Implement the `openai` and `anthropic` API formats in `crates/judges`. A System
 Two answer is schema-checked, and its `cites` must name evidence the step was
-given. Redaction applies before every call. Provider entries set model,
-effort, timeout and output budget. System Two ships disabled until a provider
+given. Redaction applies before every call. Model entries set the model ID,
+effort, timeout and output budget. System Two ships disabled until a model
 and its evaluations are reviewed.
 
 Verification: loopback cases for valid, refused, malformed, truncated,
 unavailable and timed-out replies; screen→review round ordering; citations of
 evidence the step lacks are rejected; the 32 KiB input budget; and proof that a
 slow reasoning call cannot consume reserved interactive System One capacity.
-Then replay human-labelled cases before enabling a live provider.
+Then replay human-labelled cases before enabling a live model.
 
 ### Slice 5 — Behaviors and OpenCode adapter parity
 

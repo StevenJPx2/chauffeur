@@ -7,8 +7,8 @@ this branch ships nothing until cutover.
 Core runs bounded **plans**: named steps joined by gates, each answered by a
 **judge**. Judges come in four tiers, deterministic facts, System One, System
 Two and a person, and all take the same question and give the same answer.
-Model providers, such as Jev, GLiDE or a local model, are configuration, and a
-step can name the one it wants. A strategy is a rule's plan, built from steps,
+Models, such as Jev, GLiDE or a local model, are configuration, and a step can
+name the one it wants: `"judge": "system-one", "model": "glide"`. A strategy is a rule's plan, built from steps,
 gates, `for_each` and earlier outcomes; `chauffeur strategy show` draws it as
 a tree.
 
@@ -30,9 +30,9 @@ let run = plan.run(&Panel::new().with("rule", &rule).with("model", &model))?;
 |---|---|---|
 | 0 | Browser playground: Rust compiled to WebAssembly | Built |
 | 1 | `crates/core`: plans, gates, judges, state machine, events | Built and reviewed |
-| 2 | `chauffeur.navigate`: protocol, judge tiers and providers, rule files, runtime, daemon socket, through the client, CLI and OpenCode | Planned |
-| 3 | System One providers: Jev, SubQ and GLiDE | Planned |
-| 4 | The first System Two providers | Planned |
+| 2 | `chauffeur.navigate`: protocol, judge tiers and models, rule files, runtime, daemon socket, through the client, CLI and OpenCode | Planned |
+| 3 | System One models: Jev, SubQ and GLiDE | Planned |
+| 4 | The first System Two models | Planned |
 | 5 | Behavior plugins and OpenCode adapter, at parity with `main` | Planned |
 | 6 | Release and cutover | Planned |
 
