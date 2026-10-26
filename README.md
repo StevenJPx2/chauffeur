@@ -7,111 +7,236 @@ stopping a destructive command or holding back noise.
 
 ## Features
 
-- **Strategies**
-  - A strategy is a list of steps; each step asks one judge one question.
-  - `after` makes a step wait for earlier steps and run only when their
-    outcomes match, such as escalating from Jev to GLiDE to a reasoning model
-    when the first is unsure.
-  - `for_each` asks about many candidates in one round, and `select` ranks,
-    filters or votes on the answers.
-  - Every strategy has a known maximum of rounds and model calls, and is
-    proven to finish.
-- **Judges**
-  - Four tiers answer the same questions: facts (code), System One (fast
-    classifiers), System Two (reasoning models) and a person.
-  - `confidence` sets how sure a judge must be; below it, the answer is
-    `unsure`.
-- **Questions and results**
-  - `noul` (yes or no), `choice` and `score` build questions; `question()`
-    builds your own kinds.
-  - A result is an answer, with its outcome, every outcome's probability and a
-    level on the scale, or a failure with its reason. A failure never reads as
-    `no`.
-  - Outcomes are typed in TypeScript from the question that produced them.
-- **Models as configuration**
-  - `models.json` registers models by API format: `systemone` (Jev, SubQ,
-    GLiDE), `openai` (including local servers such as Ollama) and `anthropic`.
-  - Each tier lists its models in fallback order; a missing model falls back
-    and the run says so.
-  - `placeholder` models stand in with recorded or fixed answers, for tests
-    and tuning.
-  - Keys stay inside the engine; rules, plugins and logs never see them.
-- **Facts**
-  - JavaScript modules that answer without a model, run in a QuickJS sandbox
-    with memory and time limits.
-  - Shipped facts: `match`, `select`, `bm25` and `embedding`.
-  - Write your own in `~/.config/chauffeur/facts/`, with read-only access to
-    files, SQLite and local services. A project's facts are pure functions.
-- **Rule files**
-  - JSON that names an event, its judges, its questions, its strategy and what
-    to do with the outcome. No code needed.
-  - Rules come from Chauffeur, integrations, you and your projects. A project's
-    rules use System Two only where you allow it.
-- **Plugins**
-  - TypeScript programs that hook events with `ctx.on` (never blocks) or
-    `ctx.before` (holds the harness within a budget, then asks you).
-  - They act through every control the harness offers, named by resource and
-    verb: `session.compact`, `session.update`, `message.append` and more.
-  - They load when first needed, stop when idle, and restart if they crash.
-  - Included: skills, context renewal, session warming and a guard against
-    irreversible commands.
-- **Adapters**
-  - One per harness, turning its hooks into standard events such as
-    `prompt.sent` and `tool.before`, and carrying out actions after checking
-    they are still current.
-  - Available for OpenCode.
-- **`navigate`**
-  - Any program can send an event with its context and get back intents, from
-    TypeScript (`@fdcn/chauffeur/client`), the `chauffeur navigate` CLI or
-    Rust.
-- **Tools**
-  - `chauffeur strategy show` draws a rule's strategy as a tree, with the
-    models it will use and its maximum rounds and calls.
-  - The playground steps through strategies in the browser.
-- **Safety**
-  - The daemon listens only on a Unix socket in a directory only you can open.
-    There are no ports and no tokens.
-  - Evidence is redacted before every model call.
-  - Your harness's own denials always win.
+### Strategies
 
-## Examples
+- A strategy is a list of steps; each step asks one judge one question.
+- `after` makes a step wait for earlier steps and run only when their
+  outcomes match.
+- `for_each` asks about many candidates in one round, and `select` ranks,
+  filters or votes on the answers.
+- Every strategy has a known maximum of rounds and model calls, and is proven
+  to finish.
 
-A rule that screens with Jev and escalates to GLiDE when Jev is unsure:
+Escalate from Jev to GLiDE to a reasoning model, only as far as needed:
 
 ```jsonc
-{
-  "on": "integration_event",
-  "judges": {
-    "quick":   { "tier": "system-one", "model": "jev",   "confidence": 0.7 },
-    "careful": { "tier": "system-one", "model": "glide", "confidence": 0.7 }
-  },
-  "asks": { "needs-agent": { "outcomes": ["yes", "no"], "instructions": "Does this event ask the agent to do something?" } },
-  "strategy": [
-    { "id": "fast", "judge": "quick",   "ask": "needs-agent" },
-    { "id": "slow", "judge": "careful", "ask": "needs-agent", "after": [{ "step": "fast", "when": ["unsure", "failed"] }] }
-  ],
-  "then": [{ "if": { "fast": "no" }, "withhold": "event" }, { "if": { "slow": "no" }, "withhold": "event" }]
+"strategy": [
+  { "id": "fast",   "judge": "quick",    "ask": "needs-agent" },
+  { "id": "slow",   "judge": "careful",  "ask": "needs-agent", "after": [{ "step": "fast", "when": ["unsure", "failed"] }] },
+  { "id": "review", "judge": "reasoner", "ask": "needs-agent", "after": [{ "step": "slow", "when": ["unsure", "failed"] }] }
+]
+```
+
+### Judges
+
+- Four tiers answer the same questions: facts (code), System One (fast
+  classifiers), System Two (reasoning models) and a person.
+- A named judge picks a tier, optionally a model, and how sure it must be.
+- Below its `confidence`, a judge's answer is `unsure`.
+
+```jsonc
+"judges": {
+  "quick":    { "tier": "system-one", "model": "jev", "confidence": 0.7 },
+  "guard":    { "tier": "system-one", "confidence": { "yes": 0.6, "no": 0.95 } },
+  "reasoner": { "tier": "system-two", "confidence": 0.6 }
 }
 ```
 
-A plugin that asks before a risky shell command runs:
+```text
+quick on "Does this commit message break Conventional Commits?"
+  "fixed stuff"       yes 0.94 → yes
+  "Update parser.rs"  yes 0.58 → unsure
+```
+
+### Questions and results
+
+- `noul` (yes or no), `choice` and `score` build questions; `question()`
+  builds your own kinds.
+- A result is an answer, with its outcome, every outcome's probability and a
+  level on the scale, or a failure with its reason. A failure never reads as
+  `no`.
+- Outcomes are typed from the question that produced them.
+
+```ts
+import { ask, choice, judge, score } from "@fdcn/chauffeur/judge"
+
+const quick = judge({ tier: "system-one", confidence: 0.7 })
+
+const next = await ask(choice(["act", "ignore", "ask-user"], "What should the agent do with this message?"), { judge: quick, evidence })
+if (next.ok) next.outcome          // "act" | "ignore" | "ask-user" | "unsure"
+else next.failed                   // "timeout" | "unavailable" | …
+
+const effort = await ask(score(["low", "medium", "high"], "How hard is this request?"), { judge: quick, evidence })
+if (effort.ok && effort.level >= 1) { /* medium or higher */ }
+```
+
+### Models
+
+- `models.json` registers models by API format: `systemone` (Jev, SubQ,
+  GLiDE), `openai` (including local servers such as Ollama) and `anthropic`.
+- Each tier lists its models in fallback order; a missing model falls back
+  and the run says so.
+- `placeholder` models stand in with recorded or fixed answers, for tests and
+  tuning.
+- Keys stay inside the engine; rules, plugins and logs never see them.
+
+```jsonc
+// ~/.config/chauffeur/models.json
+{
+  "models": {
+    "local-qwen": { "format": "openai", "endpoint": "http://127.0.0.1:11434/v1", "model": "qwen3:4b" },
+    "reviewer":   { "format": "anthropic", "model": "claude-sonnet-5-5", "key": { "env": "ANTHROPIC_API_KEY" } }
+  },
+  "tiers": { "system-one": ["jev", "local-qwen"], "system-two": ["reviewer"] }
+}
+```
+
+### Facts
+
+- JavaScript modules that answer without a model, run in a QuickJS sandbox
+  with memory and time limits.
+- Shipped facts: `match`, `select`, `bm25` and `embedding`.
+- Your own facts in `~/.config/chauffeur/facts/` can read files, SQLite and
+  local services.
+
+```js
+// ~/.config/chauffeur/facts/notes.js
+import { query } from "chauffeur:sqlite"
+
+export function bm25({ evidence, args }) {
+  const rows = query("~/notes/index.db",
+    "SELECT id FROM notes WHERE notes MATCH ? ORDER BY bm25(notes) LIMIT ?", [evidence.message, args.top ?? 10])
+  return { ranked: rows.map((row) => row.id) }
+}
+```
+
+```jsonc
+{ "id": "related", "judge": "facts", "ask": { "notes.bm25": { "top": 10 } } }
+```
+
+### Rule files
+
+- JSON that names an event, its judges, its questions, its strategy and what
+  to do with the outcome. No code needed.
+- Rules come from Chauffeur, integrations, you and your projects.
+
+```jsonc
+// .chauffeur/rules/conventional-commits.json
+{
+  "on": "tool.after",
+  "when": { "tools": ["shell"] },
+  "judges": { "quick": { "tier": "system-one", "confidence": 0.7 } },
+  "strategy": [
+    { "id": "nonconventional", "judge": "quick",
+      "ask": { "outcomes": ["yes", "no"], "evidence": ["tool_call"],
+               "instructions": "Does this call create a git commit whose message does not follow Conventional Commits?" } }
+  ],
+  "then": [{ "if": { "nonconventional": "yes" },
+             "message.append": { "parts": [{ "text": "Use Conventional Commits, such as `feat(scope): …`." }], "delivery": "now" } }]
+}
+```
+
+### Plugins
+
+- TypeScript programs that hook events with `ctx.on` (never blocks) or
+  `ctx.before` (holds the harness within a budget).
+- They act through every control the harness offers, named by resource and
+  verb: `session.compact`, `session.update`, `message.append` and more.
+- They load when first needed, stop when idle, and restart if they crash.
+- Included: skills, context renewal, session warming and a guard against
+  irreversible commands.
 
 ```ts
 import { Plugin } from "@fdcn/chauffeur/plugin"
-import { ask, judge, noul } from "@fdcn/chauffeur/judge"
-
-const guard = judge({ tier: "system-one", confidence: { yes: 0.6, no: 0.95 } })
+import { session } from "@fdcn/chauffeur/harness"
 
 export default Plugin.define({
-  id: "guard",
+  id: "context-renewal",
   setup(ctx) {
-    ctx.before("tool.before", async (e) => {
-      if (e.tool !== "shell") return
-      const harmful = await ask(noul("Could this command cause irreversible harm?"), { judge: guard, evidence: { command: e.input.command } })
-      if (!harmful.ok || harmful.outcome !== "no") e.askUser("Chauffeur isn't sure this is safe.")
-    }, { budget: 2_000, onTimeout: "ask" })
+    ctx.on("session.resumed", (e) => {
+      if (e.idle_seconds >= e.cache_seconds && e.tokens.used >= e.tokens.window / 2)
+        session.compact(e.session, { model: ctx.options.summaryModel })
+    })
   },
 })
+```
+
+### Guards
+
+- A `before` hook can block an action or hand it to you before it happens.
+- If the judge is slow or fails, `onTimeout: "ask"` asks you rather than
+  letting the action through.
+
+```ts
+ctx.before("tool.before", async (e) => {
+  if (e.tool !== "shell") return
+  const harmful = await ask(noul("Could this command cause irreversible harm?"), { judge: guard, evidence: { command: e.input.command } })
+  if (!harmful.ok || harmful.outcome !== "no") e.askUser("Chauffeur isn't sure this is safe.")
+}, { budget: 2_000, onTimeout: "ask" })
+```
+
+### Adapters
+
+- One per harness: its hooks become standard events such as `prompt.sent`
+  and `tool.before`, and actions are carried out after checking they are
+  still current.
+- Available for OpenCode.
+
+```ts
+const chauffeur = await Adapter.connect({
+  harness: "opencode",
+  actions: {
+    "session.compact": ({ session }) => oc.session.compact({ sessionID: session }),
+    "session.update":  ({ session, model }) => oc.session.switchModel({ sessionID: session, model }),
+  },
+})
+await oc.session.hook("prompt", (e) => chauffeur.before("prompt.sent", { session: e.sessionID, text: e.prompt.text }))
+```
+
+### `navigate`
+
+- Any program can send an event with its context and get back intents.
+- Available from TypeScript, the `chauffeur navigate` CLI and Rust, all over
+  JSON-RPC 2.0.
+
+```ts
+import { connect } from "@fdcn/chauffeur/client"
+
+const { intents } = await connect().navigate(
+  { on: "recall", evidence: { message }, candidates: { p1: "…", p4: "…" } },
+  { signal: AbortSignal.timeout(1_500) },
+)
+// [{ rule: "recall", attach: ["p4"] }]
+```
+
+### Strategy viewer and playground
+
+- `chauffeur strategy show` draws a rule's strategy as a tree, with the models
+  it will use and its maximum rounds and calls.
+- The playground steps through strategies in the browser.
+
+```text
+$ chauffeur strategy show recall
+recall                                         on recall
+├─ round 1  helps × candidates  system-one → jev
+└─ round 2  best               facts select   top 3, min 0.7, from helps
+then  attach best
+at most 2 rounds · 1 model call · 31 candidates at most
+```
+
+### Safety
+
+- The daemon listens only on a Unix socket in a directory only you can open.
+  There are no ports and no tokens.
+- Evidence is redacted before every model call, and your harness's own
+  denials always win.
+- A project's code runs only as pure facts, with no access to files or the
+  network, and its rules use System Two only where you allow it.
+
+```js
+// .chauffeur/facts/touches-migrations.js: a project fact, with no host modules
+export default ({ evidence }) =>
+  evidence.diff.includes("migrations/") ? { p: { yes: 1, no: 0 } } : { p: { yes: 0, no: 1 } }
 ```
 
 ## Documentation

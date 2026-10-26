@@ -250,13 +250,40 @@ forwards them to the daemon socket unchanged:
 | Binding | Caller | Mechanism |
 |---|---|---|
 | `@fdcn/chauffeur/client` | Any TypeScript program | `connect().navigate(request)` over the socket |
-| `chauffeur navigate` | Hook scripts, Git hooks, CI on the same machine | One request on stdin; JSON lines on stdout |
+| `chauffeur navigate` | Hook scripts, Git hooks, CI on the same machine | One request on stdin; the JSON-RPC messages on stdout |
 | `crates/protocol` | Rust programs | The same types the daemon uses |
 | An adapter | Its host's own plugins, as a convenience | The host's plugin-to-plugin mechanism, such as OpenCode plugin RPC |
 
 Adding a host or a language adds a binding, never a new request format. The
 schema's fixtures run in the protocol crate's tests and in each binding's
 tests.
+
+### JSON-RPC 2.0
+
+Every message to and from the engine is JSON-RPC 2.0, one message per line,
+over two transports:
+
+| Transport | Used by | Why |
+|---|---|---|
+| The Unix socket | Clients, the CLI, adapters | Independent programs reach the daemon; the socket's `0700` directory is the access control |
+| stdio | Plugins the daemon starts | A plugin's lifetime is tied to the daemon's, with no socket permissions to manage |
+
+The same messages travel on both. A request with an `id` gets a result or an
+error; a message without one is a notification, used for streamed events.
+`$/cancelRequest` with a request's `id` cancels it, and closing a connection
+cancels everything it carried. JSON-RPC is the standard LSP and MCP use: it
+needs nothing beyond `serde_json`, and its messages stay readable when
+debugging.
+
+| Method | Direction | Carries |
+|---|---|---|
+| `navigate` | Caller → daemon | A request; `event` notifications stream back, then the intents or verdict |
+| `emit`, `before` | Adapter → daemon | A harness event; `before` returns the edits plugins made |
+| `act` | Daemon → adapter | An action, with the revision it applies to |
+| `start` | Daemon → plugin | Discovery or run mode, options and the actions available |
+| `hooks` | Plugin → daemon | The events the plugin hooks with `on` and `before` |
+| `event`, `before` | Daemon → plugin | A hooked event; `before` returns edits |
+| `act`, `navigate` | Plugin → daemon | An action, or a question for the engine |
 
 ### Stateless invocation
 
@@ -932,7 +959,11 @@ stateDiagram-v2
   starts it with the daemon and keeps it running, for plugins with timers or
   their own connections.
 - **Transport.** The daemon starts each plugin as a child process and speaks
-  JSON lines over its stdin and stdout, so a plugin never outlives the daemon.
+  [JSON-RPC 2.0](#json-rpc-20) over its stdin and stdout, so a plugin never
+  outlives the daemon.
+- **Hot reload.** When a plugin's files change, the daemon reruns discovery
+  and restarts the plugin; its next event reaches the new code. Plugins run
+  from source on Bun, so nothing is compiled first.
 - **Isolation.** A crash affects only that plugin. A slow plugin's `on` events
   queue to a bound; overflow drops the oldest and says so in an event.
 
@@ -1121,9 +1152,11 @@ RPC.
 - Callers and plugins are trusted code, as the user runs them. They reach
   Chauffeur only through `navigate` and the plugin protocol; payloads are
   never authority.
-- One connection carries one navigation: the request, then its events in
-  order, then its intents or verdict. Each navigation's event buffer is bounded
-  and overflow is an explicit event. Closing the connection cancels it.
+- A connection may carry several calls, each with its own `id`. A
+  navigation's events arrive in order before its result. Each navigation's
+  event buffer is bounded and overflow is an explicit event.
+  `$/cancelRequest` cancels one call; closing the connection cancels all of
+  them.
 - One admission permit covers queued, waiting and active work. Capacity per
   source (shipped, integration, user and project rules, and inline
   strategies), strategy size, evidence bytes, fan-out, rounds, attempts and
@@ -1294,12 +1327,17 @@ crates/
   runtime/       # Admission, deadlines, workers, redaction
   daemon/        # Socket; loads models, facts and rules; event bus; plugin supervisor
   cli/           # chauffeur binary: navigate, strategy show, setup and audit
-  o11y/          # Event consumers
+  o11y/          # Event consumers, on tracing
 packages/
   chauffeur/     # @fdcn/chauffeur: /client, /judge, /plugin, /harness, /adapter
 adapters/
   opencode/      # The OpenCode adapter
   <host>/        # Each further harness
+plugins/
+  skills/            # Skill exposure, remote sources and safety review
+  context-renewal/   # Compacts long, cold sessions
+  warming/           # Keeps the prompt cache warm while idle
+  guard/             # Blocks or asks before irreversible actions
 distribution/
   models/        # jev.json, subq.json, glide.json
   facts/         # match.js, select.js, bm25.js, embedding.js, and their tests
@@ -1318,6 +1356,7 @@ scripts/         # Packaging, Homebrew formula, smoke tests
 | One loader for every source | The shipped `select.js` takes exactly the path a user's `notes.js` takes |
 | Precedence | Shipped, then user; project content is limited (pure facts, no models, System Two only if allowed) |
 | Install | Packaging copies `distribution/` to `~/.local/share/chauffeur/`, so the product and its content release separately |
+| Plugins | `plugins/` holds the first-party plugins. Each is its own package on the SDK, registered in `plugins.json` like anyone else's; nothing in `crates/` depends on them |
 
 Crates arrive when the API they consume is reviewed. `o11y` waits until the
 core event schema is stable.
@@ -1394,25 +1433,30 @@ the protocol crate.
 flowchart LR
     Program["TypeScript program"] --> Client["@fdcn/chauffeur/client<br/>and /judge"]
     Script["Hook script"] -- "stdin" --> Cli["chauffeur navigate"]
-    Client -- "Unix socket" --> Daemon["crates/daemon<br/>one navigation per connection"]
-    Cli -- "Unix socket" --> Daemon
+    Client -- "JSON-RPC, Unix socket" --> Daemon["crates/daemon"]
+    Cli -- "JSON-RPC, Unix socket" --> Daemon
 ```
 
 #### Wire contract
 
-One JSON request in, events and then intents out as JSON lines. The socket
-carries exactly what `chauffeur navigate` reads and prints:
+A `navigate` request, `event` notifications, then the result, as
+[JSON-RPC 2.0](#json-rpc-20) lines. `chauffeur navigate` reads the request's
+`params` on stdin and prints the messages it receives:
 
 ```sh
 chauffeur navigate <<'EOF'
 {"protocol": 1, "deadline_ms": 1500, "on": "recall", "evidence": {"message": "…"}, "candidates": {"p1": "…", "p4": "…"}}
 EOF
-# → {"event": {"rule_matched": {"rule": "opencode-history/recall"}}}
-# → {"event": {"round_ready": {"rule": "opencode-history/recall", "round": 1, "steps": ["helps[p1]", "helps[p4]"]}}}
-# → {"event": {"step_settled": {"rule": "opencode-history/recall", "step": "helps[p4]", "answer": {"outcome": "yes", "p": {"yes": 0.91, "no": 0.09}, "level": 0.09}}}}
-# → {"event": {"step_settled": {"rule": "opencode-history/recall", "step": "best", "answer": {"outcome": ["p4"]}}}}
-# → {"intents": [{"rule": "opencode-history/recall", "attach": ["p4"]}]}
+# → {"jsonrpc": "2.0", "method": "event", "params": {"id": 1, "rule_matched": {"rule": "opencode-history/recall"}}}
+# → {"jsonrpc": "2.0", "method": "event", "params": {"id": 1, "round_ready": {"rule": "opencode-history/recall", "round": 1, "steps": ["helps[p1]", "helps[p4]"]}}}
+# → {"jsonrpc": "2.0", "method": "event", "params": {"id": 1, "step_settled": {"step": "helps[p4]", "answer": {"outcome": "yes", "p": {"yes": 0.91, "no": 0.09}, "level": 0.09}}}}
+# → {"jsonrpc": "2.0", "method": "event", "params": {"id": 1, "step_settled": {"step": "best", "answer": {"outcome": ["p4"]}}}}
+# → {"jsonrpc": "2.0", "id": 1, "result": {"intents": [{"rule": "opencode-history/recall", "attach": ["p4"]}]}}
 ```
+
+A rejection is a JSON-RPC error whose `data.reason` names it:
+`limit_exceeded`, `judge_unavailable`, `busy`, `deadline` or
+`unsupported_protocol`.
 
 A request with `strategy` in place of `on` ends with `{"verdict": {…}}`.
 `$CHAUFFEUR_SOCKET` defaults to `chauffeur/daemon.sock` in the user's runtime
@@ -1448,9 +1492,9 @@ directory: `$XDG_RUNTIME_DIR`, or `$TMPDIR` on macOS.
 | `crates/runtime/src/run.rs` | Drives rounds on a bounded worker pool; checks the deadline and cancellation before each round; discards late results |
 | `crates/runtime/src/redact.rs` | Redacts evidence before every provider judge, porting v1's rules and their cases |
 | `crates/runtime/src/events.rs` | Bounded per-run event log; overflow is an explicit event |
-| `crates/daemon/src/{main,socket}.rs` | Creates the socket directory `0700` and refuses one it does not own; one navigation per connection, JSON lines out, closing cancels; `--models FILE` replaces the user's models, for tests |
-| `crates/daemon/src/rules.rs` | Loads rule files from the four sources, refuses System Two in a project rule the user has not allowed, reloads on change, matches `on` and `when`, and runs matching rules concurrently |
-| `crates/cli/src/navigate.rs` | `chauffeur navigate`: one request on stdin, the socket's JSON lines on stdout; exit 0 with intents or a verdict, 1 when rejected, 2 when the daemon is unavailable |
+| `crates/daemon/src/{main,socket}.rs` | Creates the socket directory `0700` and refuses one it does not own; JSON-RPC 2.0 lines, several calls per connection, `$/cancelRequest` and closing cancel; `--models FILE` replaces the user's models, for tests |
+| `crates/daemon/src/rules.rs` | Loads rule files from the four sources, refuses System Two in a project rule the user has not allowed, reloads rules, facts and models when `notify` reports a change, matches `on` and `when`, and runs matching rules concurrently |
+| `crates/cli/src/navigate.rs` | `chauffeur navigate`: one request on stdin, the JSON-RPC messages on stdout; exit 0 with intents or a verdict, 1 when rejected, 2 when the daemon is unavailable |
 | `crates/cli/src/strategy.rs` | `chauffeur strategy show <rule>` and `--file`: the strategy as a tree, with rounds, resolved models, `after`, confidence and the maximum rounds and model calls |
 | `packages/chauffeur/src/{client,judge}/` | `@fdcn/chauffeur/client` and `@fdcn/chauffeur/judge`: `navigate` over the socket, closing on abort; `ask`, `judge`, `strategy` and the question functions, typed from their questions |
 | `playground/wasm`, `playground/src/features/strategy.ts` | Parses strategies through `crates/protocol`; draws a rule's strategy tree and steps through it with recorded answers |
@@ -1562,6 +1606,14 @@ review every `main` commit past the watermark and add its row.
 | `crates/daemon/src/{bus,plugins,adapters}.rs` | Routing events to rules and plugins; supervising plugins (discovery cache, lazy start, idle stop, backoff); adapter connections and their declared actions |
 | `packages/chauffeur/src/{plugin,harness,adapter}/` | The plugin, action and adapter SDKs |
 | `adapters/opencode/` | The OpenCode adapter, and `navigate` over plugin RPC for other OpenCode plugins |
+| `plugins/{skills,context-renewal,warming,guard}/` | The first-party plugins, each its own package on the SDK |
+
+A spike decides whether first-party plugins ship compiled with scriptc. It
+compiles `context-renewal` and `guard`, and reports which SDK and Node APIs
+scriptc rejects, start time and memory against Bun, and build time. Compiled
+plugins are rebuilt with each release; user plugins, and first-party plugins
+in development, keep running from source on Bun so a file change reloads
+them.
 
 Verification: each row's evidence from `main` passes against v2; every v1 rule
 converts and validates; a plugin crash, a missed `before` budget and a stale
@@ -1602,13 +1654,12 @@ a machine with personal rules; rc release-gate runs from the bench.
 - Full workspace tests, Clippy, Miri, Kani, docs and deny run before committing
   the completed slice. The v2 branch is pushed after the agreed review.
 
-## Open questions
+## Decisions
 
-| Question | Recommended default |
+| Concern | Decision |
 |---|---|
-| Where first-party plugins live | Their own repository, so this one holds only the product, adapters and `distribution/`; slice 5 builds them there |
-| Jev's `score` type for scales | Use `choice` for every question that is not yes/no; slice 3 measures `score` on labelled scale cases, and a question gains a hint only if `score` is clearly better |
-| Slice 2 dependencies | `serde` and `serde_json` in protocol, `rquickjs` in facts. The daemon's socket and the runtime use `std` only; core stays dependency-free |
-| Rule reload | The daemon polls rule, fact and model folders' modification times with `std`; a file watcher needs a dependency |
-| o11y backend | Begin with a small event-consumer crate; choose a tracing/logging dependency only when implementing it |
-| scriptc | Revisit for compiling plugins to native binaries, so users need no Bun; not for the engine |
+| Wire protocol | JSON-RPC 2.0 over the Unix socket and stdio |
+| First-party plugins | `plugins/` in this repository, each its own package on the SDK |
+| Jev's `score` type | `choice` for every question that is not yes/no; slice 3 measures `score` on labelled scale cases, and a question gains a hint only if `score` is clearly better |
+| Production dependencies | `serde` and `serde_json` in protocol, `rquickjs` in facts, `notify` for reloading rules, facts and models, `tracing` in o11y. Core stays dependency-free |
+| scriptc | A slice 5 spike for first-party plugins; the engine stays Rust |
