@@ -1236,6 +1236,28 @@ fn a_context_that_caching_cannot_save_or_a_limited_provider_is_not_warmed() {
 }
 
 #[test]
+fn a_session_already_on_a_cheap_model_is_left_to_compact_the_usual_way() {
+    let on = |key: &str| {
+        let mut signal = resumed(
+            &["anthropic/opus", "anthropic/haiku", "opencode/x-free"],
+            200_000,
+        );
+
+        if let SignalKind::ContextResumed { model, .. } = &mut signal.kind {
+            *model = model_ref(key);
+        }
+
+        router(&[]).plan(&Situation::default(), &signal)
+    };
+
+    // A fast-tier model, a gateway copy of one, or a free last resort.
+    assert_eq!(on("anthropic/haiku"), Plan::Skip);
+    assert_eq!(on("opencode/haiku"), Plan::Skip);
+    assert_eq!(on("opencode/x-free"), Plan::Skip);
+    assert!(matches!(on("anthropic/opus"), Plan::Ask(_)));
+}
+
+#[test]
 fn nothing_is_asked_when_no_model_can_write_the_summary() {
     assert_eq!(
         router(&[]).plan(

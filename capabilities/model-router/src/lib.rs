@@ -374,7 +374,8 @@ impl ModelRouter {
     /// When a prompt resumes a context, whether a cheaper model should
     /// summarize it first. The question carries its facts, so a judge that
     /// decides from facts can answer it as well as a model can. Nothing is
-    /// asked when no cheaper model is available to write the summary.
+    /// asked for a session already on a fast-tier or last-resort model, nor
+    /// when no cheaper model is available to write the summary.
     fn renewal(&self, signal: &Signal) -> Option<Judgment<Verdict>> {
         let SignalKind::ContextResumed {
             model,
@@ -386,6 +387,13 @@ impl ModelRouter {
         else {
             return None;
         };
+
+        // A cheap model re-reads its context cheaply: OpenCode compacts it
+        // the usual way, when the window fills.
+        if self.current_tier(model) == Some(Tier::Fast) || self.config.is_last_resort(model) {
+            return None;
+        }
+
         let summarizer = self.summarizer(&signal.agent_id, model, available)?;
         let cache_seconds = self.config.renewal.cache_seconds(&model.provider);
         let budget = self.config.renewal.budget.tokens(*context_window);

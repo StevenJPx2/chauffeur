@@ -155,7 +155,8 @@ cache would expire. It stops after an hour, or sooner once more keep-alives
 would cost more than re-sending the conversation. When you come back after the
 cache has expired, and the conversation is long (a share of the model's
 window, between 50k and 100k tokens), a cheaper model summarizes it first.
-Your prompt still runs on your own model.
+Your prompt still runs on your own model. A session already on a cheap model,
+such as Haiku or a free one, is left to OpenCode's usual compaction.
 
 ![Chauffeur warms an idle session so the next prompt reads its cache, then compacts it once warming stops and the cache expires](docs/media/warming.gif)
 

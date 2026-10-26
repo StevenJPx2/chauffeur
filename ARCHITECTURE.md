@@ -654,7 +654,9 @@ first sends `context_resumed`: the session's model, the prompt size at that
 reply (input, cache read and write, output, reasoning, as OpenCode measures
 it), the model's window, the seconds since the provider last touched its
 prompt cache (that reply's end, or a later warming request), and the host's
-models. The router picks a summary model: a `renewal.pins` entry, else a
+models. A session already on a fast-tier or last-resort model is left alone:
+re-reading its context costs little, and OpenCode compacts it the usual way
+when the window fills. Otherwise the router picks a summary model: a `renewal.pins` entry, else a
 fast-tier model on the agent's own provider, then on another provider used
 directly (recommended first), else a last-resort free model; never a
 blacklisted one, nor one on a provider the agent hit a limit on. With none,
