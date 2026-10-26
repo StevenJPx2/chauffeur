@@ -30,9 +30,10 @@ The slices are:
    runtime, the daemon and the TypeScript client;
 3. System One models: Jev, SubQ and GLiDE;
 4. the first System Two models on the same path;
-5. plugins and adapters: the event bus, the SDK, the OpenCode adapter and the
-   plugins that reach parity with `main`;
-6. release and cutover: v2 replaces v1 as the shipped Chauffeur.
+5. plugins and adapters: the event bus, the SDK, the adapters for OpenCode,
+   Pi, Claude Code and Codex, and the plugins that reach parity with `main`;
+6. release and cutover: v2 replaces v1 as the shipped Chauffeur;
+7. rulebooks, held until their design is discussed.
 
 The work proceeds one slice at a time, with review before advancing.
 
@@ -43,6 +44,7 @@ flowchart LR
     S3 --> S4["4 System Two<br/>OpenAI, Anthropic"]
     S4 --> S5["5 Plugins and adapters<br/>parity with main"]
     S5 --> S6["6 Release<br/>1.0.0-rc, cutover"]
+    S6 -.-> S7["7 Rulebooks<br/>held for discussion"]
 ```
 
 ## Production and parity with main
@@ -80,6 +82,7 @@ Branch point `73bc29e`. Watermark: `e7fbabf`.
 | `3a18675` Skilld discovery | The skills plugin's remote sources; fetches run in the plugin, never on the daemon's coordinator (audit A4) | 5 | `cli/tests/skills.rs` |
 | `c43ecd6` read guard, RPC starvation fix | The guard plugin's `before` hooks; runtime admission permits (audit A3) | 2, 5 | `read-guard-probes.json`, `rpc-starvation.test.ts` |
 | `9b8e917` rules | Rule files in `distribution/rules/` | 5 | `capabilities/rules/tests/rules.rs` |
+| Rulebooks (`/goal`, `/ticket`) | Rulebook files run by the `rulebooks` plugin; see [Rulebooks](#rulebooks) | 7 | `skills/rulebooks/*.json`, `rulebooks.test.ts` |
 | `73bc29e` Homebrew release, CI | Release scripts and `check.yml` in v2 | 6 | `release.test.mjs`, `smoke.mjs` |
 | `f54db24`, `d66a385`, `e7fbabf` docs | Documentation only | — | — |
 | In progress on `main`: GLiDE provider, confidence escalation | `glide.json` over the `systemone` format; escalation is a strategy: System One with `model: "jev"`, then `model: "glide"`, then System Two | 3 | `judges/glide/tests/wire.rs`, `docs/judges.md` escalation cases |
@@ -1294,6 +1297,40 @@ Codex asks the user to trust the hooks once, in `/hooks`.
 | Reply to a permission | `PermissionRequest`: `decision.behavior` `allow` or `deny` |
 | Block a prompt | `UserPromptSubmit`: `decision: "block"` with the reason |
 
+## Rulebooks
+
+Status: a sketch, held for discussion before slice 7 starts.
+
+A rulebook is a set of rules that stays off until the user starts it in a
+session, such as `/goal ship the parser fix`. A book is data in the rule-file
+shape, and the first-party `rulebooks` plugin runs it:
+
+```jsonc
+// distribution/rulebooks/goal.json
+{
+  "id": "goal",
+  "args": { "required": true },
+  "budget": 20,
+  "on_start": "Goal: {args}. Work toward it until evidence shows it is done.",
+  "rules": [{
+    "on": "response.finished",
+    "judges": { "quick": { "tier": "system-one", "confidence": 0.7 } },
+    "strategy": [{ "id": "done", "judge": "quick",
+                   "ask": { "outcomes": ["yes", "no"], "evidence": ["summary", "todos"], "instructions": "Is {args} done and checked?" } }],
+    "then": [{ "if": { "done": "yes" }, "end": "complete" },
+             { "if": { "done": "no" }, "message.append": { "parts": [{ "text": "Not done yet: {args}" }], "delivery": "wake" } }]
+  }]
+}
+```
+
+- The plugin registers `/goal` with `command.add`, and keeps each session's
+  running books, their arguments and remaining budget.
+- When a running book's event fires, the plugin runs its rules through
+  `navigate` and carries out their `then`, counting each delivery against the
+  budget.
+- Books load from `distribution/rulebooks/`, `~/.config/chauffeur/rulebooks/`
+  and `.chauffeur/rulebooks/`, like rules.
+
 ## Proofs
 
 | What | How |
@@ -1815,6 +1852,11 @@ Verification: packaging dry run and smoke test on Linux and macOS; Homebrew
 `install`, `test`, `audit` and `style`; upgrade from the current v1 release on
 a machine with personal rules; rc release-gate runs from the bench.
 
+### Slice 7: rulebooks
+
+Held until the [rulebooks](#rulebooks) design is discussed and approved. Its
+files, tests and verification are written then.
+
 ## Quality gates
 
 - Pinned nightly, deny-level strict Clippy, formatting and stable MSRV check.
@@ -1847,3 +1889,10 @@ a machine with personal rules; rc release-gate runs from the bench.
 | Production dependencies | Core stays dependency-free. Approved: `serde` and `serde_json` (protocol and every config file), `thiserror` (typed errors outside core), `rquickjs` and bundled `rusqlite` (facts and the `chauffeur:sqlite` host module), `notify` (reloading rules, facts and models), `ureq` with rustls (model formats, slices 3 and 4), `tracing` and `jiff` (o11y events and audit timestamps), `clap` and `color-eyre` (the CLI binary only) |
 | Development tools | `cargo-nextest` runs tests (doctests stay on `cargo test --doc`); `cargo-mutants` checks that tests catch changed logic in core, confidence and lowering; `cargo-shear` catches unused dependencies; `criterion` benchmarks the socket hop, confidence, a fact call and lowering; `bacon.toml` holds shared watch jobs |
 | scriptc | A slice 5 spike for first-party plugins; the engine stays Rust |
+
+## Open questions
+
+| Question | Recommended default |
+|---|---|
+| The rulebooks design | Discuss before slice 7; the [sketch](#rulebooks) is the starting point |
+| Whether cutover waits for rulebooks | Cutover waits, since v1 users rely on `/goal`; otherwise slice 6 ships without them and says so |
