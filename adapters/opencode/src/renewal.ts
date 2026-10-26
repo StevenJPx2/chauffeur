@@ -1,5 +1,5 @@
 import type { SessionCompaction } from "@opencode/plugin/effect/session"
-import { DateTime, type Duration, Effect, Predicate, Schema, type Scope } from "effect"
+import { Data, DateTime, type Duration, Effect, Predicate, Schema, type Scope } from "effect"
 import { Daemon } from "./daemon.js"
 import { type HistoryMessage, Host, type SessionID } from "./host.js"
 import { available, hostModel, modelKey, ref } from "./model-router.js"
@@ -32,17 +32,20 @@ const TOOL_OUTPUT_CHARS = 1_250
 
 const METADATA_KEY = "chauffeur.compaction"
 
-/** How long a provider that cannot write summaries is passed over: its sign-in or balance rarely changes sooner. */
-const UNREACHABLE_MS = 24 * 60 * 60 * 1_000
-
-const UNREACHABLE_KEY = "renewal.unreachable"
+/** The temporary session a summary is written in. */
+const SUMMARY_TITLE = "Chauffeur context summary"
 
 /**
- * The host's errors for a model that cannot serve a plain generation at all,
- * such as a provider whose sign-in reaches only the agent's own requests, an
- * empty balance, or a spent free allowance; not a slow or unusable reply.
+ * How long a provider whose summary request failed is passed over, so the
+ * next renewal asks another provider. Short: a usage limit or a spent free
+ * allowance usually clears within the hour.
  */
-const UNREACHABLE_ERRORS = ["Generate.UnavailableError", "Generate.ModelSelectionError"]
+const PASS_OVER_MS = 60 * 60 * 1_000
+
+const PASS_OVER_KEY = "renewal.passed-over"
+
+/** A summary the model wrote without the template's headings. */
+class UnfilledTemplate extends Data.TaggedError("UnfilledTemplate")<{ readonly model: string }> {}
 
 const Deadlines = Schema.Record(Schema.String, Schema.Number)
 
@@ -82,21 +85,21 @@ export const installRenewal = (warming: WarmingControl = { lastWarmed: () => und
   const texts = yield* Texts
   const pending = new Map<string, Pending>()
 
-  const stored = yield* host.storage.get(UNREACHABLE_KEY).pipe(
+  const stored = yield* host.storage.get(PASS_OVER_KEY).pipe(
     Effect.flatMap(Schema.decodeUnknownEffect(Deadlines)),
     Effect.orElseSucceed(() => ({})),
   )
 
-  /** Providers whose summary request the host could not serve, until when they are passed over. */
-  const unreachable = new Map(Object.entries(stored))
+  /** Providers whose summary request failed, until when they are passed over. */
+  const passedOver = new Map(Object.entries(stored))
 
   const passOver = (provider: string) => {
-    unreachable.set(provider, Date.now() + UNREACHABLE_MS)
+    passedOver.set(provider, Date.now() + PASS_OVER_MS)
 
-    return host.storage.set(UNREACHABLE_KEY, Object.fromEntries(unreachable)).pipe(Effect.ignore)
+    return host.storage.set(PASS_OVER_KEY, Object.fromEntries(passedOver)).pipe(Effect.ignore)
   }
 
-  const reachable = (provider: string) => (unreachable.get(provider) ?? 0) <= Date.now()
+  const reachable = (provider: string) => (passedOver.get(provider) ?? 0) <= Date.now()
 
   yield* host.session.hook("compaction", (event) => {
     const sessionID = String(event.sessionID)
@@ -106,17 +109,29 @@ export const installRenewal = (warming: WarmingControl = { lastWarmed: () => und
 
     if (!job || Date.now() - job.at > PENDING_MS) return Effect.void
 
-    return host.generate.text({ prompt: summaryRequest(event.messages, job.window, texts.current()), model: hostModel(job.model) }).pipe(
+    return summarize(event.sessionID, job.model, summaryRequest(event.messages, job.window, texts.current())).pipe(
       Effect.timeout(SUMMARY_TIMEOUT),
-      Effect.flatMap(({ text }) => filled(text, texts.current())
+      Effect.flatMap((text) => filled(text, texts.current())
         ? Effect.sync(() => { event.result = { summary: text.trim(), metadata: { [METADATA_KEY]: modelKey(job.model) } } })
-        : Effect.fail(new Error(`${modelKey(job.model)} did not fill the summary template`))),
+        : Effect.fail(new UnfilledTemplate({ model: modelKey(job.model) }))),
       Effect.catch((error) => Effect.logWarning("chauffeur: the cheaper summary failed; OpenCode compacts on the session's model", error).pipe(
-        // The next renewal asks another provider's model for the summary.
-        Effect.andThen(UNREACHABLE_ERRORS.some((tag) => Predicate.isTagged(error, tag)) ? passOver(job.model.provider) : Effect.void),
+        // A model that answered, if poorly, can still be asked; one that failed is passed over for a while.
+        Effect.andThen(Predicate.isTagged(error, "UnfilledTemplate") ? Effect.void : passOver(job.model.provider)),
       )),
     )
   })
+
+  /**
+   * `prompt` answered by `model` in a temporary child session of `parentID`,
+   * removed afterwards. A session request goes through the provider's
+   * session sign-in, such as a subscription plugin's, which a bare
+   * generation does not reach.
+   */
+  const summarize = (parentID: SessionID, model: ModelRef, prompt: string) => Effect.acquireUseRelease(
+    host.session.create({ parentID, title: SUMMARY_TITLE, model: hostModel(model) }),
+    (child) => host.session.generate({ sessionID: child.id, prompt }).pipe(Effect.map(({ text }) => text)),
+    (child) => host.session.remove({ sessionID: child.id }).pipe(Effect.ignore),
+  )
 
   return {
     renew: (sessionID) => Effect.gen(function* () {

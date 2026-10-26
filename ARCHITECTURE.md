@@ -677,21 +677,22 @@ idle at least the cache lifetime and the context at least the budget. A yes
 is a `compact` effect. The adapter queues
 OpenCode's compaction ahead of the prompt (`session.compact`, which runs
 before waiting prompts), treats the prompt as the first of a new context, and
-in OpenCode's `compaction` hook has `generate.text` on the summary model
-write the summary from the older transcript (tool output clipped to 1,250
+in OpenCode's `compaction` hook has the summary model write the summary in a
+temporary child session (`session.create` on that model, `session.generate`,
+then `session.remove`), so the request carries the provider's session sign-in,
+such as a subscription plugin's, which a bare `generate.text` does not. The
+summary covers the older transcript (tool output clipped to 1,250
 characters, oldest exchanges dropped to fit the summary model's window, an
 earlier summary always kept) with OpenCode's template, from
 `hosts/opencode.json` `compaction`. OpenCode keeps its recent exchanges
 verbatim beside it. The session's own model never changes, so the prompt runs
 on it. A summary that fails, times out (3 minutes), or skips the template
 leaves the compaction to OpenCode's own model; a failed decision leaves the
-context as it is. A summary the host cannot serve at all
-(`Generate.UnavailableError` or `Generate.ModelSelectionError`, such as an
-Anthropic sign-in through a subscription plugin that reaches only session
-requests, an empty balance, or a spent free allowance) has the adapter pass
-over that provider for 24 hours, kept in plugin storage: its models go to the
-engine as unusable in later `context_resumed` signals, so the router picks a
-summary model elsewhere.
+context as it is. A summary request that fails (a usage limit, an empty
+balance, a spent free allowance) has the adapter pass over that provider for
+an hour, kept in plugin storage: its models go to the engine as unusable in
+later `context_resumed` signals, so the router picks a summary model
+elsewhere. A summary that skips the template passes over nothing.
 
 **Session warming.** When a session the user drives finishes a turn, the
 adapter sends `context_idle`: the session's model, its context size, and the
@@ -798,8 +799,8 @@ Installed as a package, it also registers the hand-over skills in
 - **`gate`:** the `chauffeur.gate` plugin RPC's reply.
 - **`compact`:** `session.compact` from the prompt hook, before admission,
   and `session.hook("compaction")` sets the hook's `result` to the summary
-  `generate.text` wrote on the effect's model, only for a compaction
-  Chauffeur queued.
+  the effect's model wrote in a temporary child session, only for a
+  compaction Chauffeur queued.
 - **Skill loading:** a `skill` deny rule on every agent via `agent.transform`.
 
 ## Workspace

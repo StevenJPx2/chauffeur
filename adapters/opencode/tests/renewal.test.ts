@@ -31,11 +31,16 @@ function reply(minutesAgo: number, tokens: number) {
   }
 }
 
-function setup(history: ReadonlyArray<unknown>, compact: boolean, overrides: FakeHost = {}) {
+/** The host's error for a provider that cannot serve the request, as OpenCode raises it. */
+class Unavailable extends Data.TaggedError("Session.UnavailableError")<{ readonly message: string }> {}
+
+function setup(history: ReadonlyArray<unknown>, compact: boolean, overrides: FakeHost = {}, unavailable = false) {
   const hooks = new Hooks()
   const signals: Signal[] = []
   const compactions: string[] = []
-  const generated: Array<{ readonly prompt: string; readonly model: { readonly id: string } }> = []
+  const generated: Array<{ readonly prompt: string; readonly model: { readonly id: string }; readonly parentID: string }> = []
+  const children = new Map<string, { readonly parentID: string; readonly model: { readonly id: string } }>()
+  const removed: string[] = []
 
   const host = fakeHost({
     session: {
@@ -43,16 +48,26 @@ function setup(history: ReadonlyArray<unknown>, compact: boolean, overrides: Fak
       context: () => Effect.succeed(history),
       get: () => Effect.succeed({ model: opus }),
       compact: (input: { readonly sessionID: string }) => Effect.sync(() => { compactions.push(input.sessionID) }),
+      create: (input: { readonly parentID: string; readonly model: { readonly id: string } }) => Effect.sync(() => {
+        const id = `ses_child_${children.size}`
+
+        children.set(id, input)
+
+        return { id }
+      }),
+      generate: (input: { readonly sessionID: string; readonly prompt: string }) => {
+        const child = children.get(input.sessionID)
+
+        if (!child || unavailable) return Effect.fail(new Unavailable({ message: "Error" }))
+
+        generated.push({ prompt: input.prompt, model: child.model, parentID: child.parentID })
+
+        return Effect.succeed({ text: child.model.id === "claude-haiku-5" ? summary : "no template here" })
+      },
+      remove: (input: { readonly sessionID: string }) => Effect.sync(() => { removed.push(input.sessionID) }),
     },
     model: { list: () => Effect.succeed(models) },
     storage: { get: () => Effect.succeed(undefined), set: () => Effect.void },
-    generate: {
-      text: (input: (typeof generated)[number]) => Effect.sync(() => {
-        generated.push(input)
-
-        return { text: input.model.id === "claude-haiku-5" ? summary : "no template here" }
-      }),
-    },
     ...overrides,
   })
 
@@ -62,11 +77,11 @@ function setup(history: ReadonlyArray<unknown>, compact: boolean, overrides: Fak
     return compact ? [{ type: "compact", agent_id: value.agent_id, model: { provider: "anthropic", model: "claude-haiku-5" } }] : []
   }) }
 
-  return { hooks, signals, compactions, generated, host, daemon }
+  return { hooks, signals, compactions, generated, removed, host, daemon }
 }
 
 test("a cold context reports its size and idle time; the engine's compaction is queued and summarized by the cheaper model", async () => {
-  const { hooks, signals, compactions, generated, host, daemon } = setup([reply(30, 640_000)], true)
+  const { hooks, signals, compactions, generated, removed, host, daemon } = setup([reply(30, 640_000)], true)
   const plugin = await install(installRenewal(), host, daemon)
 
   try {
@@ -87,9 +102,12 @@ test("a cold context reports its size and idle time; the engine's compaction is 
 
     await hooks.emit("compaction", event)
 
+    // Written in a child session on the cheaper model, which is then removed.
     expect(generated[0]?.model.id).toBe("claude-haiku-5")
+    expect(generated[0]?.parentID).toBe("ses_cold")
     expect(generated[0]?.prompt).toContain("[User]: build the feature")
     expect(event.result?.summary).toBe(summary)
+    expect(removed).toEqual(["ses_child_0"])
 
     // Only the compaction Chauffeur queued is summarized by the cheaper model.
     const auto: CompactionEvent = { sessionID: "ses_cold", messages: [] }
@@ -139,19 +157,15 @@ test("a summary that skips the template leaves the compaction to OpenCode's own 
   }
 })
 
-/** The host's error for a provider that cannot serve a plain generation, as OpenCode raises it. */
-class Unavailable extends Data.TaggedError("Generate.UnavailableError")<{ readonly message: string; readonly service: string }> {}
-
-test("a provider that cannot serve the summary is passed over at the next renewal", async () => {
+test("a provider whose summary fails is passed over for an hour, and its child session is still removed", async () => {
   const saved: Array<Readonly<Record<string, number>>> = []
 
-  const { hooks, signals, host, daemon } = setup([reply(30, 640_000)], true, {
+  const { hooks, signals, removed, host, daemon } = setup([reply(30, 640_000)], true, {
     storage: {
       get: () => Effect.succeed(undefined),
       set: (_key: string, deadlines: Readonly<Record<string, number>>) => Effect.sync(() => { saved.push(deadlines) }),
     },
-    generate: { text: () => Effect.fail(new Unavailable({ message: "Error", service: "anthropic" })) },
-  })
+  }, true)
 
   const plugin = await install(installRenewal(), host, daemon)
 
@@ -166,6 +180,8 @@ test("a provider that cannot serve the summary is passed over at the next renewa
     expect(usable(signals[0])).toEqual([true, true])
     expect(usable(signals[1])).toEqual([false, false])
     expect(saved).toEqual([{ anthropic: expect.any(Number) }])
+    expect(saved[0]?.anthropic).toBeLessThanOrEqual(Date.now() + 60 * 60_000)
+    expect(removed).toEqual(["ses_child_0"])
   } finally {
     await plugin.close()
   }
