@@ -73,15 +73,15 @@ sequenceDiagram
     participant C as Core
     participant F as Facts judge
     A->>B: context_resumed (idle, tokens, window)
-    B->>R: Plan: renew_context, judge "facts"
+    B->>R: Plan with step renew_context, judge "facts"
     R->>C: Start
     C-->>R: Round 1 asks renew_context
     R->>F: Judge the facts
     F-->>R: Yes
     R->>C: Answer
-    C-->>R: Done: verdict + events
+    C-->>R: Done, with verdict and events
     R-->>B: Verdict
-    B-->>A: Intent: compact with the summary model
+    B-->>A: Intent to compact with the summary model
     A->>A: Check revision, then session.compact
 ```
 
@@ -118,13 +118,13 @@ sequenceDiagram
     participant R as Runtime
     participant C as Core plan
     participant I as Inference provider
-    B->>P: Register operation; submit bounded plan + evidence
+    B->>P: Submit bounded plan and evidence
     P->>R: Invoke with plugin grant and deadline
     R->>C: Advance ready steps
     C-->>R: Typed System One / System Two requests
     R->>I: Execute on bounded provider workers
     I-->>R: Validated answer or explicit failure
-    R-->>C: Settle step; continue or finish
+    R-->>C: Settle step, then continue or finish
     R-->>P: Correlated verdict + bounded events
     P-->>B: Result
 ```
