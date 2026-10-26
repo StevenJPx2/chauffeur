@@ -5,6 +5,53 @@ the harness's events, asks fast and careful judges the right questions, and
 acts through the harness: attaching skills, compacting a cold session,
 stopping a destructive command or holding back noise.
 
+## How it works
+
+```mermaid
+flowchart LR
+    Harness["Harness<br/>OpenCode, Pi, Claude Code, Codex"] -- "hooks" --> Adapter["Adapter<br/>standard events"]
+    Adapter -- "events" --> Daemon["Chauffeur daemon"]
+    Daemon --> Rules["Rule files<br/>data"]
+    Daemon --> Plugins["Plugins<br/>TypeScript behaviors"]
+    Rules -- "strategies" --> Engine["Engine<br/>judges, facts, models"]
+    Plugins -- "ask, strategy" --> Engine
+    Plugins -- "actions" --> Adapter
+    Rules -- "actions" --> Adapter
+    Adapter -- "compact, append, block" --> Harness
+```
+
+| Part | Job |
+|---|---|
+| Adapter | Translates one harness: its hooks become standard events, and actions go back to it |
+| Daemon | The event bus: loads rules, starts plugins, routes events and actions |
+| Rule files | Behavior as data: on this event, ask this, then do that |
+| Plugins | Behavior as TypeScript, for anything a rule file can't express |
+| Engine | Answers questions: runs strategies over judges, facts and models |
+| Callers | Any other program, asking Chauffeur directly through `navigate` |
+
+### One event, end to end
+
+A user sends a message in OpenCode, and the skills plugin attaches the skills
+the request needs:
+
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant O as OpenCode
+    participant A as OpenCode adapter
+    participant D as Chauffeur daemon
+    participant P as skills plugin
+    U->>O: sends a message
+    O->>A: prompt hook fires
+    A->>D: event prompt.sent
+    D->>P: prompt.sent, starting the plugin if needed
+    P->>D: ask its strategy pick-skills
+    D-->>P: review-pr, rust-style
+    P->>D: edit: append skills review-pr, rust-style
+    D->>A: append skills
+    A->>O: skills attached to the prompt
+```
+
 ## Features
 
 ### Judges
