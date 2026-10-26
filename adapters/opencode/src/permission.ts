@@ -1,17 +1,22 @@
 import { existsSync, realpathSync } from "node:fs"
 import { basename, dirname, resolve } from "node:path"
 import type { PermissionEvaluation } from "@opencode/plugin/effect/permission"
-import { Effect } from "effect"
-import { Daemon } from "./daemon.js"
+import { Effect, Schedule } from "effect"
+import { Daemon, type DaemonError } from "./daemon.js"
 import { type HistoryMessage, Host } from "./host.js"
 import { RESOURCE_BYTES, RESOURCES_TOTAL_BYTES, signal, TEXT_CODE_POINTS, type Resource, type SignalKind } from "./protocol.js"
 import { clip, clipStart, isIntegrationMessage, userText } from "./text.js"
 import { fill, Texts } from "./texts.js"
 
 // Permission is synchronous for the host; past this the request asks. The
-// engine runs permission first, but may still finish a Jev call already under
-// way (300-400 ms) before its own; 600 ms timed out 3 in 4 such requests.
-const PERMISSION_TIMEOUT = "2 seconds"
+// budget includes session-history lookup and queued daemon work as well as
+// judgment. Two seconds can expire before an otherwise valid reply arrives.
+const PERMISSION_TIMEOUT = "5 seconds"
+
+// A daemon mid-restart refuses connections for about a second.
+const UNREACHABLE_RETRIES = 2
+
+const UNREACHABLE_RETRY_DELAY = "500 millis"
 
 const MAX_RESOURCES = 32
 
@@ -24,7 +29,8 @@ const FILE_ACTIONS = new Set(["read", "edit", "write", "patch"])
  * Reports permission requests with the host's own decision, resolved paths,
  * and recent user requests, and applies the engine's decision. The engine
  * judges what the host would ask about and vetoes irreversible harm in what
- * it would allow. A host denial always stands; any failure asks.
+ * it would allow. A host denial always stands; a failure keeps the host's
+ * allow and asks otherwise.
  */
 export const installPermission = Effect.gen(function* () {
   const host = yield* Host
@@ -41,7 +47,10 @@ export const installPermission = Effect.gen(function* () {
       if (event.resources.length > MAX_RESOURCES) return yield* Effect.fail(`more than ${MAX_RESOURCES} resources`)
 
       const kind = yield* request(event, hostDecision).pipe(Effect.provideService(Host, host))
-      const effects = yield* daemon.signal(signal(sessionID, kind), PERMISSION_TIMEOUT)
+
+      const effects = yield* daemon.signal(signal(sessionID, kind), PERMISSION_TIMEOUT).pipe(
+        Effect.retry({ times: UNREACHABLE_RETRIES, schedule: Schedule.spaced(UNREACHABLE_RETRY_DELAY), while: unreachable }),
+      )
 
       for (const effect of effects) {
         if (effect.type !== "permission" || effect.agent_id !== sessionID) continue
@@ -50,12 +59,25 @@ export const installPermission = Effect.gen(function* () {
 
         if (effect.message !== null) event.message = effect.message
       }
-    }).pipe(Effect.timeout(PERMISSION_TIMEOUT), Effect.catch((error) => Effect.sync(() => {
-      event.effect = "ask"
-      event.message = clip(fill(texts.current().permission.failed, { error: String(error) }), TEXT_CODE_POINTS)
-    })))
+    }).pipe(Effect.timeout(PERMISSION_TIMEOUT), Effect.catch((error) => {
+      // Chauffeur only vetoes what the host allows, so a failure leaves the allow.
+      if (hostDecision === "allow") {
+        event.effect = "allow"
+
+        return Effect.logWarning(`chauffeur: permission check failed; keeping the host's allow: ${String(error)}`)
+      }
+
+      return Effect.sync(() => {
+        event.effect = "ask"
+        event.message = clip(fill(texts.current().permission.failed, { error: String(error) }), TEXT_CODE_POINTS)
+      })
+    }))
   })
 })
+
+function unreachable(error: DaemonError): boolean {
+  return error.message.startsWith("chauffeur daemon unreachable")
+}
 
 function request(event: PermissionEvaluation, hostDecision: "allow" | "ask"): Effect.Effect<SignalKind, unknown, Host> {
   return Effect.gen(function* () {

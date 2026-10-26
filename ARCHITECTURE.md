@@ -406,8 +406,11 @@ Missing evidence and cooldown select fixed outcomes without a model call; a
 failed or low-confidence judgment selects `judge_failure` or `uncertain`,
 which cannot allow. The most restrictive outcome across contracts answers the
 host (deny, then ask, then allow; prompt and remind ask with their reminder). A
-host denial always stands; the adapter asks when the engine fails or misses
-the 2-second budget, including session-history lookup. No matching contract
+host denial always stands. When the engine fails or misses the 5-second
+budget, including session-history lookup, the adapter keeps the host's
+decision: an allow stays allowed, since Chauffeur only vetoes those, and an
+ask still asks. An unreachable daemon, such as one mid-restart, is retried
+twice, 500 ms apart, within that budget. No matching contract
 leaves the host's decision. Permission resources are never clipped: commands
 and paths reach safety checks whole, or ask if one exceeds 16 KiB of UTF-8 or a
 request's resources exceed 128 KiB together. 16 KiB fits a shell command that
@@ -787,7 +790,7 @@ Installed as a package, it also registers the hand-over skills in
   Bun's shared fetch pool. Long-lived MCP and SourceFed event streams cannot
   consume the transport's slots and queue permission checks. Each hook's
   deadline aborts the socket, including a stalled response body.
-- **`permission`:** `permission.hook("evaluate")`, answered within 2 seconds.
+- **`permission`:** `permission.hook("evaluate")`, answered within 5 seconds.
 - **`model`:** `session.switchModel` (with the variant) plus the retry
   decision; the session's model comes from `session.get`.
 - **`tools`:** the hidden list is recorded on the user message's

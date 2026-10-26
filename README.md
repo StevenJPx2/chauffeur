@@ -246,7 +246,8 @@ into Chauffeur yet.
 If every configured judge fails, Chauffeur stands aside:
 
 - Prompts go through unchanged.
-- Permission requests fall back to asking you.
+- Permission requests keep OpenCode's own decision: what it allows stays
+  allowed, and what it would ask about still asks you.
 
 ## See what it decided
 

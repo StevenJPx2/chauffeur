@@ -112,12 +112,12 @@ test("a host allow is reported as one, and stands unless the engine vetoes it", 
 test("a judgment that arrives late still answers, rather than asking", async () => {
   // One engine thread serves every signal, so a permission request waits
   // behind the judgments already under way. A queued answer is still an
-  // answer: only a call that never returns becomes an ask.
+  // answer: only a call that exceeds the budget becomes an ask.
   const approval: ReadonlyArray<HostEffect> = [
     { type: "permission", agent_id: sessionID, decision: "allow", message: "Serves the task." },
   ]
 
-  const queued: DaemonClient = { ...replying([], []), signal: () => Effect.as(Effect.sleep("400 millis"), approval) }
+  const queued: DaemonClient = { ...replying([], []), signal: () => Effect.as(Effect.sleep("2500 millis"), approval) }
 
   const event = await evaluate(queued, {
     sessionID, action: "shell", resources: ["cargo test"], effect: "ask",
@@ -140,13 +140,37 @@ test("an engine failure or an oversized request keeps asking", async () => {
   expect(oversized).toMatchObject({ effect: "ask", message: "Chauffeur could not evaluate this request: more than 32 resources" })
 })
 
-test("a failure downgrades a host allow to ask, never silently allows", async () => {
+test("a failure keeps a host allow rather than asking the user", async () => {
   const event = await evaluate(
     { skills: noSkills, rulebooks: noRulebooks, texts: shippedTexts, signal: () => Effect.fail(new DaemonError({ message: "daemon down" })) },
-    { sessionID, action: "shell", resources: ["cargo test"], effect: "allow" },
+    { sessionID, action: "question", resources: ["*"], effect: "allow" },
   )
 
-  expect(event.effect).toBe("ask")
+  expect(event.effect).toBe("allow")
+})
+
+test("a daemon mid-restart is retried before the request falls back", async () => {
+  let attempts = 0
+
+  const approval: ReadonlyArray<HostEffect> = [
+    { type: "permission", agent_id: sessionID, decision: "allow", message: "Serves the task." },
+  ]
+
+  const restarting: DaemonClient = {
+    ...replying([], []),
+    signal: () => Effect.suspend(() => {
+      attempts += 1
+
+      return attempts < 3
+        ? Effect.fail(new DaemonError({ message: "chauffeur daemon unreachable: Error: connect ECONNREFUSED" }))
+        : Effect.succeed(approval)
+    }),
+  }
+
+  const event = await evaluate(restarting, { sessionID, action: "shell", resources: ["cargo test"], effect: "ask" })
+
+  expect(attempts).toBe(3)
+  expect(event).toMatchObject({ effect: "allow", message: "Serves the task." })
 })
 
 test("another session's permission decision cannot approve this request", async () => {
@@ -176,14 +200,16 @@ test("a shell command carrying a heredoc prompt is judged whole", async () => {
   expect(sent[0]?.kind).toMatchObject({ resources: [{ requested: command, resolved: command }] })
 })
 
-test("a resource larger than the engine's byte bound asks instead of clipping", async () => {
+test("a resource larger than the engine's byte bound is never clipped and leaves the host's decision", async () => {
   const sent: Signal[] = []
   const command = `echo '${"é".repeat(8_200)}'`
-  const event = await evaluate(replying(sent, []), { sessionID, action: "shell", resources: [command], effect: "allow" })
+  const asked = await evaluate(replying(sent, []), { sessionID, action: "shell", resources: [command], effect: "ask" })
+  const allowed = await evaluate(replying(sent, []), { sessionID, action: "shell", resources: [command], effect: "allow" })
 
-  expect(event.effect).toBe("ask")
   expect(sent).toHaveLength(0)
-  expect(event.message).toContain("exceeds 16384 bytes")
+  expect(asked.effect).toBe("ask")
+  expect(asked.message).toContain("exceeds 16384 bytes")
+  expect(allowed.effect).toBe("allow")
 })
 
 test("a stalled history lookup cannot hang permission evaluation forever", async () => {
@@ -196,7 +222,7 @@ test("a stalled history lookup cannot hang permission evaluation forever", async
   })
 
   const plugin = await install(installPermission, host, replying([], []))
-  const event = { sessionID, action: "edit", resources: ["src/index.ts"], effect: "allow" }
+  const event = { sessionID, action: "edit", resources: ["src/index.ts"], effect: "ask" }
 
   try {
     await hooks.emit("evaluate", event)
