@@ -7,17 +7,20 @@ findings and checks that inform this plan.
 
 ## Goal
 
-Chauffeur's core runs generic, bounded judgment plans. Applications and
-behavior plugins build plans and supply domain evidence. Each step names the
+Chauffeur's core runs generic, bounded judgment plans. Each step names the
 judge that answers it. A judge is anything implementing core's generic `Judge`
 interface: a deterministic rule, a System One classifier, a System Two
 reasoner or a person. Provider plugins supply the model-backed judges.
-Observability and RPC consume core's public contracts; core depends on neither.
+
+Most extensions are data: a rule file in `.chauffeur/` declares when to ask,
+the plan to run and what to do with the verdict. Code that needs a judgment is
+an ordinary OpenCode plugin calling `chauffeur.run`. Chauffeur never runs code
+from a repository, and no plugin needs a token.
 
 The initial slices are:
 
 1. a generic state machine that is playable in the browser;
-2. the provider-neutral inference contract and plugin/RPC path;
+2. the plan protocol, runtime and daemon, reached through `chauffeur.run`;
 3. Jev implementing that contract.
 4. System Two structured reasoning on the same plan/runtime path.
 5. Behavior plugins and the OpenCode adapter, reaching parity with `main`.
@@ -54,7 +57,7 @@ Branch point `73bc29e`. Watermark: `e7fbabf`.
 
 | `main` commit | v2 home | Slice | Evidence from `main` |
 |---|---|---|---|
-| `f2b087b` judge interface, facts judge | Facts is a rule judge on the panel; `judge.json` routes become step judge names and grants | 2 | `judges/facts/src/lib.rs` tests |
+| `f2b087b` judge interface, facts judge | Facts is a rule judge on the panel; `judge.json` routes become step judge names | 2 | `judges/facts/src/lib.rs` tests |
 | `bb41c9a` context renewal, session warming | Model-router behavior; the adapter performs `compact` and `warm` | 5 | `routing.rs`, `renewal.test.ts`, `warming.test.ts` |
 | `22e5391`, `36f6253` skill safety review | Skill-review behavior: a screen-then-review plan | 3–4 | `sources/tests.rs` vetting cases |
 | `3a18675` Skilld discovery | Skill-sources behavior; fetches run on runtime workers (audit A4) | 2, 5 | `cli/tests/skills.rs` |
@@ -93,13 +96,13 @@ Warming asks no question: the behavior returns a `warm` intent without a plan.
 flowchart TB
     Core["crates/core<br/>Generic plan state machine"]
     O11y["crates/o11y<br/>Observes core events"] --> Core
-    Protocol["crates/protocol<br/>Serializable wire contracts"] --> Core
-    Rpc["crates/rpc<br/>Plugin transport and registration"] --> Protocol
+    Protocol["crates/protocol<br/>Plan, evidence and verdict JSON"] --> Core
     Runtime["crates/runtime<br/>Drives rounds and dispatches providers"] --> Core
     Runtime --> O11y
-    Runtime --> Rpc
+    Daemon["crates/daemon<br/>Socket, rule files, default plugins"] --> Runtime
+    Daemon --> Protocol
     Jev["plugins/providers/jev<br/>System One HTTP provider"] --> Runtime
-    Playground["playground<br/>WASM + interactive feature tabs"] --> Core
+    Playground["playground<br/>WASM + interactive feature tabs"] --> Protocol
 ```
 
 `crates/core` has no crate dependencies: no async runtime, HTTP, serde, UI,
@@ -111,39 +114,32 @@ dependencies determine size. Each package owns a real boundary.
 
 ## Pluggability boundaries
 
+Chauffeur is extended in three ways, each submitting the same plan JSON:
+
 ```mermaid
-sequenceDiagram
-    participant B as Behavior plugin
-    participant P as Versioned protocol / RPC
-    participant R as Runtime
-    participant C as Core plan
-    participant I as Inference provider
-    B->>P: Submit bounded plan and evidence
-    P->>R: Invoke with plugin grant and deadline
-    R->>C: Advance ready steps
-    C-->>R: Typed System One / System Two requests
-    R->>I: Execute on bounded provider workers
-    I-->>R: Validated answer or explicit failure
-    R-->>C: Settle step, then continue or finish
-    R-->>P: Correlated verdict + bounded events
-    P-->>B: Result
+flowchart LR
+    Rules[".chauffeur/rules/*.json<br/>data: when, plan, then"] --> Daemon
+    Plugin["OpenCode plugin<br/>code with its own data"] -- "chauffeur.run" --> Adapter["OpenCode adapter"]
+    Adapter -- "Unix socket" --> Daemon["Chauffeur daemon"]
+    Native["Native Rust behavior<br/>linked into the bundle"] --> Daemon
+    Daemon --> Runtime["Runtime: admit, redact,<br/>run, deadline"]
 ```
 
-The default bundle may link native Rust behavior and provider plugins. An
-independently installed behavior plugin runs out of process and connects over
-versioned RPC through the JavaScript SDK. Both paths submit the same declarative
-plan and use the same admission, validation, deadline, redaction and failure
-rules; the runtime never loads or executes external plugin code.
+| Way | Who writes it | Use it for |
+|---|---|---|
+| Rule file | The user, a project, or Chauffeur's shipped defaults | A question about what the agent does, and a steer, skill or permission answer |
+| OpenCode plugin | A plugin author | Judgment over data only the plugin holds, such as opencode-history's index |
+| Native behavior | Chauffeur | Behavior that needs Chauffeur's own state, such as the model router |
 
 | Owner | Responsibility | Boundary |
 |---|---|---|
 | `crates/core` | Generic plan composition, validation and state transitions | No transport, provider, host or domain policy |
-| `crates/runtime` | Admission, run state, deadlines, cancellation, egress redaction and provider dispatch | Injects implementations; owns no behavior-plugin policy |
-| `crates/protocol` / `crates/rpc` | Versioned plan and result schemas, registration, grants and bounded event delivery | A plugin ID names a principal; it grants no authority by itself |
+| `crates/runtime` | Admission, run state, deadlines, cancellation, egress redaction and provider dispatch | Injects implementations; owns no behavior policy |
+| `crates/protocol` | One JSON form of plans, evidence and verdicts for rule files, `chauffeur.run` and the playground | Validates and limits before anything runs |
+| `crates/daemon` | The socket, rule-file loading, and the default judges and behaviors | Listens only on a socket the user owns |
 | Behavior plugins | Questions, evidence selection, domain state, verdict interpretation and action intents | Never call host APIs directly |
 | Provider plugins | System One classification and System Two reasoning, transport and credentials | Expose provider-neutral results to the runtime |
-| Host adapters | Report host observations and enforce approved actions at host seams | Host denials remain authoritative |
-| JavaScript SDK | Registration, plan construction, correlated requests and reconnect handling | Cannot mint grants or bypass runtime validation |
+| Host adapters | Report host observations, enforce approved actions, and serve `chauffeur.run` to other plugins | Host denials remain authoritative |
 
 ### Stateless invocation and inference tiers
 
@@ -151,7 +147,7 @@ An invocation has a caller, request ID, bounded evidence, declared plan and
 deadline. It can run without an agent session, `Signal`, `Situation`, or prior
 history; the caller supplies the evidence it wants considered. Results and
 transition events return to that caller. Agent observations and host actions
-are separate operations, admitted only under their own scope grants.
+are separate operations that only the host adapter sends.
 
 System One and System Two are judges, not separate domain-policy engines or
 special request kinds. They implement the same `Judge` interface as a
@@ -169,30 +165,36 @@ outcome type:
 The v1 experiment's direct `judge(policy)` and `complete(profile)` calls are
 not the primary v2 plugin API: each exposes only one inference request and
 cannot express a screen, conditional escalation, fan-out or result assembly.
-An external caller submits a bounded declarative plan; inference requests are
-its steps. A future one-step convenience API is acceptable only if it lowers to
-that same path and cannot bypass plan limits, grants, redaction or deadlines.
+A caller submits a bounded declarative plan; inference requests are its steps.
+A future one-step convenience API is acceptable only if it lowers to that same
+path and cannot bypass plan limits, redaction or deadlines.
 
 ### Access, delivery and failure rules
 
-- A host administrator grants each plugin named operations and observation or
-  action scopes. Plugin-supplied IDs and payloads are never authority.
-- External plugins are trusted processes, not sandboxes. They cannot register
-  callback URLs or run inside the daemon.
-- Long-poll delivery uses bounded, cancellable queues. The SDK handles
-  correlation, reconnect and disconnect leases; registrations and pending
-  work expire with their lease, and overflow is explicit.
-- One admission permit covers queued, waiting and active work. Per-plugin
-  quotas, interactive capacity, plan size, evidence bytes, node count, depth,
-  fan-out, rounds, attempts and output size are checked before dispatch.
+- The daemon listens only on a Unix socket in a directory only the user can
+  open (`chauffeur/` in the user's runtime directory, mode `0700`), so only the
+  user's own processes connect. There is no TCP port and no token.
+- `.chauffeur/` holds data only. Chauffeur never runs code from a repository.
+  A cloned repository's rules are data the user did not write: they run under
+  the same limits, and System Two stays off for them unless
+  `~/.config/chauffeur` turns it on for that project.
+- OpenCode plugins are trusted code, as OpenCode loads them. They reach
+  Chauffeur only through `chauffeur.run`; payloads are never authority.
+- One connection carries one run: the request, then the run's events in order,
+  then the verdict. Each run's event buffer is bounded and overflow is an
+  explicit event. Closing the connection cancels the run.
+- One admission permit covers queued, waiting and active work. Capacity per
+  source (shipped, personal and project rules, and `chauffeur.run`), plan size,
+  evidence bytes, node count, depth, fan-out, rounds, attempts and output size
+  are checked before dispatch.
 - Deadlines include queueing, preparation, every inference round and delivery.
   A disconnected caller cancels future work; a blocking provider call retains
   its worker lease until it ends, and late results cannot commit actions.
 - Redaction runs after evidence assembly and before every provider call, and
   also covers errors and audit metadata. Provider credentials remain in the
-  provider implementation and never enter plugin grants.
+  provider implementation and never reach rule files or callers.
 - A pipeline returns data and action intents, not host effects. A host adapter
-  checks the current observation revision and its grant before acting; host
+  checks the current observation revision before acting; host
   denials and the safety veto cannot be overridden by a plugin verdict.
 
 Native providers are linked only into bundles that select them. Adding a
@@ -200,139 +202,142 @@ provider crate does not make it public or enabled. Embeddings are a shared,
 bounded local service; domain-specific vector caches and ranking stay with the
 behavior that owns them.
 
-## External plugin examples
+## Extension examples
 
-Three plugins built on the JavaScript SDK, each a separate process. Each sends
-a plan and its evidence, reads the verdict, and acts on its own host; Chauffeur
-judges and never acts for them. Recall and the commit hook need slice 2's SDK
-and slice 3's Jev; thread triage also needs System Two from slice 4.
+Two rule files and one OpenCode plugin. A rule file needs no code: dropping it
+into a `.chauffeur/rules/` folder is the whole install. Only judgment over
+data Chauffeur cannot see, such as another plugin's search index, needs code.
 
-```mermaid
-flowchart LR
-    Recall["Per-turn recall<br/>fan-out, read scores"] --> Sdk["JavaScript SDK"]
-    Triage["Thread triage<br/>screen, then review"] --> Sdk
-    Hook["Commit-message hook<br/>all must agree"] --> Sdk
-    Sdk --> Chauffeur["Chauffeur daemon<br/>grant, plan, judges"]
-```
+A rule file has four parts:
 
-Each plugin has a token and a grant from the host administrator:
+| Field | Meaning |
+|---|---|
+| `on`, `when` | The host event that triggers the rule, and a cheap deterministic filter on it |
+| `plan` | The plan, in the same JSON as `chauffeur.run` and the playground |
+| `then` | Intents by verdict, first match wins; no match does nothing |
+
+Rules load from Chauffeur's shipped defaults, `~/.config/chauffeur/rules/`,
+and each project's `.chauffeur/rules/` from the Git worktree root down to the
+session's directory. Edits apply without a restart.
+
+### Commit messages (rule file)
+
+v1's `conventional-commits` rule, with its question as a one-step plan:
 
 ```jsonc
-// ~/.config/chauffeur/plugins.json
+// .chauffeur/rules/conventional-commits.json
 {
-  "plugins": [
-    { "id": "opencode-history", "token_sha256": "…", "judges": ["system-one"], "capacity": 2 },
-    { "id": "thread-triage", "token_sha256": "…", "judges": ["system-one", "system-two"], "capacity": 1 },
-    { "id": "commit-msg", "token_sha256": "…", "judges": ["system-one"], "capacity": 1 }
+  "id": "conventional-commits",
+  "on": "tool_result",
+  "when": { "tools": ["shell"] },
+  "plan": { "steps": [{
+    "id": "nonconventional",
+    "judge": "system-one",
+    "ask": {
+      "kind": "noul",
+      "label": { "yes": 700, "no": 300 },
+      "evidence": ["tool_call"],
+      "instructions": "Does this call create a git commit whose message does not follow Conventional Commits?"
+    }
+  }] },
+  "then": [{ "if": { "nonconventional": "yes" }, "steer": "Use Conventional Commits, such as `feat(scope): short description`." }],
+  "cooldown_seconds": 120
+}
+```
+
+### Thread triage (rule file)
+
+Decides whether a new Slack message in a thread the agent was given needs the
+agent. System One screens; System Two reviews only what System One leaves
+unsure or fails on. It is a personal rule because it uses System Two.
+
+```jsonc
+// ~/.config/chauffeur/rules/thread-triage.json
+{
+  "id": "thread-triage",
+  "on": "integration_event",
+  "when": { "sources": ["slack"] },
+  "plan": { "steps": [
+    {
+      "id": "screen",
+      "judge": "system-one",
+      "ask": {
+        "kind": "noul",
+        "label": { "yes": 700, "no": 300 },
+        "evidence": ["thread", "event"],
+        "instructions": "Does the new message ask the agent to do or change something?"
+      }
+    },
+    {
+      "id": "review",
+      "judge": "system-two",
+      "gates": [{ "mode": "any", "sources": ["screen"], "on": ["unsure", { "failed": true }] }],
+      "ask": {
+        "kind": "verdict",
+        "labels": ["act", "ignore"],
+        "evidence": ["thread", "event"],
+        "instructions": "Should the agent act on the new message? Cite the evidence."
+      }
+    }
+  ] },
+  "then": [
+    { "if": { "screen": "yes" }, "deliver": "event" },
+    { "if": { "review": "act" }, "deliver": "event" }
   ]
 }
 ```
 
-### Per-turn recall (opencode-history)
+Two rounds at most: `review` is skipped when the screen says `yes` or `no`. An
+event that no rule delivers is withheld. The `verdict` request kind is defined
+with System Two in slice 4.
 
-An OpenCode plugin. For each user message, one round rates up to eight
-candidate passages from earlier sessions; the plugin attaches at most three
-that score 700 or more to that message.
+### Per-turn recall (OpenCode plugin)
 
-```ts
-import { all, ask, connect } from "@fdcn/chauffeur-sdk"
-
-const chauffeur = connect({ token: options.chauffeurToken })
-
-const ids = candidates.map((_, i) => `p${i + 1}`)
-const plan = all(ids.map((id) => ask(id, "system-one", {
-  kind: "noul",
-  instructions: `Would ${id} materially help the agent answer new_message, beyond what it already says?`,
-  evidence: ["previous_reply", "new_message", id],
-})))
-
-const run = await chauffeur.run(plan, {
-  evidence: { previous_reply: previous, new_message: text, ...Object.fromEntries(ids.map((id, i) => [id, candidates[i].text])) },
-  deadlineMs: 1_500,
-  signal: hookSignal,
-})
-
-const attach = ids
-  .map((id, i) => ({ passage: candidates[i], score: run.outcome(id) }))
-  .filter((c): c is { passage: Candidate; score: number } => typeof c.score === "number" && c.score >= 700)
-  .sort((a, b) => b.score - a.score)
-  .slice(0, 3)
-```
-
-All eight steps share one round, so Jev answers them in one call. A missed
-deadline or an unreachable daemon attaches nothing.
-
-### Thread triage
-
-Watches a Slack thread an agent was given and decides whether a new message
-needs the agent. System One screens; System Two reviews only what System One
-leaves unsure or fails on.
+opencode-history needs code: its candidates come from its own search index.
+It calls `chauffeur.run`, an OpenCode plugin RPC that Chauffeur's adapter
+registers, as sourcefed calls v1's `chauffeur.gate`. OpenCode loads both
+plugins, so no token or address is configured.
 
 ```ts
-import { ask, connect, failed } from "@fdcn/chauffeur-sdk"
+import { Chauffeur } from "@fdcn/chauffeur/rpc"
 
-const chauffeur = connect({ token: process.env.CHAUFFEUR_TOKEN })
-const triage = ask("screen", "system-one", {
-  kind: "noul",
-  label: { yes: 700, no: 300 },
-  instructions: "Does the new message ask the agent to do or change something?",
-  evidence: ["thread", "message"],
-}).thenOn({ any: ["unsure", failed] }, ask("review", "system-two", {
-  kind: "verdict",
-  labels: ["act", "ignore"],
-  instructions: "Should the agent act on the new message? Cite the evidence.",
-  evidence: ["thread", "message"],
-}))
+const chauffeur = ctx.rpc(Chauffeur)
 
-const run = await chauffeur.run(triage, { evidence: { thread, message }, deadlineMs: 20_000 })
-if (run.outcome("screen") === "yes" || run.outcome("review") === "act") await notifyAgent(message)
-```
-
-Two rounds at most: `review` is skipped when the screen says `yes` or `no`.
-The `verdict` request kind is defined with System Two in slice 4.
-
-### Commit-message hook
-
-A Git `commit-msg` hook, outside any agent: no session or history exists, only
-the message and the staged diff. Both checks must pass.
-
-```ts
-#!/usr/bin/env bun
-import { all, ask, connect, Unavailable } from "@fdcn/chauffeur-sdk"
-
-const check = (id: string, instructions: string) =>
-  ask(id, "system-one", { kind: "noul", label: { yes: 700, no: 300 }, instructions, evidence: ["message", "diff"] })
-
-const plan = all([
-  check("type", "Does the conventional-commit type (feat, fix, docs…) match what the diff changes?"),
-  check("scope", "Does the scope name the area the diff changes?"),
-])
-
-try {
-  const run = await connect({ token: process.env.CHAUFFEUR_TOKEN }).run(plan, {
-    evidence: { message, diff: diff.slice(0, 200_000) },
-    deadlineMs: 3_000,
+async function recall(message: string, passages: readonly Passage[]) {
+  const { verdict } = await chauffeur.run({
+    plan: { steps: passages.map((passage) => helps(passage.id)) },
+    evidence: { message, ...Object.fromEntries(passages.map((p) => [p.id, p.text])) },
+    deadlineMs: 1_500,
   })
-  const failing = ["type", "scope"].filter((id) => run.outcome(id) === "no")
-  if (failing.length) {
-    console.error(`commit message: ${failing.join(" and ")} do not match the change`)
-    process.exit(1)
-  }
-} catch (error) {
-  if (!(error instanceof Unavailable)) throw error // no daemon: allow the commit
+  return passages.filter((passage) => verdict[passage.id]?.settled === "yes").slice(0, 3)
 }
+
+const helps = (id: string) => ({
+  id,
+  judge: "system-one",
+  ask: {
+    kind: "noul",
+    label: { yes: 700, no: 300 },
+    evidence: ["message", id],
+    instructions: `Would ${id} materially help the agent answer the message, beyond what it already says?`,
+  },
+})
 ```
 
-### What each plugin can get back
+The passages arrive in search order, so the first three accepted are kept.
+All steps share one round, so Jev answers them in one call. An error or a
+missed deadline attaches nothing.
 
-| Result | Meaning | SDK |
+### What a caller gets back
+
+| Result | Meaning | `chauffeur.run` |
 |---|---|---|
-| Verdict | Every step settled, failed or skipped | `run.outcome(id)`: a score, a label, `failed`, or `skipped` |
-| Judge not granted | A step names a judge outside the plugin's grant; nothing ran | `Denied` |
-| Limit exceeded | The plan or evidence is over a named limit; nothing ran | `LimitExceeded` |
-| Busy | The plugin's or the daemon's capacity is in use | `Busy` |
-| Deadline | The deadline passed; unfinished steps are unanswered | `DeadlineExceeded`, with the events so far |
-| Unavailable | No daemon, or a protocol it does not accept | `Unavailable`, `UnsupportedProtocol` |
+| Verdict | Every step settled, failed or skipped | `verdict[id]`: `{ settled }`, `{ failed: true }` or `{ skipped: true }` |
+| Unknown judge | A step names a judge that is not seated or not allowed for its source; nothing ran | `judge_unavailable` error |
+| Limit exceeded | The plan or evidence is over a named limit; nothing ran | `limit_exceeded` error |
+| Busy | This source's or the daemon's capacity is in use | `busy` error |
+| Deadline | The deadline passed; unfinished steps are unanswered | `deadline` error, with the events so far |
+| Unavailable | The daemon is not running | `unavailable` error |
 
 ## Core plan model
 
@@ -380,13 +385,14 @@ pub trait Judge<Q, O> {
 // Any `Fn(&Q) -> Outcome<O>` is a judge.
 ```
 
-A step names its judge, because plans are data: JSON and RPC plans can only
-refer to judges the host already holds, and grants can then limit which judges
-a plugin may use. A `Panel` maps names to judges. `plan.run(&panel)` validates
+A step names its judge, because plans are data: rule files and `chauffeur.run`
+plans can only refer to judges the host already holds, and configuration can
+limit which judges a project's rules may use. A `Panel` maps names to judges. `plan.run(&panel)` validates
 the plan, rejects a name the panel lacks before asking anything, and then asks
 each judge its share of every round in one `judge_all` call. A batch with the
 wrong number of answers settles as `Failed`. The round-by-round API remains for
-the playground and RPC; each `Question` reports its step, judge and request.
+the playground and the runtime; each `Question` reports its step, judge and
+request.
 
 Judges are synchronous so rules stay plain functions. The runtime runs slow
 judges such as Jev on bounded worker threads, with deadlines and cancellation;
@@ -414,7 +420,8 @@ let candidates_then_review = all([
 `ask`, `all`, `then_on` and `then_if_any` are ordinary functions/builders, not
 a privileged list of built-in strategies. A plugin can define `fan_out`,
 `screen_then_review`, or its own strategy by composing them. The playground
-edits the same plan structure, so Rust builders and RPC plans have one meaning.
+edits the same plan structure, so Rust builders, rule files and `chauffeur.run`
+plans have one meaning.
 
 Composition lowers to the DAG: `all` combines independent plans;
 `then_on`/`then_if_any` add a gate to each root of the following plan, referring
@@ -449,9 +456,9 @@ runtime may offer a local observer callback around transitions; the only
 user-supplied code core invokes is a judge, inside `run`.
 
 `crates/o11y` consumes events for logs, traces or audit. `crates/runtime` can
-offer a convenience observer callback, but core does not call user code. For
-RPC, runtime/protocol serializes events and sends them through a bounded queue;
-remote observers never block a core transition.
+offer a convenience observer callback, but core does not call user code. The
+daemon serializes each run's events onto its caller's connection from a bounded
+log; a slow caller never blocks a core transition.
 
 The state machine does not decide provider choice, retry/backoff, HTTP,
 credentials, or domain actions. Those belong to runtime, provider and plugin
@@ -485,10 +492,9 @@ The Vite development loop rebuilds Rust changes in `playground/wasm/` and
 crates/
   core/                 # Generic plan, outcomes, judges, state machine and events
   o11y/                 # Event consumers
-  protocol/             # Versioned serde wire models and validation
-  rpc/                  # Plugin registration/transport built on protocol
+  protocol/             # Plan, evidence and verdict JSON; validation and limits
   runtime/              # Admission, deadlines, workers, redaction, transition driver
-  daemon/               # Composition root: selects the default plugins
+  daemon/               # Socket, rule-file loading, default plugins
   cli/                  # `chauffeur` binary, setup and audit
 plugins/
   judges/
@@ -502,11 +508,10 @@ plugins/
     permission/          # Permission contracts and guards
     rules/               # Rules and rulebooks
 adapters/
-  opencode/              # Host observation and action enforcement
+  opencode/              # Host observation, action enforcement, `chauffeur.run`
 playground/
   wasm/                  # Thin wasm-bindgen bridge to core
   src/features/          # One interactive tab per feature under test
-sdk/javascript/          # External plugin client and builder helpers
 scripts/                 # Packaging, Homebrew formula, smoke tests
 .github/workflows/       # check.yml
 ```
@@ -514,7 +519,7 @@ scripts/                 # Packaging, Homebrew formula, smoke tests
 Shipped content lives with the behavior that reads it, so one directory owns
 each rule, contract and config (audit A10).
 
-The first core slice does not create provider, protocol, RPC or runtime crates.
+The first core slice does not create provider, protocol, runtime or daemon crates.
 They arrive when the core API they consume is reviewed. `o11y` also waits until
 the core event schema is stable.
 
@@ -552,7 +557,7 @@ Kani harnesses in `crates/core/src/proofs.rs`, scenarios in
   order. Keep each proof to one invariant, a small fixed graph and a small
   outcome enum.
 - Run strict clippy, scenario tests, Kani, Miri, and the browser playground.
-- Stop for user review before adding observability or RPC.
+- Stop for user review before adding observability or the daemon.
 
 Kani results, each run alone (`cargo kani -p chauffeur-core --harness <name>`):
 
@@ -570,36 +575,38 @@ The last two give termination within one round per step; `proofs.rs` states the
 argument. Gate proofs cover three sources and every outcome subset; whole-plan
 proofs cover every three-step plan whose gates name one source and one outcome.
 
-### Slice 2 — Provider-neutral inference contract and plugin/RPC path
+### Slice 2 — Plan protocol, runtime and daemon
 
-An external plugin submits a bounded declarative plan with its evidence and a
-deadline, and receives a verdict and the run's events. It sends data, never
-callbacks or code. The runtime seats judges on a panel by name; a plugin's
-grant names the judges it may use. Native Rust callers use the same runtime
-contracts without RPC. Plugin-registered operations and host-action grants
-arrive with the behaviors that need them in slice 5.
+A caller sends a bounded declarative plan with its evidence and a deadline,
+and receives the run's events and its verdict. It sends data, never callbacks
+or code. The runtime seats judges on a panel by name. This slice builds the
+path `chauffeur.run` takes; rule files reuse it in slice 5.
 
 ```mermaid
 flowchart LR
-    Plugin["External plugin"] --> Sdk["sdk/javascript<br/>build plan, run, cancel"]
-    Sdk -- "HTTP, protocol 1" --> Rpc["crates/rpc<br/>auth, grant, long-poll"]
-    Rpc --> Runtime["crates/runtime<br/>admit, redact, run, deadline"]
+    Plugin["OpenCode plugin"] -- "chauffeur.run" --> Adapter["adapters/opencode<br/>OpenCode plugin RPC"]
+    Adapter -- "Unix socket, JSON lines" --> Daemon["crates/daemon<br/>one run per connection"]
+    Daemon --> Runtime["crates/runtime<br/>admit, redact, run, deadline"]
     Runtime --> Core["crates/core<br/>rounds and events"]
 ```
 
 #### Wire contract
 
+One JSON line in, the run's events and its verdict out:
+
 ```sh
-curl -s localhost:18790/v2/invoke -H "authorization: Bearer $TOKEN" -d '{
-  "protocol": 1, "deadline_ms": 1500,
-  "evidence": [{"id": "message", "text": "…"}, {"id": "p1", "text": "…"}],
-  "plan": {"steps": [{"id": "p1", "judge": "system-one",
-    "ask": {"kind": "noul", "instructions": "Would p1 help?", "evidence": ["message", "p1"]}}]}
-}'
-# → {"run": "run_7"}
-curl -s localhost:18790/v2/wait -H "authorization: Bearer $TOKEN" -d '{"run": "run_7", "after": 0}'
-# → {"done": true, "verdict": {"p1": {"settled": 812}}, "events": [ … ], "next": 4}
+nc -U "$CHAUFFEUR_SOCKET" <<'EOF'
+{"protocol": 1, "deadline_ms": 1500, "evidence": {"message": "…", "p1": "…"}, "plan": {"steps": [{"id": "p1", "judge": "system-one", "ask": {"kind": "noul", "instructions": "Would p1 help?", "evidence": ["message", "p1"]}}]}}
+EOF
+# → {"event": {"started": {"steps": 1}}}
+# → {"event": {"round_ready": {"round": 1, "steps": ["p1"]}}}
+# → {"event": {"step_settled": {"round": 1, "step": "p1", "outcome": 812}}}
+# → {"verdict": {"p1": {"settled": 812}}}
 ```
+
+`$CHAUFFEUR_SOCKET` defaults to `chauffeur/daemon.sock` in the user's runtime
+directory: `$XDG_RUNTIME_DIR`, or `$TMPDIR` on macOS. The adapter's
+`chauffeur.run` takes the same request as an object and returns the verdict.
 
 - **Outcomes** are a string or an integer, compared by equality. A `noul` step
   settles to its score, 0 to 1000. A step that gates others adds
@@ -610,9 +617,9 @@ curl -s localhost:18790/v2/wait -H "authorization: Bearer $TOKEN" -d '{"run": "r
   failure never collides with a label.
 - **Evidence** is named once per run and referenced by steps, so a batched
   provider call carries each block once.
-- **Versioning:** `protocol` is required; the server answers
-  `unsupported_protocol` with the versions it accepts. `GET /v2/hello` reports
-  them with the daemon version.
+- **Versioning:** `protocol` is required; the daemon answers
+  `unsupported_protocol` with the versions it accepts, and the adapter reports
+  it as `unavailable`.
 - **Limits**, checked before admission: 32 steps, 16 gates per step, 64 evidence
   blocks, 256 KiB of evidence, 30 s deadline. Each rejection names its limit.
 
@@ -621,23 +628,19 @@ curl -s localhost:18790/v2/wait -H "authorization: Bearer $TOKEN" -d '{"run": "r
 | Path | Contents |
 |---|---|
 | `crates/protocol/src/{lib,plan,evidence,limits,error}.rs` | Serde wire types; validation and limits; lowering to `chauffeur_core::Plan<Ask, Outcome>`; typed errors |
-| `crates/runtime/src/admission.rs` | One permit per run, held from admission through delivery; per-grant and global capacity |
+| `crates/runtime/src/admission.rs` | One permit per run, held from admission through delivery; per-source and global capacity |
 | `crates/runtime/src/run.rs` | Drives rounds on a bounded worker pool; checks the deadline and cancellation before each round; discards late results |
 | `crates/runtime/src/judges.rs` | `Send + Sync` panel by name; the `noul` label mapping; the fake System One that replays recorded scores |
 | `crates/runtime/src/redact.rs` | Redacts evidence before every provider judge, porting v1's rules and their cases |
-| `crates/runtime/src/events.rs` | Bounded per-run event log with cursor reads; overflow is an explicit event |
-| `crates/rpc/src/{lib,auth,routes}.rs` | Loopback HTTP server: `hello`, `invoke`, `wait`, `cancel`; bearer token to grant; a missed `wait` lease cancels the run |
-| `crates/rpc/examples/loopback.rs` | Test server with the fake System One, for SDK and recall tests |
-| `sdk/javascript/src/{index,plan,client}.ts` | `ask`, `all`, `thenOn` builders matching core's; `connect(…).run(plan, { evidence, deadlineMs, signal })`; `run.outcome(id)`; typed errors |
-| `playground/wasm` | Parses plans through `crates/protocol`, so the page and RPC share one JSON format |
-
-Grants live in `~/.config/chauffeur/plugins.json`: plugin ID, token hash,
-allowed judges and capacity. The token, not the ID, identifies the plugin.
+| `crates/runtime/src/events.rs` | Bounded per-run event log; overflow is an explicit event |
+| `crates/daemon/src/{main,socket}.rs` | Creates the socket directory `0700` and refuses one it does not own; one run per connection, JSON lines out, closing cancels; `--fake-system-one FILE` seats the fake for tests |
+| `adapters/opencode/src/rpc.ts` | `Chauffeur`, the `chauffeur.run` definition, exported as `@fdcn/chauffeur/rpc`; forwards each call to the socket and closes it when the caller's signal aborts |
+| `playground/wasm` | Parses plans through `crates/protocol`, so the page, rule files and `chauffeur.run` share one JSON format |
 
 #### Reference plugin: opencode-history recall
 
-[Per-turn recall](#per-turn-recall-opencode-history) is the reference external
-plugin; slice 2 runs it end to end against recorded scores.
+[Per-turn recall](#per-turn-recall-opencode-plugin) is the reference caller;
+slice 2 runs it end to end against recorded scores.
 
 #### Verification
 
@@ -647,13 +650,15 @@ plugin; slice 2 runs it end to end against recorded scores.
   8 admit 8 and reject 73 with `capacity`.
 - Kani: a permit is released exactly once on every terminal path; the event
   log never exceeds its bound.
-- RPC over loopback: denied judge, wrong token, unsupported protocol, dropped
-  `wait` lease; events arrive in order.
-- SDK against `loopback.rs`: the playground examples run with the same verdicts
-  as `Plan::run`.
+- Daemon socket: an unknown judge, an unsupported protocol, an oversized line
+  and a closed connection each fail safely; events arrive in order; another
+  user's socket directory is refused.
+- `chauffeur.run` in a real OpenCode with the daemon and the fake System One:
+  the playground examples return the same verdicts as `Plan::run`, and aborting
+  the caller cancels the run.
 - Recall: Jev scores recorded by opencode-history's replay feed the fake System
-  One; the SDK path attaches the same passages as the replay. No agent session
-  or history is sent.
+  One; `chauffeur.run` attaches the same passages as the replay with the same
+  selection rule. No agent session or history is sent.
 
 ### Slice 3 — Jev integration
 
@@ -665,7 +670,7 @@ Verification: loopback HTTP contract cases for documented request/response,
 invalid replies and provider errors; then run a screen/review plan through the
 playground/runtime against Jev with a real key. Report the plan, answers,
 rounds, elapsed time and provider-call count. Run opencode-history's recall
-replay live through the SDK: one Jev call per message, judge time within the
+replay live through `chauffeur.run`: one Jev call per message, judge time within the
 replay's 278 ms p50 and 318 ms p95 plus local overhead.
 
 ### Slice 4 — System Two provider backend
@@ -690,10 +695,14 @@ labeled cases before enabling a live profile.
 Port each parity-table row assigned to slice 5 as a behavior plugin that builds
 plans and returns intents, with the adapter observing the host and enforcing
 those intents. Each behavior moves its rules, contracts and config into its own
-directory. Before the slice closes, review every `main` commit past the
-watermark and add its row.
+directory. The rules behavior loads rule files (`on`, `when`, `plan`, `then`)
+from the shipped, personal and project folders, and converts v1's rules to that
+format. Before the slice closes, review every `main` commit past the watermark
+and add its row.
 
-Verification: each row's evidence from `main` passes against v2; an intent for
+Verification: each row's evidence from `main` passes against v2; every v1 rule
+converts and validates; a project rule naming System Two is refused unless the
+user allows it; an intent for
 a stale observation revision is refused at the adapter; the bench `verify`
 fixtures pass; a day of real use through a locally built plugin and
 daemon.
@@ -716,7 +725,7 @@ a machine with personal rules; rc release-gate runs from the bench.
 - Pinned nightly, deny-level strict Clippy, formatting and stable MSRV check.
 - Miri over core and runtime scenarios; Kani proofs are small and each names
   one invariant.
-- Real boundary checks for browser WASM, RPC serialization, provider HTTP and
+- Real boundary checks for browser WASM, the daemon socket, OpenCode's plugin RPC, provider HTTP and
   live Jev. Unit tests supplement these checks; they do not replace them.
 - Verify at each slice before proceeding. Keep functions under 70 non-blank,
   non-comment lines, use no production dependency without approval, and keep
@@ -728,9 +737,9 @@ a machine with personal rules; rc release-gate runs from the bench.
 
 | Question | Recommended default |
 |---|---|
-| Event observation API | Core returns transition events; runtime offers an observer callback, and RPC forwards through a bounded queue. Judges are the only user code core calls |
+| Event observation API | Core returns transition events; runtime offers an observer callback, and the daemon streams them to the caller from a bounded log. Judges are the only user code core calls |
 | Plan outcome types | Native plans choose `O: Clone + Eq`; protocol outcomes are a string or an integer, with `Failed` a distinct machine result |
-| Slice 2 dependencies | `serde` and `serde_json` in protocol; `tokio` and `axum` in rpc only, as v1 ships; runtime uses `std` threads. Core stays dependency-free |
+| Slice 2 dependencies | `serde` and `serde_json` in protocol. The daemon's socket and the runtime use `std` only; core stays dependency-free |
 | Gate source semantics | Any/All over preceding step IDs; skipped is terminal non-match; failures match only when named |
-| External plugin scope | A plugin may submit bounded plans and receive results and events; registered operations and host-action grants arrive in slice 5 |
+| Rule-file trust | A project's `.chauffeur/rules/` may use rule and System One judges; System Two needs the user's `~/.config/chauffeur` to allow it for that project |
 | o11y backend | Begin with a small event-consumer crate; choose a tracing/logging dependency only when implementing it |

@@ -6,8 +6,10 @@ this branch ships nothing until cutover.
 
 Core runs bounded **plans**: named steps joined by gates, each answered by a
 **judge**. A judge is anything that answers a request: a deterministic rule, a
-System One classifier, a System Two reasoner or a person. Behavior plugins
-build plans and act on verdicts; provider plugins supply the model judges.
+System One classifier, a System Two reasoner or a person. Most extensions are
+rule files in a `.chauffeur/` folder, holding data only: when to ask, the plan,
+and what to do with the verdict. OpenCode plugins that need a judgment call
+`chauffeur.run`. Provider plugins supply the model judges.
 
 ```rust
 let plan = ask("screen", "rule", evidence)
@@ -21,7 +23,7 @@ let run = plan.run(&Panel::new().with("rule", &rule).with("model", &model))?;
 |---|---|---|
 | 0 | Browser playground: Rust compiled to WebAssembly | Built |
 | 1 | `crates/core`: plans, gates, judges, state machine, events | Built and reviewed |
-| 2 | Wire protocol, runtime, plugin RPC, JavaScript SDK | Planned |
+| 2 | Plan protocol, runtime, daemon socket, `chauffeur.run` for OpenCode plugins | Planned |
 | 3 | Jev as the System One judge | Planned |
 | 4 | System Two reasoning backend | Planned |
 | 5 | Behavior plugins and OpenCode adapter, at parity with `main` | Planned |
