@@ -417,22 +417,19 @@ flowchart LR
 | Model entry | `models.json` `models` | `"jev": { "format": "systemone", "endpoint": "…", "key": { "env": "JEV_KEY" } }` |
 | Format | Rust in `crates/judges` | `systemone`, `openai`, `anthropic`, `facts`, `person`, `placeholder` |
 
-Every format implements one interface. A model answers every question it
+Every format implements `answer_all`. A model answers every question it
 received in a round with one call, and the format decides how to ask its
 model from the question's outcomes:
 
 ```rust
-pub trait Format {
-    fn answer_all(&self, questions: &[Question], evidence: &Evidence) -> Vec<Result<Probabilities, Failure>>;
-}
-
-pub enum Failure {
-    Unavailable, // the tier's next model answers
-    RateLimited, // the tier's next model answers
-    Timeout,     // the tier's next model answers
-    Invalid,     // the step fails
-}
+let replies = jev.answer_all(&round_questions, &evidence);
+// → [Ok({ yes: 0.94, no: 0.06 }), Err(Failure::Timeout), …]
 ```
+
+| `Failure` | Then |
+|---|---|
+| `Unavailable`, `RateLimited`, `Timeout` | The tier's next model answers |
+| `Invalid` | The step fails |
 
 | Format | Speaks |
 |---|---|
@@ -1128,6 +1125,175 @@ The OpenCode adapter maps every resource and verb the OpenCode V2 plugin API
 offers. It also exposes `navigate` to other OpenCode plugins through plugin
 RPC.
 
+### Two kinds of adapter
+
+Harnesses extend in one of two ways, and an adapter takes the shape its
+harness allows:
+
+| Kind | Harnesses | How it talks to the daemon |
+|---|---|---|
+| In-process | OpenCode (plugin), Pi (extension), Claude Code (mod) | Code inside the harness keeps one JSON-RPC connection open, so actions can arrive at any moment |
+| Hook command | Codex; Claude Code where mods are off | The harness runs `chauffeur hook <harness>` at each hook. The command reads the hook's JSON on stdin, sends it to the daemon as `before` or `emit`, and prints the harness's reply. It is the Rust binary, so it starts in milliseconds |
+
+```mermaid
+flowchart LR
+    subgraph InProcess["In-process: OpenCode, Pi, Claude Code"]
+        H1["Harness hook"] --> A1["Adapter code<br/>open connection"]
+    end
+    subgraph Hook["Hook command: Codex"]
+        H2["Harness hook"] --> A2["chauffeur hook codex<br/>one call per hook"]
+    end
+    A1 -- "JSON-RPC" --> D["Chauffeur daemon"]
+    A2 -- "JSON-RPC" --> D
+```
+
+A hook-command adapter has no open connection between hooks. An action a
+plugin sends while no hook is running waits in the daemon, and goes out at the
+next hook that can carry it. An append for `now` goes out with the next tool
+result, and one for `wake` goes out at the next turn end.
+
+### Events by harness
+
+| Event | OpenCode | Pi | Claude Code | Codex |
+|---|---|---|---|---|
+| `session.created` | session events | `session_start` | `session.start` | `SessionStart` (`startup`) |
+| `prompt.sent` | `prompt` hook | `input`, then `before_agent_start` | `prompt.submit` | `UserPromptSubmit` |
+| `tool.before` | tool hook | `tool_call` | `tool.call` | `PreToolUse` |
+| `tool.after` | tool hook | `tool_result` | `tool.call`, after `next` | `PostToolUse` |
+| `permission.asked` | permission hook | Pi has no permission prompts: `tool_call` covers it | `tool.check` | `PermissionRequest` |
+| `response.finished` | session events | `agent_settled` | `turn.complete` | `Stop` |
+| `session.idle` | session events | `agent_settled`, then the adapter's idle timer | `Notification` (`idle_prompt`) | Not available |
+| `session.resumed` | session events | `session_start` on resume | `SessionStart` (`resume`) | `SessionStart` (`resume`) |
+
+### Actions by harness
+
+| Action | OpenCode | Pi | Claude Code | Codex |
+|---|---|---|---|---|
+| `message.append`, `now` | Synthetic message | `pi.sendMessage` during the run | Added context on the next tool result | `additionalContext` on the next `PostToolUse` |
+| `message.append`, `next` | Synthetic message, queued | `before_agent_start` returns a message | `context` on the next `prompt.submit` | `additionalContext` on the next `UserPromptSubmit` |
+| `message.append`, `wake` | Prompt with `resume` | `pi.sendMessage` with `triggerTurn` | A `Stop` continuation, at a turn end only | A `Stop` continuation (`decision: "block"`), at a turn end only |
+| Edits in `prompt.sent` (append, edit, block) | Yes | `input` transforms, `before_agent_start` adds | `prompt.submit`: `text`, `context`, `drop` | Append and block only |
+| Edits in `tool.before` (block, rewrite) | Yes | `tool_call`: `block`, mutate `input` | `tool.call`: `deny`, rewrite | `PreToolUse`: deny, `updatedInput` |
+| Ask the user in `tool.before` | Permission prompt | `ctx.ui.confirm` | `$.ui.ask` | Not available: the call is denied with a reason telling the agent to ask the user |
+| `permission.reply` | Yes | Not applicable | `tool.check` decision | `PermissionRequest` allow or deny |
+| `session.compact` | Yes | Compaction controls | Unsupported unless the mods API offers it | Unsupported |
+| `session.update` (model) | Yes | Session model control | `turn.step` with another model, per request | Unsupported |
+| `session.warm` | Yes | `cache_warming_decision` returns `warm` | Unsupported | Unsupported |
+| `command`, `tool`, `mcp` registries | Yes | `registerCommand`, `registerTool`, `registerMcpServer` | Commands and tools from the mods API | Unsupported: Codex plugins are static files |
+
+Every cell marked unsupported returns `unsupported` to the plugin, which can
+check before relying on it. Slice 5 confirms each cell against the harness's
+own API before the adapter ships.
+
+### Pi
+
+A Pi extension. Pi loads TypeScript directly, so the adapter is one file in
+`~/.pi/agent/extensions/chauffeur/`.
+
+```ts
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent"
+import { Adapter } from "@fdcn/chauffeur/adapter"
+
+export default function (pi: ExtensionAPI) {
+  let chauffeur: Adapter | undefined
+
+  pi.on("session_start", async (_e, ctx) => {
+    chauffeur = await Adapter.connect({
+      harness: "pi",
+      actions: {
+        "message.append": ({ parts, delivery }) => pi.sendMessage(render(parts), { triggerTurn: delivery === "wake" }),
+        "command.add": ({ name, description }) => pi.registerCommand(name, { description, handler: (args) => chauffeur?.emit("command.run", { name, args }) }),
+      },
+    })
+  })
+
+  pi.on("tool_call", async (e, ctx) => {
+    const edits = await chauffeur?.before("tool.before", { tool: e.toolName, input: e.input })
+    if (edits?.block) return { block: true, reason: edits.block }
+    if (edits?.askUser && !(await ctx.ui.confirm("Chauffeur", edits.askUser))) return { block: true, reason: "The user declined." }
+    if (edits?.input) Object.assign(e.input, edits.input)
+  })
+
+  pi.on("cache_warming_decision", async (e) => (await chauffeur?.before("session.idle", e))?.warm ? { action: "warm" } : undefined)
+  pi.on("session_shutdown", () => chauffeur?.close())
+}
+```
+
+### Claude Code
+
+A Claude Code plugin with a mod: JavaScript hooks that Claude Code runs in its
+own process. Each hook is middleware: it calls `next(e)` to let the event go
+ahead, or answers in Claude Code's place.
+
+```js
+import { Adapter } from "@fdcn/chauffeur/adapter"
+
+export function register(on) {
+  let chauffeur
+
+  on("session.start", async ($, e, next) => {
+    chauffeur = await Adapter.connect({ harness: "claude-code", actions: {} })
+    return next(e)
+  })
+
+  on("prompt.submit", async ($, e, next) => {
+    const edits = await chauffeur.before("prompt.sent", { text: e.text })
+    if (edits.block) return { drop: edits.block }
+    return next({ ...e, text: edits.text ?? e.text, context: [...(e.context ?? []), ...edits.context] })
+  })
+
+  on("tool.call", async ($, e, next) => {
+    const edits = await chauffeur.before("tool.before", { tool: e.tool, input: e })
+    if (edits.block) return { deny: edits.block }
+    if (edits.askUser) {
+      const answer = await $.ui.ask(edits.askUser, ["Run it", "Refuse"]).catch(() => "Refuse")
+      if (answer !== "Run it") return { deny: "The user declined this call." }
+    }
+    return next(edits.input ? { ...e, ...edits.input } : e)
+  }).catch(async ($, e, next) => (next.called ? next(e) : { deny: "Chauffeur's guard failed, so this call did not run." }))
+
+  on("turn.complete", async ($, e, next) => {
+    chauffeur.emit("response.finished", { answer: e.answer, usage: e.usage })
+    return next(e)
+  })
+}
+```
+
+The `.catch` makes a failed guard refuse the call.
+Where an organization's settings turn mods off, the same plugin falls back to
+command hooks in `hooks/hooks.json` that run `chauffeur hook claude-code`.
+
+### Codex
+
+A Codex plugin whose `hooks/hooks.json` runs the hook command at each event.
+Codex asks the user to trust the hooks once, in `/hooks`.
+
+```json
+{
+  "hooks": {
+    "SessionStart":      [{ "hooks": [{ "type": "command", "command": "chauffeur hook codex" }] }],
+    "UserPromptSubmit":  [{ "hooks": [{ "type": "command", "command": "chauffeur hook codex" }] }],
+    "PreToolUse":        [{ "hooks": [{ "type": "command", "command": "chauffeur hook codex" }] }],
+    "PermissionRequest": [{ "hooks": [{ "type": "command", "command": "chauffeur hook codex" }] }],
+    "PostToolUse":       [{ "hooks": [{ "type": "command", "command": "chauffeur hook codex" }] }],
+    "Stop":              [{ "hooks": [{ "type": "command", "command": "chauffeur hook codex" }] }]
+  }
+}
+```
+
+`chauffeur hook codex` turns the daemon's answer into Codex's output:
+
+| Chauffeur answer | Codex output |
+|---|---|
+| Block a tool call | `PreToolUse`: `permissionDecision: "deny"` with the reason |
+| Rewrite a tool call | `PreToolUse`: `permissionDecision: "allow"` with `updatedInput` |
+| Ask the user | `PreToolUse`: deny, with a reason telling the agent to ask the user, since Codex does not support `ask` |
+| Append for `next` | `UserPromptSubmit`: `additionalContext` |
+| Append for `now` | `PostToolUse`: `additionalContext` |
+| Append for `wake` | `Stop`: `decision: "block"` with the text as the continuation prompt |
+| Reply to a permission | `PermissionRequest`: `decision.behavior` `allow` or `deny` |
+| Block a prompt | `UserPromptSubmit`: `decision: "block"` with the reason |
+
 ## Proofs
 
 | What | How |
@@ -1225,16 +1391,13 @@ list. A named judge lowers to a panel name of its tier and model, such as
 
 ### The `Judge` interface
 
-A judge answers a step's request. Core defines the interface; it has no
-dependencies and is synchronous:
+A judge answers a step's request. Core defines the interface: synchronous
+`judge`, and `judge_all` for a batch, which a batching provider overrides. Any
+closure is a judge:
 
 ```rust
-pub trait Judge<Q, O> {
-    fn judge(&self, request: &Q) -> Outcome<O>;
-    // Defaults to one `judge` call per request; a batching provider overrides it.
-    fn judge_all(&self, requests: &[&Q]) -> Vec<Outcome<O>>;
-}
-// Any `Fn(&Q) -> Outcome<O>` is a judge.
+let panel = Panel::new().with("facts", |ask: &Ask| Value(Yes)).with("system-one:jev", &jev);
+let verdict = plan.run(&panel)?;
 ```
 
 A step names its judge, because plans are data: rule files and inline
@@ -1331,8 +1494,10 @@ crates/
 packages/
   chauffeur/     # @fdcn/chauffeur: /client, /judge, /plugin, /harness, /adapter
 adapters/
-  opencode/      # The OpenCode adapter
-  <host>/        # Each further harness
+  opencode/      # OpenCode plugin
+  pi/            # Pi extension
+  claude-code/   # Claude Code plugin: a mod, with command hooks as fallback
+  codex/         # Codex plugin: command hooks
 plugins/
   skills/            # Skill exposure, remote sources and safety review
   context-renewal/   # Compacts long, cold sessions
@@ -1595,10 +1760,11 @@ model.
 Build the [plugin](#plugins) and [adapter](#adapters) halves: the daemon's
 event bus and plugin supervisor, the stdio plugin protocol with discovery,
 lazy and eager start, `before` budgets and `onTimeout`, retries by kind, and
-`@fdcn/chauffeur/plugin`, `/harness` and `/adapter`. Build the OpenCode
-adapter over the full OpenCode V2 plugin API, with gdp-ts proofs before every
-action. Then port each parity-table row assigned to slice 5 as a plugin or a
-rule file in `distribution/rules/`.
+`@fdcn/chauffeur/plugin`, `/harness` and `/adapter`. Build the four
+[adapters](#adapters), OpenCode first, each with gdp-ts proofs before every
+action, and `chauffeur hook` for hook-command harnesses. Then port each
+parity-table row assigned to slice 5 as a plugin or a rule file in
+`distribution/rules/`.
 
 v1's event gate becomes `sourcefed/triage`. In sourcefed, its daemon navigates
 `integration_event` before queuing each event, its installer adds the rule,
@@ -1611,6 +1777,10 @@ review every `main` commit past the watermark and add its row.
 | `crates/daemon/src/{bus,plugins,adapters}.rs` | Routing events to rules and plugins; supervising plugins (discovery cache, lazy start, idle stop, backoff); adapter connections and their declared actions |
 | `packages/chauffeur/src/{plugin,harness,adapter}/` | The plugin, action and adapter SDKs |
 | `adapters/opencode/` | The OpenCode adapter, and `navigate` over plugin RPC for other OpenCode plugins |
+| `adapters/pi/` | The Pi extension |
+| `adapters/claude-code/` | The Claude Code plugin: its mod, and command hooks for when mods are off |
+| `adapters/codex/` | The Codex plugin and its `hooks/hooks.json` |
+| `crates/cli/src/hook.rs` | `chauffeur hook <harness>`: one hook's JSON on stdin, the harness's reply on stdout; queued actions go out with the hook that can carry them |
 | `plugins/{skills,context-renewal,warming,guard}/` | The first-party plugins, each its own package on the SDK |
 
 A spike decides whether first-party plugins ship compiled with scriptc. It
@@ -1624,8 +1794,11 @@ Verification: each row's evidence from `main` passes against v2; every v1 rule
 converts and validates; a plugin crash, a missed `before` budget and a stale
 action each behave as specified; `onTimeout: "ask"` hands a tool call to the
 user; discovery records the same hooks a full start registers; an unsupported
-action returns `unsupported`; sourcefed events reaching OpenCode, Pi and the
-CLI are filtered alike, and v1's 12 labelled events give the same deliveries;
+action returns `unsupported`; every cell of the events and actions tables is
+exercised against a real OpenCode, Pi, Claude Code and Codex, and a cell that
+fails becomes `unsupported`; `chauffeur hook codex` answers within Codex's
+timeout and a queued `wake` goes out at the next `Stop`; sourcefed events
+reaching OpenCode, Pi and the CLI are filtered alike, and v1's 12 labelled events give the same deliveries;
 the bench `verify` fixtures pass; a day of real use through a locally built
 adapter, plugins and daemon.
 

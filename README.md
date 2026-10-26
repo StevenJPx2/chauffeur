@@ -7,26 +7,6 @@ stopping a destructive command or holding back noise.
 
 ## Features
 
-### Strategies
-
-- A strategy is a list of steps; each step asks one judge one question.
-- `after` makes a step wait for earlier steps and run only when their
-  outcomes match.
-- `for_each` asks about many candidates in one round, and `select` ranks,
-  filters or votes on the answers.
-- Every strategy has a known maximum of rounds and model calls, and is proven
-  to finish.
-
-Escalate from Jev to GLiDE to a reasoning model, only as far as needed:
-
-```jsonc
-"strategy": [
-  { "id": "fast",   "judge": "quick",    "ask": "needs-agent" },
-  { "id": "slow",   "judge": "careful",  "ask": "needs-agent", "after": [{ "step": "fast", "when": ["unsure", "failed"] }] },
-  { "id": "review", "judge": "reasoner", "ask": "needs-agent", "after": [{ "step": "slow", "when": ["unsure", "failed"] }] }
-]
-```
-
 ### Judges
 
 - Four tiers answer the same questions: facts (code), System One (fast
@@ -114,6 +94,26 @@ export function bm25({ evidence, args }) {
 { "id": "related", "judge": "facts", "ask": { "notes.bm25": { "top": 10 } } }
 ```
 
+### Strategies
+
+- A strategy is a list of steps; each step asks one judge one question.
+- `after` makes a step wait for earlier steps and run only when their
+  outcomes match.
+- `for_each` asks about many candidates in one round, and `select` ranks,
+  filters or votes on the answers.
+- Every strategy has a known maximum of rounds and model calls, and is proven
+  to finish.
+
+Escalate from Jev to GLiDE to a reasoning model, only as far as needed:
+
+```jsonc
+"strategy": [
+  { "id": "fast",   "judge": "quick",    "ask": "needs-agent" },
+  { "id": "slow",   "judge": "careful",  "ask": "needs-agent", "after": [{ "step": "fast", "when": ["unsure", "failed"] }] },
+  { "id": "review", "judge": "reasoner", "ask": "needs-agent", "after": [{ "step": "slow", "when": ["unsure", "failed"] }] }
+]
+```
+
 ### Rule files
 
 - JSON that names an event, its judges, its questions, its strategy and what
@@ -133,6 +133,55 @@ export function bm25({ evidence, args }) {
   ],
   "then": [{ "if": { "nonconventional": "yes" },
              "message.append": { "parts": [{ "text": "Use Conventional Commits, such as `feat(scope): …`." }], "delivery": "now" } }]
+}
+```
+
+### Strategy viewer and playground
+
+- `chauffeur strategy show` draws a rule's strategy as a tree, with the models
+  it will use and its maximum rounds and calls.
+- The playground steps through strategies in the browser.
+
+```text
+$ chauffeur strategy show recall
+recall                                         on recall
+├─ round 1  helps × candidates  system-one → jev
+└─ round 2  best               facts select   top 3, min 0.7, from helps
+then  attach best
+at most 2 rounds · 1 model call · 31 candidates at most
+```
+
+### `navigate`
+
+- Any program can send an event with its context and get back intents.
+- Available from TypeScript, the `chauffeur navigate` CLI and Rust, all over
+  JSON-RPC 2.0.
+
+```ts
+import { connect } from "@fdcn/chauffeur/client"
+
+const { intents } = await connect().navigate(
+  { on: "recall", evidence: { message }, candidates: { p1: "…", p4: "…" } },
+  { signal: AbortSignal.timeout(1_500) },
+)
+// [{ rule: "recall", attach: ["p4"] }]
+```
+
+### Adapters
+
+- One per harness: its hooks become standard events such as `prompt.sent`
+  and `tool.before`, and actions are carried out after checking they are
+  still current.
+- Available for OpenCode, Pi and Claude Code, which run the adapter inside
+  the harness, and Codex, which runs `chauffeur hook codex` at each hook.
+
+```json
+// Codex: hooks/hooks.json in the Chauffeur plugin
+{
+  "hooks": {
+    "PreToolUse":       [{ "hooks": [{ "type": "command", "command": "chauffeur hook codex" }] }],
+    "UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": "chauffeur hook codex" }] }]
+  }
 }
 ```
 
@@ -164,8 +213,7 @@ export default Plugin.define({
 ### Guards
 
 - A `before` hook can block an action or hand it to you before it happens.
-- If the judge is slow or fails, `onTimeout: "ask"` asks you rather than
-  letting the action through.
+- If the judge is slow or fails, `onTimeout: "ask"` asks you.
 
 ```ts
 ctx.before("tool.before", async (e) => {
@@ -173,55 +221,6 @@ ctx.before("tool.before", async (e) => {
   const harmful = await ask(noul("Could this command cause irreversible harm?"), { judge: guard, evidence: { command: e.input.command } })
   if (!harmful.ok || harmful.outcome !== "no") e.askUser("Chauffeur isn't sure this is safe.")
 }, { budget: 2_000, onTimeout: "ask" })
-```
-
-### Adapters
-
-- One per harness: its hooks become standard events such as `prompt.sent`
-  and `tool.before`, and actions are carried out after checking they are
-  still current.
-- Available for OpenCode.
-
-```ts
-const chauffeur = await Adapter.connect({
-  harness: "opencode",
-  actions: {
-    "session.compact": ({ session }) => oc.session.compact({ sessionID: session }),
-    "session.update":  ({ session, model }) => oc.session.switchModel({ sessionID: session, model }),
-  },
-})
-await oc.session.hook("prompt", (e) => chauffeur.before("prompt.sent", { session: e.sessionID, text: e.prompt.text }))
-```
-
-### `navigate`
-
-- Any program can send an event with its context and get back intents.
-- Available from TypeScript, the `chauffeur navigate` CLI and Rust, all over
-  JSON-RPC 2.0.
-
-```ts
-import { connect } from "@fdcn/chauffeur/client"
-
-const { intents } = await connect().navigate(
-  { on: "recall", evidence: { message }, candidates: { p1: "…", p4: "…" } },
-  { signal: AbortSignal.timeout(1_500) },
-)
-// [{ rule: "recall", attach: ["p4"] }]
-```
-
-### Strategy viewer and playground
-
-- `chauffeur strategy show` draws a rule's strategy as a tree, with the models
-  it will use and its maximum rounds and calls.
-- The playground steps through strategies in the browser.
-
-```text
-$ chauffeur strategy show recall
-recall                                         on recall
-├─ round 1  helps × candidates  system-one → jev
-└─ round 2  best               facts select   top 3, min 0.7, from helps
-then  attach best
-at most 2 rounds · 1 model call · 31 candidates at most
 ```
 
 ### Safety
@@ -242,7 +241,7 @@ export default ({ evidence }) =>
 ## Documentation
 
 [`docs/plans/pluggability.md`](docs/plans/pluggability.md) describes the
-architecture: strategies, judges, facts, rule files, plugins, adapters and the
+architecture: judges, facts, strategies, rule files, plugins, adapters and the
 `navigate` protocol.
 
 ## Develop
