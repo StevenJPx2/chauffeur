@@ -251,10 +251,15 @@ The toolchain is pinned in `rust-toolchain.toml`, with Miri and the
 WebAssembly target.
 
 ```sh
-cargo test --workspace
+bacon                                           # clippy, tests and docs on every save
+cargo nextest run --workspace
+cargo test --doc --workspace
 cargo clippy --workspace --all-targets --locked
 cargo miri test -p chauffeur-core
 cargo kani -p chauffeur-core --harness <name>   # harnesses in crates/core/src/proofs.rs
+cargo mutants -p chauffeur-core                 # tests must catch every changed line
+cargo shear                                     # no unused dependencies
+cargo bench                                     # criterion benchmarks
 ```
 
 The playground needs Bun and `wasm-pack`:

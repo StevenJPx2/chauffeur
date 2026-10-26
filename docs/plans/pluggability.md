@@ -1416,9 +1416,14 @@ outcome enum:
 | `a_pass_only_moves_pending_steps_forward` | Each step is asked at most once |
 | `a_pass_with_no_open_round_asks_or_finishes` | A run never stalls, so it finishes within one round per step |
 
-Verification: strict Clippy, the scenario tests and doctests, Kani, Miri, and
-the playground in a real browser, with each example stepped through by hand.
-Stop for review before slice 2.
+Tooling: `bacon.toml` with clippy, test and doc jobs; `.config/nextest.toml`;
+`criterion` benchmarks for one pass and a full run of each strategies-table
+plan.
+
+Verification: strict Clippy, the scenario tests under nextest and doctests,
+Kani, Miri, `cargo-mutants` over `crates/core` with every surviving mutant
+killed or explained, `cargo-shear`, and the playground in a real browser, with
+each example stepped through by hand. Stop for review before slice 2.
 
 ### Slice 2: navigate
 
@@ -1552,8 +1557,8 @@ scores.
 
 ### Slice 3: System One models (Jev, SubQ and GLiDE)
 
-Implement the `systemone` API format in `crates/judges` using the current
-`/v1/systemone` contract: authentication, timeout, bounded response, explicit
+Implement the `systemone` API format in `crates/judges`, over `ureq`, using
+the current `/v1/systemone` contract: authentication, timeout, bounded response, explicit
 429/529 handling, `noul` for yes/no questions and `choice` with full
 probabilities for the rest, and GLiDE's level-valued `score`. Ship
 `jev.json` as the default System One, and `subq.json` and `glide.json` beside
@@ -1651,6 +1656,11 @@ a machine with personal rules; rc release-gate runs from the bench.
 - Verify at each slice before proceeding. Keep functions under 70 non-blank,
   non-comment lines, use no production dependency without approval, and keep
   core dependency-free.
+- Tests run under `cargo nextest`, with doctests through `cargo test --doc`.
+  `cargo-mutants` runs over core, confidence and lowering, and every
+  surviving mutant is either killed by a new test or explained. `cargo-shear`
+  finds no unused dependency. `criterion` benchmarks back every latency the
+  plan states.
 - Full workspace tests, Clippy, Miri, Kani, docs and deny run before committing
   the completed slice. The v2 branch is pushed after the agreed review.
 
@@ -1661,5 +1671,6 @@ a machine with personal rules; rc release-gate runs from the bench.
 | Wire protocol | JSON-RPC 2.0 over the Unix socket and stdio |
 | First-party plugins | `plugins/` in this repository, each its own package on the SDK |
 | Jev's `score` type | `choice` for every question that is not yes/no; slice 3 measures `score` on labelled scale cases, and a question gains a hint only if `score` is clearly better |
-| Production dependencies | `serde` and `serde_json` in protocol, `rquickjs` in facts, `notify` for reloading rules, facts and models, `tracing` in o11y. Core stays dependency-free |
+| Production dependencies | Core stays dependency-free. Approved: `serde` and `serde_json` (protocol and every config file), `thiserror` (typed errors outside core), `rquickjs` and bundled `rusqlite` (facts and the `chauffeur:sqlite` host module), `notify` (reloading rules, facts and models), `ureq` with rustls (model formats, slices 3 and 4), `tracing` and `jiff` (o11y events and audit timestamps), `clap` and `color-eyre` (the CLI binary only) |
+| Development tools | `cargo-nextest` runs tests (doctests stay on `cargo test --doc`); `cargo-mutants` checks that tests catch changed logic in core, confidence and lowering; `cargo-shear` catches unused dependencies; `criterion` benchmarks the socket hop, confidence, a fact call and lowering; `bacon.toml` holds shared watch jobs |
 | scriptc | A slice 5 spike for first-party plugins; the engine stays Rust |
