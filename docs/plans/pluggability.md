@@ -318,6 +318,53 @@ tuned in its rule file against labelled cases.
 | `system-two` | A reasoning model, with a schema-checked answer that cites its evidence | Disabled until reviewed (slice 4) |
 | `person` | The user, asked through the host adapter | Each host adapter |
 
+#### How a step reaches a model
+
+A step reaches the code that answers it through four layers. Each layer knows
+only the one below it, and all four tiers are built the same way:
+
+```mermaid
+flowchart LR
+    Step["Step<br/>judge: quick"] --> Judge["Named judge<br/>tier, model?, confidence"]
+    Judge --> Tier["Tier<br/>models in fallback order"]
+    Tier --> Model["Model entry<br/>name, format, settings"]
+    Model --> Format["Format<br/>code: Ask in, Answer out"]
+    Format -- "probabilities or failed" --> Confidence["confidence → outcome"]
+```
+
+| Layer | Defined in | Example |
+|---|---|---|
+| Named judge | A rule's `judges` | `"quick": { "tier": "system-one", "confidence": 0.7 }` |
+| Tier | `models.json` `tiers` | `"system-one": ["jev", "subq"]` |
+| Model entry | `models.json` `models` | `"jev": { "format": "systemone", "endpoint": "…", "key": { "env": "JEV_KEY" } }` |
+| Format | Rust in `crates/judges` | `systemone`, `openai`, `anthropic`, `facts`, `person`, `placeholder` |
+
+| Tier | Shipped models | Format |
+|---|---|---|
+| `facts` | `facts` | `facts`: the [facts functions](#tiers); no network |
+| `system-one` | `jev`, `subq`, `glide` | `systemone` |
+| `system-two` | None; the user adds one | `openai` or `anthropic` |
+| `person` | `host` | `person`: the host adapter asks the user |
+
+Every format implements one interface. A model answers every ask it received
+in a round with one call:
+
+```rust
+pub trait Format {
+    fn answer_all(&self, asks: &[Ask], evidence: &Evidence) -> Vec<Result<Answer, Unanswered>>;
+}
+
+pub enum Unanswered {
+    Unavailable, // the tier's next model answers
+    RateLimited, // the tier's next model answers
+    OutOfTime,   // the tier's next model answers
+    Invalid,     // the step settles as failed
+}
+```
+
+`crates/judges` turns each tier's models into one core `Judge`, so core sees a
+judge per tier and model, such as `system-one:glide`, and nothing below it.
+
 #### Models are configuration
 
 A model is registered the way a user registers a model provider anywhere
@@ -329,7 +376,9 @@ to use. Code exists only once per API format, in `crates/judges`:
 | `systemone` | The `/v1/systemone` decisions API that Jev, SubQ Snap and Fastino GLiDE share; GLiDE's entry sets its reading of `score` as a level |
 | `openai` | OpenAI-compatible chat completions with structured output, which covers local servers such as Ollama |
 | `anthropic` | Anthropic Messages with schema-constrained output |
-| `replay` | Answers recorded in a file, for tests and the playground |
+| `facts` | The facts functions, in process |
+| `person` | A question to the user through the host adapter |
+| `placeholder` | Stands in for any tier until its real model is configured: recorded answers, then a fixed answer |
 
 ```jsonc
 // ~/.config/chauffeur/models.json
@@ -371,6 +420,61 @@ to use. Code exists only once per API format, in `crates/judges`:
   needs the user to turn it on.
 - The `embedding` facts function uses a shared, bounded local embedding
   service. Caches and ranking that belong to one behavior stay with it.
+
+#### Placeholders
+
+A `placeholder` model stands in for a tier, or for one facts function, until
+the real one is configured. Rules do not change when it is replaced; only
+`models.json` does.
+
+```jsonc
+// models.json for tests and the playground
+{
+  "models": {
+    "one-stand-in":    { "format": "placeholder", "answers": "fixtures/triage-answers.json", "otherwise": "failed" },
+    "two-stand-in":    { "format": "placeholder", "otherwise": { "act": 0.8, "ignore": 0.2 } },
+    "person-stand-in": { "format": "placeholder", "otherwise": { "yes": 1 } }
+  },
+  "tiers": {
+    "system-one": ["one-stand-in"],
+    "system-two": ["two-stand-in"],
+    "person":     ["person-stand-in"]
+  }
+}
+```
+
+```jsonc
+// fixtures/triage-answers.json
+{ "answers": [
+  { "evidence": { "event": "thanks, looks good 👍" },     "answer": { "yes": 0.52, "no": 0.48 } },
+  { "evidence": { "event": "@agent bump retries to 5" }, "answer": { "yes": 0.94, "no": 0.06 } },
+  { "evidence": { "event": "deploy is on fire" },        "answer": "failed" }
+] }
+```
+
+- `answers` is matched by evidence: an entry answers an ask whose evidence
+  contains every block the entry lists, with the same content. The first
+  match wins, so one file serves every rule that asks about the same input.
+- `otherwise` answers what no entry matches; without it, the step settles as
+  `failed`, so a gap in the recorded answers shows.
+- Every placeholder answer is marked as such in events and in
+  `strategy show`, so it never passes for a real model's.
+- Placeholders load from shipped and user configuration only, like every
+  model. Recorded answers can be real ones, such as opencode-history's Jev
+  scores, to tune a rule's confidence before it runs live.
+
+```mermaid
+flowchart TB
+    subgraph Slice2["Slice 2: every tier answers"]
+        F["facts → facts<br/>match, select"]
+        One["system-one → placeholder"]
+        Two["system-two → placeholder"]
+        P["person → placeholder"]
+    end
+    One -- "slice 3" --> Jev["jev, subq, glide"]
+    Two -- "slice 4" --> Rev["openai, anthropic"]
+    P -- "slice 5" --> Host["host adapter asks the user"]
+```
 
 ### Strategies
 
@@ -927,7 +1031,8 @@ takes the same request as an object and returns the intents or verdict.
 | `crates/protocol/src/{lib,request,strategy,rule,intent,limits,error}.rs` | Serde wire types for requests, strategies, rule files and intents; validation and limits; lowering named judges and asks, `for_each` copies, wildcards and `[item]` to `chauffeur_core::Plan<Ask, Outcome>`; typed errors |
 | `crates/protocol/schema/navigate.json`, `crates/protocol/fixtures/` | The one `navigate` schema every binding uses, and the valid and invalid requests each binding's tests replay |
 | `crates/judges/src/{ask,confidence,tiers,config}.rs` | `Ask` and `Answer` for yes/no, choice and scale; converting each model's reply to probabilities; applying confidence; resolving a step's `judge` and `model` against shipped and user `models.json` in fallback order, refusing any model entry from a project |
-| `crates/judges/src/{facts,replay}.rs` | The `match` and `select` facts functions, and the `replay` format, which answers from recorded scores for tests |
+| `crates/judges/src/format.rs` | The `Format` interface and `Unanswered`; turning a tier's models into one core `Judge` with fallback |
+| `crates/judges/src/{facts,placeholder}.rs` | The `facts` format with `match` and `select`, and the `placeholder` format |
 | `crates/runtime/src/admission.rs` | One permit per navigation, held from admission through delivery; per-source and global capacity |
 | `crates/runtime/src/run.rs` | Drives rounds on a bounded worker pool; checks the deadline and cancellation before each round; discards late results |
 | `crates/runtime/src/redact.rs` | Redacts evidence before every provider judge, porting v1's rules and their cases |
@@ -976,12 +1081,17 @@ recorded scores.
   refused unless the user allows it; an edited rule applies to the next
   navigation; two matching rules both return their intents; a rule that misses
   the deadline drops only its own intents.
-- All three bindings against the daemon with a `replay` System One: the
+- Placeholders: recorded answers match by evidence, first match wins;
+  `otherwise` answers the rest, and without it the step settles as `failed`;
+  every placeholder answer is marked in events; a placeholder from a project's
+  `.chauffeur/` is refused.
+- All three bindings against the daemon with placeholder System One and
+  System Two: the
   playground examples return the same verdicts through the client, `chauffeur
   navigate` and a real OpenCode's plugin RPC as through `Plan::run`; every
   fixture is accepted or rejected identically by each; aborting any caller
   cancels the navigation.
-- Recall: Jev scores recorded by opencode-history's replay feed a `replay`
+- Recall: Jev scores recorded by opencode-history's replay feed a placeholder
   System One; navigating `recall` attaches the replay's top three passages
   scoring 0.7 or above. No agent session or history is sent.
 
