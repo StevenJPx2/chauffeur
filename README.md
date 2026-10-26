@@ -5,13 +5,13 @@ releases are built from [`main`](https://github.com/StevenJPx2/chauffeur/tree/ma
 this branch ships nothing until cutover.
 
 Core runs bounded **plans**: named steps joined by gates, each answered by a
-**judge**. A judge is anything that answers a request: a deterministic rule, a
-System One classifier, a System Two reasoner or a person. Most extensions are
-rule files in a `.chauffeur/` folder, holding data only: when to ask, the plan,
-and what to do with the verdict. Programs report what happened with
+**judge**. Judges come in four tiers, deterministic facts, System One, System
+Two and a person, and all take the same question and give the same answer.
+Model providers, such as Jev or a local model, are configuration. Most
+extensions are rule files in a `.chauffeur/` folder, holding data only: when to
+ask, the plan, and what to do with the verdict. Programs report what happened with
 `chauffeur.observe`, or ask their own question with `chauffeur.run`, through
-the TypeScript client, the `chauffeur` CLI or a host adapter. Provider plugins
-supply the model judges.
+the TypeScript client, the `chauffeur` CLI or a host adapter.
 
 ```rust
 let plan = ask("screen", "rule", evidence)
@@ -25,9 +25,9 @@ let run = plan.run(&Panel::new().with("rule", &rule).with("model", &model))?;
 |---|---|---|
 | 0 | Browser playground: Rust compiled to WebAssembly | Built |
 | 1 | `crates/core`: plans, gates, judges, state machine, events | Built and reviewed |
-| 2 | Plan protocol, runtime, daemon socket, `chauffeur.run` through the client, CLI and OpenCode | Planned |
-| 3 | Jev as the System One judge | Planned |
-| 4 | System Two reasoning backend | Planned |
+| 2 | Plan protocol, judge tiers and provider configuration, runtime, daemon socket, `chauffeur.run` through the client, CLI and OpenCode | Planned |
+| 3 | Jev as the first System One provider | Planned |
+| 4 | The first System Two providers | Planned |
 | 5 | Behavior plugins and OpenCode adapter, at parity with `main` | Planned |
 | 6 | Release and cutover | Planned |
 

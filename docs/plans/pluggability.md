@@ -8,9 +8,9 @@ findings and checks that inform this plan.
 ## Goal
 
 Chauffeur's core runs generic, bounded judgment plans. Each step names the
-judge that answers it. A judge is anything implementing core's generic `Judge`
-interface: a deterministic rule, a System One classifier, a System Two
-reasoner or a person. Provider plugins supply the model-backed judges.
+tier of judge that answers it: facts (deterministic code), System One, System
+Two or a person. Every judge takes the same question and returns the same
+answer. Model providers are configuration; only each API format is code.
 
 Most extensions are data: a rule file in `.chauffeur/` declares when to ask,
 the plan to run and what to do with the verdict. A program that owns its data
@@ -20,11 +20,12 @@ from a repository, and no plugin needs a token.
 The initial slices are:
 
 1. a generic state machine that is playable in the browser;
-2. the plan protocol, runtime and daemon, reached through `chauffeur.run`;
-3. Jev implementing that contract.
-4. System Two structured reasoning on the same plan/runtime path.
-5. Behavior plugins and the OpenCode adapter, reaching parity with `main`.
-6. Release and cutover: v2 replaces v1 as the shipped Chauffeur.
+2. the plan protocol, the judge contract, the runtime and the daemon, reached
+   through `chauffeur.run`;
+3. Jev as the first System One provider;
+4. the first System Two provider on the same plan/runtime path;
+5. behavior plugins and the OpenCode adapter, reaching parity with `main`;
+6. release and cutover: v2 replaces v1 as the shipped Chauffeur.
 
 The work proceeds one crate/slice at a time, with review before advancing.
 
@@ -101,7 +102,8 @@ flowchart TB
     Runtime --> O11y
     Daemon["crates/daemon<br/>Socket, rule files, default plugins"] --> Runtime
     Daemon --> Protocol
-    Jev["plugins/providers/jev<br/>System One HTTP provider"] --> Runtime
+    Judges["crates/judges<br/>Ask and Answer, cuts, tiers, providers"] --> Core
+    Runtime --> Judges
     Playground["playground<br/>WASM + interactive feature tabs"] --> Protocol
 ```
 
@@ -181,6 +183,7 @@ both reach the same socket.
 | Owner | Responsibility | Boundary |
 |---|---|---|
 | `crates/core` | Generic plan composition, validation and state transitions | No transport, provider, host or domain policy |
+| `crates/judges` | The `Ask` and `Answer` contract, cuts, tiers, facts providers, API formats and provider configuration | No behavior policy |
 | `crates/runtime` | Admission, run state, deadlines, cancellation, egress redaction and provider dispatch | Injects implementations; owns no behavior policy |
 | `crates/protocol` | One JSON form of plans, evidence, events and verdicts for rule files, `observe`, `run` and the playground | Validates and limits before anything runs |
 | `crates/daemon` | The socket, rule-file loading, and the default judges and behaviors | Listens only on a socket the user owns |
@@ -205,7 +208,7 @@ Adding a host or a language adds a binding, never a new request format. The
 schema's fixtures run in the protocol crate's tests and in each binding's
 tests.
 
-### Stateless invocation and inference tiers
+### Stateless invocation
 
 An invocation has a caller, request ID, bounded evidence, declared plan and
 deadline. It can run without an agent session, `Signal`, `Situation`, or prior
@@ -213,18 +216,116 @@ history; the caller supplies the evidence it wants considered. Results and
 transition events return to that caller. Agent observations and host actions
 are separate operations that only the host adapter sends.
 
-System One and System Two are judges, not separate domain-policy engines or
-special request kinds. They implement the same `Judge` interface as a
-deterministic rule, and a plan mixes them freely: a rule can screen, System One
-can classify what the rule leaves unsure, and System Two can review what System
-One leaves unsure. Each provider maps its native answer onto the plan's
-outcome type:
+### Judges
 
-| Judge | Input | Result |
+Every judge takes one `Ask` and returns one `Answer`. Judges come in four
+tiers. A step names a tier, never a provider, and the user's configuration
+decides which provider answers for it, so a rule shared between people works
+with whatever models each of them has. A plan mixes tiers freely: facts can
+screen, System One can classify what facts leave unsure, and System Two can
+review what System One leaves unsure.
+
+```mermaid
+flowchart TB
+    Step["Plan step<br/>judge: system-one, cut"] -- "Ask and evidence" --> Tiers
+    subgraph Tiers["Tiers: one Ask in, one Answer out"]
+        Facts["facts<br/>match, BM25, embedding"]
+        S1["system-one<br/>Jev, a local model"]
+        S2["system-two<br/>an OpenAI or Anthropic model"]
+        Person["person<br/>the user, through the host"]
+    end
+    Tiers -- "Answer" --> Cut["Runtime applies the step's cut"]
+    Cut -- "outcome or failed" --> Plan["Plan: gates and then"]
+```
+
+#### The contract
+
+| Type | Shape |
+|---|---|
+| `Ask` | `question`: `"yes-no"` or `{"choose": [labels]}`; `instructions`; `evidence`: names of evidence blocks |
+| `Answer` | `score`, 0 to 1000; `label`, for a choice; `cites`, the evidence names it relied on. Or failed |
+
+For a yes/no question the score is how strongly the answer is yes. For a
+choice, the label is the judge's pick and the score its confidence. Every tier
+answers both kinds, so moving a step between tiers changes only its `judge`.
+`crates/judges` implements core's `Judge` interface for every tier.
+
+#### The cut
+
+The step, not the judge, decides what an answer means. The runtime applies
+the step's cut the same way for every tier, and judges never see it:
+
+| Question | Cut | Outcome |
 |---|---|---|
-| Rule | The step's request | A deterministic outcome; no model, network or credentials |
-| System One | Redacted evidence and typed questions | Probability, choice or score, mapped to an outcome |
-| System Two | Named execution profile, instructions, bounded evidence and output schema | Schema-validated verdict or explicit failure |
+| Yes/no | none | The score |
+| Yes/no | `"cut": {"yes": 700, "no": 300}` | `yes` at 700 or above, `no` at 300 or below, `unsure` between; `no` must be below `yes` |
+| Choice | none | The label |
+| Choice | `"cut": {"min": 600}` | The label at 600 or above, `unsure` below |
+
+A judge that cannot answer settles as `{"failed": true}` whatever the cut, so
+a failure never reads as `no`. Each cut is tuned in its rule file against
+labelled cases.
+
+#### Tiers
+
+| Tier | Answers with | Built-in providers |
+|---|---|---|
+| `facts` | Deterministic code: no model, network or credentials | `match` (equals, contains or a pattern over evidence), `bm25` (rank over the step's evidence), `embedding` (similarity from the shared local embedding service) |
+| `system-one` | A fast classifier, one batched call per round | `jev` |
+| `system-two` | A reasoning model, with a schema-checked answer that cites its evidence | Disabled until reviewed (slice 4) |
+| `person` | The user, asked through the host adapter | Each host adapter |
+
+#### Providers are configuration
+
+A provider is registered the way a user registers a model provider anywhere
+else: a built-in API format plus the endpoint, model and credential to use.
+Code exists only once per API format, in `crates/judges`:
+
+| Format | Speaks |
+|---|---|
+| `jev` | Jev's TypeSafe API |
+| `openai` | OpenAI-compatible chat completions with structured output, which covers local servers such as Ollama |
+| `anthropic` | Anthropic Messages with schema-constrained output |
+| `replay` | Answers recorded in a file, for tests and the playground |
+
+```jsonc
+// ~/.config/chauffeur/providers.json
+{
+  "providers": {
+    "local-qwen": {
+      "format": "openai",
+      "endpoint": "http://127.0.0.1:11434/v1",
+      "model": "qwen3:4b"
+    },
+    "reviewer": {
+      "format": "anthropic",
+      "model": "claude-sonnet-5-5",
+      "key": { "env": "ANTHROPIC_API_KEY" },
+      "timeout_ms": 20000
+    }
+  },
+  "tiers": {
+    "system-one": ["jev", "local-qwen"],
+    "system-two": ["reviewer"]
+  }
+}
+```
+
+- Chauffeur ships its providers as the same JSON, such as `jev`, in
+  `crates/judges/providers/`. The user's file adds providers and overrides
+  shipped ones by name.
+- `tiers` lists providers in fallback order. The next provider answers only
+  when one is unavailable, rate-limited or out of time, never because of what
+  it answered. Escalating to another tier is the plan's job, not fallback's.
+- Providers load only from shipped and user configuration, never from a
+  project's `.chauffeur/`. A provider is a network endpoint, so a cloned
+  repository could otherwise send evidence wherever it chose.
+- A key is named, as an environment variable or a keychain entry, and is read
+  only by `crates/judges`. It never reaches rule files, callers or audit.
+- A shipped provider is used once its key is present; a System Two provider
+  also needs the user to turn it on.
+- The `embedding` facts provider uses a shared, bounded local embedding
+  service. Caches and ranking that belong to one behavior stay with it.
 
 The v1 experiment's direct `judge(policy)` and `complete(profile)` calls are
 not the primary v2 plugin API: each exposes only one inference request and
@@ -256,16 +357,10 @@ path and cannot bypass plan limits, redaction or deadlines.
   A disconnected caller cancels future work; a blocking provider call retains
   its worker lease until it ends, and late results cannot commit actions.
 - Redaction runs after evidence assembly and before every provider call, and
-  also covers errors and audit metadata. Provider credentials remain in the
-  provider implementation and never reach rule files or callers.
+  also covers errors and audit metadata.
 - A pipeline returns data and action intents, not host effects. A host adapter
   checks the current observation revision before acting; host
   denials and the safety veto cannot be overridden by a plugin verdict.
-
-Native providers are linked only into bundles that select them. Adding a
-provider crate does not make it public or enabled. Embeddings are a shared,
-bounded local service; domain-specific vector caches and ranking stay with the
-behavior that owns them.
 
 ## Extension examples
 
@@ -298,9 +393,9 @@ v1's `conventional-commits` rule, with its question as a one-step plan:
   "plan": { "steps": [{
     "id": "nonconventional",
     "judge": "system-one",
+    "cut": { "yes": 700, "no": 300 },
     "ask": {
-      "kind": "noul",
-      "label": { "yes": 700, "no": 300 },
+      "question": "yes-no",
       "evidence": ["tool_call"],
       "instructions": "Does this call create a git commit whose message does not follow Conventional Commits?"
     }
@@ -326,9 +421,9 @@ unsure or fails on. It is a personal rule because it uses System Two.
     {
       "id": "screen",
       "judge": "system-one",
+      "cut": { "yes": 700, "no": 300 },
       "ask": {
-        "kind": "noul",
-        "label": { "yes": 700, "no": 300 },
+        "question": "yes-no",
         "evidence": ["thread", "event"],
         "instructions": "Does the new message ask the agent to do or change something?"
       }
@@ -337,9 +432,9 @@ unsure or fails on. It is a personal rule because it uses System Two.
       "id": "review",
       "judge": "system-two",
       "gates": [{ "mode": "any", "sources": ["screen"], "on": ["unsure", { "failed": true }] }],
+      "cut": { "min": 600 },
       "ask": {
-        "kind": "verdict",
-        "labels": ["act", "ignore"],
+        "question": { "choose": ["act", "ignore"] },
         "evidence": ["thread", "event"],
         "instructions": "Should the agent act on the new message? Cite the evidence."
       }
@@ -355,8 +450,8 @@ unsure or fails on. It is a personal rule because it uses System Two.
 Two rounds at most: `review` is skipped when the screen says `yes` or `no`.
 Chauffeur ships a System One triage for every source; this personal rule adds
 a System Two review for Slack. An event is delivered when any rule delivers it
-and withheld otherwise. The `verdict` request kind is defined with System Two
-in slice 4.
+and withheld otherwise. The review is the same `Ask` any tier answers; only
+its `judge` makes it System Two.
 
 ### Per-turn recall (client program)
 
@@ -382,9 +477,9 @@ async function recall(message: string, passages: readonly Passage[]) {
 const helps = (id: string) => ({
   id,
   judge: "system-one",
+  cut: { yes: 700, no: 300 },
   ask: {
-    kind: "noul",
-    label: { yes: 700, no: 300 },
+    question: "yes-no",
     evidence: ["message", id],
     instructions: `Would ${id} materially help the agent answer the message, beyond what it already says?`,
   },
@@ -560,15 +655,12 @@ crates/
   core/                 # Generic plan, outcomes, judges, state machine and events
   o11y/                 # Event consumers
   protocol/             # Plan, evidence and verdict JSON; validation and limits
+  judges/               # Ask and Answer, cuts, tiers, facts, API formats
+    providers/          # Shipped provider configuration, such as jev.json
   runtime/              # Admission, deadlines, workers, redaction, transition driver
   daemon/               # Socket, rule-file loading, default plugins
   cli/                  # `chauffeur` binary, setup and audit
 plugins/
-  judges/
-    facts/               # Deterministic rule judge over named facts
-  providers/
-    jev/                 # System One
-    openai/              # System Two backend
   behaviors/             # Each owns its plans, config and shipped content
     model-router/        # Model switching, context renewal, warming
     skills/              # Skill sources, exposure and safety review
@@ -672,7 +764,7 @@ socket carries exactly what `chauffeur run` reads and prints:
 
 ```sh
 chauffeur run <<'EOF'
-{"protocol": 1, "deadline_ms": 1500, "evidence": {"message": "…", "p1": "…"}, "plan": {"steps": [{"id": "p1", "judge": "system-one", "ask": {"kind": "noul", "instructions": "Would p1 help?", "evidence": ["message", "p1"]}}]}}
+{"protocol": 1, "deadline_ms": 1500, "evidence": {"message": "…", "p1": "…"}, "plan": {"steps": [{"id": "p1", "judge": "system-one", "ask": {"question": "yes-no", "instructions": "Would p1 help?", "evidence": ["message", "p1"]}}]}}
 EOF
 # → {"event": {"started": {"steps": 1}}}
 # → {"event": {"round_ready": {"round": 1, "steps": ["p1"]}}}
@@ -684,10 +776,10 @@ EOF
 directory: `$XDG_RUNTIME_DIR`, or `$TMPDIR` on macOS. A plugin-RPC binding
 takes the same request as an object and returns the verdict.
 
-- **Outcomes** are a string or an integer, compared by equality. A `noul` step
-  settles to its score, 0 to 1000. A step that gates others adds
-  `"label": {"yes": 700, "no": 300}` and settles to `yes`, `no` or `unsure`;
-  gates match labels. Recall reads scores; screen-then-review gates on labels.
+- **Outcomes** are a string or an integer, compared by equality. The runtime
+  turns each `Answer` into an outcome with the step's [cut](#the-cut): a score
+  without one, a label or `unsure` with one. Gates match outcomes, so a step
+  that gates others has a cut.
 - **Verdicts** give each step `{"settled": <outcome>}`, `{"failed": true}` or
   `{"skipped": true}`. A gate names failure as `{"failed": true}`, so a judge's
   failure never collides with a label.
@@ -705,12 +797,13 @@ takes the same request as an object and returns the verdict.
 |---|---|
 | `crates/protocol/src/{lib,plan,evidence,limits,error}.rs` | Serde wire types; validation and limits; lowering to `chauffeur_core::Plan<Ask, Outcome>`; typed errors |
 | `crates/protocol/schema/run.json`, `crates/protocol/fixtures/` | The one `chauffeur.run` schema every binding uses, and the valid and invalid requests each binding's tests replay |
+| `crates/judges/src/{ask,cut,tiers,config}.rs` | `Ask` and `Answer`; applying cuts; seating each tier's providers in fallback order from shipped and user `providers.json`, refusing any from a project |
+| `crates/judges/src/{facts,replay}.rs` | The `match` facts provider and the `replay` format, which answers from recorded scores for tests |
 | `crates/runtime/src/admission.rs` | One permit per run, held from admission through delivery; per-source and global capacity |
 | `crates/runtime/src/run.rs` | Drives rounds on a bounded worker pool; checks the deadline and cancellation before each round; discards late results |
-| `crates/runtime/src/judges.rs` | `Send + Sync` panel by name; the `noul` label mapping; the fake System One that replays recorded scores |
 | `crates/runtime/src/redact.rs` | Redacts evidence before every provider judge, porting v1's rules and their cases |
 | `crates/runtime/src/events.rs` | Bounded per-run event log; overflow is an explicit event |
-| `crates/daemon/src/{main,socket}.rs` | Creates the socket directory `0700` and refuses one it does not own; one run per connection, JSON lines out, closing cancels; `--fake-system-one FILE` seats the fake for tests |
+| `crates/daemon/src/{main,socket}.rs` | Creates the socket directory `0700` and refuses one it does not own; one run per connection, JSON lines out, closing cancels; `--providers FILE` replaces the user's providers, for tests |
 | `crates/cli/src/run.rs` | `chauffeur run`: one request on stdin, the socket's JSON lines on stdout; exit 0 with a verdict, 1 when rejected, 2 when the daemon is unavailable |
 | `clients/typescript/src/index.ts` | `@fdcn/chauffeur-client`: `connect().run(request, { signal })` over the socket, no dependencies; closing on abort cancels the run |
 | `adapters/opencode/src/rpc.ts` | `Chauffeur`, the OpenCode binding defined from `run.json`, exported as `@fdcn/chauffeur/rpc`; forwards each call through the client |
@@ -728,23 +821,28 @@ slice 2 runs it end to end against recorded scores.
   exhausted capacity, including audit A3's flood: 81 submissions with capacity
   8 admit 8 and reject 73 with `capacity`.
 - Kani: a permit is released exactly once on every terminal path; the event
-  log never exceeds its bound.
+  log never exceeds its bound; every score from 0 to 1000 maps to exactly one
+  outcome under any valid cut, with both edges inclusive.
+- Judges: fallback moves to the next provider only when one is unavailable,
+  rate-limited or out of time; a provider in a project's `.chauffeur/` is
+  refused; a key never appears in an event, error or verdict.
 - Daemon socket: an unknown judge, an unsupported protocol, an oversized line
   and a closed connection each fail safely; events arrive in order; another
   user's socket directory is refused.
-- All three bindings against the daemon with the fake System One: the
+- All three bindings against the daemon with a `replay` System One: the
   playground examples return the same verdicts through the client, `chauffeur
   run` and a real OpenCode's plugin RPC as through `Plan::run`; every fixture is
   accepted or rejected identically by each; aborting any caller cancels the run.
-- Recall: Jev scores recorded by opencode-history's replay feed the fake System
-  One; `chauffeur.run` attaches the same passages as the replay with the same
+- Recall: Jev scores recorded by opencode-history's replay feed a `replay`
+  System One; `chauffeur.run` attaches the same passages as the replay with the same
   selection rule. No agent session or history is sent.
 
 ### Slice 3 — Jev integration
 
-Implement Jev as a System One judge using the current TypeSafe API contract,
-including authentication, timeout, bounded response and explicit 429/529
-handling. The runtime registers it; core stays unaware of Jev.
+Implement the `jev` API format in `crates/judges` using the current TypeSafe
+API contract, including authentication, timeout, bounded response and explicit
+429/529 handling, and ship `providers/jev.json` as the default System One.
+Core and the runtime stay unaware of Jev.
 
 Verification: loopback HTTP contract cases for documented request/response,
 invalid replies and provider errors; then run a screen/review plan through the
@@ -753,22 +851,19 @@ rounds, elapsed time and provider-call count. Run opencode-history's recall
 replay live through `chauffeur.run`: one Jev call per message, judge time within the
 replay's 278 ms p50 and 318 ms p95 plus local overhead.
 
-### Slice 4 — System Two provider backend
+### Slice 4 — System Two providers
 
-Implement the structured reasoning backend contract and execution profiles in
-the runtime, then connect a native provider backend. System Two is a request
-kind in the same plan, so a behavior can screen with System One and escalate
-only unsure or failed outcomes. Keep provider fallback and behavior escalation
-as separate policies. Profiles choose provider, model, effort, timeout and
-output budget; local redaction and schema/evidence validation apply before and
-after every call. System Two ships disabled until its provider and evaluations
-are reviewed.
+Implement the `openai` and `anthropic` API formats in `crates/judges`. A System
+Two answer is schema-checked, and its `cites` must name evidence the step was
+given. Redaction applies before every call. Provider entries set model,
+effort, timeout and output budget. System Two ships disabled until a provider
+and its evaluations are reviewed.
 
-Verification: fake-backend cases for valid, refused, malformed, truncated,
-unavailable and timed-out replies; screen→review round ordering; evidence
-citations and the 32 KiB input budget; and proof that a slow reasoning call
-cannot consume reserved interactive System One capacity. Then replay human-
-labeled cases before enabling a live profile.
+Verification: loopback cases for valid, refused, malformed, truncated,
+unavailable and timed-out replies; screen→review round ordering; citations of
+evidence the step lacks are rejected; the 32 KiB input budget; and proof that a
+slow reasoning call cannot consume reserved interactive System One capacity.
+Then replay human-labelled cases before enabling a live provider.
 
 ### Slice 5 — Behaviors and OpenCode adapter parity
 
