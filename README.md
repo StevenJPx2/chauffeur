@@ -1,0 +1,66 @@
+# Chauffeur v2
+
+A clean-room rebuild of Chauffeur as a generic judgment runtime. Chauffeur
+releases are built from [`main`](https://github.com/StevenJPx2/chauffeur/tree/main);
+this branch ships nothing until cutover.
+
+Core runs bounded **plans**: named steps joined by gates, each answered by a
+**judge**. A judge is anything that answers a request: a deterministic rule, a
+System One classifier, a System Two reasoner or a person. Behavior plugins
+build plans and act on verdicts; provider plugins supply the model judges.
+
+```rust
+let plan = ask("screen", "rule", evidence)
+    .then_if_any(Outcome::Value(Unsure), ask("review", "model", evidence));
+let run = plan.run(&Panel::new().with("rule", &rule).with("model", &model))?;
+```
+
+## Status
+
+| Slice | Scope | State |
+|---|---|---|
+| 0 | Browser playground: Rust compiled to WebAssembly | Built |
+| 1 | `crates/core`: plans, gates, judges, state machine, events | Built and reviewed |
+| 2 | Wire protocol, runtime, plugin RPC, JavaScript SDK | Planned |
+| 3 | Jev as the System One judge | Planned |
+| 4 | System Two reasoning backend | Planned |
+| 5 | Behavior plugins and OpenCode adapter, at parity with `main` | Planned |
+| 6 | Release and cutover | Planned |
+
+[`docs/plans/pluggability.md`](docs/plans/pluggability.md) is the plan: the
+architecture, each slice, and the parity table tracking `main`'s features.
+[`docs/audits/architecture.md`](docs/audits/architecture.md) records the v1
+findings it answers.
+
+## Layout
+
+| Path | Contents |
+|---|---|
+| `crates/core` | Plans, gates, judges and the state machine; no dependencies |
+| `playground` | Vite page driving core through WebAssembly; see its [README](playground/README.md) |
+| `docs` | The plan and the v1 audit |
+
+## Develop
+
+The toolchain is pinned in `rust-toolchain.toml`, with Miri and the
+WebAssembly target.
+
+```sh
+cargo test --workspace
+cargo clippy --workspace --all-targets --locked
+cargo miri test -p chauffeur-core
+cargo kani -p chauffeur-core --harness <name>   # harnesses in crates/core/src/proofs.rs
+```
+
+The playground needs Bun and `wasm-pack`:
+
+```sh
+cd playground
+bun install
+bun run dev     # rebuilds Rust on change and reloads the page
+bun run check   # release build and type check
+```
+
+## License
+
+MIT. See [LICENSE](LICENSE).
