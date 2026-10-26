@@ -103,7 +103,7 @@ flowchart TB
     Runtime --> O11y
     Daemon["crates/daemon<br/>Socket, rule files, default plugins"] --> Runtime
     Daemon --> Protocol
-    Judges["crates/judges<br/>Ask and Answer, cuts, tiers, models"] --> Core
+    Judges["crates/judges<br/>Ask and Answer, confidence, tiers, models"] --> Core
     Runtime --> Judges
     Playground["playground<br/>WASM + interactive feature tabs"] --> Protocol
 ```
@@ -200,7 +200,7 @@ passages the `attach` intent names.
 | Owner | Responsibility | Boundary |
 |---|---|---|
 | `crates/core` | Generic plan composition, validation and state transitions | No transport, provider, host or domain policy |
-| `crates/judges` | The `Ask` and `Answer` contract, cuts, tiers, facts functions, API formats and model configuration | No behavior policy |
+| `crates/judges` | The `Ask` and `Answer` contract, confidence, tiers, facts functions, API formats and model configuration | No behavior policy |
 | `crates/runtime` | Admission, run state, deadlines, cancellation, egress redaction and provider dispatch | Injects implementations; owns no behavior policy |
 | `crates/protocol` | One JSON form of requests, plans, evidence, events, verdicts and intents for rule files, `navigate` and the playground | Validates and limits before anything runs |
 | `crates/daemon` | The socket, rule-file loading and matching, and the default behaviors | Listens only on a socket the user owns |
@@ -250,44 +250,61 @@ System One.
 
 ```mermaid
 flowchart TB
-    Step["Plan step<br/>judge, model, cut"] -- "Ask and evidence" --> Tiers
+    Step["Plan step<br/>judge, model, confidence"] -- "Ask and evidence" --> Tiers
     subgraph Tiers["Tiers: one Ask in, one Answer out"]
         Facts["facts<br/>match, select, BM25, embedding"]
         S1["system-one<br/>Jev, SubQ, GLiDE, a local model"]
         S2["system-two<br/>an OpenAI or Anthropic model"]
         Person["person<br/>the user, through the host"]
     end
-    Tiers -- "Answer" --> Cut["Runtime applies the step's cut"]
-    Cut -- "outcome or failed" --> Plan["Plan: gates and then"]
+    Tiers -- "Answer" --> Confidence["Runtime applies the step's confidence"]
+    Confidence -- "outcome or failed" --> Plan["Plan: gates and then"]
 ```
 
 #### The contract
 
 | Type | Shape |
 |---|---|
-| `Ask` | `question`: `"yes-no"` or `{"choose": [labels]}`; `instructions`; `evidence`: names of evidence blocks |
-| `Answer` | `score`, 0 to 1000; `label`, for a choice; `cites`, the evidence names it relied on. Or failed |
+| `Ask` | `question`; `instructions`; `evidence`: names of evidence blocks |
+| `Answer` | Each possible answer's probability; `cites`, the evidence names it relied on. Or failed |
 
-For a yes/no question the score is how strongly the answer is yes. For a
-choice, the label is the judge's pick and the score its confidence. Every tier
-answers both kinds, so moving a step between tiers changes only its `judge`.
-`crates/judges` implements core's `Judge` interface for every tier.
-
-#### The cut
-
-The step, not the judge, decides what an answer means. The runtime applies
-the step's cut the same way for every tier, and judges never see it:
-
-| Question | Cut | Outcome |
+| `question` | Answers | Example |
 |---|---|---|
-| Yes/no | none | The score |
-| Yes/no | `"cut": {"yes": 700, "no": 300}` | `yes` at 700 or above, `no` at 300 or below, `unsure` between; `no` must be below `yes` |
-| Choice | none | The label |
-| Choice | `"cut": {"min": 600}` | The label at 600 or above, `unsure` below |
+| `"yes-no"` | `yes`, `no` | "Does this commit message break Conventional Commits?" |
+| `{"choose": ["act", "ignore", "ask-user"]}` | One label | "What should the agent do with this Slack message?" |
+| `{"scale": ["low", "medium", "high"]}` | One level, in order | "How hard is the user's request?" |
 
-A judge that cannot answer settles as `{"failed": true}` whatever the cut, so
-a failure never reads as `no`. Each cut is tuned in its rule file against
-labelled cases.
+Every tier answers all three, so moving a step between tiers changes only its
+`judge`. Each model's native reply is converted to probabilities: Jev's
+`noul` 0.52 is yes 0.52 and no 0.48; GLiDE's weighted probabilities are used
+as they are. A `facts` judge answers with probability 1. `crates/judges`
+implements core's `Judge` interface for every tier.
+
+#### Confidence
+
+The step, not the judge, decides when an answer is sure enough. Its
+`confidence` is how sure the judge must be of an answer, from 0 to 1:
+
+| `confidence` | Outcome |
+|---|---|
+| `0.7` | The likeliest answer when its probability is 0.7 or more; otherwise `unsure` |
+| `{"yes": 0.6, "no": 0.95}` | Per answer: here `yes` needs 0.6 and `no` needs 0.95 |
+| none | A yes/no step settles to yes's probability; a choice or scale to the likeliest answer |
+
+```text
+confidence 0.7 on "Does this commit message break Conventional Commits?"
+  "fixed stuff"              yes 0.94          → yes
+  "feat(cli): add navigate"  yes 0.06, no 0.94 → no
+  "Update parser.rs"         yes 0.58, no 0.42 → unsure
+  Jev timed out                                → failed
+```
+
+A judge that cannot answer settles as `failed` whatever the confidence, so a
+failure never reads as `no`. On a scale, a split such as medium 0.45 and high
+0.43 is `unsure`; when the question is "medium or higher", ask it as yes/no.
+The runtime applies confidence the same way for every tier, in thousandths so
+comparisons stay exact, and judges never see it. Each step's confidence is
+tuned in its rule file against labelled cases.
 
 #### Tiers
 
@@ -359,7 +376,7 @@ of built-in strategies: any combination of the pieces is one.
 
 | Piece | What it does |
 |---|---|
-| Step | Asks one judge one question; its cut turns the answer into an outcome |
+| Step | Asks one judge one question; its confidence turns the answer into an outcome |
 | Gate | Runs a step only when earlier outcomes match |
 | `for_each` | Copies a step once per candidate, in one round; inside a copy, `step[item]` names the same candidate's copy of an earlier step |
 | Earlier outcomes | A step may read earlier steps' outcomes as its evidence |
@@ -382,10 +399,10 @@ Escalating from Jev to GLiDE, then to System Two:
 
 ```jsonc
 "plan": { "steps": [
-  { "id": "fast",   "judge": "system-one", "model": "jev",   "cut": { "yes": 700, "no": 300 }, "ask": { … } },
-  { "id": "slow",   "judge": "system-one", "model": "glide", "cut": { "yes": 700, "no": 300 }, "ask": { … },
+  { "id": "fast",   "judge": "system-one", "model": "jev",   "confidence": 0.7, "ask": { … } },
+  { "id": "slow",   "judge": "system-one", "model": "glide", "confidence": 0.7, "ask": { … },
     "gates": [{ "mode": "any", "sources": ["fast"], "on": ["unsure", { "failed": true }] }] },
-  { "id": "review", "judge": "system-two",                   "cut": { "yes": 700, "no": 300 }, "ask": { … },
+  { "id": "review", "judge": "system-two",                   "confidence": 0.7, "ask": { … },
     "gates": [{ "mode": "any", "sources": ["slow"], "on": ["unsure", { "failed": true }] }] },
   { "id": "answer", "judge": "facts", "ask": { "select": { "first": ["review", "slow", "fast"] } } }
 ] }
@@ -404,13 +421,13 @@ path and cannot bypass plan limits, redaction or deadlines.
 
 `chauffeur strategy show` prints a rule's plan as a tree, with each step's
 round, its model as the user's configuration resolves it, its gates and its
-cut:
+confidence:
 
 ```text
 $ chauffeur strategy show opencode-history/recall
 opencode-history/recall                        on recall
 ├─ round 1  helps × candidates  system-one → jev
-└─ round 2  best               facts select   top 3, min 700, from helps
+└─ round 2  best               facts select   top 3, min 0.7, from helps
 then  attach best
 at most 2 rounds · 1 model call · 31 candidates at most
 ```
@@ -484,7 +501,7 @@ v1's `conventional-commits` rule, with its question as a one-step plan:
   "plan": { "steps": [{
     "id": "nonconventional",
     "judge": "system-one",
-    "cut": { "yes": 700, "no": 300 },
+    "confidence": 0.7,
     "ask": {
       "question": "yes-no",
       "evidence": ["tool_call"],
@@ -510,7 +527,7 @@ on.
     {
       "id": "screen",
       "judge": "system-one",
-      "cut": { "yes": 700, "no": 300 },
+      "confidence": 0.7,
       "ask": {
         "question": "yes-no",
         "evidence": ["thread", "event"],
@@ -522,7 +539,7 @@ on.
       "judge": "system-two",
       "when": { "sources": ["slack"] },
       "gates": [{ "mode": "any", "sources": ["screen"], "on": ["unsure", { "failed": true }] }],
-      "cut": { "min": 600 },
+      "confidence": 0.6,
       "ask": {
         "question": { "choose": ["act", "ignore"] },
         "evidence": ["thread", "event"],
@@ -561,7 +578,7 @@ returned; the code gathers them and attaches the result.
         "instructions": "Would this passage materially help the agent answer the message, beyond what it already says?"
       }
     },
-    { "id": "best", "judge": "facts", "ask": { "select": { "from": "helps", "top": 3, "min": 700 } } }
+    { "id": "best", "judge": "facts", "ask": { "select": { "from": "helps", "top": 3, "min": 0.7 } } }
   ] },
   "then": [{ "attach": "best" }]
 }
@@ -737,7 +754,7 @@ crates/
   core/                 # Generic plan, outcomes, judges, state machine and events
   o11y/                 # Event consumers
   protocol/             # Plan, evidence and verdict JSON; validation and limits
-  judges/               # Ask and Answer, cuts, tiers, facts, API formats
+  judges/               # Ask and Answer, confidence, tiers, facts, API formats
     models/             # Shipped model entries, such as jev.json
   runtime/              # Admission, deadlines, workers, redaction, transition driver
   daemon/               # Socket, rule loading and matching, default behaviors
@@ -849,7 +866,7 @@ chauffeur navigate <<'EOF'
 EOF
 # → {"event": {"rule_matched": {"rule": "opencode-history/recall"}}}
 # → {"event": {"round_ready": {"rule": "opencode-history/recall", "round": 1, "steps": ["helps[p1]", "helps[p4]"]}}}
-# → {"event": {"step_settled": {"rule": "opencode-history/recall", "step": "helps[p4]", "outcome": 910}}}
+# → {"event": {"step_settled": {"rule": "opencode-history/recall", "step": "helps[p4]", "outcome": 0.91}}}
 # → {"event": {"step_settled": {"rule": "opencode-history/recall", "step": "best", "outcome": ["p4"]}}}
 # → {"intents": [{"rule": "opencode-history/recall", "attach": ["p4"]}]}
 ```
@@ -859,9 +876,11 @@ A request with `plan` in place of `on` ends with `{"verdict": {…}}`.
 directory: `$XDG_RUNTIME_DIR`, or `$TMPDIR` on macOS. A plugin-RPC binding
 takes the same request as an object and returns the intents or verdict.
 
-- **Outcomes** are a string, an integer or a list of candidate names, compared
-  by equality. The runtime turns each `Answer` into an outcome with the step's
-  [cut](#the-cut). Gates match outcomes, so a step that gates others has a cut.
+- **Outcomes** are an answer such as `yes` or `ignore`, `unsure`, a
+  probability from 0 to 1 with at most three decimals, or a list of candidate
+  names, compared by equality. The runtime turns each `Answer` into an outcome
+  with the step's [confidence](#confidence). Gates match answers, so a step
+  that gates others has a confidence.
 - **Intents** carry the rule that produced them. A rule's intents are dropped
   if its plan misses the deadline; other rules' intents still return.
 - **Verdicts** give each step `{"settled": <outcome>}`, `{"failed": true}` or
@@ -883,7 +902,7 @@ takes the same request as an object and returns the intents or verdict.
 |---|---|
 | `crates/protocol/src/{lib,request,plan,rule,intent,limits,error}.rs` | Serde wire types for requests, plans, rule files and intents; validation and limits; lowering plans, `for_each` copies and `[item]` gates to `chauffeur_core::Plan<Ask, Outcome>`; typed errors |
 | `crates/protocol/schema/navigate.json`, `crates/protocol/fixtures/` | The one `navigate` schema every binding uses, and the valid and invalid requests each binding's tests replay |
-| `crates/judges/src/{ask,cut,tiers,config}.rs` | `Ask` and `Answer`; applying cuts; resolving a step's `judge` and `model` against shipped and user `models.json` in fallback order, refusing any model entry from a project |
+| `crates/judges/src/{ask,confidence,tiers,config}.rs` | `Ask` and `Answer` for yes/no, choice and scale; converting each model's reply to probabilities; applying confidence; resolving a step's `judge` and `model` against shipped and user `models.json` in fallback order, refusing any model entry from a project |
 | `crates/judges/src/{facts,replay}.rs` | The `match` and `select` facts functions, and the `replay` format, which answers from recorded scores for tests |
 | `crates/runtime/src/admission.rs` | One permit per navigation, held from admission through delivery; per-source and global capacity |
 | `crates/runtime/src/run.rs` | Drives rounds on a bounded worker pool; checks the deadline and cancellation before each round; discards late results |
@@ -892,7 +911,7 @@ takes the same request as an object and returns the intents or verdict.
 | `crates/daemon/src/{main,socket}.rs` | Creates the socket directory `0700` and refuses one it does not own; one navigation per connection, JSON lines out, closing cancels; `--models FILE` replaces the user's models, for tests |
 | `crates/daemon/src/rules.rs` | Loads rule files from the four sources, refuses System Two in a project rule the user has not allowed, reloads on change, matches `on` and `when`, and runs matching rules concurrently |
 | `crates/cli/src/navigate.rs` | `chauffeur navigate`: one request on stdin, the socket's JSON lines on stdout; exit 0 with intents or a verdict, 1 when rejected, 2 when the daemon is unavailable |
-| `crates/cli/src/strategy.rs` | `chauffeur strategy show <rule>` and `--file`: the plan as a tree, with rounds, resolved models, gates, cuts and the maximum rounds and model calls |
+| `crates/cli/src/strategy.rs` | `chauffeur strategy show <rule>` and `--file`: the plan as a tree, with rounds, resolved models, gates, confidence and the maximum rounds and model calls |
 | `clients/typescript/src/index.ts` | `@fdcn/chauffeur-client`: `connect().navigate(request, { signal })` over the socket, no dependencies; closing on abort cancels the navigation |
 | `adapters/opencode/src/rpc.ts` | `Chauffeur`, the OpenCode binding defined from `navigate.json`, exported as `@fdcn/chauffeur/rpc`; forwards each call through the client |
 | `playground/wasm`, `playground/src/features/strategy.ts` | Parses plans through `crates/protocol`, so the page, rule files and inline plans share one JSON format; draws a rule's strategy tree and steps through it with recorded answers |
@@ -911,15 +930,18 @@ recorded scores.
   exhausted capacity, including audit A3's flood: 81 submissions with capacity
   8 admit 8 and reject 73 with `capacity`.
 - Kani: a permit is released exactly once on every terminal path; the event
-  log never exceeds its bound; every score from 0 to 1000 maps to exactly one
-  outcome under any valid cut, with both edges inclusive; `select` with `top`
+  log never exceeds its bound; for every probability in thousandths and every
+  valid confidence, an answer settles to exactly one outcome, with the edge
+  inclusive; `select` with `top`
   and `min` keeps at most `top` candidates, each at or above `min`, best
   first; every lowered plan has at most as many rounds as `strategy show`
   reports.
 - Judges: fallback moves to the next model only when one is unavailable,
   rate-limited or out of time; `"model": "glide"` without GLiDE configured
   runs on the tier's fallback order and reports it; a model entry in a
-  project's `.chauffeur/` is refused; a key never appears in an event, error or verdict.
+  project's `.chauffeur/` is refused; a key never appears in an event, error or
+  verdict; Jev's `noul`, choice and score replies and GLiDE's level replies
+  convert to the probabilities `main`'s wire tests expect.
 - Strategies: each row of the [strategies table](#strategies) runs as a rule
   with recorded answers; `[item]` gates skip exactly the candidates whose
   earlier copy did not match.
@@ -937,7 +959,7 @@ recorded scores.
   cancels the navigation.
 - Recall: Jev scores recorded by opencode-history's replay feed a `replay`
   System One; navigating `recall` attaches the replay's top three passages
-  scoring 700 or above. No agent session or history is sent.
+  scoring 0.7 or above. No agent session or history is sent.
 
 ### Slice 3 — System One models: Jev, SubQ and GLiDE
 
@@ -1021,7 +1043,7 @@ a machine with personal rules; rc release-gate runs from the bench.
 | Question | Recommended default |
 |---|---|
 | Event observation API | Core returns transition events; runtime offers an observer callback, and the daemon streams them to the caller from a bounded log. Judges are the only user code core calls |
-| Plan outcome types | Native plans choose `O: Clone + Eq`; protocol outcomes are a string, an integer or a list of candidate names, with `Failed` a distinct machine result |
+| Plan outcome types | Native plans choose `O: Clone + Eq`; protocol outcomes are an answer, `unsure`, a probability in thousandths (written as a decimal) or a list of candidate names, with `Failed` a distinct machine result |
 | Slice 2 dependencies | `serde` and `serde_json` in protocol. The daemon's socket and the runtime use `std` only; core stays dependency-free |
 | Gate source semantics | Any/All over preceding step IDs; skipped is terminal non-match; failures match only when named |
 | Rule-file trust | A project's `.chauffeur/rules/` may use facts and System One; System Two needs the user's `~/.config/chauffeur` to allow it for that project. Integration rules sit in the user's folder and are trusted as the user's |
