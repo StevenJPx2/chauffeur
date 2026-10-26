@@ -7,11 +7,13 @@ this branch ships nothing until cutover.
 Core runs bounded **plans**: named steps joined by gates, each answered by a
 **judge**. Judges come in four tiers, deterministic facts, System One, System
 Two and a person, and all take the same question and give the same answer.
-Model providers, such as Jev or a local model, are configuration. Most
-extensions are rule files in a `.chauffeur/` folder, holding data only: when to
-ask, the plan, and what to do with the verdict. Programs report what happened with
-`chauffeur.observe`, or ask their own question with `chauffeur.run`, through
-the TypeScript client, the `chauffeur` CLI or a host adapter.
+Model providers, such as Jev or a local model, are configuration.
+
+Callers such as sourcefed, opencode-history and host adapters send a question
+with its context through `chauffeur.navigate`, using the TypeScript client, the
+`chauffeur` CLI or a host adapter. Rule files decide how to answer it: when to
+ask, the plan, and what to do with the outcome. Rules come from Chauffeur,
+integrations, the user and projects, and hold data only.
 
 ```rust
 let plan = ask("screen", "rule", evidence)
@@ -25,7 +27,7 @@ let run = plan.run(&Panel::new().with("rule", &rule).with("model", &model))?;
 |---|---|---|
 | 0 | Browser playground: Rust compiled to WebAssembly | Built |
 | 1 | `crates/core`: plans, gates, judges, state machine, events | Built and reviewed |
-| 2 | Plan protocol, judge tiers and provider configuration, runtime, daemon socket, `chauffeur.run` through the client, CLI and OpenCode | Planned |
+| 2 | `chauffeur.navigate`: protocol, judge tiers and providers, rule files, runtime, daemon socket, through the client, CLI and OpenCode | Planned |
 | 3 | Jev as the first System One provider | Planned |
 | 4 | The first System Two providers | Planned |
 | 5 | Behavior plugins and OpenCode adapter, at parity with `main` | Planned |

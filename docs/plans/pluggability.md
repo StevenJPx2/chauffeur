@@ -12,16 +12,16 @@ tier of judge that answers it: facts (deterministic code), System One, System
 Two or a person. Every judge takes the same question and returns the same
 answer. Model providers are configuration; only each API format is code.
 
-Most extensions are data: a rule file in `.chauffeur/` declares when to ask,
-the plan to run and what to do with the verdict. A program that owns its data
-asks its own question with `chauffeur.run`. Chauffeur never runs code
-from a repository, and no plugin needs a token.
+Callers such as sourcefed and opencode-history send a question with its
+context through `chauffeur.navigate`. Rule files, which are data, decide how to
+answer: when to ask, the plan to run and what to do with the outcome. Chauffeur
+never runs code from a repository, and no caller needs a token.
 
 The initial slices are:
 
 1. a generic state machine that is playable in the browser;
-2. the plan protocol, the judge contract, the runtime and the daemon, reached
-   through `chauffeur.run`;
+2. the plan protocol, the judge contract, rule files, the runtime and the
+   daemon, reached through `chauffeur.navigate`;
 3. Jev as the first System One provider;
 4. the first System Two provider on the same plan/runtime path;
 5. behavior plugins and the OpenCode adapter, reaching parity with `main`;
@@ -117,55 +117,71 @@ dependencies determine size. Each package owns a real boundary.
 ## Pluggability boundaries
 
 Chauffeur and sourcefed both work in any harness, so no policy lives in a
-harness adapter. Policy lives in Chauffeur, as a rule file or a native
-behavior, or in the program that owns the data. Adapters only translate.
+harness adapter or a caller. A caller sends a question with its context;
+Chauffeur's rules decide how to answer it. Adapters only translate.
 
 | Kind | What it is | Written by | Examples |
 |---|---|---|---|
-| Rule file | Data: `on`, `when`, `plan`, `then` | The user, a project, or Chauffeur's defaults | `conventional-commits`, `slack-via-browser`, sourcefed event triage |
+| Rule file | Data: `on`, `when`, `plan`, `then` | Chauffeur, an integration, the user or a project | `conventional-commits`, `sourcefed/triage`, `opencode-history/recall` |
 | Native behavior | Rust inside Chauffeur, for policy that needs Chauffeur's state or arithmetic | Chauffeur | Model router, skill exposure, permission contracts, following the agent's PRs |
-| Client program | Any program that owns its data and asks its own question | Anyone | opencode-history's per-turn recall |
-| Host adapter | Per-harness glue: report what happens, enforce intents, expose `chauffeur.run` | Chauffeur, one per harness | `adapters/opencode`, `adapters/pi` |
+| Caller | Any program that sends a question and its context | Anyone | sourcefed's daemon, opencode-history, host adapters, hook scripts |
+| Host adapter | Per-harness glue: reports what happens and carries out intents | Chauffeur, one per harness | `adapters/opencode`, `adapters/pi` |
 
-There is no separate kind of "SDK plugin": `@fdcn/chauffeur-client` is only
-how a TypeScript program reaches the daemon, wherever it runs.
+### `chauffeur.navigate`
 
-Callers use one of two operations, both over the daemon's socket:
+Callers use one operation, `chauffeur.navigate`: the decision a chauffeur
+makes before steering. A request names an event and carries its context;
+every rule whose `on` and `when` match answers it, and the caller receives
+their intents:
 
-| Operation | Meaning | Returns | Called by |
-|---|---|---|---|
-| `chauffeur.observe` | Something happened; Chauffeur's rules and behaviors decide what follows | Intents | Host adapters (tool results, turn ends, permission requests); sourcefed (integration events) |
-| `chauffeur.run` | The caller owns the question and sends its plan | Verdict | Client programs, hook scripts |
+```ts
+import { connect } from "@fdcn/chauffeur-client"
+
+const { intents } = await connect().navigate(
+  { on: "recall", evidence: { message }, candidates: { p1: "…", p4: "…", p7: "…" } },
+  { signal: AbortSignal.timeout(1_500) },
+)
+// intents → [{ rule: "opencode-history/recall", attach: ["p4", "p1"] }]
+```
 
 ```mermaid
 flowchart LR
-    Adapters["Host adapters<br/>OpenCode, Pi, …"] -- "observe" --> Daemon["Chauffeur daemon"]
-    Sourcefed["sourcefed daemon"] -- "observe" --> Daemon
-    Programs["Client programs<br/>and hook scripts"] -- "run" --> Daemon
-    Daemon --> Rules["Rule files and<br/>native behaviors"]
-    Rules --> Runtime["Runtime: admit, redact,<br/>run, deadline"]
+    Callers["Callers<br/>sourcefed, opencode-history,<br/>host adapters, scripts"] -- "event and context" --> Daemon["Chauffeur daemon"]
+    Rules[("Rule files<br/>built-in, integrations,<br/>user, project")] --> Daemon
+    Daemon --> Strategy["Each matching rule's plan<br/>facts, System One, System Two"]
+    Strategy -- "intents" --> Callers
 ```
 
-`chauffeur.run` reaches the runtime directly; the diagram shows `observe`'s
-path through the rules.
+- **The strategy is the rule's.** A rule can screen with facts, classify with
+  System One and review only what System One leaves unsure with System Two.
+  Changing the strategy changes a rule file, never a caller.
+- **Answers are yes/no, a pick or a ranking.** A ranking scores each candidate
+  and keeps the best; see [The cut](#the-cut).
+- **No intent means the caller's default.** A rule that matches nothing in its
+  `then`, or whose judges fail, returns no intent: sourcefed then delivers the
+  event, and recall attaches nothing.
+- **An inline `plan` replaces `on`** for scripts, the playground and tests. It
+  runs only that plan and returns its verdict.
+
+Native behaviors answer the same events as rule files. The model router, for
+instance, answers `context_resumed` with a `compact` intent.
 
 #### sourcefed: one triage for every host
 
-sourcefed's daemon asks Chauffeur before it queues an event for a target, so
-OpenCode, Pi, MCP and CLI all receive the same filtered stream. The question
-is a Chauffeur rule file the user can tune; sourcefed carries no policy.
+sourcefed's daemon navigates `integration_event` before it queues an event for
+a target, so OpenCode, Pi, MCP and CLI all receive the same filtered stream.
+sourcefed installs `sourcefed/triage`, a System One screen that withholds
+confident noise; the user tunes or extends it in JSON.
 
 ```mermaid
 sequenceDiagram
     participant S as sourcefed daemon
     participant C as Chauffeur daemon
-    participant R as Rule file (thread triage)
     participant H as Any host (OpenCode, Pi, MCP, CLI)
-    S->>C: observe integration_event, with event and monitor evidence
-    C->>R: Rules with on integration_event
-    R-->>C: Intent deliver, or none
-    C-->>S: deliver true or false
-    S->>H: Queue the event only when delivered
+    S->>C: navigate integration_event, with event, monitor and thread
+    C->>C: Run sourcefed/triage and any other matching rule
+    C-->>S: withhold, or no intent
+    S->>H: Queue the event unless withheld
 ```
 
 With no Chauffeur, an error, or no answer within 3 seconds, sourcefed
@@ -173,36 +189,35 @@ delivers, as v1's gate does. In the other direction, the native behavior that
 follows the agent's PRs calls sourcefed's daemon API from a runtime worker,
 never from the coordinator (audit A4).
 
-#### opencode-history: a client program
+#### opencode-history: recall
 
-opencode-history reads OpenCode's database, so it lives in OpenCode, but it
-owns its question: it sends a recall plan with `chauffeur.run` and attaches
-what passes. It uses the OpenCode binding or `@fdcn/chauffeur-client`;
-both reach the same socket.
+opencode-history searches its own index when the user sends a message, then
+navigates `recall` with the message and the passages as candidates. Its rule,
+`opencode-history/recall`, ranks them, and opencode-history attaches the
+passages the `attach` intent names.
 
 | Owner | Responsibility | Boundary |
 |---|---|---|
 | `crates/core` | Generic plan composition, validation and state transitions | No transport, provider, host or domain policy |
 | `crates/judges` | The `Ask` and `Answer` contract, cuts, tiers, facts providers, API formats and provider configuration | No behavior policy |
 | `crates/runtime` | Admission, run state, deadlines, cancellation, egress redaction and provider dispatch | Injects implementations; owns no behavior policy |
-| `crates/protocol` | One JSON form of plans, evidence, events and verdicts for rule files, `observe`, `run` and the playground | Validates and limits before anything runs |
-| `crates/daemon` | The socket, rule-file loading, and the default judges and behaviors | Listens only on a socket the user owns |
+| `crates/protocol` | One JSON form of requests, plans, evidence, events, verdicts and intents for rule files, `navigate` and the playground | Validates and limits before anything runs |
+| `crates/daemon` | The socket, rule-file loading and matching, and the default behaviors | Listens only on a socket the user owns |
 | Behavior plugins | Questions, evidence selection, domain state, verdict interpretation and action intents | Never call host APIs directly |
-| Provider plugins | System One classification and System Two reasoning, transport and credentials | Expose provider-neutral results to the runtime |
-| Host adapters | Report host observations with `observe`, enforce approved actions, and expose `chauffeur.run` to their host's plugins | No policy; host denials remain authoritative |
+| Host adapters | Report what happens with `navigate`, carry out intents, and expose `navigate` to their host's plugins | No policy; host denials remain authoritative |
 
 ### One protocol, many bindings
 
-`observe` and `run` are Chauffeur operations, not any host's. Their requests
-and results are defined once, in `crates/protocol/schema/`, and every binding
+`navigate` is a Chauffeur operation, not any host's. Its request and result
+are defined once, in `crates/protocol/schema/navigate.json`, and every binding
 forwards them to the daemon socket unchanged:
 
 | Binding | Caller | Mechanism |
 |---|---|---|
-| `@fdcn/chauffeur-client` | Any TypeScript program: sourcefed's daemon, host plugins, scripts | `connect().run(request)`, `connect().observe(event)` over the socket |
-| `chauffeur run`, `chauffeur observe` | Hook scripts in any host, Git hooks, CI on the same machine | One request on stdin; JSON lines on stdout |
+| `@fdcn/chauffeur-client` | Any TypeScript program: sourcefed's daemon, host plugins, scripts | `connect().navigate(request)` over the socket |
+| `chauffeur navigate` | Hook scripts in any host, Git hooks, CI on the same machine | One request on stdin; JSON lines on stdout |
 | `crates/protocol` | Rust programs | The same types the daemon uses |
-| `adapters/opencode`, `adapters/<host>` | That host's plugins, as a convenience | The host's plugin-to-plugin mechanism, such as OpenCode plugin RPC: `ctx.rpc(Chauffeur).run(request)` |
+| `adapters/opencode`, `adapters/<host>` | That host's plugins, as a convenience | The host's plugin-to-plugin mechanism, such as OpenCode plugin RPC: `ctx.rpc(Chauffeur).navigate(request)` |
 
 Adding a host or a language adds a binding, never a new request format. The
 schema's fixtures run in the protocol crate's tests and in each binding's
@@ -210,11 +225,12 @@ tests.
 
 ### Stateless invocation
 
-An invocation has a caller, request ID, bounded evidence, declared plan and
-deadline. It can run without an agent session, `Signal`, `Situation`, or prior
-history; the caller supplies the evidence it wants considered. Results and
-transition events return to that caller. Agent observations and host actions
-are separate operations that only the host adapter sends.
+A navigation has a caller, request ID, an event or inline plan, bounded
+evidence and candidates, and a deadline. It runs without an agent session,
+`Signal`, `Situation`, or prior history; the caller supplies the evidence it
+wants considered. Intents and transition events return to that caller. The
+only state kept between navigations is a rule's cooldown and a native
+behavior's own state. Only a host adapter carries out host actions.
 
 ### Judges
 
@@ -261,10 +277,17 @@ the step's cut the same way for every tier, and judges never see it:
 | Yes/no | `"cut": {"yes": 700, "no": 300}` | `yes` at 700 or above, `no` at 300 or below, `unsure` between; `no` must be below `yes` |
 | Choice | none | The label |
 | Choice | `"cut": {"min": 600}` | The label at 600 or above, `unsure` below |
+| Ranking | `"keep": {"top": 3, "min": 700}` | The candidate names, best first: at most `top`, each scoring `min` or above |
 
 A judge that cannot answer settles as `{"failed": true}` whatever the cut, so
 a failure never reads as `no`. Each cut is tuned in its rule file against
 labelled cases.
+
+A ranking is a yes/no step with `"for_each": "candidates"`. The step asks its
+question once per candidate, naming it `candidate` in its evidence, all in one
+round, so a batching provider answers
+them in one call. Candidates whose judge fails are left out. Each candidate
+counts toward the step limit.
 
 #### Tiers
 
@@ -330,7 +353,8 @@ Code exists only once per API format, in `crates/judges`:
 The v1 experiment's direct `judge(policy)` and `complete(profile)` calls are
 not the primary v2 plugin API: each exposes only one inference request and
 cannot express a screen, conditional escalation, fan-out or result assembly.
-A caller submits a bounded declarative plan; inference requests are its steps.
+Every navigation runs bounded declarative plans; inference requests are their
+steps.
 A future one-step convenience API is acceptable only if it lowers to that same
 path and cannot bypass plan limits, redaction or deadlines.
 
@@ -343,14 +367,13 @@ path and cannot bypass plan limits, redaction or deadlines.
   A cloned repository's rules are data the user did not write: they run under
   the same limits, and System Two stays off for them unless
   `~/.config/chauffeur` turns it on for that project.
-- Host plugins and hook scripts are trusted code, as their host or the user
-  runs them. They reach Chauffeur only through `chauffeur.run`; payloads are
-  never authority.
-- One connection carries one run: the request, then the run's events in order,
-  then the verdict. Each run's event buffer is bounded and overflow is an
-  explicit event. Closing the connection cancels the run.
+- Callers are trusted code, as their host or the user runs them. They reach
+  Chauffeur only through `navigate`; payloads are never authority.
+- One connection carries one navigation: the request, then its events in
+  order, then its intents or verdict. Each navigation's event buffer is bounded
+  and overflow is an explicit event. Closing the connection cancels it.
 - One admission permit covers queued, waiting and active work. Capacity per
-  source (shipped, personal and project rules, and `chauffeur.run`), plan size,
+  source (built-in, integration, user and project rules, and inline plans), plan size,
   evidence bytes, node count, depth, fan-out, rounds, attempts and output size
   are checked before dispatch.
 - Deadlines include queueing, preparation, every inference round and delivery.
@@ -364,21 +387,29 @@ path and cannot bypass plan limits, redaction or deadlines.
 
 ## Extension examples
 
-Two rule files and one client program. A rule file needs no code: dropping it
-into a `.chauffeur/rules/` folder is the whole install. Only judgment over
-data Chauffeur cannot see, such as another plugin's search index, needs code.
+Three rule files. A rule file needs no code: dropping it into a rules folder
+is the whole install.
 
 A rule file has four parts:
 
 | Field | Meaning |
 |---|---|
-| `on`, `when` | The host event that triggers the rule, and a cheap deterministic filter on it |
-| `plan` | The plan, in the same JSON as `chauffeur.run` and the playground |
-| `then` | Intents by verdict, first match wins; no match does nothing |
+| `on`, `when` | The event that triggers the rule, and a cheap deterministic filter on it; a step with its own `when` is skipped when that filter fails |
+| `plan` | The plan, in the same JSON as an inline plan and the playground |
+| `then` | Intents by outcome, first match wins; no match returns no intent |
 
-Rules load from Chauffeur's shipped defaults, `~/.config/chauffeur/rules/`,
-and each project's `.chauffeur/rules/` from the Git worktree root down to the
-session's directory. Edits apply without a restart.
+Rules load from four sources, and edits apply without a restart:
+
+| Source | Folder | System Two |
+|---|---|---|
+| Built-in | Each behavior's directory in Chauffeur | Allowed |
+| Integration | `~/.config/chauffeur/rules/<integration>/`, installed by sourcefed, opencode-history and others | Allowed |
+| User | `~/.config/chauffeur/rules/` | Allowed |
+| Project | `.chauffeur/rules/`, from the Git worktree root down to the session's directory | Only where `~/.config/chauffeur` allows it for the project |
+
+A rule's ID is its path under its folder, such as `sourcefed/triage`. The user
+tunes an integration's rule by editing its file; reinstalling the integration
+keeps a file the user changed.
 
 ### Commit messages (rule file)
 
@@ -387,7 +418,6 @@ v1's `conventional-commits` rule, with its question as a one-step plan:
 ```jsonc
 // .chauffeur/rules/conventional-commits.json
 {
-  "id": "conventional-commits",
   "on": "tool_result",
   "when": { "tools": ["shell"] },
   "plan": { "steps": [{
@@ -405,18 +435,16 @@ v1's `conventional-commits` rule, with its question as a one-step plan:
 }
 ```
 
-### Thread triage (rule file)
+### Event triage (integration rule)
 
-Decides whether a new Slack message in a thread the agent was given needs the
-agent. System One screens; System Two reviews only what System One leaves
-unsure or fails on. It is a personal rule because it uses System Two.
+sourcefed installs this rule with its System One screen. This user added the
+System Two review for Slack messages, which System One leaves unsure or fails
+on.
 
 ```jsonc
-// ~/.config/chauffeur/rules/thread-triage.json
+// ~/.config/chauffeur/rules/sourcefed/triage.json
 {
-  "id": "thread-triage",
   "on": "integration_event",
-  "when": { "sources": ["slack"] },
   "plan": { "steps": [
     {
       "id": "screen",
@@ -425,12 +453,13 @@ unsure or fails on. It is a personal rule because it uses System Two.
       "ask": {
         "question": "yes-no",
         "evidence": ["thread", "event"],
-        "instructions": "Does the new message ask the agent to do or change something?"
+        "instructions": "Does the new event ask the agent to do or change something?"
       }
     },
     {
       "id": "review",
       "judge": "system-two",
+      "when": { "sources": ["slack"] },
       "gates": [{ "mode": "any", "sources": ["screen"], "on": ["unsure", { "failed": true }] }],
       "cut": { "min": 600 },
       "ask": {
@@ -441,61 +470,51 @@ unsure or fails on. It is a personal rule because it uses System Two.
     }
   ] },
   "then": [
-    { "if": { "screen": "yes" }, "deliver": "event" },
-    { "if": { "review": "act" }, "deliver": "event" }
+    { "if": { "screen": "no" }, "withhold": "event" },
+    { "if": { "review": "ignore" }, "withhold": "event" }
   ]
 }
 ```
 
-Two rounds at most: `review` is skipped when the screen says `yes` or `no`.
-Chauffeur ships a System One triage for every source; this personal rule adds
-a System Two review for Slack. An event is delivered when any rule delivers it
-and withheld otherwise. The review is the same `Ask` any tier answers; only
-its `judge` makes it System Two.
+Two rounds at most: `review` is skipped when the screen says `yes` or `no`, or
+the event is not from Slack. Every other outcome, including a failed review,
+returns no intent, and sourcefed delivers.
 
-### Per-turn recall (client program)
+### Per-turn recall (integration rule)
 
-opencode-history needs code: its candidates come from its own search index.
-It calls `chauffeur.run` with `@fdcn/chauffeur-client` over the daemon's
-socket, so no token or address is configured. Inside OpenCode,
-`ctx.rpc(Chauffeur)` takes the same request.
+opencode-history installs this rule. The rule ranks the passages its search
+returned; the code gathers them and attaches the result.
 
-```ts
-import { connect } from "@fdcn/chauffeur-client"
-
-const chauffeur = connect()
-
-async function recall(message: string, passages: readonly Passage[]) {
-  const { verdict } = await chauffeur.run({
-    plan: { steps: passages.map((passage) => helps(passage.id)) },
-    evidence: { message, ...Object.fromEntries(passages.map((p) => [p.id, p.text])) },
-    deadlineMs: 1_500,
-  })
-  return passages.filter((passage) => verdict[passage.id]?.settled === "yes").slice(0, 3)
+```jsonc
+// ~/.config/chauffeur/rules/opencode-history/recall.json
+{
+  "on": "recall",
+  "plan": { "steps": [{
+    "id": "helps",
+    "judge": "system-one",
+    "for_each": "candidates",
+    "keep": { "top": 3, "min": 700 },
+    "ask": {
+      "question": "yes-no",
+      "evidence": ["message", "candidate"],
+      "instructions": "Would this passage materially help the agent answer the message, beyond what it already says?"
+    }
+  }] },
+  "then": [{ "attach": "helps" }]
 }
-
-const helps = (id: string) => ({
-  id,
-  judge: "system-one",
-  cut: { yes: 700, no: 300 },
-  ask: {
-    question: "yes-no",
-    evidence: ["message", id],
-    instructions: `Would ${id} materially help the agent answer the message, beyond what it already says?`,
-  },
-})
 ```
 
-The passages arrive in search order, so the first three accepted are kept.
-All steps share one round, so Jev answers them in one call. An error or a
+Its code is the [`navigate` call](#chauffeurnavigate) with a 1.5 s signal.
+All candidates share one round, so Jev answers them in one call. An error or a
 missed deadline attaches nothing.
 
 ### What a caller gets back
 
-| Result | Meaning | `chauffeur.run` |
+| Result | Meaning | `navigate` |
 |---|---|---|
-| Verdict | Every step settled, failed or skipped | `verdict[id]`: `{ settled }`, `{ failed: true }` or `{ skipped: true }` |
-| Unknown judge | A step names a judge that is not seated or not allowed for its source; nothing ran | `judge_unavailable` error |
+| Intents | Every matching rule ran | `intents`: each with its `rule`, possibly empty |
+| Verdict | An inline plan's steps settled, failed or were skipped | `verdict[id]`: `{ settled }`, `{ failed: true }` or `{ skipped: true }` |
+| Unknown judge | An inline plan names a tier with no provider, or one its source may not use; nothing ran. A rule that does is refused when it loads | `judge_unavailable` error |
 | Limit exceeded | The plan or evidence is over a named limit; nothing ran | `limit_exceeded` error |
 | Busy | This source's or the daemon's capacity is in use | `busy` error |
 | Deadline | The deadline passed; unfinished steps are unanswered | `deadline` error, with the events so far |
@@ -547,8 +566,8 @@ pub trait Judge<Q, O> {
 // Any `Fn(&Q) -> Outcome<O>` is a judge.
 ```
 
-A step names its judge, because plans are data: rule files and `chauffeur.run`
-plans can only refer to judges the host already holds, and configuration can
+A step names its judge, because plans are data: rule files and inline plans
+can only refer to judges the host already holds, and configuration can
 limit which judges a project's rules may use. A `Panel` maps names to judges. `plan.run(&panel)` validates
 the plan, rejects a name the panel lacks before asking anything, and then asks
 each judge its share of every round in one `judge_all` call. A batch with the
@@ -582,8 +601,8 @@ let candidates_then_review = all([
 `ask`, `all`, `then_on` and `then_if_any` are ordinary functions/builders, not
 a privileged list of built-in strategies. A plugin can define `fan_out`,
 `screen_then_review`, or its own strategy by composing them. The playground
-edits the same plan structure, so Rust builders, rule files and `chauffeur.run`
-plans have one meaning.
+edits the same plan structure, so Rust builders, rule files and inline plans
+have one meaning.
 
 Composition lowers to the DAG: `all` combines independent plans;
 `then_on`/`then_if_any` add a gate to each root of the following plan, referring
@@ -658,19 +677,19 @@ crates/
   judges/               # Ask and Answer, cuts, tiers, facts, API formats
     providers/          # Shipped provider configuration, such as jev.json
   runtime/              # Admission, deadlines, workers, redaction, transition driver
-  daemon/               # Socket, rule-file loading, default plugins
-  cli/                  # `chauffeur` binary, setup and audit
+  daemon/               # Socket, rule loading and matching, default behaviors
+  cli/                  # `chauffeur` binary: navigate, setup and audit
 plugins/
   behaviors/             # Each owns its plans, config and shipped content
     model-router/        # Model switching, context renewal, warming
     skills/              # Skill sources, exposure and safety review
     permission/          # Permission contracts and guards
-    rules/               # Rules and rulebooks
+    rules/               # Built-in rule files
 adapters/
-  opencode/              # Host observation, action enforcement, `chauffeur.run` binding
+  opencode/              # Reports what happens, carries out intents, `navigate` binding
   <host>/                # Each further host: the same three duties
 clients/
-  typescript/            # @fdcn/chauffeur-client: observe and run over the socket
+  typescript/            # @fdcn/chauffeur-client: navigate over the socket
 playground/
   wasm/                  # Thin wasm-bindgen bridge to core
   src/features/          # One interactive tab per feature under test
@@ -737,82 +756,88 @@ The last two give termination within one round per step; `proofs.rs` states the
 argument. Gate proofs cover three sources and every outcome subset; whole-plan
 proofs cover every three-step plan whose gates name one source and one outcome.
 
-### Slice 2 — Plan protocol, runtime and daemon
+### Slice 2 — Navigate: protocol, judges, rules, runtime and daemon
 
-A caller sends a bounded declarative plan with its evidence and a deadline,
-and receives the run's events and its verdict. It sends data, never callbacks
-or code. The runtime seats judges on a panel by name. This slice builds the
-path `chauffeur.run` takes, with three bindings so no host or language shapes
-the request: the TypeScript client, `chauffeur run`, and the OpenCode binding
-built on the client. `chauffeur.observe` and rule files reuse the path in
-slice 5.
+A caller sends an event or an inline plan, with its evidence, candidates and
+a deadline, and receives the events and the intents or verdict. It sends data,
+never callbacks or code. This slice loads rule files from all four sources and
+matches them by `on` and `when`. It builds `navigate` with three bindings so no
+host or language shapes the request: the TypeScript client, `chauffeur
+navigate`, and the OpenCode binding built on the client.
 
 ```mermaid
 flowchart LR
     Program["TypeScript program"] --> Client["@fdcn/chauffeur-client"]
     Plugin["OpenCode plugin"] -- "plugin RPC" --> OpenCode["adapters/opencode"]
     OpenCode --> Client
-    Script["Hook script"] -- "stdin" --> Cli["chauffeur run"]
-    Client -- "Unix socket" --> Daemon["crates/daemon<br/>one run per connection"]
+    Script["Hook script"] -- "stdin" --> Cli["chauffeur navigate"]
+    Client -- "Unix socket" --> Daemon["crates/daemon<br/>one navigation per connection"]
     Cli -- "Unix socket" --> Daemon
 ```
 
 #### Wire contract
 
-One JSON request in, the run's events and its verdict out as JSON lines. The
-socket carries exactly what `chauffeur run` reads and prints:
+One JSON request in, events and then intents out as JSON lines. The socket
+carries exactly what `chauffeur navigate` reads and prints:
 
 ```sh
-chauffeur run <<'EOF'
-{"protocol": 1, "deadline_ms": 1500, "evidence": {"message": "…", "p1": "…"}, "plan": {"steps": [{"id": "p1", "judge": "system-one", "ask": {"question": "yes-no", "instructions": "Would p1 help?", "evidence": ["message", "p1"]}}]}}
+chauffeur navigate <<'EOF'
+{"protocol": 1, "deadline_ms": 1500, "on": "recall", "evidence": {"message": "…"}, "candidates": {"p1": "…", "p4": "…"}}
 EOF
-# → {"event": {"started": {"steps": 1}}}
-# → {"event": {"round_ready": {"round": 1, "steps": ["p1"]}}}
-# → {"event": {"step_settled": {"round": 1, "step": "p1", "outcome": 812}}}
-# → {"verdict": {"p1": {"settled": 812}}}
+# → {"event": {"rule_matched": {"rule": "opencode-history/recall"}}}
+# → {"event": {"round_ready": {"rule": "opencode-history/recall", "round": 1, "steps": ["helps"]}}}
+# → {"event": {"step_settled": {"rule": "opencode-history/recall", "step": "helps", "outcome": ["p4"]}}}
+# → {"intents": [{"rule": "opencode-history/recall", "attach": ["p4"]}]}
 ```
 
+A request with `plan` in place of `on` ends with `{"verdict": {…}}`.
 `$CHAUFFEUR_SOCKET` defaults to `chauffeur/daemon.sock` in the user's runtime
 directory: `$XDG_RUNTIME_DIR`, or `$TMPDIR` on macOS. A plugin-RPC binding
-takes the same request as an object and returns the verdict.
+takes the same request as an object and returns the intents or verdict.
 
-- **Outcomes** are a string or an integer, compared by equality. The runtime
-  turns each `Answer` into an outcome with the step's [cut](#the-cut): a score
-  without one, a label or `unsure` with one. Gates match outcomes, so a step
-  that gates others has a cut.
+- **Outcomes** are a string, an integer or a list of candidate names, compared
+  by equality. The runtime turns each `Answer` into an outcome with the step's
+  [cut](#the-cut). Gates match outcomes, so a step that gates others has a cut.
+- **Intents** carry the rule that produced them. A rule's intents are dropped
+  if its plan misses the deadline; other rules' intents still return.
 - **Verdicts** give each step `{"settled": <outcome>}`, `{"failed": true}` or
   `{"skipped": true}`. A gate names failure as `{"failed": true}`, so a judge's
   failure never collides with a label.
-- **Evidence** is named once per run and referenced by steps, so a batched
-  provider call carries each block once.
+- **Evidence** is named once per navigation and referenced by steps, so a
+  batched provider call carries each block once.
 - **Versioning:** `protocol` is required; the daemon answers
   `unsupported_protocol` with the versions it accepts, and each binding reports
   it as `unavailable`.
-- **Limits**, checked before admission: 32 steps, 16 gates per step, 64 evidence
-  blocks, 256 KiB of evidence, 30 s deadline. Each rejection names its limit.
+- **Limits**, checked before admission: 32 steps per plan, counting each
+  candidate of a ranking; 16 gates per step; 64 evidence blocks and
+  candidates; 256 KiB of evidence; 30 s deadline. Each rejection names its
+  limit.
 
 #### Files
 
 | Path | Contents |
 |---|---|
-| `crates/protocol/src/{lib,plan,evidence,limits,error}.rs` | Serde wire types; validation and limits; lowering to `chauffeur_core::Plan<Ask, Outcome>`; typed errors |
-| `crates/protocol/schema/run.json`, `crates/protocol/fixtures/` | The one `chauffeur.run` schema every binding uses, and the valid and invalid requests each binding's tests replay |
+| `crates/protocol/src/{lib,request,plan,rule,intent,limits,error}.rs` | Serde wire types for requests, plans, rule files and intents; validation and limits; lowering `for_each` and plans to `chauffeur_core::Plan<Ask, Outcome>`; typed errors |
+| `crates/protocol/schema/navigate.json`, `crates/protocol/fixtures/` | The one `navigate` schema every binding uses, and the valid and invalid requests each binding's tests replay |
 | `crates/judges/src/{ask,cut,tiers,config}.rs` | `Ask` and `Answer`; applying cuts; seating each tier's providers in fallback order from shipped and user `providers.json`, refusing any from a project |
 | `crates/judges/src/{facts,replay}.rs` | The `match` facts provider and the `replay` format, which answers from recorded scores for tests |
-| `crates/runtime/src/admission.rs` | One permit per run, held from admission through delivery; per-source and global capacity |
+| `crates/runtime/src/admission.rs` | One permit per navigation, held from admission through delivery; per-source and global capacity |
 | `crates/runtime/src/run.rs` | Drives rounds on a bounded worker pool; checks the deadline and cancellation before each round; discards late results |
 | `crates/runtime/src/redact.rs` | Redacts evidence before every provider judge, porting v1's rules and their cases |
 | `crates/runtime/src/events.rs` | Bounded per-run event log; overflow is an explicit event |
-| `crates/daemon/src/{main,socket}.rs` | Creates the socket directory `0700` and refuses one it does not own; one run per connection, JSON lines out, closing cancels; `--providers FILE` replaces the user's providers, for tests |
-| `crates/cli/src/run.rs` | `chauffeur run`: one request on stdin, the socket's JSON lines on stdout; exit 0 with a verdict, 1 when rejected, 2 when the daemon is unavailable |
-| `clients/typescript/src/index.ts` | `@fdcn/chauffeur-client`: `connect().run(request, { signal })` over the socket, no dependencies; closing on abort cancels the run |
-| `adapters/opencode/src/rpc.ts` | `Chauffeur`, the OpenCode binding defined from `run.json`, exported as `@fdcn/chauffeur/rpc`; forwards each call through the client |
-| `playground/wasm` | Parses plans through `crates/protocol`, so the page, rule files and `chauffeur.run` share one JSON format |
+| `crates/daemon/src/{main,socket}.rs` | Creates the socket directory `0700` and refuses one it does not own; one navigation per connection, JSON lines out, closing cancels; `--providers FILE` replaces the user's providers, for tests |
+| `crates/daemon/src/rules.rs` | Loads rule files from the four sources, refuses System Two in a project rule the user has not allowed, reloads on change, matches `on` and `when`, and runs matching rules concurrently |
+| `crates/cli/src/navigate.rs` | `chauffeur navigate`: one request on stdin, the socket's JSON lines on stdout; exit 0 with intents or a verdict, 1 when rejected, 2 when the daemon is unavailable |
+| `clients/typescript/src/index.ts` | `@fdcn/chauffeur-client`: `connect().navigate(request, { signal })` over the socket, no dependencies; closing on abort cancels the navigation |
+| `adapters/opencode/src/rpc.ts` | `Chauffeur`, the OpenCode binding defined from `navigate.json`, exported as `@fdcn/chauffeur/rpc`; forwards each call through the client |
+| `playground/wasm` | Parses plans through `crates/protocol`, so the page, rule files and inline plans share one JSON format |
 
-#### Reference plugin: opencode-history recall
+#### Reference caller: opencode-history recall
 
-[Per-turn recall](#per-turn-recall-client-program) is the reference caller;
-slice 2 runs it end to end against recorded scores.
+[Per-turn recall](#per-turn-recall-integration-rule) is the reference caller:
+its rule installed in `~/.config/chauffeur/rules/opencode-history/`, and its
+code reduced to one `navigate` call. Slice 2 runs it end to end against
+recorded scores.
 
 #### Verification
 
@@ -822,20 +847,26 @@ slice 2 runs it end to end against recorded scores.
   8 admit 8 and reject 73 with `capacity`.
 - Kani: a permit is released exactly once on every terminal path; the event
   log never exceeds its bound; every score from 0 to 1000 maps to exactly one
-  outcome under any valid cut, with both edges inclusive.
+  outcome under any valid cut, with both edges inclusive; a ranking keeps at
+  most `top` candidates, each at or above `min`, best first.
 - Judges: fallback moves to the next provider only when one is unavailable,
   rate-limited or out of time; a provider in a project's `.chauffeur/` is
   refused; a key never appears in an event, error or verdict.
 - Daemon socket: an unknown judge, an unsupported protocol, an oversized line
   and a closed connection each fail safely; events arrive in order; another
   user's socket directory is refused.
+- Rules: each of the four sources loads; a project rule naming System Two is
+  refused unless the user allows it; an edited rule applies to the next
+  navigation; two matching rules both return their intents; a rule that misses
+  the deadline drops only its own intents.
 - All three bindings against the daemon with a `replay` System One: the
   playground examples return the same verdicts through the client, `chauffeur
-  run` and a real OpenCode's plugin RPC as through `Plan::run`; every fixture is
-  accepted or rejected identically by each; aborting any caller cancels the run.
+  navigate` and a real OpenCode's plugin RPC as through `Plan::run`; every
+  fixture is accepted or rejected identically by each; aborting any caller
+  cancels the navigation.
 - Recall: Jev scores recorded by opencode-history's replay feed a `replay`
-  System One; `chauffeur.run` attaches the same passages as the replay with the same
-  selection rule. No agent session or history is sent.
+  System One; navigating `recall` attaches the replay's top three passages
+  scoring 700 or above. No agent session or history is sent.
 
 ### Slice 3 — Jev integration
 
@@ -848,8 +879,8 @@ Verification: loopback HTTP contract cases for documented request/response,
 invalid replies and provider errors; then run a screen/review plan through the
 playground/runtime against Jev with a real key. Report the plan, answers,
 rounds, elapsed time and provider-call count. Run opencode-history's recall
-replay live through `chauffeur.run`: one Jev call per message, judge time within the
-replay's 278 ms p50 and 318 ms p95 plus local overhead.
+replay live through `navigate`: one Jev call per message, judge time within
+the replay's 278 ms p50 and 318 ms p95 plus local overhead.
 
 ### Slice 4 — System Two providers
 
@@ -867,25 +898,23 @@ Then replay human-labelled cases before enabling a live provider.
 
 ### Slice 5 — Behaviors and OpenCode adapter parity
 
-Port each parity-table row assigned to slice 5 as a behavior plugin that builds
-plans and returns intents, with the adapter observing the host and enforcing
-those intents. Each behavior moves its rules, contracts and config into its own
-directory. The rules behavior loads rule files (`on`, `when`, `plan`, `then`)
-from the shipped, personal and project folders, and converts v1's rules to that
-format. Adapters report what happens with `chauffeur.observe`, also exposed as
-`chauffeur observe` and in the client.
+Port each parity-table row assigned to slice 5 as a native behavior or a
+built-in rule file that answers navigations with intents. Each behavior moves
+its rules, contracts and config into its own directory, and v1's rules convert
+to rule files. Host adapters navigate what happens in the host (`tool_result`,
+`turn_end`, `permission_request`, `context_resumed`) and carry out the intents.
 
-v1's event gate becomes a shipped triage rule on `integration_event`. In
-sourcefed, its daemon calls `observe` before queuing each event, and its
-OpenCode adapter's `chauffeur.gate` call goes. Before the slice closes, review
-every `main` commit past the watermark and add its row.
+v1's event gate becomes `sourcefed/triage`. In sourcefed, its daemon navigates
+`integration_event` before queuing each event, its installer adds the rule,
+and its OpenCode adapter's `chauffeur.gate` call goes. Before the slice closes,
+review every `main` commit past the watermark and add its row.
 
 Verification: each row's evidence from `main` passes against v2; every v1 rule
-converts and validates; a project rule naming System Two is refused unless the
-user allows it; an intent for a stale observation revision is refused at the
-adapter; sourcefed events reaching OpenCode, Pi and the CLI are filtered alike,
-and v1's 12 labelled events give the same deliveries; the bench `verify`
-fixtures pass; a day of real use through a locally built plugin and daemon.
+converts and validates; an intent for a stale observation revision is refused
+at the adapter; sourcefed events reaching OpenCode, Pi and the CLI are
+filtered alike, and v1's 12 labelled events give the same deliveries; the
+bench `verify` fixtures pass; a day of real use through a locally built plugin
+and daemon.
 
 ### Slice 6 — Release and cutover
 
@@ -905,7 +934,7 @@ a machine with personal rules; rc release-gate runs from the bench.
 - Pinned nightly, deny-level strict Clippy, formatting and stable MSRV check.
 - Miri over core and runtime scenarios; Kani proofs are small and each names
   one invariant.
-- Real boundary checks for browser WASM, the daemon socket, each `chauffeur.run` binding, provider HTTP and
+- Real boundary checks for browser WASM, the daemon socket, each `navigate` binding, provider HTTP and
   live Jev. Unit tests supplement these checks; they do not replace them.
 - Verify at each slice before proceeding. Keep functions under 70 non-blank,
   non-comment lines, use no production dependency without approval, and keep
@@ -918,8 +947,9 @@ a machine with personal rules; rc release-gate runs from the bench.
 | Question | Recommended default |
 |---|---|
 | Event observation API | Core returns transition events; runtime offers an observer callback, and the daemon streams them to the caller from a bounded log. Judges are the only user code core calls |
-| Plan outcome types | Native plans choose `O: Clone + Eq`; protocol outcomes are a string or an integer, with `Failed` a distinct machine result |
+| Plan outcome types | Native plans choose `O: Clone + Eq`; protocol outcomes are a string, an integer or a list of candidate names, with `Failed` a distinct machine result |
 | Slice 2 dependencies | `serde` and `serde_json` in protocol. The daemon's socket and the runtime use `std` only; core stays dependency-free |
 | Gate source semantics | Any/All over preceding step IDs; skipped is terminal non-match; failures match only when named |
-| Rule-file trust | A project's `.chauffeur/rules/` may use rule and System One judges; System Two needs the user's `~/.config/chauffeur` to allow it for that project |
+| Rule-file trust | A project's `.chauffeur/rules/` may use facts and System One; System Two needs the user's `~/.config/chauffeur` to allow it for that project. Integration rules sit in the user's folder and are trusted as the user's |
+| Rule reload | The daemon polls rule folders' modification times with `std`; a file watcher needs a dependency |
 | o11y backend | Begin with a small event-consumer crate; choose a tracing/logging dependency only when implementing it |
