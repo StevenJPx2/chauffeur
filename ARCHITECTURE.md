@@ -308,7 +308,7 @@ come first in that prefix.
 - **Code Mode trimming** (`tool-exposure.json` `code_mode.trim`, off). The
   same answers also withhold, at a context's first message, every namespace
   confidently not needed (P ≤ 0.3), except `code_mode.always` (context7, jina,
-  opencode); a later message or `ask_chauffeur` restores one it needs. The
+  opencode, and agents, where `opencode-agents` keeps its tools by default); a later message or `ask_chauffeur` restores one it needs. The
   `namespaces` effect names them; the adapter turns each into session deny
   rules (`<namespace>_*` when that pattern covers exactly the namespace's
   tools, else one rule per permission action) and removes only those rules to
@@ -919,8 +919,12 @@ compiled in and need a rebuild.
 
 | Variable                  | Default                                                      |
 | ------------------------- | ------------------------------------------------------------ |
-| `CHAUFFEUR_JUDGE`         | `jev`; also accepts `subq`                                  |
-| `CHAUFFEUR_JUDGE_FALLBACK` | unset; `jev`, `subq`, or `none`                             |
+| `CHAUFFEUR_JUDGE`         | `jev`; also accepts `subq` or `glide`                       |
+| `CHAUFFEUR_JUDGE_FALLBACK` | unset; `jev`, `subq`, `glide`, or `none`                    |
+| `CHAUFFEUR_JUDGE_ESCALATE` | unset; a second judge for low-confidence answers           |
+| `CHAUFFEUR_JUDGE_ESCALATE_BELOW` | `0.6`; effective confidence below which answers escalate |
+| `CHAUFFEUR_JUDGE_REVIEW`  | unset; System Two profile for answers both judges doubt     |
+| `FASTINO_API_KEY`         | required when GLiDE is selected anywhere                     |
 | `TYPESAFE_API_KEY`        | required when Jev is selected as primary or fallback         |
 | `TYPESAFE_BASE_URL`       | `https://api.typesafe.ai`                                    |
 | `TYPESAFE_DEFAULT_MODEL`  | `jev-latest`                                                 |

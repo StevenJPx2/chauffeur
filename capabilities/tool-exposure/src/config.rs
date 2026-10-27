@@ -267,6 +267,11 @@ mod tests {
             ]
         );
         assert_eq!(config.never_exposed, ["skill"]);
+        assert!(!config.code_mode.trim);
+        assert_eq!(
+            config.code_mode.always,
+            ["context7", "jina", "opencode", "agents"]
+        );
         assert_eq!(config.hide.no(), Rule::no(0.3, 0.4));
         assert_eq!(config.reveal.yes(), Rule::yes(0.7, 0.4));
         assert_eq!(config.pick_confidence.pick(), Rule::pick(0.4));
