@@ -171,7 +171,7 @@ Escalate from Jev to GLiDE to a reasoning model, only as far as needed:
 // .chauffeur/rules/conventional-commits.json
 {
   "on": "tool.after",
-  "when": { "tools": ["shell"] },
+  "when": { "tools": ["shell"], "input": { "contains": "git commit" } },
   "judges": { "quick": { "tier": "system-one", "confidence": 0.7 } },
   "strategy": [
     { "id": "nonconventional", "judge": "quick",

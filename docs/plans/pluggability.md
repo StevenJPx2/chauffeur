@@ -737,7 +737,7 @@ install.
 
 | Field | Meaning |
 |---|---|
-| `on`, `when` | The event that triggers the rule, and a cheap filter on it |
+| `on`, `when` | The event that triggers the rule, and a cheap filter on it, such as tool names and text the input contains; no judge is asked unless it matches |
 | `judges` | Named judges: a tier, an optional model and a confidence |
 | `asks` | Named questions, so steps that ask the same question share it |
 | `strategy` | The steps, in order: each with an `id`, a `judge` (a named judge or a tier), an `ask` (a named question, one written inline, or a fact), and `after` |
@@ -762,10 +762,10 @@ keeps a file the user changed.
 ### Commit messages
 
 ```jsonc
-// .chauffeur/rules/conventional-commits.json
+// distribution/rules/conventional-commits.json
 {
   "on": "tool.after",
-  "when": { "tools": ["shell"] },
+  "when": { "tools": ["shell"], "input": { "contains": "git commit" } },
   "judges": { "quick": { "tier": "system-one", "confidence": 0.7 } },
   "strategy": [
     { "id": "nonconventional", "judge": "quick",
@@ -1363,6 +1363,9 @@ shape, and the first-party `rulebooks` plugin runs it:
 - The daemon listens only on a Unix socket in a directory only the user can
   open (`chauffeur/` in the user's runtime directory, mode `0700`), so only the
   user's own processes connect. There is no TCP port and no token.
+- The daemon runs as a Homebrew service when the user starts one. Otherwise
+  an adapter that finds no socket starts `chauffeur daemon` in the
+  background, and a second start that finds the socket taken exits.
 - Code from a repository runs only as a project fact: a pure function in the
   QuickJS sandbox, with no host modules and with memory and time caps.
   Plugins and models come only from the user's configuration.
@@ -1623,11 +1626,11 @@ sequenceDiagram
 | `crates/judges/src/systemone.rs` | The `systemone` format with `noul`: authentication, timeout, bounded response, 429 and 529 |
 | `crates/runtime/src/{run,redact,events}.rs` | Runs a strategy on a worker thread within its deadline; redacts evidence before every model call, with v1's rules and cases; bounded event log |
 | `crates/daemon/src/{main,socket,rules,bus,adapters}.rs` | Socket directory `0700`, JSON-RPC 2.0 lines; loads shipped and user rules and models and reloads them on change; routes events to matching rules and their actions to the adapter |
-| `crates/cli/src/main.rs` | `chauffeur daemon` and `chauffeur version` |
-| `packages/chauffeur/src/adapter/` | `@fdcn/chauffeur/adapter`: connect, the version handshake, `emit`, declared actions |
+| `crates/cli/src/main.rs` | `chauffeur daemon` and `chauffeur version`; a second daemon that finds the socket taken exits |
+| `packages/chauffeur/src/adapter/` | `@fdcn/chauffeur/adapter`: connect, starting the daemon when no socket answers, the version handshake, `emit`, declared actions |
 | `adapters/opencode/` | `tool.after` from OpenCode's tool hook; `message.append` with `now`, with gdp-ts proofs before every action |
 | `distribution/models/jev.json`, `distribution/rules/conventional-commits.json` | Jev as the default System One; the nudge |
-| `scripts/{package,homebrew,smoke}.mjs`, `.github/workflows/check.yml` | rc packaging and the `chauffeur@next` formula |
+| `scripts/{package,homebrew,smoke}.mjs`, `.github/workflows/check.yml` | rc packaging and the `chauffeur@next` formula, with its Homebrew service |
 | `playground/src/features/question.ts` | The Question tab |
 
 Verification:
@@ -1647,7 +1650,9 @@ Verification:
   rule naming an unknown judge is refused at load, with its path.
 - OpenCode, for real: `fixed stuff` gets the nudge, `feat(parser): handle
   empty input` gets nothing, and with Jev unreachable nothing is sent and the
-  event log shows `failed: unavailable`.
+  event log shows `failed: unavailable`; `ls` and `cargo test` make no Jev
+  call; with no service running, the adapter starts the daemon, and two
+  OpenCode windows share one daemon.
 - Release: packaging dry run and smoke test on Linux and macOS; the rc's
   Homebrew `install`, `test`, `audit` and `style` on a machine running v1,
   which keeps working.
@@ -2001,3 +2006,4 @@ use.
 | Question | Recommended default |
 |---|---|
 | The rulebooks design | Discuss before slice 12; the [sketch](#rulebooks) is the starting point |
+| Whether adapters become one universal package that other programs, such as sourcefed and Workhorse, also use to hook harnesses | Decide from the cross-harness adapter research before slice 1's adapter is built |
