@@ -1,26 +1,11 @@
-use chauffeur_core::{Failure, Judge, Outcome};
+use chauffeur_core::Failure;
 
-use crate::confidence::{Answer, AnsweredBy, Confidence, Probabilities};
-use crate::config::SystemOneEntry;
-use crate::config::{ConfigError, ModelEntry, Models, Tier};
+use super::{Tier, system_one};
+use crate::confidence::{AnsweredBy, Probabilities};
+use crate::config::{ConfigError, ModelEntry, Models};
 use crate::format::{Evidence, Format};
 use crate::placeholder::Placeholder;
 use crate::question::Question;
-
-#[cfg(feature = "systemone")]
-#[expect(
-    clippy::unnecessary_wraps,
-    reason = "matches the build without the `systemone` feature"
-)]
-fn systemone(entry: &SystemOneEntry, key: String) -> Option<Box<dyn Format>> {
-    Some(Box::new(crate::systemone::SystemOne::new(entry, key)))
-}
-
-/// Built without HTTP, as for the browser: the model is left out.
-#[cfg(not(feature = "systemone"))]
-fn systemone(_: &SystemOneEntry, _: String) -> Option<Box<dyn Format>> {
-    None
-}
 
 /// One model, ready to ask.
 pub struct Model {
@@ -74,7 +59,7 @@ impl Fallback {
             }
             let format: Box<dyn Format> = match models.model(name) {
                 Some(ModelEntry::Systemone(entry)) => {
-                    match key(&entry.key.env).and_then(|key| systemone(entry, key)) {
+                    match key(&entry.key.env).and_then(|key| system_one::format(entry, key)) {
                         Some(format) => format,
                         None => continue,
                     }
@@ -123,49 +108,5 @@ impl Fallback {
             );
         }
         results
-    }
-}
-
-/// A named judge for one run: a tier's models, the confidence that settles
-/// their answers, and the run's evidence. Core sees it as a [`Judge`].
-pub struct NamedJudge<'a> {
-    models: &'a Fallback,
-    confidence: &'a Confidence,
-    evidence: &'a Evidence,
-}
-
-impl<'a> NamedJudge<'a> {
-    /// A judge asking `models`, settling with `confidence`, over `evidence`.
-    #[must_use]
-    pub const fn new(
-        models: &'a Fallback,
-        confidence: &'a Confidence,
-        evidence: &'a Evidence,
-    ) -> Self {
-        Self {
-            models,
-            confidence,
-            evidence,
-        }
-    }
-}
-
-impl Judge<Question, Answer> for NamedJudge<'_> {
-    fn judge(&self, request: &Question) -> Outcome<Answer> {
-        self.judge_all(&[request])
-            .pop()
-            .unwrap_or(Outcome::Failed(Failure::Invalid))
-    }
-
-    fn judge_all(&self, requests: &[&Question]) -> Vec<Outcome<Answer>> {
-        let replies = self.models.answer_all(requests, self.evidence);
-        requests
-            .iter()
-            .zip(replies)
-            .map(|(question, reply)| match reply {
-                Ok((p, by)) => Outcome::Value(Answer::settle(question, p, self.confidence, by)),
-                Err(failure) => Outcome::Failed(failure),
-            })
-            .collect()
     }
 }

@@ -11,6 +11,21 @@ The Rust engine. Each crate depends only on the ones below it in this table.
 | `judges` | Questions, confidence, `models.json`, tiers in fallback order, and the `systemone` and `placeholder` formats |
 | `core` | Plans of named steps, judges by name, events and the verdict. No dependencies |
 
+A module with several parts is a folder named after it, one file per
+concept, with a `README.md`:
+
+| Folder | Holds |
+|---|---|
+| [`core/src/plan/`](core/src/plan/) | Plans, steps, outcomes and failures |
+| [`judges/src/question/`](judges/src/question/) | Questions and their outcomes |
+| [`judges/src/confidence/`](judges/src/confidence/) | Probabilities and how an answer settles |
+| [`judges/src/config/`](judges/src/config/) | `models.json` |
+| [`judges/src/placeholder/`](judges/src/placeholder/) | Recorded and fixed answers |
+| [`judges/src/tiers/`](judges/src/tiers/) | `system_one/`, `system_two/`, `facts/`, `person/`, and fallback across a tier's models |
+| [`protocol/src/rule/`](protocol/src/rule/) | Loading and checking a rule file |
+| [`runtime/src/redact/`](runtime/src/redact/) | Redacting evidence |
+| [`daemon/src/route/`](daemon/src/route/) | Routing events to rules, cooldowns, the log |
+
 ## One event
 
 ```mermaid

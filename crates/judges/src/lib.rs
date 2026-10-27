@@ -22,19 +22,16 @@ mod placeholder;
 #[cfg(kani)]
 mod proofs;
 mod question;
-#[cfg(feature = "systemone")]
-mod systemone;
-mod tier;
+mod tiers;
 
 pub use confidence::{
     Answer, AnsweredBy, Confidence, ConfidenceError, Milli, Probabilities, Settled,
 };
-pub use config::{
-    ConfigError, KeySource, ModelEntry, Models, PlaceholderEntry, SystemOneEntry, Tier,
-};
+pub use config::{ConfigError, KeySource, ModelEntry, Models};
 pub use format::{Evidence, Format};
-pub use placeholder::Placeholder;
+pub use placeholder::{Placeholder, PlaceholderEntry};
 pub use question::{Label, Outcomes, Question, QuestionError};
 #[cfg(feature = "systemone")]
-pub use systemone::SystemOne;
-pub use tier::{Fallback, Model, NamedJudge};
+pub use tiers::system_one::SystemOne;
+pub use tiers::system_one::SystemOneEntry;
+pub use tiers::{Fallback, Model, NamedJudge, Tier};

@@ -21,5 +21,9 @@ default = ["systemone"]
 # left out of its tier, as if its key were missing.
 systemone = ["dep:ureq"]
 
+[[test]]
+name = "systemone"
+required-features = ["systemone"]
+
 [lints]
 workspace = true

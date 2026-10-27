@@ -1424,12 +1424,12 @@ sequenceDiagram
 
 | File | Contents |
 |---|---|
-| `crates/core/src/{plan,judge,event}.rs` | Steps asked in one round, `Outcome`, `Judge`, `Panel`, `Plan::run`, events and `Verdict`; no dependencies |
-| `crates/protocol/src/{rule,when,then,event}.rs` | Rule files (`on`, `when`, `judges`, `asks`, `strategy`, `then`, `cooldown_seconds`), checked when they load; the `when` filter; `then` entries by outcome, `unsure` or `failed`; harness events and the evidence blocks they give, such as `tool_call` |
-| `crates/judges/src/{question,confidence,config,format,placeholder,tier}.rs` | Questions and results; confidence and `level`; `models.json` from shipped and user configuration; the `Format` interface; the `placeholder` format; each tier's models in fallback order as one core `Judge`, with the model that answered |
-| `crates/judges/src/systemone.rs` | The `systemone` format with `noul`, behind the default `systemone` feature so the playground builds without HTTP: authentication, timeout, bounded response, 429 and 529 |
-| `crates/runtime/src/{run,redact,log}.rs` | Runs a rule on a worker thread within its deadline; redacts evidence before every model call, with v1's rules and cases and `distribution/safety/redaction.json`; a bounded log |
-| `crates/daemon/src/{paths,state,route,rpc,socket}.rs` | Socket folder `0700`, JSON-RPC 2.0 lines up to 1 MiB, 64 connections; loads shipped and user models, redaction and rules and reloads them on change; routes an event to the rules that hook it, concurrently, with each rule's cooldown per session. Methods `chauffeur.emit`, `chauffeur.events` and `chauffeur.status`; the decider methods follow the harness package's contract |
+| `crates/core/src/{plan/,judge.rs,event.rs}` | Steps asked in one round, `Outcome`, `Judge`, `Panel`, `Plan::run`, events and `Verdict`; no dependencies |
+| `crates/protocol/src/{rule/,when.rs,then.rs,event.rs}` | Rule files (`on`, `when`, `judges`, `asks`, `strategy`, `then`, `cooldown_seconds`), checked when they load; the `when` filter; `then` entries by outcome, `unsure` or `failed`; harness events and the evidence blocks they give, such as `tool_call` |
+| `crates/judges/src/{question/,confidence/,config/,format.rs,placeholder/}` | Questions and results; confidence and `level`; `models.json` from shipped and user configuration; the `Format` interface; the `placeholder` format |
+| `crates/judges/src/tiers/` | The four tiers; each tier's models in fallback order as one core `Judge`, with the model that answered. `system_one/` holds the `systemone` format with `noul`, behind the default `systemone` feature so the playground builds without HTTP: authentication, timeout, bounded response, 429 and 529. `system_two/`, `facts/` and `person/` gain their formats in slices 11, 4 and 5 |
+| `crates/runtime/src/{run.rs,redact/,log.rs}` | Runs a rule on a worker thread within its deadline; redacts evidence before every model call, with v1's rules and cases and `distribution/safety/redaction.json`; a bounded log |
+| `crates/daemon/src/{paths,state,rpc,socket}.rs`, `crates/daemon/src/route/` | Socket folder `0700`, JSON-RPC 2.0 lines up to 1 MiB, 64 connections; loads shipped and user models, redaction and rules and reloads them on change; routes an event to the rules that hook it, concurrently, with each rule's cooldown per session. Methods `chauffeur.emit`, `chauffeur.events` and `chauffeur.status`; the decider methods follow the harness package's contract |
 | `crates/cli/src/main.rs` | `chauffeur daemon`, `version`, `emit`, `events` and `status`; the installation's name is the executable's, so `chauffeur-next` keeps its own socket and configuration; a second daemon that finds the socket taken exits |
 | `distribution/models/jev.json`, `distribution/rules/conventional-commits.json`, `distribution/safety/redaction.json` | Jev as the default System One; the nudge; the known credential prefixes |
 | `scripts/{package,homebrew,smoke}.mjs`, `.github/workflows/check.yml` | rc packaging and the `chauffeur@next` formula, with its Homebrew service |
@@ -1574,7 +1574,7 @@ the earlier steps it waits for and the outcomes it needs, as in the
 | `crates/core/src/{after,state}.rs` | The `after` rule, validation, and the round API (`questions`, `answer`, `fail`) |
 | `crates/core/src/proofs.rs`, `crates/core/tests/scenarios.rs` | Kani harnesses and scenario tests |
 | `crates/protocol/src/lower.rs` | Lowering named judges, asks and `after` to `chauffeur_core::Plan` |
-| `crates/judges/src/systemone.rs` | `choice` with every outcome's probability, and GLiDE's level-valued `score` |
+| `crates/judges/src/tiers/system_one/` | `choice` with every outcome's probability, and GLiDE's level-valued `score` |
 | `distribution/models/{subq,glide}.json` | SubQ and GLiDE beside Jev |
 | `crates/cli/src/strategy.rs` | `chauffeur strategy show <rule>` and `--file`: the tree, rounds, resolved models, `after`, confidence, and the maximum rounds and model calls |
 | `playground/src/features/strategy.ts` | The Strategy tab |
@@ -1627,7 +1627,7 @@ This slice adds facts, `for_each` over candidates, and `select`.
 | File | Contents |
 |---|---|
 | `crates/facts/src/{lib,sandbox,host,limits}.rs` | Fact modules from the three sources; QuickJS with memory caps and deadline interrupts; the read-only host modules for shipped and user facts |
-| `crates/judges/src/facts.rs` | The `facts` format |
+| `crates/judges/src/tiers/facts/` | The `facts` format |
 | `distribution/facts/{match,select}.js` and their tests | The two shipped facts |
 | `crates/protocol/src/lower.rs` | Candidates, `for_each` copies, wildcards and `[item]` |
 | `playground/src/features/facts.ts` | The Facts tab |
@@ -1659,6 +1659,7 @@ This slice adds [plugins](#plugins) and the person tier.
 |---|---|
 | `crates/daemon/src/plugins.rs` | `plugins.json`; the stdio plugin protocol; discovery cache, lazy and eager start, idle stop, restart with backoff, reload on file change |
 | `crates/daemon/src/bus.rs` | `ctx.on` and `ctx.before` routing, `before` budgets and `onTimeout`, retries by kind, the stale-action check |
+| `crates/judges/src/tiers/person/` | The `person` format: a question shown to the user through the harness |
 | `packages/chauffeur/src/{plugin,harness}/` | `@fdcn/chauffeur/plugin` and `/harness` |
 | `plugins/guard/` | The guard, with the read guard's `before` hooks |
 
@@ -1735,7 +1736,8 @@ hook command's budget; a `wake` goes out at the next `Stop`.
 **You can:** escalate to a reasoning model, such as the Slack review in
 [Event triage](#event-triage) and the skills plugin's review step.
 
-This slice adds the `openai` and `anthropic` formats. A System Two answer is
+This slice adds the `openai` and `anthropic` formats, in
+`crates/judges/src/tiers/system_two/`. A System Two answer is
 schema-checked against the question's outcomes, and its `cites` must name
 evidence the step was given. Model entries set the model ID, effort, timeout
 and output budget. System Two ships disabled until a model and its

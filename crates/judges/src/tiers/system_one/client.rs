@@ -1,13 +1,11 @@
-use std::collections::BTreeMap;
-use std::fmt::Write as _;
 use std::time::Duration;
 
 use chauffeur_core::Failure;
-use serde::Deserialize;
 use serde_json::{Map, Value, json};
 
+use super::SystemOneEntry;
+use super::wire::{Response, is_noul, read_noul, state};
 use crate::confidence::Probabilities;
-use crate::config::SystemOneEntry;
 use crate::format::{Evidence, Format};
 use crate::question::Question;
 
@@ -74,44 +72,6 @@ const fn failure(error: &ureq::Error) -> Failure {
         ureq::Error::Timeout(_) => Failure::Timeout,
         ureq::Error::BodyExceedsLimit(_) => Failure::Invalid,
         _ => Failure::Unavailable,
-    }
-}
-
-#[derive(Deserialize)]
-struct Response {
-    answers: BTreeMap<String, WireAnswer>,
-}
-
-#[derive(Deserialize)]
-struct WireAnswer {
-    #[serde(rename = "type")]
-    kind: String,
-    noul: Option<f64>,
-}
-
-fn is_noul(question: &Question) -> bool {
-    let outcomes = question.outcomes();
-    outcomes.len() == 2 && outcomes.position("yes").is_some() && outcomes.position("no").is_some()
-}
-
-/// The evidence the round's questions name, each block once.
-fn state(questions: &[&Question], evidence: &Evidence) -> String {
-    let mut state = String::new();
-    for (name, content) in evidence.named_by(questions) {
-        let _ = write!(state, "{name}:\n{content}\n\n");
-    }
-    state
-}
-
-fn read_noul(question: &Question, answer: Option<&WireAnswer>) -> Result<Probabilities, Failure> {
-    match answer {
-        Some(WireAnswer {
-            kind,
-            noul: Some(yes),
-        }) if kind == "noul" && (0.0..=1.0).contains(yes) => {
-            Probabilities::read(question.outcomes(), [("yes", *yes), ("no", 1.0 - yes)])
-        }
-        _ => Err(Failure::Invalid),
     }
 }
 
