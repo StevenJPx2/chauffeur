@@ -94,12 +94,6 @@ impl<Q> Step<Q> {
         &self.id
     }
 
-    /// The name of the judge that answers it.
-    #[must_use]
-    pub fn judge(&self) -> &str {
-        &self.judge
-    }
-
     /// What the judge is asked.
     #[must_use]
     pub const fn request(&self) -> &Q {

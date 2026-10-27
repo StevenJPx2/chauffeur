@@ -52,18 +52,6 @@ impl<O> Verdict<O> {
             .iter()
             .map(|(id, outcome)| (id.as_str(), outcome))
     }
-
-    /// How many steps settled.
-    #[must_use]
-    pub const fn len(&self) -> usize {
-        self.settled.len()
-    }
-
-    /// Whether no step settled.
-    #[must_use]
-    pub const fn is_empty(&self) -> bool {
-        self.settled.is_empty()
-    }
 }
 
 /// A finished run: its events, and the verdict they end in.
