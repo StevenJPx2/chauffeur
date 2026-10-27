@@ -1,0 +1,12 @@
+[package]
+name = "chauffeur-core"
+description = "Plans of named steps, each answered by a named judge, and the events of running them"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true

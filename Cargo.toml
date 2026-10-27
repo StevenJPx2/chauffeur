@@ -1,6 +1,12 @@
 [workspace]
 resolver = "3"
 members = [
+  "crates/core",
+  "crates/judges",
+  "crates/protocol",
+  "crates/runtime",
+  "crates/daemon",
+  "crates/cli",
   "playground/wasm",
 ]
 
@@ -13,6 +19,18 @@ publish = false
 repository = "https://github.com/StevenJPx2/chauffeur"
 
 [workspace.dependencies]
+chauffeur-core = { path = "crates/core" }
+chauffeur-judges = { path = "crates/judges" }
+chauffeur-protocol = { path = "crates/protocol" }
+chauffeur-runtime = { path = "crates/runtime" }
+chauffeur-daemon = { path = "crates/daemon" }
+clap = { version = "4", features = ["derive"] }
+color-eyre = { version = "0.6", default-features = false }
+notify = "8"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+ureq = { version = "3", default-features = false, features = ["rustls", "json"] }
 wasm-bindgen = "=0.2.129"
 
 [workspace.lints.rust]

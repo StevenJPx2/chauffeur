@@ -164,6 +164,7 @@ flowchart TB
     Core["crates/core<br/>Generic plan state machine"]
     O11y["crates/o11y<br/>Observes core events"] --> Core
     Protocol["crates/protocol<br/>Requests, rules, events, actions"] --> Core
+    Protocol --> Judges
     Judges["crates/judges<br/>Questions, answers, confidence, formats"] --> Core
     Judges --> Facts["crates/facts<br/>QuickJS sandbox"]
     Runtime["crates/runtime<br/>Drives rounds, deadlines, redaction"] --> Core
@@ -1424,21 +1425,25 @@ sequenceDiagram
 | File | Contents |
 |---|---|
 | `crates/core/src/{plan,judge,event}.rs` | Steps asked in one round, `Outcome`, `Judge`, `Panel`, `Plan::run`, events and `Verdict`; no dependencies |
-| `crates/protocol/src/{rule,strategy,question,action,error}.rs`, `schema/rule.json` | Rule files (`on`, `when`, `judges`, `asks`, `strategy`, `then`, `cooldown_seconds`); `tool.after` and `message.append` read from the harness package's schemas; validation |
-| `crates/judges/src/{question,confidence,tiers,config,format,placeholder}.rs` | Questions and results; confidence and `level`; `models.json` from shipped and user configuration, in fallback order; the `Format` interface; the `placeholder` format |
-| `crates/judges/src/systemone.rs` | The `systemone` format with `noul`: authentication, timeout, bounded response, 429 and 529 |
-| `crates/runtime/src/{run,redact,events}.rs` | Runs a strategy on a worker thread within its deadline; redacts evidence before every model call, with v1's rules and cases; bounded event log |
-| `crates/daemon/src/{main,socket,rules,bus,decider}.rs` | Socket directory `0700`, JSON-RPC 2.0 lines; loads shipped and user rules and models and reloads them on change; answers the harness package as a decider, routing events to matching rules and sending their actions back |
-| `crates/cli/src/main.rs` | `chauffeur daemon` and `chauffeur version`; a second daemon that finds the socket taken exits |
-| `distribution/models/jev.json`, `distribution/rules/conventional-commits.json` | Jev as the default System One; the nudge |
+| `crates/protocol/src/{rule,when,then,event}.rs` | Rule files (`on`, `when`, `judges`, `asks`, `strategy`, `then`, `cooldown_seconds`), checked when they load; the `when` filter; `then` entries by outcome, `unsure` or `failed`; harness events and the evidence blocks they give, such as `tool_call` |
+| `crates/judges/src/{question,confidence,config,format,placeholder,tier}.rs` | Questions and results; confidence and `level`; `models.json` from shipped and user configuration; the `Format` interface; the `placeholder` format; each tier's models in fallback order as one core `Judge`, with the model that answered |
+| `crates/judges/src/systemone.rs` | The `systemone` format with `noul`, behind the default `systemone` feature so the playground builds without HTTP: authentication, timeout, bounded response, 429 and 529 |
+| `crates/runtime/src/{run,redact,log}.rs` | Runs a rule on a worker thread within its deadline; redacts evidence before every model call, with v1's rules and cases and `distribution/safety/redaction.json`; a bounded log |
+| `crates/daemon/src/{paths,state,route,rpc,socket}.rs` | Socket folder `0700`, JSON-RPC 2.0 lines up to 1 MiB, 64 connections; loads shipped and user models, redaction and rules and reloads them on change; routes an event to the rules that hook it, concurrently, with each rule's cooldown per session. Methods `chauffeur.emit`, `chauffeur.events` and `chauffeur.status`; the decider methods follow the harness package's contract |
+| `crates/cli/src/main.rs` | `chauffeur daemon`, `version`, `emit`, `events` and `status`; the installation's name is the executable's, so `chauffeur-next` keeps its own socket and configuration; a second daemon that finds the socket taken exits |
+| `distribution/models/jev.json`, `distribution/rules/conventional-commits.json`, `distribution/safety/redaction.json` | Jev as the default System One; the nudge; the known credential prefixes |
 | `scripts/{package,homebrew,smoke}.mjs`, `.github/workflows/check.yml` | rc packaging and the `chauffeur@next` formula, with its Homebrew service |
 | `playground/src/features/question.ts` | The Question tab |
 
 Verification:
 
 - Kani: for every probability in thousandths and every valid confidence, an
-  answer settles to exactly one outcome, edges inclusive; a one-round plan
-  settles every step.
+  answer settles to exactly one outcome, edges inclusive. Core's one-round run
+  is covered by scenario tests, Miri and `cargo-mutants`; its Kani harnesses
+  arrive with `after` in slice 3.
+- Live, through `chauffeur emit` and the daemon: the nudge goes out for a
+  nonconventional commit and not for a conventional one, with Jev's answer,
+  model and time in `chauffeur events`.
 - Judges: `main`'s `judges/jev/tests/wire.rs` replayed over loopback HTTP;
   fallback moves on only for unavailable, rate-limited or timed out; an
   outcome outside the question's list fails as `invalid`; a key never appears
@@ -1588,7 +1593,9 @@ Scenario tests:
   round in one call; a batch of the wrong length settles as `Failed`.
 
 Kani harnesses, each one invariant over at most three steps and a small
-outcome enum:
+outcome enum. The `after` rule and round state are written over step indices
+and outcome enums, with no strings or maps, so CBMC explores them in seconds;
+the names and events around them stay in the code that calls them:
 
 | Harness | Property |
 |---|---|

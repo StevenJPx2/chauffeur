@@ -1,0 +1,25 @@
+[package]
+name = "chauffeur-judges"
+description = "Questions, answers and confidence, and the model formats that answer them"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+chauffeur-core = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+ureq = { workspace = true, optional = true }
+
+[features]
+default = ["systemone"]
+# The `/v1/systemone` format, over HTTP. Without it, a `systemone` model is
+# left out of its tier, as if its key were missing.
+systemone = ["dep:ureq"]
+
+[lints]
+workspace = true

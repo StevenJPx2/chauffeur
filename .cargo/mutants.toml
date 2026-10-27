@@ -1,0 +1,6 @@
+# A mutant must be caught by some test in the workspace, not only by its own
+# crate's: protocol and daemon tests exercise core and judges through their
+# real callers. Kani harnesses run only under `cargo kani`.
+test_workspace = true
+test_tool = "nextest"
+exclude_globs = ["**/proofs.rs"]

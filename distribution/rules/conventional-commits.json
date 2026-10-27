@@ -1,0 +1,26 @@
+{
+  "on": "tool.after",
+  "when": { "tools": ["shell"], "input": { "contains": "git commit" } },
+  "judges": { "quick": { "tier": "system-one", "confidence": 0.7 } },
+  "strategy": [
+    {
+      "id": "nonconventional",
+      "judge": "quick",
+      "ask": {
+        "outcomes": ["yes", "no"],
+        "evidence": ["tool_call"],
+        "instructions": "Does this call create a git commit whose message does not follow Conventional Commits?"
+      }
+    }
+  ],
+  "then": [
+    {
+      "if": { "nonconventional": "yes" },
+      "message.append": {
+        "parts": [{ "text": "Use Conventional Commits, such as `feat(scope): short description`." }],
+        "delivery": "now"
+      }
+    }
+  ],
+  "cooldown_seconds": 120
+}

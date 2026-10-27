@@ -26,3 +26,16 @@ pre {
 wa-textarea::part(textarea) {
   font-family: var(--wa-font-family-code);
 }
+
+.settled {
+  align-self: start;
+  font-size: var(--wa-font-size-m);
+}
+
+.probabilities {
+  display: grid;
+  gap: var(--wa-space-2xs);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}

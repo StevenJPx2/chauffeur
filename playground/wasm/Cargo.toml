@@ -12,6 +12,9 @@ publish.workspace = true
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
+chauffeur-judges = { workspace = true, default-features = false }
+serde = { workspace = true }
+serde_json = { workspace = true }
 wasm-bindgen = { workspace = true }
 
 [lints]

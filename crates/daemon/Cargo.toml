@@ -1,0 +1,21 @@
+[package]
+name = "chauffeur-daemon"
+description = "The Chauffeur daemon: rules, models and redaction behind a private Unix socket"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+chauffeur-core = { workspace = true }
+chauffeur-judges = { workspace = true }
+chauffeur-protocol = { workspace = true }
+chauffeur-runtime = { workspace = true }
+notify = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+
+[lints]
+workspace = true

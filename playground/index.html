@@ -18,6 +18,33 @@
     </main>
 
     <!-- One template per feature, named by its view's `$template`. -->
+    <template id="question">
+      <div class="wa-grid">
+        <div class="wa-stack">
+          <!-- Choose by `selected`, not `:value`: petite-vue's value binding also writes `el._value`, which wa-select keeps as an array. -->
+          <wa-select label="Example" @change="load($event.target.value)">
+            <wa-option v-for="name in names" :key="name" :value="name" :selected="name === example">{{ name }}</wa-option>
+          </wa-select>
+          <wa-textarea label="Question" hint="outcomes in order; p for every outcome; confidence: a bar, a bar per outcome, or none for the likeliest" :value="source" @input="update($event.target.value)" rows="12" spellcheck="false"></wa-textarea>
+        </div>
+        <div class="wa-stack">
+          <wa-callout v-if="result && 'error' in result" variant="danger">{{ result.error }}</wa-callout>
+          <wa-card v-else-if="result">
+            <span slot="header">Settles to</span>
+            <div class="wa-stack">
+              <wa-badge v-if="'failed' in result" variant="danger" class="settled">failed: {{ result.failed }}</wa-badge>
+              <template v-else>
+                <wa-badge :variant="result.answer.outcome === 'unsure' ? 'warning' : 'brand'" class="settled">{{ result.answer.outcome }}</wa-badge>
+                <ul class="probabilities">
+                  <li v-for="line in result.answer.p" :key="line.outcome"><code>{{ line.outcome }}</code> {{ line.p }}</li>
+                </ul>
+                <small>level {{ result.answer.level.toFixed(2) }}</small>
+              </template>
+            </div>
+          </wa-card>
+        </div>
+      </div>
+    </template>
 
     <script type="module" src="/src/main.ts"></script>
   </body>

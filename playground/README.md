@@ -8,7 +8,10 @@ its own tab.
   [Web Awesome](https://webawesome.com) for components.
 - **Run:** `bun install`, then `bun run dev`. Editing Rust in `wasm/` or
   `../crates/` rebuilds it and reloads the page.
-- **Tabs:** none yet. Each slice adds the tab for its feature.
+- **Tabs:** each slice adds the tab for its feature. *Question* settles a
+  question's probabilities under a confidence with `chauffeur-judges`, as the
+  daemon does: an outcome, `unsure`, or `failed` for a reply that is not an
+  answer.
 - **Check:** `bun run check` builds the release module and the page, and
   type-checks.
 
