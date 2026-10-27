@@ -42,8 +42,8 @@ slice's feature brings the next pieces. See
 | 9 | Claude Code | The Claude Code adapter |
 | 10 | Codex | `chauffeur hook codex` |
 | 11 | Review by a reasoning model | The System Two formats |
-| 12 | Cutover | v2 replaces v1 |
-| — | Rulebooks | Held until discussed |
+| 12 | Rulebooks | Held until discussed |
+| 13 | Cutover | v2 replaces v1 |
 
 The work proceeds one slice at a time, with review before advancing.
 
@@ -58,8 +58,8 @@ flowchart LR
     S6 --> S7["7 Renewal, warming"]
     S7 --> S8["8–10 Pi, Claude Code, Codex"]
     S8 --> S11["11 System Two"]
-    S11 --> S12["12 Cutover"]
-    S12 -.-> RB["Rulebooks<br/>held"]
+    S11 -.-> S12["12 Rulebooks<br/>held"]
+    S12 --> S13["13 Cutover"]
 ```
 
 ## Production and parity with main
@@ -97,8 +97,8 @@ Branch point `73bc29e`. Watermark: `e7fbabf`.
 | `3a18675` Skilld discovery | The skills plugin's remote sources; fetches run in the plugin, never on the daemon's coordinator (audit A4) | 6 | `cli/tests/skills.rs` |
 | `c43ecd6` read guard, RPC starvation fix | The guard plugin's `before` hooks; runtime admission permits (audit A3) | 2, 5 | `read-guard-probes.json`, `rpc-starvation.test.ts` |
 | `9b8e917` rules | Rule files in `distribution/rules/`; each v1 rule lands in the first slice that has the pieces it needs | 1–11 | `capabilities/rules/tests/rules.rs` |
-| Rulebooks (`/goal`, `/ticket`) | Rulebook files run by the `rulebooks` plugin; see [Rulebooks](#rulebooks) | Held | `skills/rulebooks/*.json`, `rulebooks.test.ts` |
-| `73bc29e` Homebrew release, CI | Release scripts and `check.yml` in v2: rc releases from slice 1, `1.0.0` at cutover | 1, 12 | `release.test.mjs`, `smoke.mjs` |
+| Rulebooks (`/goal`, `/ticket`) | Rulebook files run by the `rulebooks` plugin; see [Rulebooks](#rulebooks) | 12 | `skills/rulebooks/*.json`, `rulebooks.test.ts` |
+| `73bc29e` Homebrew release, CI | Release scripts and `check.yml` in v2: rc releases from slice 1, `1.0.0` at cutover | 1, 13 | `release.test.mjs`, `smoke.mjs` |
 | `f54db24`, `d66a385`, `e7fbabf` docs | Documentation only | — | — |
 | In progress on `main`: GLiDE provider, confidence escalation | `glide.json` over the `systemone` format; escalation is a strategy: System One with `model: "jev"`, then `model: "glide"`, then System Two | 3, 11 | `judges/glide/tests/wire.rs`, `docs/judges.md` escalation cases |
 
@@ -1627,7 +1627,7 @@ sequenceDiagram
 | `packages/chauffeur/src/adapter/` | `@fdcn/chauffeur/adapter`: connect, the version handshake, `emit`, declared actions |
 | `adapters/opencode/` | `tool.after` from OpenCode's tool hook; `message.append` with `now`, with gdp-ts proofs before every action |
 | `distribution/models/jev.json`, `distribution/rules/conventional-commits.json` | Jev as the default System One; the nudge |
-| `scripts/{package,homebrew,smoke}.mjs`, `.github/workflows/check.yml` | rc packaging, installed beside v1 |
+| `scripts/{package,homebrew,smoke}.mjs`, `.github/workflows/check.yml` | rc packaging and the `chauffeur@next` formula |
 | `playground/src/features/question.ts` | The Question tab |
 
 Verification:
@@ -1942,7 +1942,13 @@ rejected; the 32 KiB input budget; a slow reasoning call cannot consume
 reserved interactive System One capacity; human-labelled cases replay before
 a live model is enabled.
 
-### Slice 12: cutover
+### Slice 12: rulebooks
+
+Held until the [rulebooks](#rulebooks) design is discussed and approved. The
+slice's files, tests and verification are written then. Cutover waits for
+it, since v1 users rely on `/goal`.
+
+### Slice 13: cutover
 
 v2 replaces v1. `~/.config/chauffeur` is migrated, or v1's layout is read,
 without losing personal rules, and every v1 rule converts and validates. When
@@ -1952,11 +1958,6 @@ and `1.0.0` is tagged and published to Homebrew.
 Verification: upgrade from the current v1 release on a machine with personal
 rules; the bench `verify` fixtures and release-gate runs pass; a day of real
 use.
-
-### Rulebooks
-
-Held until the [rulebooks](#rulebooks) design is discussed and approved. The
-slice's files, tests and verification are written then.
 
 ## Quality gates
 
@@ -1986,7 +1987,9 @@ slice's files, tests and verification are written then.
 |---|---|
 | Wire protocol | JSON-RPC 2.0 over the Unix socket and stdio |
 | First-party plugins | `plugins/` in this repository, each its own package on the SDK |
-| Slices | Each slice is one feature a person uses, built end to end and released as an rc; the pieces arrive with the first feature that needs them |
+| Slices | Each slice is one feature a person uses, built end to end and released as an rc; the pieces arrive with the first feature that needs them. Cutover waits for rulebooks |
+| rc beside v1 | The `chauffeur@next` Homebrew formula installs `chauffeur-next`, with its own socket and `~/.config/chauffeur-next/`, so v1 keeps running untouched until cutover |
+| `bm25` and `embedding` facts | Ship with the first feature that uses them |
 | Jev's `score` type | `choice` for every question that is not yes/no; slice 3 measures `score` on labelled scale cases, and a question gains a hint only if `score` is clearly better |
 | Production dependencies | Core stays dependency-free. Approved: `serde` and `serde_json` (protocol and every config file), `thiserror` (typed errors outside core), `rquickjs` and bundled `rusqlite` (facts and the `chauffeur:sqlite` host module), `notify` (reloading rules, facts and models), `ureq` with rustls (model formats, from slice 1), `tracing` and `jiff` (o11y events and audit timestamps), `clap` and `color-eyre` (the CLI binary only) |
 | Development tools | `cargo-nextest` runs tests (doctests stay on `cargo test --doc`); `cargo-mutants` checks that tests catch changed logic in core, confidence and lowering; `cargo-shear` catches unused dependencies; `criterion` benchmarks the socket hop, confidence, a fact call and lowering; `bacon.toml` holds shared watch jobs |
@@ -1997,7 +2000,4 @@ slice's files, tests and verification are written then.
 
 | Question | Recommended default |
 |---|---|
-| The rulebooks design | Discuss before their slice; the [sketch](#rulebooks) is the starting point |
-| Whether cutover waits for rulebooks | Cutover waits, since v1 users rely on `/goal`; otherwise slice 12 ships without them and says so |
-| How the rc installs beside v1 | Its own Homebrew formula, `chauffeur@next`, with its own binary name, socket and configuration folder, so v1 keeps running untouched |
-| Which slice ships the `bm25` and `embedding` facts | The first feature that uses them |
+| The rulebooks design | Discuss before slice 12; the [sketch](#rulebooks) is the starting point |
