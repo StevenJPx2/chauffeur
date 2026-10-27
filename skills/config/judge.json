@@ -21,6 +21,14 @@
         "timeout_ms": 6000,
         "max_output_tokens": 1024
       },
+      "system-one-review": {
+        "provider": "openai",
+        "backend": "codex",
+        "model": "gpt-6-luna",
+        "effort": "low",
+        "timeout_ms": 6000,
+        "max_output_tokens": 1024
+      },
       "skill-review": {
         "provider": "openai",
         "backend": "codex",

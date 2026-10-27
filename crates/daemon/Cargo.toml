@@ -12,6 +12,7 @@ chauffeur-core = { workspace = true }
 chauffeur-judge-jev = { workspace = true }
 chauffeur-judge-facts = { workspace = true }
 chauffeur-judge-subq = { workspace = true }
+chauffeur-judge-glide = { workspace = true }
 chauffeur-plugin-anthropic = { workspace = true }
 chauffeur-plugin-openai = { workspace = true }
 chauffeur-capability-model-router = { workspace = true }

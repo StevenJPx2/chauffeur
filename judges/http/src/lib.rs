@@ -30,6 +30,7 @@ pub struct HttpConfig {
 }
 
 pub struct HttpClient {
+    glide: bool,
     name: &'static str,
     http: reqwest::blocking::Client,
     endpoint: String,
@@ -47,6 +48,7 @@ impl HttpClient {
             .map_err(|error| format!("build {name} HTTP client: {error}"))?;
 
         Ok(Self {
+            glide: false,
             name,
             http,
             endpoint: format!("{}/v1/systemone", config.base_url.trim_end_matches('/')),
@@ -56,10 +58,20 @@ impl HttpClient {
         })
     }
 
-    fn call(&self, body: &Value) -> Result<Vec<Answer>, SystemOneError> {
-        let response = self
-            .http
-            .post(&self.endpoint)
+    /// Fastino's System One dialect: no provider storage and weighted Score
+    /// values read from `expected_level`, never the winning index `score`.
+    pub fn new_glide(config: HttpConfig) -> Result<Self, String> {
+        let mut client = Self::new("glide", config)?;
+        client.glide = true;
+        Ok(client)
+    }
+
+    fn call(&self, body: &Value, timeout: Option<Duration>) -> Result<Vec<Answer>, SystemOneError> {
+        let mut request = self.http.post(&self.endpoint);
+        if let Some(timeout) = timeout {
+            request = request.timeout(timeout);
+        }
+        let response = request
             .bearer_auth(&self.api_key)
             .json(body)
             .send()
@@ -85,7 +97,7 @@ impl HttpClient {
             )));
         }
 
-        parse_answers(self.name, &bytes)
+        parse_answers(self.name, &bytes, self.glide)
     }
 
     /// Best effort: a recording that cannot be written never fails a judgment.
@@ -165,9 +177,38 @@ impl SystemOne for HttpClient {
     }
 
     fn ask(&mut self, state: &str, questions: &[Question]) -> Result<Vec<Answer>, SystemOneError> {
-        let body = request_body(&self.model, state, questions);
+        self.ask_within(state, questions, None)
+    }
+
+    fn ask_by(
+        &mut self,
+        state: &str,
+        questions: &[Question],
+        deadline: Instant,
+    ) -> Result<Vec<Answer>, SystemOneError> {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+
+        if remaining.is_zero() {
+            return Err(SystemOneError(format!("{} deadline passed", self.name)));
+        }
+        self.ask_within(state, questions, Some(remaining))
+    }
+}
+
+impl HttpClient {
+    /// The client's own timeout still applies; `timeout` can only shorten it.
+    fn ask_within(
+        &self,
+        state: &str,
+        questions: &[Question],
+        timeout: Option<Duration>,
+    ) -> Result<Vec<Answer>, SystemOneError> {
+        let mut body = request_body(&self.model, state, questions);
+        if self.glide {
+            body["store"] = json!(false);
+        }
         let started = Instant::now();
-        let result = self.call(&body).and_then(|answers| {
+        let result = self.call(&body, timeout).and_then(|answers| {
             validate_answers(questions, &answers)?;
             Ok(answers)
         });
@@ -220,11 +261,12 @@ struct WireAnswer {
     kind: String,
     choice: Option<String>,
     score: Option<f32>,
+    expected_level: Option<f32>,
     noul: Option<f32>,
     confidence: Option<f32>,
 }
 
-fn parse_answers(name: &str, bytes: &[u8]) -> Result<Vec<Answer>, SystemOneError> {
+fn parse_answers(name: &str, bytes: &[u8], glide: bool) -> Result<Vec<Answer>, SystemOneError> {
     let response: Response = serde_json::from_slice(bytes)
         .map_err(|error| SystemOneError(format!("decode {name} response: {error}")))?;
 
@@ -232,7 +274,12 @@ fn parse_answers(name: &str, bytes: &[u8]) -> Result<Vec<Answer>, SystemOneError
         .answers
         .into_iter()
         .map(|(id, wire)| {
-            let value = match (wire.kind.as_str(), wire.choice, wire.score, wire.noul) {
+            let score = if glide && wire.kind == "score" {
+                wire.expected_level
+            } else {
+                wire.score
+            };
+            let value = match (wire.kind.as_str(), wire.choice, score, wire.noul) {
                 ("choice", Some(choice), None, None) => AnswerValue::Choice(choice),
                 ("score", None, Some(score), None) => AnswerValue::Score(score),
                 ("noul", None, None, Some(probability)) => AnswerValue::Noul(probability),

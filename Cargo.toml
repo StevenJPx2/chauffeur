@@ -20,6 +20,7 @@ members = [
   "judges/facts",
   "judges/http",
   "judges/subq",
+  "judges/glide",
   "bench",
 ]
 
@@ -38,6 +39,7 @@ chauffeur-judge-jev = { path = "judges/jev" }
 chauffeur-judge-facts = { path = "judges/facts" }
 chauffeur-judge-http = { path = "judges/http" }
 chauffeur-judge-subq = { path = "judges/subq" }
+chauffeur-judge-glide = { path = "judges/glide" }
 chauffeur-plugin-anthropic = { path = "plugins/anthropic" }
 chauffeur-plugin-openai = { path = "plugins/openai" }
 chauffeur-capability-model-router = { path = "capabilities/model-router" }

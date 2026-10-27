@@ -2,6 +2,7 @@
 
 mod audit;
 mod engine;
+mod escalation;
 mod judge;
 mod judges;
 mod learned;
@@ -167,8 +168,13 @@ impl DaemonOptions {
 
 pub async fn serve(options: DaemonOptions) -> Result<(), String> {
     let address = options.address;
-    let judge = JudgeConfig::from_env()?;
     let system_two = reasoning::factory(&options.config_dir)?;
+    let mut judge = JudgeConfig::from_env()?;
+
+    if let Some(profile) = judge.review_profile() {
+        reasoning::require_profile(&options.config_dir, profile)?;
+        judge = judge.with_review(system_two.clone());
+    }
 
     // Without rules, no rulebook can run, so none is offered.
     let rulebooks = if options.disabled.iter().any(|id| id == "rules") {

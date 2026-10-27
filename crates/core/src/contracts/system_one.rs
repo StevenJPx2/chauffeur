@@ -86,6 +86,17 @@ pub trait SystemOne: Send {
     fn name(&self) -> &str;
 
     fn ask(&mut self, state: &str, questions: &[Question]) -> Result<Vec<Answer>, SystemOneError>;
+
+    /// Ask within the host's deadline. Judges whose calls can be shortened
+    /// cap them there; the default ignores it.
+    fn ask_by(
+        &mut self,
+        state: &str,
+        questions: &[Question],
+        _deadline: std::time::Instant,
+    ) -> Result<Vec<Answer>, SystemOneError> {
+        self.ask(state, questions)
+    }
 }
 
 impl SystemOne for Box<dyn SystemOne> {
@@ -95,6 +106,15 @@ impl SystemOne for Box<dyn SystemOne> {
 
     fn ask(&mut self, state: &str, questions: &[Question]) -> Result<Vec<Answer>, SystemOneError> {
         (**self).ask(state, questions)
+    }
+
+    fn ask_by(
+        &mut self,
+        state: &str,
+        questions: &[Question],
+        deadline: std::time::Instant,
+    ) -> Result<Vec<Answer>, SystemOneError> {
+        (**self).ask_by(state, questions, deadline)
     }
 }
 

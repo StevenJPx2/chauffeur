@@ -55,12 +55,13 @@ The model router computes `context_budget` from `renewal.budget` in
 
 ## System One providers
 
-Chauffeur supports two System One providers:
+Chauffeur supports three System One providers:
 
 - **Jev**, from TypeSafe, the default (`jev-latest`).
 - **SubQ Snap**, optional (`subq-snap-preview`).
+- **Fastino GLiDE**, optional (`fastino/GLiDE`).
 
-Both receive the same locally redacted state and typed questions. They share
+All receive the same locally redacted state and typed questions. They share
 the `/v1/systemone` transport and answer validation; capability thresholds and
 failure postures do not change when the provider changes.
 
@@ -100,12 +101,29 @@ required. An unset or empty fallback also means none. A key alone never enables
 a provider. Unknown names, identical primary and fallback, or missing credentials
 for a selected provider stop startup with a configuration error.
 
+GLiDE alone uses `CHAUFFEUR_JUDGE=glide` and `FASTINO_API_KEY`.
+To keep Jev primary and use GLiDE only on provider failure, set
+`CHAUFFEUR_JUDGE=jev` and `CHAUFFEUR_JUDGE_FALLBACK=glide` with both keys.
+This is **not** confidence-based escalation: low-confidence valid answers
+remain final. Merely setting `FASTINO_API_KEY` changes nothing.
+
 Provider-specific overrides:
 
 - `TYPESAFE_BASE_URL`, default `https://api.typesafe.ai`.
 - `TYPESAFE_DEFAULT_MODEL`, default `jev-latest`.
 - `SUBQ_BASE_URL`, default `https://api.subq.ai`.
 - `SUBQ_DEFAULT_MODEL`, default `subq-snap-preview`.
+- `FASTINO_BASE_URL`, default `https://api.fastino.ai`.
+- `FASTINO_DEFAULT_MODEL`, default `fastino/GLiDE`.
+
+GLiDE always sends `store: false` and accepts Bearer authentication. Its
+integer `score` is the winning level, not Chauffeur's weighted score: the
+client requires `expected_level` for Score answers and validates its range.
+Missing or invalid weighted scores fail closed. Jev/SubQ parsing is unchanged.
+The existing three-second deadline and single-attempt policy also apply to
+GLiDE. Fastino recommends a much longer timeout and warm-up retries for general
+clients; Chauffeur deliberately fails or uses its selected fallback instead of
+waiting through a cold deployment inside an agent hook.
 
 ## Fallback behavior
 
@@ -127,6 +145,42 @@ The daemon logs the fallback transition. `CHAUFFEUR_RECORD_JUDGMENTS=PATH`
 records each attempted provider separately, including `provider`, model,
 request, result and latency. Credentials are not recorded. Treat recordings as
 sensitive even though the engine redacts known credential shapes.
+
+## Confidence escalation
+
+Fallback answers failures; escalation answers doubt. It is off unless
+`CHAUFFEUR_JUDGE_ESCALATE` names a second judge:
+
+```sh
+export TYPESAFE_API_KEY=...
+export FASTINO_API_KEY=...
+export CHAUFFEUR_JUDGE=jev
+export CHAUFFEUR_JUDGE_ESCALATE=glide
+export CHAUFFEUR_JUDGE_ESCALATE_BELOW=0.6        # the default
+export CHAUFFEUR_JUDGE_REVIEW=system-one-review  # optional System Two step
+```
+
+- The primary (with its fallback, if any) answers every question first.
+- Each answer under the bar, by effective confidence, is asked again of the
+  escalation judge in one call with the same redacted state. Its answers
+  replace those: it was benchmarked as the more accurate judge.
+- With `CHAUFFEUR_JUDGE_REVIEW`, answers still under the bar go to that
+  System Two profile, which answers each from the state or abstains. An
+  abstention keeps the escalation judge's answer. System Two must be enabled
+  in `judge.json`; an unknown profile stops startup. The review sends the most
+  recent state that fits its 32 KiB input limit, and reviews at most 16
+  questions per call.
+- Every step is best effort. A failed, invalid, or late step keeps the
+  answers already in hand; only a primary failure fails the judgment.
+- Steps share the signal's deadline. The escalation call starts only with
+  500 ms left and the review only with 2 s left, keeping 1 s for the
+  engine's next round. Inside the 2-second permission budget, the review
+  normally does not run.
+
+A synthetic replay of 54 Chauffeur cases (two repeats) with the 0.6 bar
+measured 95.8% accuracy against Jev's 90.5%, with 3 of 108 requests needing
+System Two. The bar was chosen on that same set, not held-out data; confirm
+it on recorded traffic before relying on it.
 
 ## Images and retention
 
@@ -247,6 +301,8 @@ Agreement with recorded Jev answers is not ground-truth accuracy. Independently
 label disputes before changing the default judge.
 
 ## Sources
+
+- [Fastino GLiDE API and TypeSafe migration](https://docs.fastino.ai/inference/systemone.md)
 
 - [SubQ Decisions API](https://docs.subq.ai/endpoints/decisions-api/)
 - [SubQ models and pricing](https://docs.subq.ai/using-the-api/models/)

@@ -68,4 +68,13 @@ impl SystemOne for SubqClient {
     fn ask(&mut self, state: &str, questions: &[Question]) -> Result<Vec<Answer>, SystemOneError> {
         self.0.ask(state, questions)
     }
+
+    fn ask_by(
+        &mut self,
+        state: &str,
+        questions: &[Question],
+        deadline: std::time::Instant,
+    ) -> Result<Vec<Answer>, SystemOneError> {
+        self.0.ask_by(state, questions, deadline)
+    }
 }

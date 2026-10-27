@@ -289,6 +289,20 @@ pub(crate) fn factory(config_dir: &Path) -> Result<SystemTwoFactory, String> {
     Ok(with_backends(path, factories))
 }
 
+/// Whether `config_dir`'s `judge.json` defines System Two `profile`, so a
+/// misnamed review profile stops startup instead of failing every review.
+pub(crate) fn require_profile(config_dir: &Path, profile: &str) -> Result<(), String> {
+    let config = SystemTwoConfig::load(&config_dir.join("judge.json"))?;
+
+    if config.profiles.contains_key(profile) {
+        Ok(())
+    } else {
+        Err(format!(
+            "CHAUFFEUR_JUDGE_REVIEW names System Two profile {profile}, which judge.json does not define"
+        ))
+    }
+}
+
 /// A factory over the backends in `factories`, keyed `provider/backend`.
 pub(crate) fn with_backends(
     path: PathBuf,

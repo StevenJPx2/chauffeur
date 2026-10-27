@@ -259,7 +259,7 @@ fn ask(judge: &mut Box<dyn SystemOne>, task: OneTask) -> Event {
         Err("timed out".into())
     } else {
         judge
-            .ask(&task.state, &task.questions)
+            .ask_by(&task.state, &task.questions, task.deadline)
             .map_err(|error| error.0)
     };
 

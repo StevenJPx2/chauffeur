@@ -245,6 +245,7 @@ dependencies = [
  "chauffeur-capability-tool-exposure",
  "chauffeur-core",
  "chauffeur-judge-facts",
+ "chauffeur-judge-glide",
  "chauffeur-judge-jev",
  "chauffeur-judge-subq",
  "chauffeur-plugin-anthropic",
@@ -262,6 +263,15 @@ version = "0.1.0"
 dependencies = [
  "chauffeur-core",
  "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "chauffeur-judge-glide"
+version = "0.1.0"
+dependencies = [
+ "chauffeur-core",
+ "chauffeur-judge-http",
  "serde_json",
 ]
 
