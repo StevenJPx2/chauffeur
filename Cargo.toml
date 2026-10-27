@@ -1,7 +1,6 @@
 [workspace]
 resolver = "3"
 members = [
-  "crates/core",
   "playground/wasm",
 ]
 
@@ -14,7 +13,6 @@ publish = false
 repository = "https://github.com/StevenJPx2/chauffeur"
 
 [workspace.dependencies]
-chauffeur-core = { path = "crates/core" }
 wasm-bindgen = "=0.2.129"
 
 [workspace.lints.rust]

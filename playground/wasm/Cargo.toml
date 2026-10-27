@@ -12,7 +12,6 @@ publish.workspace = true
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-chauffeur-core = { workspace = true }
 wasm-bindgen = { workspace = true }
 
 [lints]

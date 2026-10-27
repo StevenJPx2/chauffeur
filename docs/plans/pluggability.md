@@ -23,28 +23,43 @@ Chauffeur is a judgment engine with plugins around it.
 Shipped content (models, facts, rules) lives apart from the engine, in
 `distribution/`, and loads through the same path as the user's own.
 
-The slices are:
+Each slice delivers one feature a person uses, working through the real path
+and installable, and builds only the pieces that feature needs. The next
+slice's feature brings the next pieces. See
+[Sequence and verification](#sequence-and-verification).
 
-1. a generic state machine that is playable in the browser;
-2. `navigate`: the protocol, the judge contract, facts, rule files, the
-   runtime, the daemon and the TypeScript client;
-3. System One models: Jev, SubQ and GLiDE;
-4. the first System Two models on the same path;
-5. plugins and adapters: the event bus, the SDK, the adapters for OpenCode,
-   Pi, Claude Code and Codex, and the plugins that reach parity with `main`;
-6. release and cutover: v2 replaces v1 as the shipped Chauffeur;
-7. rulebooks, held until their design is discussed.
+| # | Feature | New pieces |
+|---|---|---|
+| 0 | Setup | Toolchain, lints, the playground shell |
+| 1 | Conventional Commits nudge in OpenCode | Core, rule files, the Jev format, the daemon, the OpenCode adapter, rc release |
+| 2 | sourcefed triage | `navigate` for programs, intents, the TypeScript client |
+| 3 | Escalation from Jev to GLiDE | Multi-step strategies with `after`, SubQ and GLiDE, `choice` and `score`, `strategy show` |
+| 4 | opencode-history recall | Facts, `for_each`, `select` |
+| 5 | Harm guard | Plugins, `ctx.before`, asking the user |
+| 6 | Skills | The skills plugin, prompt edits |
+| 7 | Context renewal and warming | Session actions |
+| 8 | Pi | The Pi adapter |
+| 9 | Claude Code | The Claude Code adapter |
+| 10 | Codex | `chauffeur hook codex` |
+| 11 | Review by a reasoning model | The System Two formats |
+| 12 | Cutover | v2 replaces v1 |
+| — | Rulebooks | Held until discussed |
 
 The work proceeds one slice at a time, with review before advancing.
 
 ```mermaid
 flowchart LR
-    S1["1 Core<br/>after, proofs, playground"] --> S2["2 navigate<br/>protocol, judges, facts,<br/>runtime, daemon, client"]
-    S2 --> S3["3 System One<br/>Jev, SubQ, GLiDE"]
-    S3 --> S4["4 System Two<br/>OpenAI, Anthropic"]
-    S4 --> S5["5 Plugins and adapters<br/>parity with main"]
-    S5 --> S6["6 Release<br/>1.0.0-rc, cutover"]
-    S6 -.-> S7["7 Rulebooks<br/>held for discussion"]
+    S0["0 Setup"] --> S1["1 Commit nudge<br/>OpenCode, Jev"]
+    S1 --> S2["2 sourcefed triage<br/>navigate"]
+    S2 --> S3["3 Escalation<br/>after, GLiDE"]
+    S3 --> S4["4 Recall<br/>facts, select"]
+    S4 --> S5["5 Guard<br/>plugins"]
+    S5 --> S6["6 Skills"]
+    S6 --> S7["7 Renewal, warming"]
+    S7 --> S8["8–10 Pi, Claude Code, Codex"]
+    S8 --> S11["11 System Two"]
+    S11 --> S12["12 Cutover"]
+    S12 -.-> RB["Rulebooks<br/>held"]
 ```
 
 ## Production and parity with main
@@ -56,7 +71,7 @@ cutover, and `main` keeps receiving features and fixes meanwhile.
 flowchart LR
     Main["main (v1)<br/>features and fixes"] --> CI["check.yml<br/>fmt, clippy, tests, package smoke"]
     CI --> Brew["Homebrew release<br/>what users run"]
-    Main -. "ported by behavior<br/>tracked below" .-> V2["v2 branch<br/>slices 1–6"]
+    Main -. "ported by behavior<br/>tracked below" .-> V2["v2 branch<br/>one feature per slice"]
     V2 --> RC["1.0.0-rc.N<br/>next channel"]
     RC --> Cut["Cutover<br/>v2 merged into main"]
 ```
@@ -76,16 +91,16 @@ Branch point `73bc29e`. Watermark: `e7fbabf`.
 
 | `main` commit | v2 home | Slice | Evidence from `main` |
 |---|---|---|---|
-| `f2b087b` judge interface, facts judge | The `match` fact in `distribution/facts/`; `judge.json` routes become step judge names | 2 | `judges/facts/src/lib.rs` tests |
-| `bb41c9a` context renewal, session warming | The `context-renewal` and `warming` plugins; the adapter carries out `session.compact` and `session.warm` | 5 | `routing.rs`, `renewal.test.ts`, `warming.test.ts` |
-| `22e5391`, `36f6253` skill safety review | The skills plugin's screen-then-review strategy | 5 | `sources/tests.rs` vetting cases |
-| `3a18675` Skilld discovery | The skills plugin's remote sources; fetches run in the plugin, never on the daemon's coordinator (audit A4) | 5 | `cli/tests/skills.rs` |
+| `f2b087b` judge interface, facts judge | The `match` fact in `distribution/facts/`; `judge.json` routes become step judge names | 4 | `judges/facts/src/lib.rs` tests |
+| `bb41c9a` context renewal, session warming | The `context-renewal` and `warming` plugins; the adapter carries out `session.compact` and `session.warm` | 7 | `routing.rs`, `renewal.test.ts`, `warming.test.ts` |
+| `22e5391`, `36f6253` skill safety review | The skills plugin's screen-then-review strategy | 6 | `sources/tests.rs` vetting cases |
+| `3a18675` Skilld discovery | The skills plugin's remote sources; fetches run in the plugin, never on the daemon's coordinator (audit A4) | 6 | `cli/tests/skills.rs` |
 | `c43ecd6` read guard, RPC starvation fix | The guard plugin's `before` hooks; runtime admission permits (audit A3) | 2, 5 | `read-guard-probes.json`, `rpc-starvation.test.ts` |
-| `9b8e917` rules | Rule files in `distribution/rules/` | 5 | `capabilities/rules/tests/rules.rs` |
-| Rulebooks (`/goal`, `/ticket`) | Rulebook files run by the `rulebooks` plugin; see [Rulebooks](#rulebooks) | 7 | `skills/rulebooks/*.json`, `rulebooks.test.ts` |
-| `73bc29e` Homebrew release, CI | Release scripts and `check.yml` in v2 | 6 | `release.test.mjs`, `smoke.mjs` |
+| `9b8e917` rules | Rule files in `distribution/rules/`; each v1 rule lands in the first slice that has the pieces it needs | 1–11 | `capabilities/rules/tests/rules.rs` |
+| Rulebooks (`/goal`, `/ticket`) | Rulebook files run by the `rulebooks` plugin; see [Rulebooks](#rulebooks) | Held | `skills/rulebooks/*.json`, `rulebooks.test.ts` |
+| `73bc29e` Homebrew release, CI | Release scripts and `check.yml` in v2: rc releases from slice 1, `1.0.0` at cutover | 1, 12 | `release.test.mjs`, `smoke.mjs` |
 | `f54db24`, `d66a385`, `e7fbabf` docs | Documentation only | — | — |
-| In progress on `main`: GLiDE provider, confidence escalation | `glide.json` over the `systemone` format; escalation is a strategy: System One with `model: "jev"`, then `model: "glide"`, then System Two | 3 | `judges/glide/tests/wire.rs`, `docs/judges.md` escalation cases |
+| In progress on `main`: GLiDE provider, confidence escalation | `glide.json` over the `systemone` format; escalation is a strategy: System One with `model: "jev"`, then `model: "glide"`, then System Two | 3, 11 | `judges/glide/tests/wire.rs`, `docs/judges.md` escalation cases |
 
 Context renewal on v2:
 
@@ -396,7 +411,7 @@ tuned against labelled cases.
 |---|---|---|
 | `facts` | JavaScript functions in a sandbox: no model and no credentials | `match`, `select`, `bm25`, `embedding` |
 | `system-one` | A fast classifier, one batched call per round | `jev` (default), `subq`, `glide` |
-| `system-two` | A reasoning model, with a schema-checked answer that cites its evidence | Disabled until reviewed (slice 4) |
+| `system-two` | A reasoning model, with a schema-checked answer that cites its evidence | Disabled until reviewed (slice 11) |
 | `person` | The user, asked through the adapter | Each adapter |
 
 ### How a step reaches a model
@@ -526,15 +541,17 @@ does.
 
 ```mermaid
 flowchart TB
-    subgraph Slice2["Slice 2: every tier answers"]
-        F["facts → match, select"]
-        One["system-one → placeholder"]
-        Two["system-two → placeholder"]
-        P["person → placeholder"]
+    subgraph Stand["A placeholder answers for each tier until its slice"]
+        F["facts"]
+        One["system-one"]
+        Two["system-two"]
+        P["person"]
     end
-    One -- "slice 3" --> Jev["jev, subq, glide"]
-    Two -- "slice 4" --> Rev["openai, anthropic"]
+    One -- "slice 1" --> Jev["jev"]
+    One -- "slice 3" --> More["subq, glide"]
+    F -- "slice 4" --> Facts["match, select, your facts"]
     P -- "slice 5" --> Host["adapter asks the user"]
+    Two -- "slice 11" --> Rev["openai, anthropic"]
 ```
 
 ## Facts
@@ -1185,8 +1202,8 @@ result, and one for `wake` goes out at the next turn end.
 | `command`, `tool`, `mcp` registries | Yes | `registerCommand`, `registerTool`, `registerMcpServer` | Commands and tools from the mods API | Unsupported: Codex plugins are static files |
 
 Every cell marked unsupported returns `unsupported` to the plugin, which can
-check before relying on it. Slice 5 confirms each cell against the harness's
-own API before the adapter ships.
+check before relying on it. Each adapter's slice confirms its cells against
+the harness's own API before the adapter ships.
 
 ### Pi
 
@@ -1299,7 +1316,7 @@ Codex asks the user to trust the hooks once, in `/hooks`.
 
 ## Rulebooks
 
-Status: a sketch, held for discussion before slice 7 starts.
+Status: a sketch, held for discussion before its slice starts.
 
 A rulebook is a set of rules that stays off until the user starts it in a
 session, such as `/goal ship the parser fix`. A book is data in the rule-file
@@ -1484,22 +1501,17 @@ The Vite application uses petite-vue for reactivity and Web Awesome for UI
 components. Each feature under test is a tab; its Rust implementation is
 compiled to WASM.
 
-The **State machine** tab contains:
+Each slice adds the tab for its feature:
 
-- A plan editor with an example for each row of the
-  [strategies table](#strategies): escalate, rank, collect all that pass,
-  check the survivors, and vote, plus a step with both `all` and `any`.
-- A validation area for duplicate IDs, `after` naming a later or unknown step,
-  and empty `when` lists.
-- The steps asked in the current round, with controls to pick each one's
-  outcome or failure by hand.
-- A transition-event timeline and final per-step verdict.
-- Reset/replay controls and a sharable plan fragment in the URL.
+| Tab | Slice | Contents |
+|---|---|---|
+| Question | 1 | A question's outcomes, probabilities and confidence; the settled outcome, `unsure` or `failed` |
+| Strategy | 3 | A strategy editor with an example for each row of the [strategies table](#strategies); validation errors; each round's steps, with their outcome or failure picked by hand; the event timeline and verdict; the strategy in the URL |
+| Facts | 4 | A fact's input and its answer, with its memory and time used |
 
-The playground invokes the same core state transitions as the native runtime;
-it does not contain a second implementation of `after`. The Vite development
-loop rebuilds Rust changes in `playground/wasm/` and `crates/`, and reloads
-the page. Slice 2 adds the Strategy tab.
+The page calls the same Rust code as the daemon, compiled to WASM. The Vite
+development loop rebuilds Rust changes in `playground/wasm/` and `crates/`,
+and reloads the page.
 
 ## Package layout
 
@@ -1560,81 +1572,100 @@ scripts/         # Packaging, Homebrew formula, smoke tests
 | Install | Packaging copies `distribution/` to `~/.local/share/chauffeur/`, so the product and its content release separately |
 | Plugins | `plugins/` holds the first-party plugins. Each is its own package on the SDK, registered in `plugins.json` like anyone else's; nothing in `crates/` depends on them |
 
-Crates arrive when the API they consume is reviewed. `o11y` waits until the
+Each crate arrives with the first slice that needs it. `o11y` waits until the
 core event schema is stable.
 
 ## Sequence and verification
 
-### Slice 0: playground shell (implemented)
+A slice delivers one feature a person uses, through the real path from the
+harness or caller to the judge and back. It builds only what that feature
+needs, with the tests and proofs for that code. Every slice ends the same way:
+the [quality gates](#quality-gates) pass, its playground tab works in a real
+browser, the feature works in its real harness or caller, the parity table
+covers every `main` commit to date, an rc ships, and work stops for review.
 
-- Keep the pinned nightly, strict workspace lint setup, LICENSE and plan/audit
+### Slice 0: setup (implemented)
+
+- The pinned nightly, strict workspace lints, LICENSE, and the plan and audit
   documents.
-- Use Vite, TypeScript and Bun; petite-vue provides reactivity and Web Awesome
-  supplies tabs, cards and inputs.
-- Compile Rust to browser WASM using wasm-bindgen/wasm-pack.
-- Prove in a real browser that editing input updates Rust output, and that an
-  edit to Rust rebuilds WASM and reloads the page.
+- The playground shell: Vite, TypeScript and Bun, with petite-vue and Web
+  Awesome. Rust compiles to WASM with wasm-pack; the heading shows the version
+  Rust returns, and an edit to Rust rebuilds the module and reloads the page.
+- `bacon.toml`, whose jobs build and test through blaze.
 
-### Slice 1: core plan and state machine
+### Slice 1: Conventional Commits nudge in OpenCode
 
-Status: to be rewritten to the [core plan model](#core-plan-model), replacing
-the gate-based core on the branch. `crates/core` stays dependency-free.
+**You can:** install the rc beside v1 and add the Chauffeur plugin to
+OpenCode. When the agent commits with a message such as `fixed stuff`, its
+next tool result carries "Use Conventional Commits, such as
+`feat(scope): …`". An `unsure` or `failed` answer sends nothing.
+
+```mermaid
+sequenceDiagram
+    participant O as OpenCode
+    participant A as OpenCode adapter
+    participant D as Chauffeur daemon
+    participant J as Jev
+    O->>A: shell tool finished
+    A->>D: event tool.after
+    D->>D: match conventional-commits
+    D->>J: noul, redacted tool call
+    J-->>D: yes 0.94
+    D->>A: message.append, delivery now
+    A->>O: text on the next tool result
+```
 
 | File | Contents |
 |---|---|
-| `crates/core/src/plan.rs` | `Plan`, `Step` with `after` and `after_any`, `After`, `Need` (`Need::when`, and a step ID as a need without `when`), `Outcome` |
-| `crates/core/src/after.rs` | The one rule: a step's decision from its needs' states (`Wait`, `Run`, `Skip`), and one pass over the plan in order |
-| `crates/core/src/state.rs` | Validation, `start`, `Round` (`questions`, `answer`, `fail`), `Plan::run` |
-| `crates/core/src/judge.rs` | `Judge`, `Panel` |
-| `crates/core/src/event.rs` | Events and `Verdict` |
-| `crates/core/src/proofs.rs` | Kani harnesses |
-| `crates/core/tests/scenarios.rs` | Scenario tests |
-| `playground/wasm/src/state_machine.rs`, `playground/src/features/state-machine.ts`, `playground/index.html` | The State machine tab on the new model |
+| `crates/core/src/{plan,judge,event}.rs` | Steps asked in one round, `Outcome`, `Judge`, `Panel`, `Plan::run`, events and `Verdict`; no dependencies |
+| `crates/protocol/src/{rule,strategy,question,action,error}.rs`, `schema/{rule,events,actions}.json` | Rule files (`on`, `when`, `judges`, `asks`, `strategy`, `then`, `cooldown_seconds`), the `tool.after` event and the `message.append` action; validation |
+| `crates/judges/src/{question,confidence,tiers,config,format,placeholder}.rs` | Questions and results; confidence and `level`; `models.json` from shipped and user configuration, in fallback order; the `Format` interface; the `placeholder` format |
+| `crates/judges/src/systemone.rs` | The `systemone` format with `noul`: authentication, timeout, bounded response, 429 and 529 |
+| `crates/runtime/src/{run,redact,events}.rs` | Runs a strategy on a worker thread within its deadline; redacts evidence before every model call, with v1's rules and cases; bounded event log |
+| `crates/daemon/src/{main,socket,rules,bus,adapters}.rs` | Socket directory `0700`, JSON-RPC 2.0 lines; loads shipped and user rules and models and reloads them on change; routes events to matching rules and their actions to the adapter |
+| `crates/cli/src/main.rs` | `chauffeur daemon` and `chauffeur version` |
+| `packages/chauffeur/src/adapter/` | `@fdcn/chauffeur/adapter`: connect, the version handshake, `emit`, declared actions |
+| `adapters/opencode/` | `tool.after` from OpenCode's tool hook; `message.append` with `now`, with gdp-ts proofs before every action |
+| `distribution/models/jev.json`, `distribution/rules/conventional-commits.json` | Jev as the default System One; the nudge |
+| `scripts/{package,homebrew,smoke}.mjs`, `.github/workflows/check.yml` | rc packaging, installed beside v1 |
+| `playground/src/features/question.ts` | The Question tab |
 
-Scenario tests:
+Verification:
 
-- Each row of the [strategies table](#strategies), with a `select`-like rule
-  judge standing in for facts: escalate, rank, collect all that pass, check
-  the survivors, vote.
-- `after` alone: a string need waits for a skipped step and then runs; an
-  object need never matches a skipped step; `Failed` matches only when listed;
-  a step with both `all` and `any` runs only when both hold.
-- Validation: an empty plan, a duplicate ID, `after` naming a later or unknown
-  step, an empty `when` list, and a judge the panel lacks, each rejected
-  before any judge is asked.
-- The round API: a reply naming an unknown, unasked or repeated step, or
-  missing one, returns the unchanged round; each judge answers its share of a
-  round in one call; a batch of the wrong length settles as `Failed`.
+- Kani: for every probability in thousandths and every valid confidence, an
+  answer settles to exactly one outcome, edges inclusive; a one-round plan
+  settles every step.
+- Judges: `main`'s `judges/jev/tests/wire.rs` replayed over loopback HTTP;
+  fallback moves on only for unavailable, rate-limited or timed out; an
+  outcome outside the question's list fails as `invalid`; a key never appears
+  in an event, error or verdict.
+- Placeholders: recorded answers match by evidence, first match wins;
+  `otherwise` answers the rest, and without it the step fails as
+  `unavailable`; every placeholder answer is marked in events.
+- Daemon: another user's socket directory is refused; an oversized line and a
+  closed connection fail safely; an edited rule applies to the next event; a
+  rule naming an unknown judge is refused at load, with its path.
+- OpenCode, for real: `fixed stuff` gets the nudge, `feat(parser): handle
+  empty input` gets nothing, and with Jev unreachable nothing is sent and the
+  event log shows `failed: unavailable`.
+- Release: packaging dry run and smoke test on Linux and macOS; the rc's
+  Homebrew `install`, `test`, `audit` and `style` on a machine running v1,
+  which keeps working.
 
-Kani harnesses, each one invariant over at most three steps and a small
-outcome enum:
+### Slice 2: sourcefed triage
 
-| Harness | Property |
-|---|---|
-| `a_step_waits_until_every_need_has_finished` | No decision while a named step is `Pending` or `Asked` |
-| `a_decision_follows_the_rule` | `Run` exactly when every `all` need and, if any, one `any` need is met |
-| `a_skipped_step_meets_only_needs_without_when` | Skipped never matches a `when` |
-| `one_pass_settles_every_decidable_step` | Skips propagate within one pass |
-| `a_pass_only_moves_pending_steps_forward` | Each step is asked at most once |
-| `a_pass_with_no_open_round_asks_or_finishes` | A run never stalls, so it finishes within one round per step |
+**You can:** let sourcefed ask Chauffeur before it queues each event, so
+OpenCode, Pi, MCP and the CLI receive the same filtered stream, as in
+[sourcefed: one triage for every host](#sourcefed-one-triage-for-every-host).
+sourcefed's daemon navigates `integration_event`, its installer adds
+`sourcefed/triage` with the System One screen, and its OpenCode adapter's
+`chauffeur.gate` call goes.
 
-Tooling: `bacon.toml` with clippy, test and doc jobs; `.config/nextest.toml`;
-`criterion` benchmarks for one pass and a full run of each strategies-table
-plan.
-
-Verification: strict Clippy, the scenario tests under nextest and doctests,
-Kani, Miri, `cargo-mutants` over `crates/core` with every surviving mutant
-killed or explained, `cargo-shear`, and the playground in a real browser, with
-each example stepped through by hand. Stop for review before slice 2.
-
-### Slice 2: navigate
-
-A caller sends an event or an inline strategy, with its evidence, candidates
-and a deadline, and receives the events and the intents or verdict. It sends
-data, never callbacks or code. This slice loads models, facts and rules from
-their sources, matches rules by `on` and `when`, and builds `navigate` with
-its bindings: the TypeScript client and `/judge`, `chauffeur navigate`, and
-the protocol crate.
+A caller sends an event or an inline strategy, with its evidence and a
+deadline, and receives the events and the intents or verdict. It sends data,
+never callbacks or code. This slice adds caller events, intents, the
+integration and project rule sources, admission and cancellation, and the
+bindings: the TypeScript client and `/judge`, and `chauffeur navigate`.
 
 ```mermaid
 flowchart LR
@@ -1652,13 +1683,12 @@ A `navigate` request, `event` notifications, then the result, as
 
 ```sh
 chauffeur navigate <<'EOF'
-{"protocol": 1, "deadline_ms": 1500, "on": "recall", "evidence": {"message": "…"}, "candidates": {"p1": "…", "p4": "…"}}
+{"protocol": 1, "deadline_ms": 3000, "on": "integration_event", "evidence": {"event": "…", "thread": "…"}}
 EOF
-# → {"jsonrpc": "2.0", "method": "event", "params": {"id": 1, "rule_matched": {"rule": "opencode-history/recall"}}}
-# → {"jsonrpc": "2.0", "method": "event", "params": {"id": 1, "round_ready": {"rule": "opencode-history/recall", "round": 1, "steps": ["helps[p1]", "helps[p4]"]}}}
-# → {"jsonrpc": "2.0", "method": "event", "params": {"id": 1, "step_settled": {"step": "helps[p4]", "answer": {"outcome": "yes", "p": {"yes": 0.91, "no": 0.09}, "level": 0.09}}}}
-# → {"jsonrpc": "2.0", "method": "event", "params": {"id": 1, "step_settled": {"step": "best", "answer": {"outcome": ["p4"]}}}}
-# → {"jsonrpc": "2.0", "id": 1, "result": {"intents": [{"rule": "opencode-history/recall", "attach": ["p4"]}]}}
+# → {"jsonrpc": "2.0", "method": "event", "params": {"id": 1, "rule_matched": {"rule": "sourcefed/triage"}}}
+# → {"jsonrpc": "2.0", "method": "event", "params": {"id": 1, "round_ready": {"rule": "sourcefed/triage", "round": 1, "steps": ["screen"]}}}
+# → {"jsonrpc": "2.0", "method": "event", "params": {"id": 1, "step_settled": {"step": "screen", "answer": {"outcome": "no", "p": {"yes": 0.04, "no": 0.96}, "level": 0.96}}}}
+# → {"jsonrpc": "2.0", "id": 1, "result": {"intents": [{"rule": "sourcefed/triage", "withhold": "event"}]}}
 ```
 
 A rejection is a JSON-RPC error whose `data.reason` names it:
@@ -1688,30 +1718,13 @@ directory: `$XDG_RUNTIME_DIR`, or `$TMPDIR` on macOS.
 
 | Path | Contents |
 |---|---|
-| `crates/protocol/src/{lib,request,strategy,rule,question,intent,limits,error}.rs` | Serde wire types for requests, strategies, rule files, questions, results and intents; validation and limits; lowering named judges and asks, `for_each` copies, wildcards and `[item]` to `chauffeur_core::Plan`; typed errors |
-| `crates/protocol/schema/navigate.json`, `crates/protocol/fixtures/` | The one `navigate` schema every binding uses, and the valid and invalid requests each binding's tests replay |
-| `crates/judges/src/{question,confidence,tiers,config}.rs` | Questions and results; applying confidence and computing `level`; resolving a step's `judge` and `model` against shipped and user `models.json` in fallback order, refusing any model entry from a project |
-| `crates/judges/src/format.rs` | The `Format` interface and `Failure`; turning a tier's models into one core `Judge` with fallback |
-| `crates/judges/src/{facts,placeholder}.rs` | The `facts` format over `crates/facts`, and the `placeholder` format |
-| `crates/facts/src/{lib,sandbox,host,limits}.rs` | Loading fact modules from the three sources; QuickJS with memory caps and deadline interrupts; the read-only host modules for shipped and user facts |
-| `distribution/facts/{match,select}.js` and their tests | The two facts slice 2 ships |
+| `crates/protocol/src/{request,intent,limits}.rs`, `schema/navigate.json`, `fixtures/` | Requests, intents and limits; the one `navigate` schema, and the valid and invalid requests every binding's tests replay |
 | `crates/runtime/src/admission.rs` | One permit per navigation, held from admission through delivery; per-source and global capacity |
-| `crates/runtime/src/run.rs` | Drives rounds on a bounded worker pool; checks the deadline and cancellation before each round; discards late results |
-| `crates/runtime/src/redact.rs` | Redacts evidence before every provider judge, porting v1's rules and their cases |
-| `crates/runtime/src/events.rs` | Bounded per-run event log; overflow is an explicit event |
-| `crates/daemon/src/{main,socket}.rs` | Creates the socket directory `0700` and refuses one it does not own; JSON-RPC 2.0 lines, several calls per connection, `$/cancelRequest` and closing cancel; `--models FILE` replaces the user's models, for tests |
-| `crates/daemon/src/rules.rs` | Loads rule files from the four sources, refuses System Two in a project rule the user has not allowed, reloads rules, facts and models when `notify` reports a change, matches `on` and `when`, and runs matching rules concurrently |
+| `crates/runtime/src/run.rs` | A bounded worker pool; the deadline and cancellation checked before each round; late results discarded |
+| `crates/daemon/src/{socket,rules}.rs` | Several calls per connection, `$/cancelRequest`, cancel on close, `--models FILE` for tests; the integration and project rule sources, refusing System Two in a project rule the user has not allowed and any model or placeholder entry from a project; matching rules run concurrently |
 | `crates/cli/src/navigate.rs` | `chauffeur navigate`: one request on stdin, the JSON-RPC messages on stdout; exit 0 with intents or a verdict, 1 when rejected, 2 when the daemon is unavailable |
-| `crates/cli/src/strategy.rs` | `chauffeur strategy show <rule>` and `--file`: the strategy as a tree, with rounds, resolved models, `after`, confidence and the maximum rounds and model calls |
-| `packages/chauffeur/src/{client,judge}/` | `@fdcn/chauffeur/client` and `@fdcn/chauffeur/judge`: `navigate` over the socket, closing on abort; `ask`, `judge`, `strategy` and the question functions, typed from their questions |
-| `playground/wasm`, `playground/src/features/strategy.ts` | Parses strategies through `crates/protocol`; draws a rule's strategy tree and steps through it with recorded answers |
-
-#### Reference caller: opencode-history recall
-
-[Per-turn recall](#per-turn-recall) is the reference caller: its rule
-installed in `~/.config/chauffeur/rules/opencode-history/`, and its code
-reduced to one `navigate` call. Slice 2 runs it end to end against recorded
-scores.
+| `packages/chauffeur/src/{client,judge}/` | `@fdcn/chauffeur/client` and `/judge`: `navigate` over the socket, closing on abort; `ask`, `judge`, `noul`, and results typed from their questions |
+| sourcefed: its daemon, installer and `adapters/opencode/bridge.ts` | `navigate` before queuing; installing `sourcefed/triage`; removing `chauffeur.gate` |
 
 #### Verification
 
@@ -1722,140 +1735,228 @@ scores.
   exhausted capacity, including audit A3's flood: 81 submissions with capacity
   8 admit 8 and reject 73 with `capacity`.
 - Kani: a permit is released exactly once on every terminal path; the event
-  log never exceeds its bound; for every probability in thousandths and every
-  valid confidence, an answer settles to exactly one outcome, edges inclusive;
-  every lowered plan has at most as many rounds as `strategy show` reports.
+  log never exceeds its bound.
+- Rules: each of the four sources loads; a project rule naming System Two, and
+  a model or placeholder entry in a project's `.chauffeur/`, are refused; two
+  matching rules both return their intents; a rule that misses the deadline
+  drops only its own intents.
+- Bindings: the client, `/judge` and `chauffeur navigate` accept and reject
+  every fixture identically and return the same verdicts; aborting any caller
+  cancels the navigation; an unsupported protocol reports as `unavailable`;
+  `ask`'s result types reject impossible outcomes at compile time.
+- sourcefed, for real: v1's 12 labelled events give the same deliveries;
+  events reaching OpenCode, Pi and the CLI are filtered alike; with Chauffeur
+  stopped, sourcefed delivers.
+
+### Slice 3: escalation from Jev to GLiDE
+
+**You can:** have the commit nudge and `sourcefed/triage` ask GLiDE only when
+Jev is unsure or fails, see each strategy as a tree with
+`chauffeur strategy show`, and step through it in the playground's Strategy
+tab.
+
+This slice adds strategies with more than one step: a step's `after` names
+the earlier steps it waits for and the outcomes it needs, as in the
+[core plan model](#core-plan-model).
+
+| File | Contents |
+|---|---|
+| `crates/core/src/{after,state}.rs` | The `after` rule, validation, and the round API (`questions`, `answer`, `fail`) |
+| `crates/core/src/proofs.rs`, `crates/core/tests/scenarios.rs` | Kani harnesses and scenario tests |
+| `crates/protocol/src/lower.rs` | Lowering named judges, asks and `after` to `chauffeur_core::Plan` |
+| `crates/judges/src/systemone.rs` | `choice` with every outcome's probability, and GLiDE's level-valued `score` |
+| `distribution/models/{subq,glide}.json` | SubQ and GLiDE beside Jev |
+| `crates/cli/src/strategy.rs` | `chauffeur strategy show <rule>` and `--file`: the tree, rounds, resolved models, `after`, confidence, and the maximum rounds and model calls |
+| `playground/src/features/strategy.ts` | The Strategy tab |
+
+Scenario tests:
+
+- Escalation, with recorded answers at every tier.
+- `after` alone: a string need waits for a skipped step and then runs; an
+  object need never matches a skipped step; `Failed` matches only when listed;
+  a step with both `all` and `any` runs only when both hold.
+- Validation: an empty plan, a duplicate ID, `after` naming a later or unknown
+  step, an empty `when` list, and a judge the panel lacks, each rejected
+  before any judge is asked.
+- The round API: a reply naming an unknown, unasked or repeated step, or
+  missing one, returns the unchanged round; each judge answers its share of a
+  round in one call; a batch of the wrong length settles as `Failed`.
+
+Kani harnesses, each one invariant over at most three steps and a small
+outcome enum:
+
+| Harness | Property |
+|---|---|
+| `a_step_waits_until_every_need_has_finished` | No decision while a named step is `Pending` or `Asked` |
+| `a_decision_follows_the_rule` | `Run` exactly when every `all` need and, if any, one `any` need is met |
+| `a_skipped_step_meets_only_needs_without_when` | Skipped never matches a `when` |
+| `one_pass_settles_every_decidable_step` | Skips propagate within one pass |
+| `a_pass_only_moves_pending_steps_forward` | Each step is asked at most once |
+| `a_pass_with_no_open_round_asks_or_finishes` | A run never stalls, so it finishes within one round per step |
+| `strategy_show_bounds_every_lowered_plan` | A lowered plan has at most the rounds `strategy show` reports |
+
+Verification: `main`'s `judges/{subq,glide}/tests/wire.rs` replayed over
+loopback; `"model": "glide"` without GLiDE configured runs on the tier's
+fallback order and reports it; the escalation runs live against Jev and GLiDE
+and agrees with `main`'s `CHAUFFEUR_JUDGE_ESCALATE=glide` on the same cases,
+reporting answers, rounds, elapsed time and model calls; labelled scale
+questions through `choice` and `score` report which agrees with the labels
+more often.
+
+### Slice 4: opencode-history recall
+
+**You can:** have opencode-history attach the right past passages when you
+send a message, as in [Per-turn recall](#per-turn-recall): its rule installed
+in `~/.config/chauffeur/rules/opencode-history/`, its code reduced to one
+`navigate` call. You can also write your own facts.
+
+This slice adds facts, `for_each` over candidates, and `select`.
+
+| File | Contents |
+|---|---|
+| `crates/facts/src/{lib,sandbox,host,limits}.rs` | Fact modules from the three sources; QuickJS with memory caps and deadline interrupts; the read-only host modules for shipped and user facts |
+| `crates/judges/src/facts.rs` | The `facts` format |
+| `distribution/facts/{match,select}.js` and their tests | The two shipped facts |
+| `crates/protocol/src/lower.rs` | Candidates, `for_each` copies, wildcards and `[item]` |
+| `playground/src/features/facts.ts` | The Facts tab |
+
+Verification:
+
 - Facts: `match` passes v1's facts-judge cases; `select` passes exhaustive
   tests over every input up to 4 candidates; a fact over its memory cap or
   deadline fails the step; a project fact cannot import a host module; a
   missing fact falls back to a placeholder.
-- Judges: fallback moves to the next model only when one is unavailable,
-  rate-limited or timed out; `"model": "glide"` without GLiDE configured runs
-  on the tier's fallback order and reports it; a model entry in a project's
-  `.chauffeur/` is refused; a key never appears in an event, error or verdict;
-  an outcome outside the question's list fails as `invalid`.
 - Strategies: each row of the [strategies table](#strategies) runs as a rule
   with recorded answers; `after` with `[item]` skips exactly the candidates
   whose earlier copy did not match.
-- Daemon socket: an unknown judge, an unsupported protocol, an oversized line
-  and a closed connection each fail safely; events arrive in order; another
-  user's socket directory is refused.
-- Rules: each of the four sources loads; a project rule naming System Two is
-  refused unless the user allows it; an edited rule applies to the next
-  navigation; two matching rules both return their intents; a rule that misses
-  the deadline drops only its own intents.
-- Placeholders: recorded answers match by evidence, first match wins;
-  `otherwise` answers the rest, and without it the step fails as
-  `unavailable`; every placeholder answer is marked in events; a placeholder
-  from a project's `.chauffeur/` is refused.
-- Bindings, against the daemon with placeholder System One and System Two: the
-  playground examples return the same verdicts through the client, `/judge`
-  and `chauffeur navigate` as through `Plan::run`; every fixture is accepted
-  or rejected identically by each; aborting any caller cancels the
-  navigation; `ask`'s result types reject impossible outcomes at compile time.
 - Recall: Jev scores recorded by opencode-history's replay feed a placeholder
-  System One; navigating `recall` attaches the replay's top three passages
-  scoring 0.7 or above. No agent session or history is sent.
+  System One, and navigating `recall` attaches the replay's top three passages
+  scoring 0.7 or above. Live, it makes one Jev call per message, with judge
+  time within the replay's 278 ms p50 and 318 ms p95 plus local overhead. No
+  agent session or history is sent.
 
-### Slice 3: System One models (Jev, SubQ and GLiDE)
+### Slice 5: harm guard
 
-Implement the `systemone` API format in `crates/judges`, over `ureq`, using
-the current `/v1/systemone` contract: authentication, timeout, bounded response, explicit
-429/529 handling, `noul` for yes/no questions and `choice` with full
-probabilities for the rest, and GLiDE's level-valued `score`. Ship
-`jev.json` as the default System One, and `subq.json` and `glide.json` beside
-it, in `distribution/models/`. Core and the runtime stay unaware of any model.
+**You can:** have the guard ask System One, before a shell command runs,
+whether it could cause irreversible harm. `yes` blocks the call; `unsure`,
+`failed` or a slow answer hands it to you.
 
-Verification: loopback HTTP contract cases for each provider's documented
-request/response, invalid replies and provider errors, replaying `main`'s
-`judges/{jev,subq,glide}/tests/wire.rs`; then run the Jev-to-GLiDE escalation
-from [Strategies](#strategies) against both with real keys, and compare its
-answers with `main`'s `CHAUFFEUR_JUDGE_ESCALATE=glide` on the same cases.
-Report the strategy, answers, rounds, elapsed time and model-call count. Ask
-labelled scale questions through Jev's `choice` and `score` types and report
-which agrees with the labels more often. Run opencode-history's recall replay
-live through `navigate`: one Jev call per message, judge time within the
-replay's 278 ms p50 and 318 ms p95 plus local overhead.
-
-### Slice 4: System Two models
-
-Implement the `openai` and `anthropic` API formats in `crates/judges`. A System
-Two answer is schema-checked against the question's outcomes, and its `cites`
-must name evidence the step was given. Redaction applies before every call.
-Model entries set the model ID, effort, timeout and output budget. System Two
-ships disabled until a model and its evaluations are reviewed.
-
-Verification: loopback cases for valid, refused, malformed, truncated,
-unavailable and timed-out replies; screen-then-review round ordering;
-citations of evidence the step lacks are rejected; the 32 KiB input budget;
-and proof that a slow reasoning call cannot consume reserved interactive
-System One capacity. Then replay human-labelled cases before enabling a live
-model.
-
-### Slice 5: plugins and adapters
-
-Build the [plugin](#plugins) and [adapter](#adapters) halves: the daemon's
-event bus and plugin supervisor, the stdio plugin protocol with discovery,
-lazy and eager start, `before` budgets and `onTimeout`, retries by kind, and
-`@fdcn/chauffeur/plugin`, `/harness` and `/adapter`. Build the four
-[adapters](#adapters), OpenCode first, each with gdp-ts proofs before every
-action, and `chauffeur hook` for hook-command harnesses. Then port each
-parity-table row assigned to slice 5 as a plugin or a rule file in
-`distribution/rules/`.
-
-v1's event gate becomes `sourcefed/triage`. In sourcefed, its daemon navigates
-`integration_event` before queuing each event, its installer adds the rule,
-and its OpenCode adapter's `chauffeur.gate` call goes. Before the slice closes,
-review every `main` commit past the watermark and add its row.
+This slice adds [plugins](#plugins) and the person tier.
 
 | File | Contents |
 |---|---|
-| `crates/protocol/schema/{events,actions}.json` | The standard events and the resource and verb actions |
-| `crates/daemon/src/{bus,plugins,adapters}.rs` | Routing events to rules and plugins; supervising plugins (discovery cache, lazy start, idle stop, backoff); adapter connections and their declared actions |
-| `packages/chauffeur/src/{plugin,harness,adapter}/` | The plugin, action and adapter SDKs |
-| `adapters/opencode/` | The OpenCode adapter, and `navigate` over plugin RPC for other OpenCode plugins |
-| `adapters/pi/` | The Pi extension |
-| `adapters/claude-code/` | The Claude Code plugin: its mod, and command hooks for when mods are off |
-| `adapters/codex/` | The Codex plugin and its `hooks/hooks.json` |
-| `crates/cli/src/hook.rs` | `chauffeur hook <harness>`: one hook's JSON on stdin, the harness's reply on stdout; queued actions go out with the hook that can carry them |
-| `plugins/{skills,context-renewal,warming,guard}/` | The first-party plugins, each its own package on the SDK |
+| `crates/daemon/src/plugins.rs` | `plugins.json`; the stdio plugin protocol; discovery cache, lazy and eager start, idle stop, restart with backoff, reload on file change |
+| `crates/daemon/src/bus.rs` | `ctx.on` and `ctx.before` routing, `before` budgets and `onTimeout`, retries by kind, the stale-action check |
+| `packages/chauffeur/src/{plugin,harness}/` | `@fdcn/chauffeur/plugin` and `/harness` |
+| `adapters/opencode/` | `tool.before` (block, rewrite, ask the user), `permission.asked` and `permission.reply` |
+| `plugins/guard/` | The guard, with the read guard's `before` hooks |
 
 A spike decides whether first-party plugins ship compiled with scriptc. It
-compiles `context-renewal` and `guard`, and reports which SDK and Node APIs
-scriptc rejects, start time and memory against Bun, and build time. Compiled
-plugins are rebuilt with each release; user plugins, and first-party plugins
-in development, keep running from source on Bun so a file change reloads
-them.
+compiles `guard`, and reports which SDK and Node APIs scriptc rejects, start
+time and memory against Bun, and build time. User plugins, and first-party
+plugins in development, run from source on Bun.
 
-Verification: each row's evidence from `main` passes against v2; every v1 rule
-converts and validates; a plugin crash, a missed `before` budget and a stale
-action each behave as specified; `onTimeout: "ask"` hands a tool call to the
-user; discovery records the same hooks a full start registers; an unsupported
-action returns `unsupported`; every cell of the events and actions tables is
-exercised against a real OpenCode, Pi, Claude Code and Codex, and a cell that
-fails becomes `unsupported`; `chauffeur hook codex` answers within Codex's
-timeout and a queued `wake` goes out at the next `Stop`; sourcefed events
-reaching OpenCode, Pi and the CLI are filtered alike, and v1's 12 labelled events give the same deliveries;
-the bench `verify` fixtures pass; a day of real use through a locally built
-adapter, plugins and daemon.
+Verification: a plugin crash, a missed `before` budget and a stale action each
+behave as specified; `onTimeout: "ask"` hands a tool call to the user;
+discovery records the same hooks a full start registers; `main`'s
+`read-guard-probes.json` and `rpc-starvation.test.ts` pass; in a real
+OpenCode, a destructive command is blocked or asked about and `ls` runs
+within the budget.
 
-### Slice 6: release and cutover
+### Slice 6: skills
 
-Restore `check.yml`, `scripts/package.mjs`, `scripts/homebrew.mjs` and
-`scripts/smoke.mjs` for the v2 layout, packaging `distribution/` beside the
-binary. Ship `1.0.0-rc.N` to the `next` channel; the handshake rejects a v1
-daemon, plugin or adapter. Migrate `~/.config/chauffeur`, or read v1's layout,
-without losing personal rules. When every parity row is done, keep `v1` as a
-hotfix branch, merge v2 into `main` and tag `1.0.0`.
+**You can:** have the skills plugin attach the skills each prompt needs, find
+skills from remote sources, and screen new skills before they are offered.
 
-Verification: packaging dry run and smoke test on Linux and macOS; Homebrew
-`install`, `test`, `audit` and `style`; upgrade from the current v1 release on
-a machine with personal rules; rc release-gate runs from the bench.
+| File | Contents |
+|---|---|
+| `adapters/opencode/` | `prompt.sent` edits (append, edit, block) and the `skill` registry |
+| `plugins/skills/` | Exposure, remote sources with fetches inside the plugin (audit A4), and the screen-then-review strategy |
 
-### Slice 7: rulebooks
+The review step runs on System Two from slice 11. Until then, a skill the
+screen leaves `unsure` is withheld.
 
-Held until the [rulebooks](#rulebooks) design is discussed and approved. Its
-files, tests and verification are written then.
+Verification: `main`'s `sources/tests.rs` vetting cases and
+`cli/tests/skills.rs` pass; in a real OpenCode, a request to review a pull
+request attaches the review skill.
+
+### Slice 7: context renewal and warming
+
+**You can:** have a long, cold session compacted with a cheap model before
+your next prompt runs, and an idle session's prompt cache kept warm.
+
+| File | Contents |
+|---|---|
+| `adapters/opencode/` | `session.resumed` and `session.idle`; `session.compact`, `session.warm` and `session.update`, each checked against the session's revision |
+| `plugins/{context-renewal,warming}/` | The two plugins |
+
+Verification: `main`'s `routing.rs`, `renewal.test.ts` and `warming.test.ts`
+pass; in a real OpenCode, a session resumed after the cache expires is
+compacted before the prompt runs.
+
+### Slice 8: Pi
+
+**You can:** use every feature so far in Pi, through the extension in
+[Adapters](#pi).
+
+Verification: every Pi cell of the events and actions tables is exercised in
+a real Pi, with gdp-ts proofs before every action; a cell that fails becomes
+`unsupported`; sourcefed events reaching Pi are filtered as in OpenCode.
+
+### Slice 9: Claude Code
+
+**You can:** use every feature so far in Claude Code, through the mod in
+[Adapters](#claude-code), and through command hooks where mods are off.
+
+| File | Contents |
+|---|---|
+| `adapters/claude-code/` | The mod, and `hooks/hooks.json` for when mods are off |
+| `crates/cli/src/hook.rs` | `chauffeur hook <harness>`: one hook's JSON on stdin, the harness's reply on stdout; queued actions go out with the next hook that can carry them |
+
+Verification: every Claude Code cell is exercised in a real Claude Code, with
+mods on and off; a failed guard refuses the call.
+
+### Slice 10: Codex
+
+**You can:** use every feature so far in Codex, through the hooks in
+[Adapters](#codex).
+
+Verification: every Codex cell is exercised in a real Codex;
+`chauffeur hook codex` answers within Codex's timeout; a queued `wake` goes
+out at the next `Stop`.
+
+### Slice 11: review by a reasoning model
+
+**You can:** escalate to a reasoning model, such as the Slack review in
+[Event triage](#event-triage) and the skills plugin's review step.
+
+This slice adds the `openai` and `anthropic` formats. A System Two answer is
+schema-checked against the question's outcomes, and its `cites` must name
+evidence the step was given. Model entries set the model ID, effort, timeout
+and output budget. System Two ships disabled until a model and its
+evaluations are reviewed.
+
+Verification: loopback cases for valid, refused, malformed, truncated,
+unavailable and timed-out replies; citations of evidence the step lacks are
+rejected; the 32 KiB input budget; a slow reasoning call cannot consume
+reserved interactive System One capacity; human-labelled cases replay before
+a live model is enabled.
+
+### Slice 12: cutover
+
+v2 replaces v1. `~/.config/chauffeur` is migrated, or v1's layout is read,
+without losing personal rules, and every v1 rule converts and validates. When
+every parity row is done, `v1` becomes a hotfix branch, v2 merges into `main`,
+and `1.0.0` is tagged and published to Homebrew.
+
+Verification: upgrade from the current v1 release on a machine with personal
+rules; the bench `verify` fixtures and release-gate runs pass; a day of real
+use.
+
+### Rulebooks
+
+Held until the [rulebooks](#rulebooks) design is discussed and approved. The
+slice's files, tests and verification are written then.
 
 ## Quality gates
 
@@ -1885,14 +1986,18 @@ files, tests and verification are written then.
 |---|---|
 | Wire protocol | JSON-RPC 2.0 over the Unix socket and stdio |
 | First-party plugins | `plugins/` in this repository, each its own package on the SDK |
+| Slices | Each slice is one feature a person uses, built end to end and released as an rc; the pieces arrive with the first feature that needs them |
 | Jev's `score` type | `choice` for every question that is not yes/no; slice 3 measures `score` on labelled scale cases, and a question gains a hint only if `score` is clearly better |
-| Production dependencies | Core stays dependency-free. Approved: `serde` and `serde_json` (protocol and every config file), `thiserror` (typed errors outside core), `rquickjs` and bundled `rusqlite` (facts and the `chauffeur:sqlite` host module), `notify` (reloading rules, facts and models), `ureq` with rustls (model formats, slices 3 and 4), `tracing` and `jiff` (o11y events and audit timestamps), `clap` and `color-eyre` (the CLI binary only) |
+| Production dependencies | Core stays dependency-free. Approved: `serde` and `serde_json` (protocol and every config file), `thiserror` (typed errors outside core), `rquickjs` and bundled `rusqlite` (facts and the `chauffeur:sqlite` host module), `notify` (reloading rules, facts and models), `ureq` with rustls (model formats, from slice 1), `tracing` and `jiff` (o11y events and audit timestamps), `clap` and `color-eyre` (the CLI binary only) |
 | Development tools | `cargo-nextest` runs tests (doctests stay on `cargo test --doc`); `cargo-mutants` checks that tests catch changed logic in core, confidence and lowering; `cargo-shear` catches unused dependencies; `criterion` benchmarks the socket hop, confidence, a fact call and lowering; `bacon.toml` holds shared watch jobs |
+| blaze | Builds and tests in the local loop, through `bacon`. Clippy, CI, Kani, Miri and `cargo-mutants` run on cargo with the pinned toolchain, which stays the final word: blaze builds with its own nightly and its borrow checker is incomplete |
 | scriptc | A slice 5 spike for first-party plugins; the engine stays Rust |
 
 ## Open questions
 
 | Question | Recommended default |
 |---|---|
-| The rulebooks design | Discuss before slice 7; the [sketch](#rulebooks) is the starting point |
-| Whether cutover waits for rulebooks | Cutover waits, since v1 users rely on `/goal`; otherwise slice 6 ships without them and says so |
+| The rulebooks design | Discuss before their slice; the [sketch](#rulebooks) is the starting point |
+| Whether cutover waits for rulebooks | Cutover waits, since v1 users rely on `/goal`; otherwise slice 12 ships without them and says so |
+| How the rc installs beside v1 | Its own Homebrew formula, `chauffeur@next`, with its own binary name, socket and configuration folder, so v1 keeps running untouched |
+| Which slice ships the `bm25` and `embedding` facts | The first feature that uses them |

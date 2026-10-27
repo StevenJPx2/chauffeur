@@ -294,10 +294,12 @@ architecture: judges, facts, strategies, rule files, plugins, adapters and the
 ## Develop
 
 The toolchain is pinned in `rust-toolchain.toml`, with Miri and the
-WebAssembly target.
+WebAssembly target. Local builds use [blaze](https://github.com/indexable-inc/blaze)
+and [bacon](https://dystroy.org/bacon/).
 
 ```sh
-bacon                                           # clippy, tests and docs on every save
+bacon                                           # tests on every save, through blaze; also clippy, doc
+cargo blaze test                                # fast local rebuilds; cargo stays the final word
 cargo nextest run --workspace
 cargo test --doc --workspace
 cargo clippy --workspace --all-targets --locked

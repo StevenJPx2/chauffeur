@@ -3,7 +3,7 @@
 // when the rebuilt module lands.
 
 import { type ChildProcess, spawn } from "node:child_process"
-import { watch } from "node:fs"
+import { existsSync, watch } from "node:fs"
 import { fileURLToPath } from "node:url"
 
 const root = fileURLToPath(new URL("..", import.meta.url))
@@ -45,8 +45,8 @@ function start(command: string, args: ReadonlyArray<string>): ChildProcess {
 await rebuild()
 
 const vite = start("bunx", ["vite", ...process.argv.slice(2)])
-// The bridge and the crates it compiles in.
-const watchers = [`${root}wasm`, `${root}../crates`].map((dir) =>
+// The bridge and the crates it compiles in, once they exist.
+const watchers = [`${root}wasm`, `${root}../crates`].filter((dir) => existsSync(dir)).map((dir) =>
   watch(dir, { recursive: true }, (_event, file) => {
     if (file !== null && (file.endsWith(".rs") || file.endsWith("Cargo.toml"))) void rebuild()
   }),

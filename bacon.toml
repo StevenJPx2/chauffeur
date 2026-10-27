@@ -1,0 +1,16 @@
+# Watch jobs. Builds and tests go through blaze for fast rebuilds; clippy and
+# docs run on cargo with the pinned toolchain, which stays the final word.
+default_job = "test"
+
+[jobs.test]
+command = ["cargo", "blaze", "test", "--workspace"]
+need_stdout = true
+
+[jobs.build]
+command = ["cargo", "blaze", "build", "--workspace"]
+
+[jobs.clippy]
+command = ["cargo", "clippy", "--workspace", "--all-targets"]
+
+[jobs.doc]
+command = ["cargo", "doc", "--workspace", "--no-deps"]

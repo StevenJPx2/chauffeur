@@ -11,6 +11,11 @@ h1 {
   font-size: var(--wa-font-size-l);
 }
 
+h1 small {
+  color: var(--wa-color-text-quiet);
+  font-size: var(--wa-font-size-s);
+}
+
 pre {
   margin: 0;
   font-family: var(--wa-font-family-code);
@@ -20,35 +25,4 @@ pre {
 
 wa-textarea::part(textarea) {
   font-family: var(--wa-font-family-code);
-}
-
-.events,
-.verdict {
-  margin: 0;
-  font-size: var(--wa-font-size-s);
-}
-
-.verdict {
-  display: grid;
-  gap: var(--wa-space-2xs);
-  padding: 0;
-  list-style: none;
-}
-
-.ruling {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--wa-space-xs);
-  align-items: center;
-}
-
-.ruling small {
-  flex-basis: 100%;
-  color: var(--wa-color-text-quiet);
-}
-
-.verdict li {
-  display: flex;
-  gap: var(--wa-space-s);
-  align-items: center;
 }

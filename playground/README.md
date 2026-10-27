@@ -8,9 +8,7 @@ its own tab.
   [Web Awesome](https://webawesome.com) for components.
 - **Run:** `bun install`, then `bun run dev`. Editing Rust in `wasm/` or
   `../crates/` rebuilds it and reloads the page.
-- **Tabs:** *State machine* runs a JSON plan through `chauffeur-core` one round
-  at a time. Each step names its judge: `person` steps are answered by hand,
-  and `keywords` steps by a deterministic rule judge in Rust.
+- **Tabs:** none yet. Each slice adds the tab for its feature.
 - **Check:** `bun run check` builds the release module and the page, and
   type-checks.
 

@@ -1,24 +1,14 @@
 import "@awesome.me/webawesome/dist/styles/webawesome.css"
-import "@awesome.me/webawesome/dist/components/badge/badge.js"
-import "@awesome.me/webawesome/dist/components/button/button.js"
-import "@awesome.me/webawesome/dist/components/callout/callout.js"
-import "@awesome.me/webawesome/dist/components/card/card.js"
-import "@awesome.me/webawesome/dist/components/option/option.js"
-import "@awesome.me/webawesome/dist/components/radio-group/radio-group.js"
-import "@awesome.me/webawesome/dist/components/radio/radio.js"
-import "@awesome.me/webawesome/dist/components/select/select.js"
 import "@awesome.me/webawesome/dist/components/tab-group/tab-group.js"
 import "@awesome.me/webawesome/dist/components/tab-panel/tab-panel.js"
 import "@awesome.me/webawesome/dist/components/tab/tab.js"
-import "@awesome.me/webawesome/dist/components/textarea/textarea.js"
 import "./style.css"
 import { createApp, reactive } from "petite-vue"
 import type { Feature } from "./feature.ts"
-import { stateMachine } from "./features/state-machine.ts"
-import init from "./wasm/chauffeur_playground.js"
+import init, { version } from "./wasm/chauffeur_playground.js"
 
 /** Every feature under test, one tab each, in tab order. */
-const features: ReadonlyArray<Feature> = [stateMachine]
+const features: ReadonlyArray<Feature> = []
 
 /** The tab the URL names, or the first one. */
 function named(): string {
@@ -31,6 +21,7 @@ await init()
 
 const page = reactive({
   features,
+  version: version(),
   selected: named(),
   /** Keep the URL on the shown tab, so a reload returns to it. */
   show(id: string): void {
