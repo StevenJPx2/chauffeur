@@ -4,18 +4,31 @@
 use std::io::Write;
 use std::path::Path;
 
+use chauffeur_core::trace::TracedAnswer;
 use chauffeur_core::{Effect, Signal, SignalKind, Trace};
+use serde::Serialize;
 use serde_json::{Value, json};
 
 const MAX_AUDIT_BYTES: u64 = 8 * 1024 * 1024;
 const MAX_DETAIL_CHARS: usize = 200;
 
+/// Which judges answered one round, such as `jev+glide`, and the first
+/// judge's own answers that escalation replaced.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub(crate) struct JudgeRound {
+    pub(crate) round: usize,
+    pub(crate) judge: String,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub(crate) replaced: Vec<TracedAnswer>,
+}
+
 /// Append a record when the signal asked System One, was vetoed, produced
 /// effects, or failed. Signals that changed nothing are not logged.
-pub fn append(
+pub(crate) fn append(
     path: &Path,
     signal: &Signal,
     trace: &Trace,
+    judges: &[JudgeRound],
     result: &Result<Vec<Effect>, String>,
     redact: impl Fn(&str) -> String,
 ) {
@@ -37,6 +50,9 @@ pub fn append(
         "effects": result.as_ref().ok(),
         "error": result.as_ref().err(),
     });
+    if !judges.is_empty() {
+        record["judges"] = json!(judges);
+    }
     redact_record(&mut record, &redact);
     // The host's session ID, not user content: kept whole so a session's
     // decisions can be traced. A redactor sees it as a random token.
@@ -190,6 +206,7 @@ mod tests {
                 todos: Vec::new(),
             }),
             &Trace::default(),
+            &[],
             &Ok(Vec::new()),
             chauffeur_core::redact_secrets,
         );
@@ -200,14 +217,32 @@ mod tests {
             agent_id: session.into(),
             ..tool
         };
-        append(&path, &tool, &Trace::default(), &Ok(vec![nudge]), |text| {
-            engine.redact_for_audit(text)
-        });
+        let judges = [JudgeRound {
+            round: 1,
+            judge: "jev+glide".into(),
+            replaced: vec![TracedAnswer {
+                round: 1,
+                id: "rules/grep/misuse".into(),
+                value: json!(0.5),
+                confidence: None,
+            }],
+        }];
+        append(
+            &path,
+            &tool,
+            &Trace::default(),
+            &judges,
+            &Ok(vec![nudge]),
+            |text| engine.redact_for_audit(text),
+        );
 
         let written = std::fs::read_to_string(&path).unwrap();
         let lines: Vec<&str> = written.lines().collect();
 
         assert_eq!(lines.len(), 1);
+        let record: Value = serde_json::from_str(lines[0]).unwrap();
+        assert_eq!(record["judges"][0]["judge"], "jev+glide");
+        assert_eq!(record["judges"][0]["replaced"][0]["value"], 0.5);
         assert!(lines[0].contains(&format!("\"agent_id\":\"{session}\"")));
         assert!(lines[0].contains("\"signal\":\"tool_result\""));
         assert!(lines[0].contains("Chauffeur: use rg"));
@@ -268,6 +303,7 @@ mod tests {
             &path,
             &event,
             &trace,
+            &[],
             &Ok(Vec::new()),
             chauffeur_core::redact_secrets,
         );

@@ -186,14 +186,14 @@ impl JudgeConfig {
 
     /// Build on a worker thread, never inside an async runtime. Each worker
     /// builds its own, so a fallback's cooldown is per worker.
-    pub(crate) fn build(&self) -> Result<Box<dyn SystemOne>, String> {
+    pub(crate) fn build(&self) -> Result<Judge, String> {
         let primary = self.primary.build()?;
         let first: Box<dyn SystemOne> = match &self.fallback {
             Some(fallback) => Box::new(Fallback::new(primary, fallback.build()?)),
             None => primary,
         };
         let Some(escalation) = &self.escalation else {
-            return Ok(first);
+            return Ok(Judge::Plain(first));
         };
         let review = match (&escalation.review, &self.review) {
             (Some(profile), Some(factory)) => Some(Review {
@@ -203,12 +203,60 @@ impl JudgeConfig {
             _ => None,
         };
 
-        Ok(Box::new(Escalate::new(
+        Ok(Judge::Escalating(Box::new(Escalate::new(
             first,
             escalation.to.build()?,
             escalation.below,
             review,
-        )))
+        ))))
+    }
+}
+
+/// One worker's judge, as configured.
+pub(crate) enum Judge {
+    Plain(Box<dyn SystemOne>),
+    Escalating(Box<Escalate>),
+}
+
+/// One ask's answers, which judges gave them, and the first judge's answers
+/// that escalation replaced.
+pub(crate) struct Judged {
+    pub(crate) result: Result<Vec<Answer>, SystemOneError>,
+    pub(crate) judge: String,
+    pub(crate) replaced: Vec<Answer>,
+}
+
+impl Judge {
+    /// An urgent ask, a permission request holding the agent's tool call,
+    /// never escalates: its unsure answers abstain, and an escalation there
+    /// almost never changed the decision while it added most of a second.
+    pub(crate) fn ask(
+        &mut self,
+        state: &str,
+        questions: &[Question],
+        deadline: Instant,
+        urgent: bool,
+    ) -> Judged {
+        match self {
+            Self::Plain(judge) => Judged {
+                result: judge.ask_by(state, questions, deadline),
+                judge: judge.name().to_string(),
+                replaced: Vec::new(),
+            },
+            Self::Escalating(judge) => {
+                let result = if urgent {
+                    judge.ask_first(state, questions, deadline)
+                } else {
+                    judge.ask_by(state, questions, deadline)
+                };
+
+                Judged {
+                    result,
+                    judge: judge.name().to_string(),
+                    replaced: judge.take_replaced(),
+                }
+            }
+        }
     }
 }
 

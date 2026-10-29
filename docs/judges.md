@@ -174,8 +174,14 @@ export CHAUFFEUR_JUDGE_REVIEW=system-one-review  # optional System Two step
   answers already in hand; only a primary failure fails the judgment.
 - Steps share the signal's deadline. The escalation call starts only with
   500 ms left and the review only with 2 s left, keeping 1 s for the
-  engine's next round. Inside the 2-second permission budget, the review
-  normally does not run.
+  engine's next round.
+- Permission requests never escalate: the agent's tool call waits on them,
+  and their unsure answers abstain anyway. Over two days of live traffic,
+  escalation ran on half of them, added about 0.9 s to each, and turned 5 of
+  405 escalated guard answers into a denial.
+- The audit log's `judges` field names who answered each round, such as
+  `jev+glide`, and keeps the first judge's own answers that escalation
+  replaced under `replaced`.
 
 A synthetic replay of 54 Chauffeur cases (two repeats) with the 0.6 bar
 measured 95.8% accuracy against Jev's 90.5%, with 3 of 108 requests needing

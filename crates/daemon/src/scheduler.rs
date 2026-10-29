@@ -13,11 +13,13 @@ use std::time::{Duration, Instant};
 use chauffeur_core::engine::MAX_ROUNDS;
 use chauffeur_core::{
     Answer, AttemptMetadata, Effect, Engine, Question, Reasoning, ReasoningAttempt,
-    ReasoningFailure, Reloading, RunId, Signal, SignalKind, Step, SystemOne, SystemTwo, system_two,
+    ReasoningFailure, Reloading, RunId, Signal, SignalKind, Step, SystemTwo, system_two,
+    trace::TracedAnswer,
 };
 use tokio::sync::oneshot;
 
-use crate::judge::JudgeConfig;
+use crate::audit::JudgeRound;
+use crate::judge::{Judge, JudgeConfig};
 use crate::workers::Pool;
 
 /// Signals waiting to be judged, at most; more are refused.
@@ -87,6 +89,8 @@ enum Done {
         run: RunId,
         round: usize,
         result: Result<Vec<Answer>, String>,
+        /// Who answered; `None` when no judge was asked.
+        judged: Option<JudgeRound>,
     },
     Reasoned {
         run: RunId,
@@ -254,19 +258,31 @@ impl EngineHandle {
     }
 }
 
-fn ask(judge: &mut Box<dyn SystemOne>, task: OneTask) -> Event {
-    let result = if Instant::now() >= task.deadline {
-        Err("timed out".into())
-    } else {
-        judge
-            .ask_by(&task.state, &task.questions, task.deadline)
-            .map_err(|error| error.0)
-    };
+fn ask(judge: &mut Judge, task: OneTask) -> Event {
+    if Instant::now() >= task.deadline {
+        return Event::Done(Done::Answers {
+            run: task.run,
+            round: task.round,
+            result: Err("timed out".into()),
+            judged: None,
+        });
+    }
+
+    let judged = judge.ask(&task.state, &task.questions, task.deadline, task.urgent);
 
     Event::Done(Done::Answers {
         run: task.run,
         round: task.round,
-        result,
+        result: judged.result.map_err(|error| error.0),
+        judged: Some(JudgeRound {
+            round: task.round,
+            judge: judged.judge,
+            replaced: judged
+                .replaced
+                .iter()
+                .map(|answer| TracedAnswer::new(answer, task.round))
+                .collect(),
+        }),
     })
 }
 
@@ -312,6 +328,8 @@ struct Active {
     started: HashMap<String, (AttemptMetadata, Instant)>,
     /// Calls of this round still out.
     awaiting: usize,
+    /// Who answered each finished round, for the audit log.
+    judges: Vec<JudgeRound>,
     /// The engine's memory before a signal that runs alone, restored if its
     /// host stops waiting.
     before: Option<serde_json::Value>,
@@ -485,8 +503,8 @@ impl Scheduler {
         let before = runs_alone(&job.signal).then(|| engine.save());
 
         match engine.start(&job.signal) {
-            Err(error) => self.complete(job, Err(error), None),
-            Ok((_, Step::Done(effects))) => self.complete(job, Ok(effects), before),
+            Err(error) => self.complete(job, Err(error), None, &[]),
+            Ok((_, Step::Done(effects))) => self.complete(job, Ok(effects), before, &[]),
             Ok((
                 run,
                 Step::Ask {
@@ -506,6 +524,7 @@ impl Scheduler {
                         reasoned: Vec::new(),
                         started: HashMap::new(),
                         awaiting: 0,
+                        judges: Vec::new(),
                         before,
                     },
                 );
@@ -651,7 +670,10 @@ impl Scheduler {
         };
 
         match done {
-            Done::Answers { result, .. } => active.answers = Some(result),
+            Done::Answers { result, judged, .. } => {
+                active.answers = Some(result);
+                active.judges.extend(judged);
+            }
             Done::Reasoned { id, outcome, .. } => active.reasoned.push((id, outcome)),
         }
         active.awaiting = active.awaiting.saturating_sub(1);
@@ -683,12 +705,17 @@ impl Scheduler {
             }) => self.ask(run, round + 1, state, questions, reasonings),
             Some(Step::Done(effects)) => {
                 if let Some(active) = self.active.remove(&run) {
-                    self.complete(active.job, Ok(effects), active.before);
+                    self.complete(active.job, Ok(effects), active.before, &active.judges);
                 }
             }
             None => {
                 if let Some(active) = self.active.remove(&run) {
-                    self.complete(active.job, Err("engine dropped the signal".into()), None);
+                    self.complete(
+                        active.job,
+                        Err("engine dropped the signal".into()),
+                        None,
+                        &active.judges,
+                    );
                 }
             }
         }
@@ -767,7 +794,7 @@ impl Scheduler {
             None => Err("engine timed out".into()),
         };
 
-        self.complete(active.job, result, active.before);
+        self.complete(active.job, result, active.before, &active.judges);
     }
 
     /// Reply to the host, log the decision and save the engine's memory. If
@@ -778,6 +805,7 @@ impl Scheduler {
         job: Job,
         result: Result<Vec<Effect>, String>,
         before: Option<serde_json::Value>,
+        judges: &[JudgeRound],
     ) {
         let engine = self.engine.peek();
 
@@ -789,7 +817,7 @@ impl Scheduler {
         }
 
         if let Some(path) = &self.files.audit {
-            crate::audit::append(path, &job.signal, engine.trace(), &result, |text| {
+            crate::audit::append(path, &job.signal, engine.trace(), judges, &result, |text| {
                 engine.redact_for_audit(text)
             });
         }
@@ -816,7 +844,7 @@ mod tests {
 
     use chauffeur_core::{
         AnswerValue, Delivery, Judged, Judging, Judgment, PermissionDecision, Reasoned, Schema,
-        Situation, SystemOneError, Watch,
+        Situation, SystemOne, SystemOneError, Watch,
     };
     use serde_json::json;
 
@@ -1249,7 +1277,7 @@ mod tests {
 
     #[test]
     fn system_one_does_not_start_a_round_past_its_deadline() {
-        let mut judge: Box<dyn SystemOne> = Box::new(One);
+        let mut judge = Judge::Plain(Box::new(One));
         let task = OneTask {
             run: RunId(1),
             round: 2,

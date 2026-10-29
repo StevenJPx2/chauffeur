@@ -41,6 +41,8 @@ pub(crate) struct Escalate {
     below: f32,
     review: Option<Review>,
     last_used: String,
+    /// The first judge's answers that the last ask replaced.
+    replaced: Vec<Answer>,
 }
 
 impl Escalate {
@@ -58,7 +60,28 @@ impl Escalate {
             below,
             review,
             last_used,
+            replaced: Vec::new(),
         }
+    }
+
+    /// Ask the first judge alone, for a caller that cannot wait for doubt
+    /// to be settled, such as a permission request holding a tool call.
+    pub(crate) fn ask_first(
+        &mut self,
+        state: &str,
+        questions: &[Question],
+        deadline: Instant,
+    ) -> Result<Vec<Answer>, SystemOneError> {
+        self.replaced.clear();
+        let answers = ask(self.first.as_mut(), state, questions, Some(deadline));
+
+        self.last_used = self.first.name().to_string();
+        answers
+    }
+
+    /// The first judge's answers that the last ask replaced.
+    pub(crate) fn take_replaced(&mut self) -> Vec<Answer> {
+        std::mem::take(&mut self.replaced)
     }
 
     fn judge(
@@ -67,6 +90,7 @@ impl Escalate {
         questions: &[Question],
         deadline: Option<Instant>,
     ) -> Result<Vec<Answer>, SystemOneError> {
+        self.replaced.clear();
         let mut answers = ask(self.first.as_mut(), state, questions, deadline)?;
         let mut used = self.first.name().to_string();
         let unsure = self.unsure(questions, &answers);
@@ -74,7 +98,7 @@ impl Escalate {
         if !unsure.is_empty() && has_time(deadline, MIN_SECOND) {
             match ask(self.second.as_mut(), state, &unsure, deadline) {
                 Ok(second) => {
-                    replace(&mut answers, second);
+                    replace(&mut answers, second, &mut self.replaced);
                     used = format!("{used}+{}", self.second.name());
                 }
                 Err(error) => eprintln!(
@@ -90,7 +114,14 @@ impl Escalate {
 
         if let Some(review) = self.review.as_mut().filter(|_| !unsure.is_empty()) {
             if has_time(deadline, MIN_REVIEW)
-                && review_into(review, state, &unsure, deadline, &mut answers)
+                && review_into(
+                    review,
+                    state,
+                    &unsure,
+                    deadline,
+                    &mut answers,
+                    &mut self.replaced,
+                )
             {
                 used = format!("{used}+system-two");
             }
@@ -153,11 +184,16 @@ fn has_time(deadline: Option<Instant>, needed: Duration) -> bool {
 }
 
 /// The escalated judge's answers stand, as benchmarked: it was asked only
-/// because the first judge was unsure.
-fn replace(answers: &mut [Answer], better: Vec<Answer>) {
+/// because the first judge was unsure. Each answer replaced for the first
+/// time is kept in `replaced`, so the first judge's own answer is on record.
+fn replace(answers: &mut [Answer], better: Vec<Answer>, replaced: &mut Vec<Answer>) {
     for answer in better {
         if let Some(slot) = answers.iter_mut().find(|slot| slot.id == answer.id) {
-            *slot = answer;
+            let original = std::mem::replace(slot, answer);
+
+            if !replaced.iter().any(|kept| kept.id == original.id) {
+                replaced.push(original);
+            }
         }
     }
 }
@@ -169,6 +205,7 @@ fn review_into(
     questions: &[Question],
     deadline: Option<Instant>,
     answers: &mut [Answer],
+    replaced: &mut Vec<Answer>,
 ) -> bool {
     let questions: Vec<&Question> = questions
         .iter()
@@ -189,7 +226,7 @@ fn review_into(
 
     match attempt.outcome {
         Ok(verdict) => {
-            replace(answers, reviewed(&questions, &verdict));
+            replace(answers, reviewed(&questions, &verdict), replaced);
             true
         }
         Err(error) => {
@@ -414,6 +451,23 @@ mod tests {
         assert_eq!(answers[0].value, AnswerValue::Noul(0.95));
         assert_eq!(answers[1].value, AnswerValue::Noul(0.1));
         assert_eq!(judge.name(), "jev+glide");
+        assert_eq!(judge.take_replaced(), vec![answer("unsure", 0.6)]);
+        assert!(judge.take_replaced().is_empty());
+    }
+
+    #[test]
+    fn an_urgent_ask_takes_the_first_judges_answers_without_escalating() {
+        let (first, _) = fake("jev", vec![Ok(vec![answer("q", 0.5)])]);
+        let (second, asked) = fake("glide", vec![]);
+        let mut judge = Escalate::new(first, second, 0.6, None);
+        let deadline = Instant::now() + Duration::from_secs(2);
+
+        let answers = judge.ask_first("s", &[noul("q")], deadline).unwrap();
+
+        assert_eq!(answers[0].value, AnswerValue::Noul(0.5));
+        assert!(asked.lock().unwrap().is_empty());
+        assert_eq!(judge.name(), "jev");
+        assert!(judge.take_replaced().is_empty());
     }
 
     #[test]
@@ -503,6 +557,14 @@ mod tests {
         assert_eq!(answers[1].value, AnswerValue::Noul(0.45));
         assert_eq!(answers[2].value, AnswerValue::Choice("b".into()));
         assert_eq!(judge.name(), "jev+glide+system-two");
+        // The first judge's own answers are kept, not GLiDE's in between.
+        let replaced = judge.take_replaced();
+        assert_eq!(replaced.len(), 3);
+        assert!(replaced.iter().all(|answer| match &answer.value {
+            AnswerValue::Noul(p) => *p == 0.5,
+            AnswerValue::Choice(_) => answer.confidence == Some(0.2),
+            AnswerValue::Score(_) => false,
+        }));
         let request = &seen.lock().unwrap()[0];
         assert_eq!(request.profile, "system-one-review");
         assert!(request.instructions.contains("a = A; b = B"));
