@@ -11,6 +11,10 @@ use crate::config::ToolTexts;
 
 const MAX_AGENTS: usize = 256;
 const MAX_DESCRIPTION_CHARS: usize = 160;
+/// Listed tools a question describes; the rest are named only.
+const DESCRIBED_TOOLS: usize = 4;
+/// Characters of each described tool's first sentence.
+const MAX_EXAMPLE_CHARS: usize = 80;
 
 /// Namespaces already surfaced in each agent's current context.
 #[derive(Default)]
@@ -91,15 +95,41 @@ pub fn question_id(namespace: &str) -> String {
     format!("code-mode:{namespace}")
 }
 
-/// The namespace's listed tool IDs, comma-separated.
+/// The namespace's listed tools, the first few with what they do: a judge
+/// shown only tool IDs could not tell what an unfamiliar namespace is for,
+/// and was unsure of more than a third of them.
 pub fn examples(namespace: &CodeModeNamespace) -> String {
-    let examples: Vec<&str> = namespace
+    let examples: Vec<String> = namespace
         .tools
         .iter()
-        .map(|tool| tool.id.as_str())
+        .enumerate()
+        .map(|(index, tool)| {
+            let summary = first_sentence(&tool.description);
+
+            if index < DESCRIBED_TOOLS && !summary.is_empty() {
+                format!("{} ({summary})", tool.id)
+            } else {
+                tool.id.clone()
+            }
+        })
         .collect();
 
-    examples.join(", ")
+    examples.join("; ")
+}
+
+/// A description's first sentence, whitespace collapsed and clipped.
+fn first_sentence(description: &str) -> String {
+    let words: Vec<&str> = description.split_whitespace().collect();
+    let text = words.join(" ");
+    let end = text.find(". ").unwrap_or(text.len());
+    let sentence = text[..end].trim_end_matches('.');
+
+    if sentence.chars().count() <= MAX_EXAMPLE_CHARS {
+        sentence.to_string()
+    } else {
+        let clipped: String = sentence.chars().take(MAX_EXAMPLE_CHARS - 1).collect();
+        format!("{}…", clipped.trim_end())
+    }
 }
 
 pub fn question(namespace: &CodeModeNamespace, texts: &ToolTexts) -> Question {
@@ -146,4 +176,50 @@ fn note(chosen: &[&CodeModeNamespace], texts: &ToolTexts) -> String {
     texts
         .code_mode_note
         .render(&[("sections", &sections.join("\n\n"))])
+}
+
+#[cfg(test)]
+mod tests {
+    use chauffeur_core::CatalogEntry;
+
+    use super::*;
+
+    fn tool(id: &str, description: &str) -> CatalogEntry {
+        CatalogEntry {
+            id: id.into(),
+            description: description.into(),
+            bytes: 0,
+        }
+    }
+
+    #[test]
+    fn examples_say_what_the_first_tools_do_in_one_short_sentence() {
+        let namespace = CodeModeNamespace {
+            name: "agents".into(),
+            size: 6,
+            tools: vec![
+                tool(
+                    "agents_spawn",
+                    "\n   Start a new agent in its own session.  It appears in history.",
+                ),
+                tool("agents_send", &"Send a message to any session ".repeat(9)),
+                tool("agents_read", ""),
+                tool("agents_list", "List agents."),
+                tool("agents_stop", "Interrupt an agent."),
+            ],
+        };
+
+        let text = examples(&namespace);
+        let parts: Vec<&str> = text.split("; ").collect();
+
+        assert_eq!(
+            parts[0],
+            "agents_spawn (Start a new agent in its own session)"
+        );
+        assert!(parts[1].starts_with("agents_send (Send a message") && parts[1].ends_with("…)"));
+        assert!(parts[1].chars().count() <= "agents_send ()".len() + MAX_EXAMPLE_CHARS);
+        assert_eq!(parts[2], "agents_read");
+        assert_eq!(parts[3], "agents_list (List agents)");
+        assert_eq!(parts[4], "agents_stop");
+    }
 }

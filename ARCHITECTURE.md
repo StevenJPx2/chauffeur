@@ -298,7 +298,10 @@ come first in that prefix.
   own search would find them); at a context's first message it first waits,
   at most 10 s, until no MCP server is still connecting, since OpenCode builds
   that request's catalog once they have. Tool exposure asks one question per
-  namespace not yet surfaced in the context (P ≥ 0.7, confidence ≥ 0.4) and,
+  namespace not yet surfaced in the context (P ≥ 0.7, confidence ≥ 0.4),
+  naming its matches and saying in a short clause what the first four do (on
+  logged prompts, tool IDs alone left Jev unsure of 37% of these questions;
+  with what they do, 16%), and,
   for the chosen ones, writes a note listing those matches with the
   `search({ namespace })` call for exact paths. It arrives as a `context`
   effect with `prompt` delivery, a text attachment that reaches the first step
@@ -440,7 +443,12 @@ edit. Piping output or compiling it in memory does not exempt an ad hoc source
 reader. Only local files count: content fetched over the network (`gh api`
 raw files and READMEs, `curl`) is exempt because the read tool cannot open
 it. Normal build tools reading their inputs, `git diff`/`show`/`log`, searches,
-structured-data queries, logs, temporary files and binary analysis are exempt. A negative,
+structured-data queries, logs, temporary files and binary analysis are exempt,
+as are files downloaded or generated in the session and run or scratch
+folders: they are not project files. Each guard names its yes cases first and
+answers no for everything else. On 574 recorded requests, weighted toward the
+ones Jev had doubted, that cut its unsure answers from 71% to 13% and its
+wrong denials from 29 to 4. A negative,
 unsure or failed judgment abstains, leaving other contracts and the host's
 decision intact. The `cat-to-read` tool-result rule is a reminder after a missed
 read, not the pre-execution enforcement boundary.

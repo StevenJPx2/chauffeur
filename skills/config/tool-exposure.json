@@ -30,7 +30,7 @@
     "more_tools": "and {count} more",
     "hide": "Will the coding agent need any of the \"{group}\" tools to carry out the user's task? Tools: {tools}",
     "reveal": "The \"{group}\" tools were hidden from the coding agent earlier in this conversation. Does the user's latest request need them now? Showing them again re-reads the whole conversation once, so answer yes only when they are clearly needed. Tools: {tools}",
-    "namespace": "Will the coding agent need the \"{namespace}\" tools, reached through Code Mode's execute tool, for the user's latest request? Its catalog shows only some of them. It has {size} tools, such as: {examples}",
+    "namespace": "Will the coding agent need the \"{namespace}\" tools, reached through Code Mode's execute tool, for the user's latest request? Its catalog shows only some of them. It has {size} tools, such as: {examples}. Answer yes when the request needs something these tools do.",
     "request_asked": "The coding agent asked for a tool it lacks: \"{need}\". The user's latest request: {user_request}.",
     "request_group": "{asked} Would the hidden \"{group}\" tools let the agent do any part of what it asked for? Answer yes when they cover at least one thing it needs, even if other tools cover the rest. Tools: {tools}",
     "request_namespace": "{asked} Would the \"{namespace}\" tools, reached through Code Mode's execute tool, let the agent do any part of what it asked for? Answer yes when they cover at least one thing it needs, even if other tools cover the rest. It has {size} tools, such as: {examples}",
