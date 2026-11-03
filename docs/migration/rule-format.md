@@ -42,9 +42,13 @@ blocks it names. The adapter gathers them from the session:
 | `permission.asked`  | `permission` (the action, its resources, the agent's reason, the workspace), `request`, `activity`                                                                   |
 | `prompt.sent`       | `message`, `previous` (the agent's previous prompt), `workspace`                                                                                                     |
 
-v1 added "A call the user explicitly asked for, exactly as asked, does not
-count" to every tool-result question. The ported rules end their
-instructions with that sentence and name `request` in their evidence.
+A steer should not correct the agent for doing exactly what the user asked,
+such as `cat package.json` when the user said so. v1 added "A call the user
+explicitly asked for, exactly as asked, does not count" to every tool-result
+question out of sight. In v2 each ported rule ends its instructions with that
+sentence and names `request` in its evidence, so the rule file holds the
+whole question the judge sees. A rule that should apply even to a call the
+user asked for, such as a guard, leaves the sentence out.
 
 ## Worked example: `conventional-commits`
 
