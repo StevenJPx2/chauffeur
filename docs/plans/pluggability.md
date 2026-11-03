@@ -222,7 +222,11 @@ their intents:
 import { navigate } from "@fdcn/chauffeur/client"
 
 const { intents } = await navigate(
-  { on: "recall", evidence: { message }, candidates: { p1: "…", p4: "…", p7: "…" } },
+  {
+    on: "opencode-history.recall",
+    evidence: { message },
+    candidates: { p1: "…", p4: "…", p7: "…" }
+  },
   { signal: AbortSignal.timeout(1_500) }
 )
 // intents → [{ rule: "opencode-history/recall", attach: ["p4", "p1"] }]
@@ -262,7 +266,7 @@ flowchart LR
 
 ### sourcefed: one triage for every host
 
-sourcefed's daemon navigates `integration_event` before it queues an event for
+sourcefed's daemon navigates `sourcefed.event` before it queues an event for
 a target, so OpenCode, Pi, MCP and CLI all receive the same filtered stream.
 sourcefed installs `sourcefed/triage`, a System One screen that withholds
 confident noise; the user tunes or extends it in JSON.
@@ -272,7 +276,7 @@ sequenceDiagram
     participant S as sourcefed daemon
     participant C as Chauffeur daemon
     participant H as Any host (OpenCode, Pi, MCP, CLI)
-    S->>C: navigate integration_event, with event, monitor and thread
+    S->>C: navigate sourcefed.event, with event, monitor and thread
     C->>C: Run sourcefed/triage and any other matching rule
     C-->>S: withhold, or no intent
     S->>H: Queue the event unless withheld
@@ -284,15 +288,15 @@ delivers, as v1's gate does.
 ### opencode-history: recall
 
 opencode-history searches its own index when the user sends a message, then
-navigates `recall` with the message and the passages as candidates. Its rule,
+navigates `opencode-history.recall` with the message and the passages as candidates. Its rule,
 `opencode-history/recall`, ranks them, and opencode-history attaches the
 passages the `attach` intent names.
 
 ### Programs without a harness
 
 A program needs no harness to ask Chauffeur. neo navigates
-`neo/screen-check` with an iPhone screenshot before each irreversible tap,
-Proclaimify's chord sheets ask `proclaimify/key` while the question is
+`neo.screen-check` with an iPhone screenshot before each irreversible tap,
+Proclaimify's chord sheets ask `proclaimify.key` while the question is
 developed, and jev-distill's students answer as System One models. Each has
 a page in [Programs that ask Chauffeur](../callers/README.md).
 
@@ -894,7 +898,7 @@ keeps a file the user changed.
 
 A rule on a harness event names [actions](#actions) in its `then`, and the
 daemon passes them to the adapter. A rule on a caller's event, such as
-`integration_event` or `recall`, returns intents the caller defines, such as
+`sourcefed.event` or `opencode-history.recall`, returns intents the caller defines, such as
 `withhold` and `attach`.
 
 ### Event triage
@@ -906,7 +910,7 @@ on.
 ```jsonc
 // ~/.config/chauffeur/rules/sourcefed/triage.json
 {
-  "on": "integration_event",
+  "on": "sourcefed.event",
   "judges": {
     "quick": { "tier": "system-one", "confidence": 0.7 },
     "reasoner": { "tier": "system-two", "confidence": 0.6 }
@@ -958,7 +962,7 @@ returned; the code gathers them and attaches the result.
 ```jsonc
 // ~/.config/chauffeur/rules/opencode-history/recall.json
 {
-  "on": "recall",
+  "on": "opencode-history.recall",
   "strategy": [
     {
       "id": "helps",
@@ -1030,9 +1034,17 @@ sequenceDiagram
 Harness events and actions are the [harness package's](#adapters) contract:
 its schemas define them, and its fidelity table says which each harness
 supports. Chauffeur reads those schemas; plugins and rules hook events by
-name, such as `tool.after`, `tool.before` and `prompt.sent`. A plugin or
-caller may define its own events, namespaced to it, such as
-`sourcefed.event`.
+name, such as `tool.after`, `tool.before` and `prompt.sent`.
+
+A caller's or plugin's own events are keyed by its name, before a dot:
+`sourcefed.event`, `opencode-history.recall`, `neo.screen-check`. A rule's
+`on` therefore says whose event it hooks, and two programs never share an
+event by accident. The harness package's namespaces (`tool`, `prompt`,
+`permission`, `response`, `session`, `compaction`) are reserved. The daemon
+refuses a plugin's event outside the plugin's own namespace: only the
+`monitors` plugin sends `monitors.*`, and no plugin can pose as sourcefed.
+Programs on the socket are the user's own, as in
+[Access, delivery and failure rules](#access-delivery-and-failure-rules).
 
 ### Actions
 
@@ -1674,7 +1686,7 @@ empty input` gets nothing, and with Jev unreachable nothing is sent and the
 **You can:** let sourcefed ask Chauffeur before it queues each event, so
 OpenCode, Pi, MCP and the CLI receive the same filtered stream, as in
 [sourcefed: one triage for every host](#sourcefed-one-triage-for-every-host).
-sourcefed's daemon navigates `integration_event`, its installer adds
+sourcefed's daemon navigates `sourcefed.event`, its installer adds
 `sourcefed/triage` with the System One screen, and its OpenCode adapter's
 `chauffeur.gate` call goes.
 
@@ -1700,7 +1712,7 @@ A `navigate` request, `event` notifications, then the result, as
 
 ```sh
 chauffeur navigate <<'EOF'
-{"protocol": 1, "deadline_ms": 3000, "on": "integration_event", "evidence": {"event": "…", "thread": "…"}}
+{"protocol": 1, "deadline_ms": 3000, "on": "sourcefed.event", "evidence": {"event": "…", "thread": "…"}}
 EOF
 # → {"jsonrpc": "2.0", "method": "event", "params": {"id": 1, "rule_matched": {"rule": "sourcefed/triage"}}}
 # → {"jsonrpc": "2.0", "method": "event", "params": {"id": 1, "round_ready": {"rule": "sourcefed/triage", "round": 1, "steps": ["screen"]}}}
@@ -1855,7 +1867,7 @@ Verification:
   with recorded answers; `after` with `[item]` skips exactly the candidates
   whose earlier copy did not match.
 - Recall: Jev scores recorded by opencode-history's replay feed a placeholder
-  System One, and navigating `recall` attaches the replay's top three passages
+  System One, and navigating `opencode-history.recall` attaches the replay's top three passages
   scoring 0.7 or above. Live, it makes one Jev call per message, with judge
   time within the replay's 278 ms p50 and 318 ms p95 plus local overhead. No
   agent session or history is sent.

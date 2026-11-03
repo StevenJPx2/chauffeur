@@ -19,7 +19,7 @@ import { connect } from "@fdcn/chauffeur/client"
 const chauffeur = connect() // at startup; chauffeur.close() at shutdown
 
 const { intents } = await chauffeur.navigate(
-  { on: "integration_event", evidence: { event, thread, monitor } },
+  { on: "sourcefed.event", evidence: { event, thread, monitor } },
   { signal: AbortSignal.timeout(3_000) }
 )
 if (!intents.some((intent) => intent.withhold === "event")) queue(target, event)

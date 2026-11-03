@@ -244,10 +244,14 @@ at most 2 rounds · 1 model call · 31 candidates at most
 import { navigate } from "@fdcn/chauffeur/client"
 
 const { intents } = await navigate(
-  { on: "recall", evidence: { message }, candidates: { p1: "…", p4: "…" } },
+  {
+    on: "opencode-history.recall",
+    evidence: { message },
+    candidates: { p1: "…", p4: "…" }
+  },
   { signal: AbortSignal.timeout(1_500) }
 )
-// [{ rule: "recall", attach: ["p4"] }]
+// [{ rule: "opencode-history/recall", attach: ["p4"] }]
 ```
 
 ### Adapters

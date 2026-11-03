@@ -8,20 +8,20 @@ with the other first plugins.
 
 ## The event gate
 
-| v1                                                                         | v2                                                                                                         |
-| -------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| sourcefed's OpenCode plugin calls the adapter's `chauffeur.gate` RPC       | sourcefed's daemon navigates `integration_event`, for every host; see [sourcefed](../callers/sourcefed.md) |
-| "Should the agent be shown this event now?", told what the monitor watches | The `needs-agent` question, with `event`, `thread` and `monitor` evidence                                  |
-| Withhold only on a confident no (P ≤ 0.3); everything else delivers        | `confidence: 0.7` and `then` withholds on `no`                                                             |
-| `withhold_bodies`: `[message without text]` withheld without asking        | A `match` fact step on `event.body`, from slice 4; until then the screen judges it                         |
-| `POST /integrations/sourcefed` for other integrations                      | `navigate` with the same event, from any program                                                           |
-| sourcefed delivers when Chauffeur fails or takes over 3 s                  | The same                                                                                                   |
+| v1                                                                         | v2                                                                                                       |
+| -------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| sourcefed's OpenCode plugin calls the adapter's `chauffeur.gate` RPC       | sourcefed's daemon navigates `sourcefed.event`, for every host; see [sourcefed](../callers/sourcefed.md) |
+| "Should the agent be shown this event now?", told what the monitor watches | The `needs-agent` question, with `event`, `thread` and `monitor` evidence                                |
+| Withhold only on a confident no (P ≤ 0.3); everything else delivers        | `confidence: 0.7` and `then` withholds on `no`                                                           |
+| `withhold_bodies`: `[message without text]` withheld without asking        | A `match` fact step on `event.body`, from slice 4; until then the screen judges it                       |
+| `POST /integrations/sourcefed` for other integrations                      | `navigate` with the same event, from any program                                                         |
+| sourcefed delivers when Chauffeur fails or takes over 3 s                  | The same                                                                                                 |
 
 v1's question, abridged, becomes the rule's `needs-agent` ask:
 
 ```json
 {
-  "on": "integration_event",
+  "on": "sourcefed.event",
   "judges": { "quick": { "tier": "system-one", "confidence": 0.7 } },
   "strategy": [
     {

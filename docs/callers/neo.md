@@ -15,7 +15,7 @@ safety boundary, and Chauffeur never replaces them.
 ```jsonc
 // ~/.config/chauffeur/rules/neo/screen-check.json, installed by neo
 {
-  "on": "neo/screen-check",
+  "on": "neo.screen-check",
   "judges": {
     "screen": {
       "tier": "system-one",
@@ -45,7 +45,7 @@ import { navigate } from "@fdcn/chauffeur/client"
 
 const { intents } = await navigate(
   {
-    on: "neo/screen-check",
+    on: "neo.screen-check",
     evidence: {
       screenshot: { image: await phone.screenshot(), media_type: "image/png" },
       ocr_text: screenText,

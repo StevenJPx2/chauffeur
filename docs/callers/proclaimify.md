@@ -14,7 +14,7 @@ GLiDE, by changing one line.
 ```jsonc
 // ~/.config/chauffeur/rules/proclaimify/key.json
 {
-  "on": "proclaimify/key",
+  "on": "proclaimify.key",
   "judges": { "keys": { "tier": "system-one", "confidence": 0.5 } },
   "strategy": [
     {
@@ -38,7 +38,7 @@ GLiDE, by changing one line.
 ## The call
 
 ```sh
-jq -n --slurpfile song song.json '{ on: "proclaimify/key", evidence: { stanzas: $song[0] } }' | chauffeur navigate
+jq -n --slurpfile song song.json '{ on: "proclaimify.key", evidence: { stanzas: $song[0] } }' | chauffeur navigate
 # → { "intents": [{ "rule": "proclaimify/key", "key": "G" }] }
 ```
 

@@ -16,7 +16,7 @@ import { navigate } from "@fdcn/chauffeur/client"
 
 const { intents } = await navigate(
   {
-    on: "recall",
+    on: "opencode-history.recall",
     evidence: { message },
     candidates: Object.fromEntries(passages.map((p) => [p.id, p.text]))
   },
