@@ -1,5 +1,7 @@
 # Seeing what it decided
 
+Each command has its own page under [The `chauffeur` command](../cli/README.md).
+
 | v1                                                      | v2                                                                                                                                                                          | Slice |
 | ------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----- |
 | `chauffeur audit [N]`, `--follow`, `--brief`            | The same command, over the same kind of file: one JSON line per run in `~/.local/state/chauffeur/audit.jsonl`, moved aside once past 8 MiB, readable with no daemon running | 1     |
