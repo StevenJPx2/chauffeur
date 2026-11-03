@@ -66,11 +66,10 @@ fails to load leaves the previous version running and logs why.
   existing base tools too. `history_search` belongs there: the agent may need
   earlier decisions even when the first prompt does not mention history.
   The `opencode-agents` tools (`agents_spawn`, `agents_send`, `agents_read`,
-  `agents_list`, `agents_stop`) belong there too, so an ongoing agent
-  conversation never loses its tools. By default that plugin puts them in
-  Code Mode instead, so the `agents` namespace is in `code_mode.always`
-  for the same reason. A Code Mode namespace must always be available: add
-  it to `code_mode.always`, keeping the shipped entries. Their usage skill is published at
+  `agents_list`, `agents_stop`) reach the agent through Code Mode, so the
+  `agents` namespace is in `code_mode.always` and an ongoing agent
+  conversation never loses them. A Code Mode namespace that must always be
+  available goes in `code_mode.always`, keeping the shipped entries. Their usage skill is published at
   <https://github.com/StevenJPx2/opencode-agents/tree/master/skills/opencode-agents>;
   follow that Git source's `skills/opencode-agents` path to offer it.
   Shipped defaults in `skills/config/` are compiled into the daemon; update
