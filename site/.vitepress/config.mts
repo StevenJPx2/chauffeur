@@ -42,7 +42,12 @@ function sidebar(all: string[]): DefaultTheme.SidebarItem[] {
   const under = (prefix: string) => all.filter((page) => page.startsWith(prefix))
   const item = (page: string, text = title(page)) => ({ text, link: link(page) })
   /** A folder's pages under its title; a README is the title's own page, not an item. */
-  const section = (text: string, folder: string, label = (page: string) => title(page)) => {
+  const section = (
+    text: string,
+    folder: string,
+    label = (page: string) => title(page),
+    except: string[] = []
+  ) => {
     const index = `${folder}README.md`
     // In the order the README links them; pages it does not link come last.
     const readme = all.includes(index) ? readFileSync(join(ROOT, index), "utf8") : ""
@@ -51,14 +56,15 @@ function sidebar(all: string[]): DefaultTheme.SidebarItem[] {
       return found === -1 ? Number.MAX_SAFE_INTEGER : found
     }
     const pages = under(folder)
-      .filter((page) => page !== index)
+      .filter((page) => page !== index && !except.some((other) => page.startsWith(other)))
       .toSorted((a, b) => at(a) - at(b))
     const items = pages.map((page) => item(page, label(page)))
     return all.includes(index) ? { text, link: link(index), items } : { text, items }
   }
   return [
     { text: "Chauffeur", link: "/" },
-    section("Plans", "docs/plans/"),
+    section("Plans", "docs/plans/", undefined, ["docs/plans/slices/"]),
+    section("Slices", "docs/plans/slices/"),
     section("Integrations", "docs/integrations/"),
     section("Plugins", "docs/plugins/"),
     section("Tools", "docs/tools/"),
@@ -106,7 +112,7 @@ export default defineConfig({
   themeConfig: {
     nav: [
       { text: "Roadmap", link: "/docs/plans/pluggability#goal" },
-      { text: "Slices", link: "/docs/plans/pluggability#sequence-and-verification" },
+      { text: "Slices", link: "/docs/plans/slices/" },
       { text: "Integrations", link: "/docs/integrations/" },
       { text: "Plugins", link: "/docs/plugins/" },
       { text: "Tools", link: "/docs/tools/" },
