@@ -14,7 +14,7 @@ use std::time::{Duration, Instant};
 use chauffeur_core::{Failure, Outcome};
 use chauffeur_judges::Models;
 use chauffeur_protocol::{Event, Rule};
-use chauffeur_runtime::{Context, Log, Ran, Redactor, run};
+use chauffeur_runtime::{Context, Ran, Redactor, run};
 
 fn repo(path: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -159,15 +159,4 @@ fn a_judge_slower_than_the_deadline_is_dropped() {
         sent.contains("[REDACTED]") && !sent.contains("AKIA"),
         "{sent}"
     );
-}
-
-#[test]
-fn the_log_keeps_the_most_recent_entries_and_counts_the_rest() {
-    let mut log = Log::new(2);
-    for entry in 1..=5 {
-        log.push(entry);
-    }
-
-    assert_eq!(log.iter().copied().collect::<Vec<_>>(), [4, 5]);
-    assert_eq!(log.dropped(), 3);
 }

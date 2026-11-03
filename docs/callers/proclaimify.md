@@ -6,7 +6,7 @@ exists, so production keeps calling TypeSafe directly.
 
 Chauffeur serves the same question on the machine where the question is
 developed: the rule replays Proclaimify's test songs, shows Jev's probability
-for every key in `chauffeur events`, and compares models, such as Jev against
+for every key in `chauffeur audit`, and compares models, such as Jev against
 GLiDE, by changing one line.
 
 ## The rule

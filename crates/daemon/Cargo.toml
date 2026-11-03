@@ -13,9 +13,13 @@ chauffeur-core = { workspace = true }
 chauffeur-judges = { workspace = true }
 chauffeur-protocol = { workspace = true }
 chauffeur-runtime = { workspace = true }
+jiff = { workspace = true }
 notify = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
+
+[dev-dependencies]
+jiff = { workspace = true }
 
 [lints]
 workspace = true

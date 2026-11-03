@@ -2,14 +2,14 @@
 
 The Rust engine. Each crate depends only on the ones below it in this table.
 
-| Crate      | Holds                                                                                                                |
-| ---------- | -------------------------------------------------------------------------------------------------------------------- |
-| `cli`      | The `chauffeur` binary: `daemon`, `version`, `emit`, `events`, `status`                                              |
-| `daemon`   | The private Unix socket, JSON-RPC 2.0 lines, loading and reloading configuration, routing events to rules, cooldowns |
-| `runtime`  | Running one rule for one event: redaction, a worker thread with a deadline, a bounded log                            |
-| `protocol` | Rule files and their checks, the `when` filter, `then` entries, harness events and their evidence                    |
-| `judges`   | Questions, confidence, `models.json`, tiers in fallback order, and the `systemone` and `placeholder` formats         |
-| `core`     | Plans of named steps, judges by name, events and the verdict. No dependencies                                        |
+| Crate      | Holds                                                                                                                               |
+| ---------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `cli`      | The `chauffeur` binary: `daemon`, `version`, `emit`, `audit`, `status`                                                              |
+| `daemon`   | The private Unix socket, JSON-RPC 2.0 lines, loading and reloading configuration, routing events to rules, cooldowns, the audit log |
+| `runtime`  | Running one rule for one event: redaction, a worker thread with a deadline                                                          |
+| `protocol` | Rule files and their checks, the `when` filter, `then` entries, harness events and their evidence                                   |
+| `judges`   | Questions, confidence, `models.json`, tiers in fallback order, and the `systemone` and `placeholder` formats                        |
+| `core`     | Plans of named steps, judges by name, events and the verdict. No dependencies                                                       |
 
 A module with several parts is a folder named after it, one file per
 concept, with a `README.md`:
@@ -41,15 +41,14 @@ sequenceDiagram
     R->>J: the rule's plan, through core
     J-->>R: answers settled by confidence, or failures
     R-->>D: verdict, and the first then entry it meets
-    D-->>C: actions, and a log entry per rule
+    D-->>C: actions; each rule's run appended to the audit log
 ```
 
 ```sh
 echo '{"event":"tool.after","session":"s1","tool":"shell","input":{"command":"git commit -m wip"}}' | chauffeur emit
 # → { "actions": [{ "rule": "conventional-commits", "action": "message.append", "payload": { … } }] }
-chauffeur events
-# → { "runs": [{ "rule": "conventional-commits", "steps": [{ "step": "nonconventional",
-#      "answer": { "outcome": "yes", "p": { "yes": 0.93, "no": 0.07 }, "model": "jev", … } }] }] }
+chauffeur audit --brief
+# → 13:54:43  conventional-commits  s1  nonconventional yes 0.93 jev  312 ms  → message.append
 ```
 
 ## Rules for every crate

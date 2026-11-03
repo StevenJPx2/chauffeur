@@ -1,5 +1,6 @@
 //! The `chauffeur` binary as a person runs it: a daemon in the background,
-//! then `emit`, `events`, `status` and `version` over its real socket.
+//! then `emit`, `status` and `version` over its real socket, and `audit`
+//! from the files the daemon writes.
 #![expect(
     clippy::unwrap_used,
     reason = "the helpers fail the test on a broken fixture or output that is not JSON"
@@ -52,6 +53,7 @@ impl Install {
         command
             .env("CHAUFFEUR_SOCKET", self.socket())
             .env("XDG_CONFIG_HOME", self.root.join("config"))
+            .env("XDG_STATE_HOME", self.root.join("state"))
             .env("CHAUFFEUR_DISTRIBUTION", distribution());
     }
 
@@ -104,6 +106,25 @@ impl Install {
         child.wait_with_output().unwrap()
     }
 
+    /// The runs `chauffeur audit` prints, one JSON line each.
+    fn audit(&self) -> Vec<Value> {
+        let output = self.run(&["audit"], "");
+        assert!(output.status.success(), "audit failed: {output:?}");
+        String::from_utf8(output.stdout)
+            .unwrap()
+            .lines()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect()
+    }
+
+    /// Stops the daemon.
+    fn stop(&mut self) {
+        if let Some(mut daemon) = self.daemon.take() {
+            let _ = daemon.kill();
+            let _ = daemon.wait();
+        }
+    }
+
     /// Runs `chauffeur <args>`, which must succeed, and reads its JSON.
     fn json(&self, args: &[&str], stdin: &str) -> Value {
         let output = self.run(args, stdin);
@@ -153,27 +174,25 @@ fn distribution() -> PathBuf {
 
 impl Drop for Install {
     fn drop(&mut self) {
-        if let Some(mut daemon) = self.daemon.take() {
-            let _ = daemon.kill();
-            let _ = daemon.wait();
-        }
+        self.stop();
         let _ = fs::remove_dir_all(&self.root);
     }
 }
 
+const BAD_COMMIT: &str = r#"{ "event": "tool.after", "session": "s1", "tool": "shell",
+                              "input": { "command": "git commit -m 'fixed stuff'" } }"#;
+
 #[test]
-fn a_bad_commit_sent_with_emit_gets_the_nudge_and_events_and_status_show_it() {
+fn a_bad_commit_sent_with_emit_gets_the_nudge_and_audit_and_status_show_it() {
     let mut install = Install::new("nudge");
     install.start();
 
-    let event = r#"{ "event": "tool.after", "session": "s1", "tool": "shell",
-                     "input": { "command": "git commit -m 'fixed stuff'" } }"#;
-    let emitted = install.json(&["emit", "--deadline-ms", "2000"], event);
+    let emitted = install.json(&["emit", "--deadline-ms", "2000"], BAD_COMMIT);
     assert_eq!(emitted["actions"][0]["rule"], "conventional-commits");
     assert_eq!(emitted["actions"][0]["action"], "message.append");
 
-    let events = install.json(&["events"], "");
-    let run = &events["runs"][0];
+    let runs = install.audit();
+    let run = &runs[0];
     assert_eq!(run["rule"], "conventional-commits");
     assert_eq!(run["steps"][0]["answer"]["outcome"], "yes");
     assert_eq!(run["steps"][0]["answer"]["model"], "stand-in");
@@ -237,6 +256,71 @@ fn a_daemon_error_reaches_the_person_as_a_failure() {
 }
 
 #[test]
+fn the_audit_log_outlasts_the_daemon_that_wrote_it() {
+    let mut install = Install::new("durable");
+    install.start();
+    install.json(&["emit"], BAD_COMMIT);
+    install.stop();
+
+    let runs = install.audit();
+    assert_eq!(runs.len(), 1, "read with no daemon running");
+    assert_eq!(runs[0]["returned"], "message.append");
+
+    install.start();
+    install.json(&["emit"], BAD_COMMIT);
+    let runs = install.audit();
+    assert_eq!(runs.len(), 2, "a new daemon appends to the same log");
+    assert_eq!(
+        runs[1]["returned"], "message.append",
+        "cooldowns start afresh with each daemon; the log only records"
+    );
+}
+
+#[test]
+fn audit_follow_brief_prints_each_new_run_on_one_line() {
+    let mut install = Install::new("follow");
+    install.start();
+    let mut follower = install
+        .command()
+        .args(["audit", "0", "--follow", "--brief"])
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let stdout = follower.stdout.take().unwrap();
+    let (send, lines) = std::sync::mpsc::channel();
+    thread::spawn(move || {
+        for line in BufReader::new(stdout).lines() {
+            let _ = send.send(line.unwrap());
+        }
+    });
+    // The follower starts reading from the log's end, so wait for it to start.
+    thread::sleep(Duration::from_millis(500));
+
+    install.json(&["emit"], BAD_COMMIT);
+    let line = lines.recv_timeout(Duration::from_secs(5));
+    let _ = follower.kill();
+    let _ = follower.wait();
+
+    let line = line.unwrap();
+    let time: Vec<char> = line.chars().take(8).collect();
+    assert!(
+        time.iter()
+            .enumerate()
+            .all(|(at, c)| if at == 2 || at == 5 {
+                *c == ':'
+            } else {
+                c.is_ascii_digit()
+            }),
+        "starts with the local time: {line}"
+    );
+    assert!(
+        line.contains("conventional-commits  s1  nonconventional yes 0.94 stand-in (placeholder)"),
+        "{line}"
+    );
+    assert!(line.ends_with("→ message.append"), "{line}");
+}
+
+#[test]
 fn version_prints_the_installation_name_and_version() {
     let output = Install::new("version").run(&["version"], "");
     assert!(output.status.success());
@@ -260,12 +344,10 @@ fn a_model_whose_key_is_set_answers_with_it() {
     daemon.arg("daemon").env("CHAUFFEUR_TEST_KEY", "test-key");
     install.serve(daemon);
 
-    let event = r#"{ "event": "tool.after", "session": "s1", "tool": "shell",
-                     "input": { "command": "git commit -m 'fixed stuff'" } }"#;
-    let emitted = install.json(&["emit", "--deadline-ms", "5000"], event);
+    let emitted = install.json(&["emit", "--deadline-ms", "5000"], BAD_COMMIT);
     assert_eq!(emitted["actions"][0]["action"], "message.append");
     assert_eq!(server.join().unwrap(), "authorization: Bearer test-key");
-    let step = &install.json(&["events"], "")["runs"][0]["steps"][0];
+    let step = &install.audit()[0]["steps"][0];
     assert_eq!(step["answer"]["model"], "jev");
     assert_eq!(step["answer"]["placeholder"], false);
 }

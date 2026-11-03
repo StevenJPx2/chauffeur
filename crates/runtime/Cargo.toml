@@ -1,6 +1,6 @@
 [package]
 name = "chauffeur-runtime"
-description = "Runs rules for events: redaction, deadlines and a bounded log"
+description = "Runs rules for events: redaction and deadlines"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

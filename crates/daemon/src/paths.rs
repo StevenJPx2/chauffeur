@@ -17,6 +17,8 @@ pub struct Paths {
     pub config: PathBuf,
     /// Shipped content: `models/`, `rules/`, `safety/`.
     pub distribution: PathBuf,
+    /// What the daemon keeps across restarts: the audit log.
+    pub state: PathBuf,
 }
 
 impl Paths {
@@ -25,6 +27,7 @@ impl Paths {
     /// - socket: `$CHAUFFEUR_SOCKET`, or `<name>/daemon.sock` in
     ///   `$XDG_RUNTIME_DIR`, or in `$TMPDIR` when that is unset;
     /// - configuration: `$XDG_CONFIG_HOME/<name>`, or `~/.config/<name>`;
+    /// - state: `$XDG_STATE_HOME/<name>`, or `~/.local/state/<name>`;
     /// - distribution: `distribution`, or `$CHAUFFEUR_DISTRIBUTION`, or
     ///   `share/<name>` beside the executable's folder.
     #[must_use]
@@ -41,6 +44,10 @@ impl Paths {
             .or_else(|| var("HOME").map(|home| home.join(".config")))
             .unwrap_or_default()
             .join(name);
+        let state = var("XDG_STATE_HOME")
+            .or_else(|| var("HOME").map(|home| home.join(".local/state")))
+            .unwrap_or_default()
+            .join(name);
         let beside_executable = std::env::current_exe().ok().and_then(|exe| {
             exe.parent()
                 .and_then(Path::parent)
@@ -55,6 +62,7 @@ impl Paths {
             socket,
             config,
             distribution,
+            state,
         }
     }
 }

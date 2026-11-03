@@ -32,6 +32,7 @@ fn paths(name: &str, models: &str) -> Paths {
         socket: root.join("run/daemon.sock"),
         config: root.join("config"),
         distribution: PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../distribution"),
+        state: root.join("state"),
     }
 }
 
@@ -64,6 +65,15 @@ fn call(socket: &Path, method: &str, params: &Value) -> Value {
     );
     assert_eq!(reply["id"], 7);
     reply["result"].clone()
+}
+
+/// The runs in the audit log, oldest first.
+fn runs(paths: &Paths) -> Vec<Value> {
+    chauffeur_daemon::audit::recent(&paths.state, 256)
+        .unwrap()
+        .iter()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect()
 }
 
 fn emit(socket: &Path, session: &str, command: &str) -> Value {
@@ -101,14 +111,19 @@ fn a_bad_commit_gets_the_nudge_once_per_cooldown_and_the_log_shows_why() {
         "the first session still cools down after the second fired"
     );
 
-    let runs = call(&paths.socket, "chauffeur.events", &Value::Null)["runs"].clone();
+    let runs = runs(&paths);
     let first = &runs[0]["steps"][0];
     assert_eq!(first["step"], "nonconventional");
     assert_eq!(first["answer"]["outcome"], "yes");
     assert_eq!(first["answer"]["model"], "stand-in");
     assert_eq!(first["answer"]["placeholder"], true);
     assert_eq!(runs[1]["cooldown"], true);
-    assert_eq!(runs.as_array().unwrap().len(), 4, "ls ran no rule");
+    assert_eq!(runs.len(), 4, "ls ran no rule");
+    assert!(
+        runs[0]["at"].as_str().unwrap().ends_with('Z'),
+        "{}",
+        runs[0]
+    );
 }
 
 #[test]
@@ -121,8 +136,7 @@ fn with_no_model_to_ask_nothing_is_sent_and_the_log_says_unavailable() {
         json!([])
     );
 
-    let runs = call(&paths.socket, "chauffeur.events", &Value::Null)["runs"].clone();
-    assert_eq!(runs[0]["steps"][0]["failed"], "unavailable");
+    assert_eq!(runs(&paths)[0]["steps"][0]["failed"], "unavailable");
 }
 
 #[test]

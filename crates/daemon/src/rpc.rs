@@ -57,7 +57,6 @@ fn call(router: &Router, method: &str, params: &Value) -> Result<Value, (i64, St
                 .min(MAX_DEADLINE);
             Ok(json!({ "actions": router.emit(&event, deadline) }))
         }
-        "chauffeur.events" => Ok(router.events()),
         "chauffeur.status" => {
             let loaded = router.loaded();
             let rules: Vec<&str> = loaded

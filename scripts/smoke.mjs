@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Unpack a release tarball, install it the two ways it ships, and run each
 // for real: version, then a daemon that loads the shipped rule and nudges a
-// nonconventional commit through `emit`. No key and no network: a placeholder
+// nonconventional commit through `emit`, which `audit` then shows. No key and no network: a placeholder
 // in the user's models.json stands in for Jev.
 //
 //   node scripts/smoke.mjs dist/chauffeur-<version>-<target>.tar.gz
@@ -53,7 +53,12 @@ async function run(binary, name, root, expected) {
   mkdirSync(join(config, name), { recursive: true })
   writeFileSync(join(config, name, "models.json"), JSON.stringify(STAND_IN))
 
-  const env = { ...process.env, XDG_CONFIG_HOME: config, CHAUFFEUR_SOCKET: socket }
+  const env = {
+    ...process.env,
+    XDG_CONFIG_HOME: config,
+    XDG_STATE_HOME: join(root, "state"),
+    CHAUFFEUR_SOCKET: socket
+  }
   // The installed binary must find its shipped content by itself.
   delete env.CHAUFFEUR_DISTRIBUTION
   delete env.TYPESAFE_API_KEY
@@ -71,6 +76,9 @@ async function run(binary, name, root, expected) {
     const emitted = call(["emit"], JSON.stringify(COMMIT))
     assert.equal(emitted.actions[0]?.rule, "conventional-commits", JSON.stringify(emitted))
     assert.equal(emitted.actions[0]?.action, "message.append", JSON.stringify(emitted))
+    const audit = execFileSync(binary, ["audit"], { env, encoding: "utf8" }).trim().split("\n")
+    assert.equal(audit.length, 1, audit.join("\n"))
+    assert.equal(JSON.parse(audit[0]).returned, "message.append", audit[0])
   } finally {
     daemon.kill("SIGTERM")
     await Promise.race([exited, setTimeout(5000)])
@@ -92,7 +100,7 @@ try {
     const home = join(root, name)
     await run(install(unpacked, join(home, "prefix"), name), name, home, expected)
   }
-  console.log(`${archive}: version, shipped rule and nudge passed as chauffeur and chauffeur-next`)
+  console.log(`${archive}: version, shipped rule, nudge and audit passed as chauffeur and chauffeur-next`)
 } finally {
   rmSync(root, { recursive: true, force: true })
 }

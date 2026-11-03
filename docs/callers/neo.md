@@ -63,7 +63,7 @@ confirmed, so the action stops: neo's default for an unconfirmed screen.
 ## What neo gains
 
 - The bar (0.8) and the wording live in a file the user can tune and replay.
-- `chauffeur events` shows every check: Jev's probabilities, the model that
+- `chauffeur audit` shows every check: Jev's probabilities, the model that
   answered and how long it took.
 - The model is configuration: a second System One model, or GLiDE for what
   Jev leaves unsure, is an edit to the rule, not to neo.

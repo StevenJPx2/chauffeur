@@ -1,4 +1,7 @@
-//! `chauffeur`: runs the daemon, and talks to it over its socket.
+//! `chauffeur`: runs the daemon, talks to it over its socket, and reads its
+//! audit log.
+
+mod audit;
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::net::UnixStream;
@@ -33,8 +36,18 @@ enum Command {
         #[arg(long, default_value_t = 3_000)]
         deadline_ms: u64,
     },
-    /// Print the daemon's recent runs.
-    Events,
+    /// Print the most recent runs from the audit log, oldest first.
+    Audit {
+        /// How many runs.
+        #[arg(default_value_t = 20)]
+        count: usize,
+        /// Keep printing runs as they are written.
+        #[arg(long)]
+        follow: bool,
+        /// One short line per run.
+        #[arg(long)]
+        brief: bool,
+    },
     /// Print the daemon's version, loaded rules and refused rule files.
     Status,
 }
@@ -77,7 +90,14 @@ fn main() -> Result<ExitCode> {
                 &json!({ "event": event, "deadline_ms": deadline_ms }),
             )?)
         }
-        Command::Events => print(&call(&name, "chauffeur.events", &Value::Null)?),
+        Command::Audit {
+            count,
+            follow,
+            brief,
+        } => {
+            audit::print(&Paths::from_env(&name, None).state, count, follow, brief)?;
+            Ok(ExitCode::SUCCESS)
+        }
         Command::Status => print(&call(&name, "chauffeur.status", &Value::Null)?),
     }
 }

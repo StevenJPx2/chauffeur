@@ -25,6 +25,7 @@ chauffeur-protocol = { path = "crates/protocol" }
 chauffeur-runtime = { path = "crates/runtime" }
 chauffeur-daemon = { path = "crates/daemon" }
 clap = { version = "4", features = ["derive"] }
+jiff = { version = "0.2", default-features = false, features = ["std"] }
 color-eyre = { version = "0.6", default-features = false }
 notify = "8"
 serde = { version = "1", features = ["derive"] }

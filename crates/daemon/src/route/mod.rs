@@ -1,35 +1,34 @@
 mod cooldown;
 mod log_entry;
 
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, RwLock};
 use std::thread;
 use std::time::{Duration, Instant};
 
 use chauffeur_protocol::{Event, Rule};
-use chauffeur_runtime::{Log, Ran, run};
+use chauffeur_runtime::{Ran, run};
 use cooldown::Cooldowns;
 use serde_json::{Map, Value, json};
 
+use crate::audit::Audit;
 use crate::state::Loaded;
 
-/// How many runs the log keeps.
-const LOG_BOUND: usize = 256;
-
-/// Routes events to the rules that hook them, and keeps what they did.
+/// Routes events to the rules that hook them, and writes what they did to
+/// the audit log.
 pub struct Router {
     loaded: RwLock<Arc<Loaded>>,
     cooldowns: Cooldowns,
-    log: Mutex<Log<Value>>,
+    audit: Audit,
 }
 
 impl Router {
-    /// A router over `loaded`.
+    /// A router over `loaded`, writing each run to `audit`.
     #[must_use]
-    pub fn new(loaded: Loaded) -> Self {
+    pub fn new(loaded: Loaded, audit: Audit) -> Self {
         Self {
             loaded: RwLock::new(Arc::new(loaded)),
             cooldowns: Cooldowns::new(),
-            log: Mutex::new(Log::new(LOG_BOUND)),
+            audit,
         }
     }
 
@@ -68,10 +67,10 @@ impl Router {
                 .collect()
         });
         let mut returned = Vec::new();
-        let mut log = self.log.lock().ok();
         for (entry, action) in results {
-            if let Some(log) = log.as_mut() {
-                log.push(entry);
+            // A run still returns its action when the log cannot be written.
+            if let Err(error) = self.audit.append(entry) {
+                eprintln!("chauffeur: a run was not written to the audit log: {error}");
             }
             returned.extend(action);
         }
@@ -123,14 +122,5 @@ impl Router {
             json!({ "rule": rule.id(), "action": then.name(), "payload": then.payload() })
         });
         (Value::Object(entry), action)
-    }
-
-    /// The logged runs, oldest first, and how many were dropped.
-    #[must_use]
-    pub fn events(&self) -> Value {
-        self.log.lock().map_or(
-            Value::Null,
-            |log| json!({ "runs": log.iter().collect::<Vec<_>>(), "dropped": log.dropped() }),
-        )
     }
 }

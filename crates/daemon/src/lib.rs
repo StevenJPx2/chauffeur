@@ -1,13 +1,13 @@
 //! The Chauffeur daemon: loads models, redaction and rules, reloads them when
-//! their files change, and answers JSON-RPC 2.0 lines on a Unix socket in a
-//! folder only the user can open.
+//! their files change, answers JSON-RPC 2.0 lines on a Unix socket in a
+//! folder only the user can open, and writes every run to the audit log.
 //!
 //! | Method | Params | Result |
 //! |---|---|---|
 //! | `chauffeur.emit` | `event`, `deadline_ms` | `actions`: what each hooked rule returned |
-//! | `chauffeur.events` | none | The last 256 runs, each step's answer or failure |
 //! | `chauffeur.status` | none | Version, protocol, loaded rules, refused rule files |
 
+pub mod audit;
 mod paths;
 mod route;
 mod rpc;
@@ -75,7 +75,8 @@ pub fn run(paths: &Paths) -> Result<(), DaemonError> {
     // after the socket opens, still reloads.
     let (send, receive) = mpsc::channel();
     let watcher = watch(&[&paths.distribution, &paths.config], &send)?;
-    let router = Arc::new(Router::new(state::load(paths)?));
+    let audit = audit::Audit::new(&paths.state, audit::MAX_BYTES);
+    let router = Arc::new(Router::new(state::load(paths)?, audit));
     let listener = socket::bind(&paths.socket)?;
     let (reloader, reload_paths) = (Arc::clone(&router), paths.clone());
     thread::Builder::new()

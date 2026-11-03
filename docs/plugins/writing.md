@@ -249,4 +249,4 @@ stateDiagram-v2
    so the plugin's questions get fixed answers without a key.
 2. Send it an event: `chauffeur emit < turn-finished.json`.
 3. Read what it asked, what the judge answered and what it did:
-   `chauffeur events`.
+   `chauffeur audit`.
