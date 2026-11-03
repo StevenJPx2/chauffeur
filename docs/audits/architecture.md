@@ -15,17 +15,17 @@ The workspace has 18 Rust packages:
 
 OpenCode is the one implemented host adapter.
 
-| Executed check | Result |
-|---|---|
-| `cargo fmt --all -- --check` | Pass |
-| `cargo clippy --workspace --all-targets --locked -- -D warnings` | Pass |
-| `cargo test --workspace --locked` | 378 passed; 3 ignored |
-| `cargo check -p chauffeur-core --no-default-features --locked` | Pass |
-| OpenCode `npm ci` | Zero reported vulnerabilities; deprecation warnings for transitive `glob` and `node-domexception` |
-| OpenCode `npm run check` | Types and lint pass; 69 tests pass; changed-file Fallow audit covers zero changed files |
-| OpenCode full `fallow` analysis | Zero dead-code, cycle, clone and health-threshold findings across 46 files and 665 functions |
-| `node --test scripts/release.test.mjs` | 5 passed |
-| `cargo run -p chauffeur-bench --locked -- verify` | All 15 fixtures distinguish unsolved and solved work |
+| Executed check                                                   | Result                                                                                            |
+| ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| `cargo fmt --all -- --check`                                     | Pass                                                                                              |
+| `cargo clippy --workspace --all-targets --locked -- -D warnings` | Pass                                                                                              |
+| `cargo test --workspace --locked`                                | 378 passed; 3 ignored                                                                             |
+| `cargo check -p chauffeur-core --no-default-features --locked`   | Pass                                                                                              |
+| OpenCode `npm ci`                                                | Zero reported vulnerabilities; deprecation warnings for transitive `glob` and `node-domexception` |
+| OpenCode `npm run check`                                         | Types and lint pass; 69 tests pass; changed-file Fallow audit covers zero changed files           |
+| OpenCode full `fallow` analysis                                  | Zero dead-code, cycle, clone and health-threshold findings across 46 files and 665 functions      |
+| `node --test scripts/release.test.mjs`                           | 5 passed                                                                                          |
+| `cargo run -p chauffeur-bench --locked -- verify`                | All 15 fixtures distinguish unsolved and solved work                                              |
 
 The ignored tests cover real-daemon startup and live provider calls. No paid
 inference or credential refresh ran. Fallow's coverage is a static estimate.

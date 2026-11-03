@@ -13,8 +13,12 @@ the top-three cut are the rule's.
 
 ```ts
 const { intents } = await connect().navigate(
-  { on: "recall", evidence: { message }, candidates: Object.fromEntries(passages.map((p) => [p.id, p.text])) },
-  { signal: AbortSignal.timeout(1_500) },
+  {
+    on: "recall",
+    evidence: { message },
+    candidates: Object.fromEntries(passages.map((p) => [p.id, p.text]))
+  },
+  { signal: AbortSignal.timeout(1_500) }
 )
 const attach = intents.flatMap((intent) => intent.attach ?? [])
 ```
@@ -23,7 +27,7 @@ An error or a missed deadline attaches nothing, as a failed Jev call does.
 
 ## What it needs
 
-| Piece | Slice |
-|---|---|
-| `navigate` and the TypeScript client | 2 |
-| `for_each` over candidates, and the `select` fact | 4 |
+| Piece                                             | Slice |
+| ------------------------------------------------- | ----- |
+| `navigate` and the TypeScript client              | 2     |
+| `for_each` over candidates, and the `select` fact | 4     |

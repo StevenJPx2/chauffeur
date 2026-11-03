@@ -20,14 +20,14 @@ flowchart LR
     Adapter -- "compact, append, block" --> Harness
 ```
 
-| Part | Job |
-|---|---|
-| Adapter | Translates one harness: its hooks become standard events, and actions go back to it |
-| Daemon | The event bus: loads rules, starts plugins, routes events and actions |
-| Rule files | Behavior as data: on this event, ask this, then do that |
-| Plugins | Behavior as TypeScript, for anything a rule file can't express |
-| Engine | Answers questions: runs strategies over judges, facts and models |
-| Callers | Any other program, asking Chauffeur directly through `navigate` |
+| Part       | Job                                                                                 |
+| ---------- | ----------------------------------------------------------------------------------- |
+| Adapter    | Translates one harness: its hooks become standard events, and actions go back to it |
+| Daemon     | The event bus: loads rules, starts plugins, routes events and actions               |
+| Rule files | Behavior as data: on this event, ask this, then do that                             |
+| Plugins    | Behavior as TypeScript, for anything a rule file can't express                      |
+| Engine     | Answers questions: runs strategies over judges, facts and models                    |
+| Callers    | Any other program, asking Chauffeur directly through `navigate`                     |
 
 ### One event, end to end
 
@@ -89,12 +89,24 @@ import { ask, choice, judge, score } from "@fdcn/chauffeur/judge"
 
 const quick = judge({ tier: "system-one", confidence: 0.7 })
 
-const next = await ask(choice(["act", "ignore", "ask-user"], "What should the agent do with this message?"), { judge: quick, evidence })
-if (next.ok) next.outcome          // "act" | "ignore" | "ask-user" | "unsure"
-else next.failed                   // "timeout" | "unavailable" | …
+const next = await ask(
+  choice(
+    ["act", "ignore", "ask-user"],
+    "What should the agent do with this message?"
+  ),
+  { judge: quick, evidence }
+)
+if (next.ok)
+  next.outcome // "act" | "ignore" | "ask-user" | "unsure"
+else next.failed // "timeout" | "unavailable" | …
 
-const effort = await ask(score(["low", "medium", "high"], "How hard is this request?"), { judge: quick, evidence })
-if (effort.ok && effort.level >= 1) { /* medium or higher */ }
+const effort = await ask(
+  score(["low", "medium", "high"], "How hard is this request?"),
+  { judge: quick, evidence }
+)
+if (effort.ok && effort.level >= 1) {
+  /* medium or higher */
+}
 ```
 
 ### Models
@@ -111,8 +123,16 @@ if (effort.ok && effort.level >= 1) { /* medium or higher */ }
 // ~/.config/chauffeur/models.json
 {
   "models": {
-    "local-qwen": { "format": "openai", "endpoint": "http://127.0.0.1:11434/v1", "model": "qwen3:4b" },
-    "reviewer":   { "format": "anthropic", "model": "claude-sonnet-5-5", "key": { "env": "ANTHROPIC_API_KEY" } }
+    "local-qwen": {
+      "format": "openai",
+      "endpoint": "http://127.0.0.1:11434/v1",
+      "model": "qwen3:4b"
+    },
+    "reviewer": {
+      "format": "anthropic",
+      "model": "claude-sonnet-5-5",
+      "key": { "env": "ANTHROPIC_API_KEY" }
+    }
   },
   "tiers": { "system-one": ["jev", "local-qwen"], "system-two": ["reviewer"] }
 }
@@ -131,8 +151,11 @@ if (effort.ok && effort.level >= 1) { /* medium or higher */ }
 import { query } from "chauffeur:sqlite"
 
 export function bm25({ evidence, args }) {
-  const rows = query("~/notes/index.db",
-    "SELECT id FROM notes WHERE notes MATCH ? ORDER BY bm25(notes) LIMIT ?", [evidence.message, args.top ?? 10])
+  const rows = query(
+    "~/notes/index.db",
+    "SELECT id FROM notes WHERE notes MATCH ? ORDER BY bm25(notes) LIMIT ?",
+    [evidence.message, args.top ?? 10]
+  )
   return { ranked: rows.map((row) => row.id) }
 }
 ```
@@ -174,12 +197,25 @@ Escalate from Jev to GLiDE to a reasoning model, only as far as needed:
   "when": { "tools": ["shell"], "input": { "contains": "git commit" } },
   "judges": { "quick": { "tier": "system-one", "confidence": 0.7 } },
   "strategy": [
-    { "id": "nonconventional", "judge": "quick",
-      "ask": { "outcomes": ["yes", "no"], "evidence": ["tool_call"],
-               "instructions": "Does this call create a git commit whose message does not follow Conventional Commits?" } }
+    {
+      "id": "nonconventional",
+      "judge": "quick",
+      "ask": {
+        "outcomes": ["yes", "no"],
+        "evidence": ["tool_call"],
+        "instructions": "Does this call create a git commit whose message does not follow Conventional Commits?"
+      }
+    }
   ],
-  "then": [{ "if": { "nonconventional": "yes" },
-             "message.append": { "parts": [{ "text": "Use Conventional Commits, such as `feat(scope): …`." }], "delivery": "now" } }]
+  "then": [
+    {
+      "if": { "nonconventional": "yes" },
+      "message.append": {
+        "parts": [{ "text": "Use Conventional Commits, such as `feat(scope): …`." }],
+        "delivery": "now"
+      }
+    }
+  ]
 }
 ```
 
@@ -209,7 +245,7 @@ import { connect } from "@fdcn/chauffeur/client"
 
 const { intents } = await connect().navigate(
   { on: "recall", evidence: { message }, candidates: { p1: "…", p4: "…" } },
-  { signal: AbortSignal.timeout(1_500) },
+  { signal: AbortSignal.timeout(1_500) }
 )
 // [{ rule: "recall", attach: ["p4"] }]
 ```
@@ -226,8 +262,12 @@ const { intents } = await connect().navigate(
 // Codex: hooks/hooks.json in the Chauffeur plugin
 {
   "hooks": {
-    "PreToolUse":       [{ "hooks": [{ "type": "command", "command": "chauffeur hook codex" }] }],
-    "UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": "chauffeur hook codex" }] }]
+    "PreToolUse": [
+      { "hooks": [{ "type": "command", "command": "chauffeur hook codex" }] }
+    ],
+    "UserPromptSubmit": [
+      { "hooks": [{ "type": "command", "command": "chauffeur hook codex" }] }
+    ]
   }
 }
 ```
@@ -253,7 +293,7 @@ export default Plugin.define({
       if (e.idle_seconds >= e.cache_seconds && e.tokens.used >= e.tokens.window / 2)
         session.compact(e.session, { model: ctx.options.summaryModel })
     })
-  },
+  }
 })
 ```
 
@@ -263,11 +303,19 @@ export default Plugin.define({
 - If the judge is slow or fails, `onTimeout: "ask"` asks you.
 
 ```ts
-ctx.before("tool.before", async (e) => {
-  if (e.tool !== "shell") return
-  const harmful = await ask(noul("Could this command cause irreversible harm?"), { judge: guard, evidence: { command: e.input.command } })
-  if (!harmful.ok || harmful.outcome !== "no") e.askUser("Chauffeur isn't sure this is safe.")
-}, { budget: 2_000, onTimeout: "ask" })
+ctx.before(
+  "tool.before",
+  async (e) => {
+    if (e.tool !== "shell") return
+    const harmful = await ask(noul("Could this command cause irreversible harm?"), {
+      judge: guard,
+      evidence: { command: e.input.command }
+    })
+    if (!harmful.ok || harmful.outcome !== "no")
+      e.askUser("Chauffeur isn't sure this is safe.")
+  },
+  { budget: 2_000, onTimeout: "ask" }
+)
 ```
 
 ### Safety
@@ -282,7 +330,9 @@ ctx.before("tool.before", async (e) => {
 ```js
 // .chauffeur/facts/touches-migrations.js: a project fact, with no host modules
 export default ({ evidence }) =>
-  evidence.diff.includes("migrations/") ? { p: { yes: 1, no: 0 } } : { p: { yes: 0, no: 1 } }
+  evidence.diff.includes("migrations/")
+    ? { p: { yes: 1, no: 0 } }
+    : { p: { yes: 0, no: 1 } }
 ```
 
 ## Install

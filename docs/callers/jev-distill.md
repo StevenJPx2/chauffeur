@@ -11,7 +11,11 @@ and asks Jev only what the student leaves unsure:
 // ~/.config/chauffeur/models.json
 {
   "models": {
-    "routing-student": { "format": "student", "endpoint": "http://127.0.0.1:8787", "task": "routing" }
+    "routing-student": {
+      "format": "student",
+      "endpoint": "http://127.0.0.1:8787",
+      "task": "routing"
+    }
   }
 }
 ```
@@ -31,20 +35,20 @@ and asks Jev only what the student leaves unsure:
 
 ## The `student` format
 
-| Chauffeur | Student |
-|---|---|
+| Chauffeur               | Student                                                                               |
+| ----------------------- | ------------------------------------------------------------------------------------- |
 | The question's outcomes | The task's labels; a question whose outcomes differ fails as `invalid` without a call |
-| Evidence blocks | `state` fields, by name; a block the task does not declare is not sent |
-| Probabilities | `probabilities`, one per label |
-| Abstaining | Ignored: the rule's `confidence` decides `unsure` |
-| An `experimental` task | Marked in the run's events, as a placeholder answer is |
+| Evidence blocks         | `state` fields, by name; a block the task does not declare is not sent                |
+| Probabilities           | `probabilities`, one per label                                                        |
+| Abstaining              | Ignored: the rule's `confidence` decides `unsure`                                     |
+| An `experimental` task  | Marked in the run's events, as a placeholder answer is                                |
 
 Which labels a student may be trained on is jev-distill's concern; Chauffeur
 only asks a student that exists.
 
 ## What it needs
 
-| Piece | Slice |
-|---|---|
-| `after`, so Jev answers only what the student leaves unsure | 3 |
-| The `student` format | 3 |
+| Piece                                                       | Slice |
+| ----------------------------------------------------------- | ----- |
+| `after`, so Jev answers only what the student leaves unsure | 3     |
+| The `student` format                                        | 3     |

@@ -2,29 +2,29 @@
 
 The Rust engine. Each crate depends only on the ones below it in this table.
 
-| Crate | Holds |
-|---|---|
-| `cli` | The `chauffeur` binary: `daemon`, `version`, `emit`, `events`, `status` |
-| `daemon` | The private Unix socket, JSON-RPC 2.0 lines, loading and reloading configuration, routing events to rules, cooldowns |
-| `runtime` | Running one rule for one event: redaction, a worker thread with a deadline, a bounded log |
-| `protocol` | Rule files and their checks, the `when` filter, `then` entries, harness events and their evidence |
-| `judges` | Questions, confidence, `models.json`, tiers in fallback order, and the `systemone` and `placeholder` formats |
-| `core` | Plans of named steps, judges by name, events and the verdict. No dependencies |
+| Crate      | Holds                                                                                                                |
+| ---------- | -------------------------------------------------------------------------------------------------------------------- |
+| `cli`      | The `chauffeur` binary: `daemon`, `version`, `emit`, `events`, `status`                                              |
+| `daemon`   | The private Unix socket, JSON-RPC 2.0 lines, loading and reloading configuration, routing events to rules, cooldowns |
+| `runtime`  | Running one rule for one event: redaction, a worker thread with a deadline, a bounded log                            |
+| `protocol` | Rule files and their checks, the `when` filter, `then` entries, harness events and their evidence                    |
+| `judges`   | Questions, confidence, `models.json`, tiers in fallback order, and the `systemone` and `placeholder` formats         |
+| `core`     | Plans of named steps, judges by name, events and the verdict. No dependencies                                        |
 
 A module with several parts is a folder named after it, one file per
 concept, with a `README.md`:
 
-| Folder | Holds |
-|---|---|
-| [`core/src/plan/`](core/src/plan/) | Plans, steps, outcomes and failures |
-| [`judges/src/question/`](judges/src/question/) | Questions and their outcomes |
-| [`judges/src/confidence/`](judges/src/confidence/) | Probabilities and how an answer settles |
-| [`judges/src/config/`](judges/src/config/) | `models.json` |
-| [`judges/src/placeholder/`](judges/src/placeholder/) | Recorded and fixed answers |
-| [`judges/src/tiers/`](judges/src/tiers/) | `system_one/`, `system_two/`, `facts/`, `person/`, and fallback across a tier's models |
-| [`protocol/src/rule/`](protocol/src/rule/) | Loading and checking a rule file |
-| [`runtime/src/redact/`](runtime/src/redact/) | Redacting evidence |
-| [`daemon/src/route/`](daemon/src/route/) | Routing events to rules, cooldowns, the log |
+| Folder                                               | Holds                                                                                  |
+| ---------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| [`core/src/plan/`](core/src/plan/)                   | Plans, steps, outcomes and failures                                                    |
+| [`judges/src/question/`](judges/src/question/)       | Questions and their outcomes                                                           |
+| [`judges/src/confidence/`](judges/src/confidence/)   | Probabilities and how an answer settles                                                |
+| [`judges/src/config/`](judges/src/config/)           | `models.json`                                                                          |
+| [`judges/src/placeholder/`](judges/src/placeholder/) | Recorded and fixed answers                                                             |
+| [`judges/src/tiers/`](judges/src/tiers/)             | `system_one/`, `system_two/`, `facts/`, `person/`, and fallback across a tier's models |
+| [`protocol/src/rule/`](protocol/src/rule/)           | Loading and checking a rule file                                                       |
+| [`runtime/src/redact/`](runtime/src/redact/)         | Redacting evidence                                                                     |
+| [`daemon/src/route/`](daemon/src/route/)             | Routing events to rules, cooldowns, the log                                            |
 
 ## One event
 

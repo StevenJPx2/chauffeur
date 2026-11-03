@@ -3,12 +3,12 @@
 The only thing a judge is given: instructions, the outcomes to choose from,
 and the names of the evidence blocks it may see.
 
-| File | Holds |
-|---|---|
-| `mod.rs` | `Question::new` and `Question::noul` (yes/no, Jev's name for it) |
+| File          | Holds                                                                                                     |
+| ------------- | --------------------------------------------------------------------------------------------------------- |
+| `mod.rs`      | `Question::new` and `Question::noul` (yes/no, Jev's name for it)                                          |
 | `outcomes.rs` | `Outcomes`: 2 to 64 labels, unique, none blank, none `unsure` or `failed`. Their order is a scale's order |
-| `label.rs` | `Label`: an outcome's value and an optional description the model sees |
-| `error.rs` | `QuestionError`: why a question or its outcomes were refused |
+| `label.rs`    | `Label`: an outcome's value and an optional description the model sees                                    |
+| `error.rs`    | `QuestionError`: why a question or its outcomes were refused                                              |
 
 ```rust
 use chauffeur_judges::{Label, Outcomes, Question};

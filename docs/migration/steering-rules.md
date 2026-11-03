@@ -4,17 +4,17 @@ Each v1 `tool_result` rule is a v2 rule on `tool.after`. The format
 mapping is in [Rule files: v1 to v2](rule-format.md); instructions and texts
 carry over word for word and are abbreviated here as `…`.
 
-| Rule | Steers away from | Slice |
-|---|---|---|
-| [`conventional-commits`](rule-format.md#worked-example-conventional-commits) | A commit message outside Conventional Commits | 1, with `input.excludes` in 5 |
-| [`cat-to-read`](#cat-to-read) | Printing project files through the shell | 5 |
-| [`grep-recursive`](#grep-recursive) | `grep -r` instead of `rg` | 5 |
-| [`hand-rolled-patch`](#hand-rolled-patch) | Changing project files by script | 5 |
-| [`docs-before-source`](#docs-before-source) | Reading a dependency's source before its docs | 5 |
-| [`prefer-cf-over-wrangler`](#prefer-cf-over-wrangler) | Wrangler where cf or the Cloudflare MCP does it | 5 |
-| [`cheaper-subagent`](#cheaper-subagent) | Routine subagents on the top model | 5 |
-| [`github-via-browser`](#github-via-browser) | A browser for GitHub | 5 |
-| [`jira-via-browser`, `slack-via-browser`, `twitter-via-browser`](#jira-slack-and-x-through-a-browser) | A browser for Jira, Slack or X, handing over the CLI's skill | 6 |
+| Rule                                                                                                  | Steers away from                                             | Slice                         |
+| ----------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ | ----------------------------- |
+| [`conventional-commits`](rule-format.md#worked-example-conventional-commits)                          | A commit message outside Conventional Commits                | 1, with `input.excludes` in 5 |
+| [`cat-to-read`](#cat-to-read)                                                                         | Printing project files through the shell                     | 5                             |
+| [`grep-recursive`](#grep-recursive)                                                                   | `grep -r` instead of `rg`                                    | 5                             |
+| [`hand-rolled-patch`](#hand-rolled-patch)                                                             | Changing project files by script                             | 5                             |
+| [`docs-before-source`](#docs-before-source)                                                           | Reading a dependency's source before its docs                | 5                             |
+| [`prefer-cf-over-wrangler`](#prefer-cf-over-wrangler)                                                 | Wrangler where cf or the Cloudflare MCP does it              | 5                             |
+| [`cheaper-subagent`](#cheaper-subagent)                                                               | Routine subagents on the top model                           | 5                             |
+| [`github-via-browser`](#github-via-browser)                                                           | A browser for GitHub                                         | 5                             |
+| [`jira-via-browser`, `slack-via-browser`, `twitter-via-browser`](#jira-slack-and-x-through-a-browser) | A browser for Jira, Slack or X, handing over the CLI's skill | 6                             |
 
 ## `cat-to-read`
 
@@ -26,9 +26,7 @@ v1:
 {
   "on": "tool_result",
   "when": {
-    "tools": [
-      "shell"
-    ]
+    "tools": ["shell"]
   },
   "steps": [
     {
@@ -52,9 +50,7 @@ v2, `distribution/rules/cat-to-read.json`:
 {
   "on": "tool.after",
   "when": {
-    "tools": [
-      "shell"
-    ]
+    "tools": ["shell"]
   },
   "judges": {
     "quick": {
@@ -67,14 +63,8 @@ v2, `distribution/rules/cat-to-read.json`:
       "id": "misuse",
       "judge": "quick",
       "ask": {
-        "outcomes": [
-          "yes",
-          "no"
-        ],
-        "evidence": [
-          "tool_call",
-          "request"
-        ],
+        "outcomes": ["yes", "no"],
+        "evidence": ["tool_call", "request"],
         "instructions": "Did this call show the agent the text of a local project file, …? A call the user explicitly asked for, exactly as asked, does not count."
       }
     }
@@ -97,6 +87,7 @@ v2, `distribution/rules/cat-to-read.json`:
   "cooldown_seconds": 120
 }
 ```
+
 ## `grep-recursive`
 
 v1:
@@ -105,9 +96,7 @@ v1:
 {
   "on": "tool_result",
   "when": {
-    "tools": [
-      "shell"
-    ]
+    "tools": ["shell"]
   },
   "steps": [
     {
@@ -131,9 +120,7 @@ v2, `distribution/rules/grep-recursive.json`:
 {
   "on": "tool.after",
   "when": {
-    "tools": [
-      "shell"
-    ]
+    "tools": ["shell"]
   },
   "judges": {
     "quick": {
@@ -146,14 +133,8 @@ v2, `distribution/rules/grep-recursive.json`:
       "id": "misuse",
       "judge": "quick",
       "ask": {
-        "outcomes": [
-          "yes",
-          "no"
-        ],
-        "evidence": [
-          "tool_call",
-          "request"
-        ],
+        "outcomes": ["yes", "no"],
+        "evidence": ["tool_call", "request"],
         "instructions": "Does this call search file contents with grep -r or grep -R instead of rg? A call the user explicitly asked for, exactly as asked, does not count."
       }
     }
@@ -176,6 +157,7 @@ v2, `distribution/rules/grep-recursive.json`:
   "cooldown_seconds": 120
 }
 ```
+
 ## `hand-rolled-patch`
 
 v1:
@@ -184,9 +166,7 @@ v1:
 {
   "on": "tool_result",
   "when": {
-    "tools": [
-      "shell"
-    ]
+    "tools": ["shell"]
   },
   "steps": [
     {
@@ -210,9 +190,7 @@ v2, `distribution/rules/hand-rolled-patch.json`:
 {
   "on": "tool.after",
   "when": {
-    "tools": [
-      "shell"
-    ]
+    "tools": ["shell"]
   },
   "judges": {
     "quick": {
@@ -225,14 +203,8 @@ v2, `distribution/rules/hand-rolled-patch.json`:
       "id": "misuse",
       "judge": "quick",
       "ask": {
-        "outcomes": [
-          "yes",
-          "no"
-        ],
-        "evidence": [
-          "tool_call",
-          "request"
-        ],
+        "outcomes": ["yes", "no"],
+        "evidence": ["tool_call", "request"],
         "instructions": "Did this call write or change a project file … by script, …? A call the user explicitly asked for, exactly as asked, does not count."
       }
     }
@@ -255,6 +227,7 @@ v2, `distribution/rules/hand-rolled-patch.json`:
   "cooldown_seconds": 120
 }
 ```
+
 ## `docs-before-source`
 
 The second question runs only after the first says yes, so most calls cost one judgment. It reads `activity`, not the call.
@@ -265,12 +238,7 @@ v1:
 {
   "on": "tool_result",
   "when": {
-    "tools": [
-      "read",
-      "grep",
-      "glob",
-      "shell"
-    ]
+    "tools": ["read", "grep", "glob", "shell"]
   },
   "steps": [
     {
@@ -298,12 +266,7 @@ v2, `distribution/rules/docs-before-source.json`:
 {
   "on": "tool.after",
   "when": {
-    "tools": [
-      "read",
-      "grep",
-      "glob",
-      "shell"
-    ]
+    "tools": ["read", "grep", "glob", "shell"]
   },
   "judges": {
     "quick": {
@@ -316,14 +279,8 @@ v2, `distribution/rules/docs-before-source.json`:
       "id": "dependency-source",
       "judge": "quick",
       "ask": {
-        "outcomes": [
-          "yes",
-          "no"
-        ],
-        "evidence": [
-          "tool_call",
-          "request"
-        ],
+        "outcomes": ["yes", "no"],
+        "evidence": ["tool_call", "request"],
         "instructions": "Does this call read or search a third-party dependency's installed source …?"
       }
     },
@@ -333,19 +290,12 @@ v2, `distribution/rules/docs-before-source.json`:
       "after": [
         {
           "step": "dependency-source",
-          "when": [
-            "yes"
-          ]
+          "when": ["yes"]
         }
       ],
       "ask": {
-        "outcomes": [
-          "yes",
-          "no"
-        ],
-        "evidence": [
-          "activity"
-        ],
+        "outcomes": ["yes", "no"],
+        "evidence": ["activity"],
         "instructions": "Judging by the recent activity, has the agent not yet looked up this library's documentation in this session …?"
       }
     }
@@ -368,6 +318,7 @@ v2, `distribution/rules/docs-before-source.json`:
   "once": "request"
 }
 ```
+
 ## `prefer-cf-over-wrangler`
 
 v1:
@@ -376,10 +327,7 @@ v1:
 {
   "on": "tool_result",
   "when": {
-    "tools": [
-      "shell",
-      "execute"
-    ],
+    "tools": ["shell", "execute"],
     "input_excludes": [
       "cf ",
       " cf",
@@ -410,10 +358,7 @@ v2, `distribution/rules/prefer-cf-over-wrangler.json`:
 {
   "on": "tool.after",
   "when": {
-    "tools": [
-      "shell",
-      "execute"
-    ],
+    "tools": ["shell", "execute"],
     "input": {
       "excludes": [
         "cf ",
@@ -436,14 +381,8 @@ v2, `distribution/rules/prefer-cf-over-wrangler.json`:
       "id": "misuse",
       "judge": "quick",
       "ask": {
-        "outcomes": [
-          "yes",
-          "no"
-        ],
-        "evidence": [
-          "tool_call",
-          "request"
-        ],
+        "outcomes": ["yes", "no"],
+        "evidence": ["tool_call", "request"],
         "instructions": "Does this call use the Wrangler CLI … where the cf CLI or a Cloudflare MCP tool can do it directly? … A call the user explicitly asked for, exactly as asked, does not count."
       }
     }
@@ -466,6 +405,7 @@ v2, `distribution/rules/prefer-cf-over-wrangler.json`:
   "cooldown_seconds": 120
 }
 ```
+
 ## `cheaper-subagent`
 
 v1:
@@ -474,12 +414,8 @@ v1:
 {
   "on": "tool_result",
   "when": {
-    "tools": [
-      "subagent"
-    ],
-    "input_excludes": [
-      "\"model\""
-    ],
+    "tools": ["subagent"],
+    "input_excludes": ["\"model\""],
     "session_kind": "top_level"
   },
   "steps": [
@@ -504,13 +440,9 @@ v2, `distribution/rules/cheaper-subagent.json`:
 {
   "on": "tool.after",
   "when": {
-    "tools": [
-      "subagent"
-    ],
+    "tools": ["subagent"],
     "input": {
-      "excludes": [
-        "\"model\""
-      ]
+      "excludes": ["\"model\""]
     },
     "agent": "top-level"
   },
@@ -525,14 +457,8 @@ v2, `distribution/rules/cheaper-subagent.json`:
       "id": "routine",
       "judge": "quick",
       "ask": {
-        "outcomes": [
-          "yes",
-          "no"
-        ],
-        "evidence": [
-          "tool_call",
-          "request"
-        ],
+        "outcomes": ["yes", "no"],
+        "evidence": ["tool_call", "request"],
         "instructions": "Is this subagent's task routine work that a smaller model handles well, …? A call the user explicitly asked for, exactly as asked, does not count."
       }
     }
@@ -555,6 +481,7 @@ v2, `distribution/rules/cheaper-subagent.json`:
   "cooldown_seconds": 900
 }
 ```
+
 ## `github-via-browser`
 
 v1:
@@ -563,17 +490,8 @@ v1:
 {
   "on": "tool_result",
   "when": {
-    "tools": [
-      "shell",
-      "webfetch",
-      "execute"
-    ],
-    "input_excludes": [
-      "gh ",
-      "git ",
-      "\"gh\"",
-      "\"git\""
-    ]
+    "tools": ["shell", "webfetch", "execute"],
+    "input_excludes": ["gh ", "git ", "\"gh\"", "\"git\""]
   },
   "steps": [
     {
@@ -596,18 +514,9 @@ v2, `distribution/rules/github-via-browser.json`:
 {
   "on": "tool.after",
   "when": {
-    "tools": [
-      "shell",
-      "webfetch",
-      "execute"
-    ],
+    "tools": ["shell", "webfetch", "execute"],
     "input": {
-      "excludes": [
-        "gh ",
-        "git ",
-        "\"gh\"",
-        "\"git\""
-      ]
+      "excludes": ["gh ", "git ", "\"gh\"", "\"git\""]
     }
   },
   "judges": {
@@ -621,14 +530,8 @@ v2, `distribution/rules/github-via-browser.json`:
       "id": "misuse",
       "judge": "quick",
       "ask": {
-        "outcomes": [
-          "yes",
-          "no"
-        ],
-        "evidence": [
-          "tool_call",
-          "request"
-        ],
+        "outcomes": ["yes", "no"],
+        "evidence": ["tool_call", "request"],
         "instructions": "Does this call use a browser, browser-harness, or raw web requests … where the gh command line can do it directly? … A call the user explicitly asked for, exactly as asked, does not count."
       }
     }
@@ -651,16 +554,17 @@ v2, `distribution/rules/github-via-browser.json`:
   "cooldown_seconds": 120
 }
 ```
+
 ## Jira, Slack and X through a browser
 
 `jira-via-browser`, `slack-via-browser` and `twitter-via-browser` differ only
 in the service, the command line they exclude, and the skill they hand over:
 
-| Rule | `input.excludes` | Skill |
-|---|---|---|
-| `jira-via-browser` | `"jira "` | `jira-cli` |
-| `slack-via-browser` | `"slackcli"` | `slack-cli` |
-| `twitter-via-browser` | `"twitter-cli"` | `twitter-cli` |
+| Rule                  | `input.excludes` | Skill         |
+| --------------------- | ---------------- | ------------- |
+| `jira-via-browser`    | `"jira "`        | `jira-cli`    |
+| `slack-via-browser`   | `"slackcli"`     | `slack-cli`   |
+| `twitter-via-browser` | `"twitter-cli"`  | `twitter-cli` |
 
 v1, `slack-via-browser`:
 
@@ -668,14 +572,8 @@ v1, `slack-via-browser`:
 {
   "on": "tool_result",
   "when": {
-    "tools": [
-      "shell",
-      "webfetch",
-      "execute"
-    ],
-    "input_excludes": [
-      "slackcli"
-    ]
+    "tools": ["shell", "webfetch", "execute"],
+    "input_excludes": ["slackcli"]
   },
   "steps": [
     {
@@ -699,15 +597,9 @@ v2, `distribution/rules/slack-via-browser.json`:
 {
   "on": "tool.after",
   "when": {
-    "tools": [
-      "shell",
-      "webfetch",
-      "execute"
-    ],
+    "tools": ["shell", "webfetch", "execute"],
     "input": {
-      "excludes": [
-        "slackcli"
-      ]
+      "excludes": ["slackcli"]
     }
   },
   "judges": {
@@ -721,14 +613,8 @@ v2, `distribution/rules/slack-via-browser.json`:
       "id": "misuse",
       "judge": "quick",
       "ask": {
-        "outcomes": [
-          "yes",
-          "no"
-        ],
-        "evidence": [
-          "tool_call",
-          "request"
-        ],
+        "outcomes": ["yes", "no"],
+        "evidence": ["tool_call", "request"],
         "instructions": "Does this call use a browser, browser-harness, or raw web requests to read or send Slack messages, …? A call the user explicitly asked for, exactly as asked, does not count."
       }
     }

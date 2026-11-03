@@ -15,7 +15,7 @@ sourcefed's daemon asks before it queues an event for a target:
 ```ts
 const { intents } = await connect().navigate(
   { on: "integration_event", evidence: { event, thread, monitor } },
-  { signal: AbortSignal.timeout(3_000) },
+  { signal: AbortSignal.timeout(3_000) }
 )
 if (!intents.some((intent) => intent.withhold === "event")) queue(target, event)
 ```
@@ -28,6 +28,6 @@ session's own work; see [sourcefed events and monitors](../migration/sourcefed.m
 
 ## What it needs
 
-| Piece | Slice |
-|---|---|
-| `navigate`, intents and the TypeScript client | 2 |
+| Piece                                         | Slice |
+| --------------------------------------------- | ----- |
+| `navigate`, intents and the TypeScript client | 2     |

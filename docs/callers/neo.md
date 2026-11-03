@@ -16,11 +16,23 @@ safety boundary, and Chauffeur never replaces them.
 // ~/.config/chauffeur/rules/neo/screen-check.json, installed by neo
 {
   "on": "neo/screen-check",
-  "judges": { "screen": { "tier": "system-one", "model": "jev", "confidence": { "yes": 0.8, "no": 0.5 } } },
+  "judges": {
+    "screen": {
+      "tier": "system-one",
+      "model": "jev",
+      "confidence": { "yes": 0.8, "no": 0.5 }
+    }
+  },
   "strategy": [
-    { "id": "shows", "judge": "screen",
-      "ask": { "outcomes": ["yes", "no"], "evidence": ["screenshot", "ocr_text", "question"],
-               "instructions": "Looking at the iPhone screen in screenshot (its OCR text is in ocr_text), answer the question in question." } }
+    {
+      "id": "shows",
+      "judge": "screen",
+      "ask": {
+        "outcomes": ["yes", "no"],
+        "evidence": ["screenshot", "ocr_text", "question"],
+        "instructions": "Looking at the iPhone screen in screenshot (its OCR text is in ocr_text), answer the question in question."
+      }
+    }
   ],
   "then": [{ "if": { "shows": "yes" }, "confirm": "screen" }]
 }
@@ -37,10 +49,10 @@ const { intents } = await connect().navigate(
     evidence: {
       screenshot: { image: await phone.screenshot(), media_type: "image/png" },
       ocr_text: screenText,
-      question: check.question,
-    },
+      question: check.question
+    }
   },
-  { signal: AbortSignal.timeout(30_000) },
+  { signal: AbortSignal.timeout(30_000) }
 )
 const confirmed = intents.some((intent) => intent.confirm === "screen")
 ```
@@ -58,7 +70,7 @@ confirmed, so the action stops: neo's default for an unconfirmed screen.
 
 ## What it needs
 
-| Piece | Slice |
-|---|---|
-| `navigate` and the TypeScript client | 2 |
-| `image` evidence: bytes and a media type, sent only to a format that accepts images (Jev, with its opt-in), only when a step names the block, never redacted, at most 4 MiB | 3 |
+| Piece                                                                                                                                                                       | Slice |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----- |
+| `navigate` and the TypeScript client                                                                                                                                        | 2     |
+| `image` evidence: bytes and a media type, sent only to a format that accepts images (Jev, with its opt-in), only when a step names the block, never redacted, at most 4 MiB | 3     |

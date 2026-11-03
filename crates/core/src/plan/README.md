@@ -5,12 +5,12 @@ one judge. Running a plan asks every judge once and returns the events and
 the verdict. Core knows nothing of models: a judge is anything that turns a
 request into an `Outcome`.
 
-| File | Holds |
-|---|---|
-| `mod.rs` | `Plan`: checks steps when it is built, then `run` asks each judge its share in one `judge_all` call |
-| `step.rs` | `Step`: an ID, the judge's name, and the request |
-| `outcome.rs` | `Outcome`, a value or a `Failure`, and the five failures with their wire names |
-| `error.rs` | `PlanError`: an empty plan, a repeated step ID, or a judge the panel lacks |
+| File         | Holds                                                                                               |
+| ------------ | --------------------------------------------------------------------------------------------------- |
+| `mod.rs`     | `Plan`: checks steps when it is built, then `run` asks each judge its share in one `judge_all` call |
+| `step.rs`    | `Step`: an ID, the judge's name, and the request                                                    |
+| `outcome.rs` | `Outcome`, a value or a `Failure`, and the five failures with their wire names                      |
+| `error.rs`   | `PlanError`: an empty plan, a repeated step ID, or a judge the panel lacks                          |
 
 ```mermaid
 flowchart LR

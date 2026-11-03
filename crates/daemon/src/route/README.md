@@ -3,11 +3,11 @@
 Sends an event to every rule that hooks it, runs them at once, and keeps a
 bounded log of what each did.
 
-| File | Holds |
-|---|---|
-| `mod.rs` | `Router`: the loaded configuration, `emit`, `events` and `replace` on reload |
-| `cooldown.rs` | `Cooldowns`: when each rule last returned something in each session, bounded to 4,096 pairs |
-| `log_entry.rs` | Each step's answer or failure as JSON, for `chauffeur.events` |
+| File           | Holds                                                                                       |
+| -------------- | ------------------------------------------------------------------------------------------- |
+| `mod.rs`       | `Router`: the loaded configuration, `emit`, `events` and `replace` on reload                |
+| `cooldown.rs`  | `Cooldowns`: when each rule last returned something in each session, bounded to 4,096 pairs |
+| `log_entry.rs` | Each step's answer or failure as JSON, for `chauffeur.events`                               |
 
 ```mermaid
 sequenceDiagram

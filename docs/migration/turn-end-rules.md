@@ -6,12 +6,12 @@ delivery needs `"wake": true` in `~/.config/chauffeur/settings.json`, as v1's
 needed `CHAUFFEUR_IDLE_STEERING=true`. The format mapping is in
 [Rule files: v1 to v2](rule-format.md).
 
-| Rule | Resumes the agent when | Slice |
-|---|---|---|
-| [`ask-with-question-tool`](#ask-with-question-tool) | Its closing message asks the user something in prose | 5 |
-| [`clean-up-opencode-test-sessions`](#clean-up-opencode-test-sessions) | An OpenCode test left sessions in the real database | 5 |
-| [`git-conflict-loop`](#git-conflict-loop) | It is stuck in a merge or rebase conflict | 5 |
-| [`jira-transition-after-merge`](#jira-transition-after-merge) | Its PR merged and the Jira issue was not moved | 5 |
+| Rule                                                                  | Resumes the agent when                               | Slice |
+| --------------------------------------------------------------------- | ---------------------------------------------------- | ----- |
+| [`ask-with-question-tool`](#ask-with-question-tool)                   | Its closing message asks the user something in prose | 5     |
+| [`clean-up-opencode-test-sessions`](#clean-up-opencode-test-sessions) | An OpenCode test left sessions in the real database  | 5     |
+| [`git-conflict-loop`](#git-conflict-loop)                             | It is stuck in a merge or rebase conflict            | 5     |
+| [`jira-transition-after-merge`](#jira-transition-after-merge)         | Its PR merged and the Jira issue was not moved       | 5     |
 
 ## `ask-with-question-tool`
 
@@ -47,9 +47,7 @@ v2, `distribution/rules/ask-with-question-tool.json`:
 {
   "on": "response.finished",
   "when": {
-    "reason": [
-      "done"
-    ],
+    "reason": ["done"],
     "agent": "top-level"
   },
   "judges": {
@@ -63,14 +61,8 @@ v2, `distribution/rules/ask-with-question-tool.json`:
       "id": "asked-in-prose",
       "judge": "quick",
       "ask": {
-        "outcomes": [
-          "yes",
-          "no"
-        ],
-        "evidence": [
-          "summary",
-          "request"
-        ],
+        "outcomes": ["yes", "no"],
+        "evidence": ["summary", "request"],
         "instructions": "Does the agent's closing message leave something for the user to decide or supply, …?"
       }
     }
@@ -93,6 +85,7 @@ v2, `distribution/rules/ask-with-question-tool.json`:
   "cooldown_seconds": 900
 }
 ```
+
 ## `clean-up-opencode-test-sessions`
 
 Two questions: the second runs only when the first finds a test.
@@ -131,9 +124,7 @@ v2, `distribution/rules/clean-up-opencode-test-sessions.json`:
 {
   "on": "response.finished",
   "when": {
-    "reason": [
-      "done"
-    ],
+    "reason": ["done"],
     "agent": "top-level"
   },
   "judges": {
@@ -147,13 +138,8 @@ v2, `distribution/rules/clean-up-opencode-test-sessions.json`:
       "id": "opencode-test",
       "judge": "quick",
       "ask": {
-        "outcomes": [
-          "yes",
-          "no"
-        ],
-        "evidence": [
-          "activity"
-        ],
+        "outcomes": ["yes", "no"],
+        "evidence": ["activity"],
         "instructions": "Did the agent run OpenCode itself as a test this turn, …?"
       }
     },
@@ -163,19 +149,12 @@ v2, `distribution/rules/clean-up-opencode-test-sessions.json`:
       "after": [
         {
           "step": "opencode-test",
-          "when": [
-            "yes"
-          ]
+          "when": ["yes"]
         }
       ],
       "ask": {
-        "outcomes": [
-          "yes",
-          "no"
-        ],
-        "evidence": [
-          "activity"
-        ],
+        "outcomes": ["yes", "no"],
+        "evidence": ["activity"],
         "instructions": "Judging by the recent activity, has the agent not yet deleted the sessions that test created …?"
       }
     }
@@ -198,6 +177,7 @@ v2, `distribution/rules/clean-up-opencode-test-sessions.json`:
   "cooldown_seconds": 600
 }
 ```
+
 ## `git-conflict-loop`
 
 Reads the whole session's activity, and fires once per session.
@@ -209,9 +189,7 @@ v1:
   "on": "turn_end",
   "when": {
     "history": "session",
-    "status": [
-      "implementing"
-    ]
+    "status": ["implementing"]
   },
   "steps": [
     {
@@ -236,14 +214,10 @@ v2, `distribution/rules/git-conflict-loop.json`:
 {
   "on": "response.finished",
   "when": {
-    "reason": [
-      "done"
-    ],
+    "reason": ["done"],
     "history": {
       "reach": "session",
-      "status": [
-        "implementing"
-      ]
+      "status": ["implementing"]
     }
   },
   "judges": {
@@ -257,13 +231,8 @@ v2, `distribution/rules/git-conflict-loop.json`:
       "id": "stuck",
       "judge": "sure",
       "ask": {
-        "outcomes": [
-          "yes",
-          "no"
-        ],
-        "evidence": [
-          "activity"
-        ],
+        "outcomes": ["yes", "no"],
+        "evidence": ["activity"],
         "instructions": "The agent is stuck repeating git conflict-resolution commands without making progress."
       }
     }
@@ -288,6 +257,7 @@ v2, `distribution/rules/git-conflict-loop.json`:
   "cooldown_seconds": 30
 }
 ```
+
 ## `jira-transition-after-merge`
 
 The filter does the work: a Jira session, a merged PR, and no transition yet. Jev only confirms the merge from the activity.
@@ -299,15 +269,9 @@ v1:
   "on": "turn_end",
   "when": {
     "history": "session",
-    "source": [
-      "jira"
-    ],
-    "hooks": [
-      "github:merged"
-    ],
-    "tools_not_called": [
-      "jira_transition_issue"
-    ]
+    "source": ["jira"],
+    "hooks": ["github:merged"],
+    "tools_not_called": ["jira_transition_issue"]
   },
   "steps": [
     {
@@ -332,20 +296,12 @@ v2, `distribution/rules/jira-transition-after-merge.json`:
 {
   "on": "response.finished",
   "when": {
-    "reason": [
-      "done"
-    ],
+    "reason": ["done"],
     "history": {
       "reach": "session",
-      "sources": [
-        "jira"
-      ],
-      "events": [
-        "github:merged"
-      ],
-      "not_called": [
-        "jira_transition_issue"
-      ]
+      "sources": ["jira"],
+      "events": ["github:merged"],
+      "not_called": ["jira_transition_issue"]
     }
   },
   "judges": {
@@ -359,13 +315,8 @@ v2, `distribution/rules/jira-transition-after-merge.json`:
       "id": "merged",
       "judge": "quick",
       "ask": {
-        "outcomes": [
-          "yes",
-          "no"
-        ],
-        "evidence": [
-          "activity"
-        ],
+        "outcomes": ["yes", "no"],
+        "evidence": ["activity"],
         "instructions": "The pull request has been merged."
       }
     }
@@ -390,6 +341,7 @@ v2, `distribution/rules/jira-transition-after-merge.json`:
   "cooldown_seconds": 30
 }
 ```
+
 ## Where `history` comes from
 
 `when.history` reads facts the adapter sends with every event: the tools

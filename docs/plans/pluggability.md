@@ -31,22 +31,22 @@ and installable, and builds only the pieces that feature needs. The next
 slice's feature brings the next pieces. See
 [Sequence and verification](#sequence-and-verification).
 
-| # | Feature | New pieces |
-|---|---|---|
-| 0 | Setup | Toolchain, lints, the playground shell |
-| 1 | Conventional Commits nudge in OpenCode | Core, rule files, the Jev format, the daemon as a decider, rc release |
-| 2 | sourcefed triage | `navigate` for programs, intents, the TypeScript client |
-| 3 | Escalation from Jev to GLiDE | Multi-step strategies with `after`, SubQ and GLiDE, `choice` and `score`, `strategy show` |
-| 4 | opencode-history recall | Facts, `for_each`, `select` |
-| 5 | Harm guard, permissions and v1's rules | Plugins, `ctx.before`, asking the user, the rule-file fields v1's rules need |
-| 6 | Skills and tools | The skills, tools and `ask-chauffeur` plugins, prompt edits |
-| 7 | Context renewal, warming and model failover | Session actions |
-| 8 | Pi | Every feature so far, through the harness package's Pi adapter |
-| 9 | Claude Code | The same, through its Claude Code adapter |
-| 10 | Codex | The same, through its Codex hook command |
-| 11 | Review by a reasoning model | The System Two formats |
-| 12 | Rulebooks | Held until discussed |
-| 13 | Cutover | v2 replaces v1 |
+| #   | Feature                                     | New pieces                                                                                |
+| --- | ------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| 0   | Setup                                       | Toolchain, lints, the playground shell                                                    |
+| 1   | Conventional Commits nudge in OpenCode      | Core, rule files, the Jev format, the daemon as a decider, rc release                     |
+| 2   | sourcefed triage                            | `navigate` for programs, intents, the TypeScript client                                   |
+| 3   | Escalation from Jev to GLiDE                | Multi-step strategies with `after`, SubQ and GLiDE, `choice` and `score`, `strategy show` |
+| 4   | opencode-history recall                     | Facts, `for_each`, `select`                                                               |
+| 5   | Harm guard, permissions and v1's rules      | Plugins, `ctx.before`, asking the user, the rule-file fields v1's rules need              |
+| 6   | Skills and tools                            | The skills, tools and `ask-chauffeur` plugins, prompt edits                               |
+| 7   | Context renewal, warming and model failover | Session actions                                                                           |
+| 8   | Pi                                          | Every feature so far, through the harness package's Pi adapter                            |
+| 9   | Claude Code                                 | The same, through its Claude Code adapter                                                 |
+| 10  | Codex                                       | The same, through its Codex hook command                                                  |
+| 11  | Review by a reasoning model                 | The System Two formats                                                                    |
+| 12  | Rulebooks                                   | Held until discussed                                                                      |
+| 13  | Cutover                                     | v2 replaces v1                                                                            |
 
 The work proceeds one slice at a time, with review before advancing.
 
@@ -79,14 +79,14 @@ flowchart LR
     RC --> Cut["Cutover<br/>v2 merged into main"]
 ```
 
-| Concern | Decision |
-|---|---|
-| Porting | Each `main` feature is re-expressed in v2's architecture, not merged: v2's tree replaces v1's, so merges would conflict on every removed file |
-| Tracking | The parity table lists every `main` commit after the branch point; the watermark names the last one reviewed |
-| Evidence | A ported feature passes `main`'s cases for it, replayed against v2 |
-| Version mixing | The version handshake between the daemon, its SDK, plugins and the harness package keeps v1 and v2 from running together |
-| User state | `~/.config/chauffeur` is migrated, or read compatibly, at cutover |
-| After cutover | `v1` is a branch for hotfixes only |
+| Concern        | Decision                                                                                                                                      |
+| -------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| Porting        | Each `main` feature is re-expressed in v2's architecture, not merged: v2's tree replaces v1's, so merges would conflict on every removed file |
+| Tracking       | The parity table lists every `main` commit after the branch point; the watermark names the last one reviewed                                  |
+| Evidence       | A ported feature passes `main`'s cases for it, replayed against v2                                                                            |
+| Version mixing | The version handshake between the daemon, its SDK, plugins and the harness package keeps v1 and v2 from running together                      |
+| User state     | `~/.config/chauffeur` is migrated, or read compatibly, at cutover                                                                             |
+| After cutover  | `v1` is a branch for hotfixes only                                                                                                            |
 
 ### Parity table
 
@@ -95,24 +95,24 @@ beside the v2 rule file or plugin that replaces it.
 
 Branch point `73bc29e`. Watermark: `c3b4e1b`.
 
-| `main` commit | v2 home | Slice | Evidence from `main` |
-|---|---|---|---|
-| `f2b087b` judge interface, facts judge | The `match` fact in `distribution/facts/`; `judge.json` routes become step judge names | 4 | `judges/facts/src/lib.rs` tests |
-| `bb41c9a` context renewal, session warming | The `context-renewal` and `warming` plugins; the adapter carries out `session.compact` and `session.warm` | 7 | `routing.rs`, `renewal.test.ts`, `warming.test.ts` |
-| `22e5391`, `36f6253` skill safety review | The skills plugin's screen-then-review strategy | 6 | `sources/tests.rs` vetting cases |
-| `3a18675` Skilld discovery | The skills plugin's remote sources; fetches run in the plugin, never on the daemon's coordinator (audit A4) | 6 | `cli/tests/skills.rs` |
-| `c43ecd6` read guard, RPC starvation fix | The guard plugin's `before` hooks; runtime admission permits (audit A3) | 2, 5 | `read-guard-probes.json`, `rpc-starvation.test.ts` |
-| `9b8e917` rules | Rule files in `distribution/rules/`; each v1 rule lands in the first slice that has the pieces it needs | 1–11 | `capabilities/rules/tests/rules.rs` |
-| Rulebooks (`/goal`, `/ticket`) | Rulebook files run by the `rulebooks` plugin; see [Rulebooks](#rulebooks) | 12 | `skills/rulebooks/*.json`, `rulebooks.test.ts` |
-| `73bc29e` Homebrew release, CI | Release scripts, `check.yml` and `release.yml` in v2: rc releases as `chauffeur-next` from slice 1, `1.0.0` at cutover | 1, 13 | `release.test.mjs`, `smoke.mjs` |
-| `f54db24`, `d66a385`, `e7fbabf` docs | Documentation only | — | — |
-| `5330c3b` GLiDE, `fab9ae1` no escalation for permission requests, who answered | `glide.json` over the `systemone` format; escalation is a strategy: System One with `model: "jev"`, then `model: "glide"`, then System Two. The guard's strategy asks one judge and never escalates, since the agent's call waits on it; each round's event names the model that answered and keeps the answers a later step replaced | 3, 5, 11 | `judges/glide/tests/wire.rs`, `docs/judges.md` escalation cases |
-| `0adc459` a failed permission check keeps the host's decision | Rules on `permission.asked`: a failed or late answer keeps what the harness decided, since Chauffeur only vetoes what the host allows; a 5 s `before` budget; the harness package retries an unreachable daemon twice, 500 ms apart | 5 | `permission.test.ts` |
-| `16c1433`, `1949263`, `413eb65` tools that stay exposed | The `tools` plugin's `base` list: `history_search`, the agent conversation tools and the `agents` Code Mode namespace | 6 | `tool-exposure/tests/exposure.rs`, `skills/config/tool-exposure.json` |
-| `94e3b4e` 32 remote skill sources | The skills plugin's limit on remote sources is 32 | 6 | `sources/discovery_tests.rs` |
-| `02aee18`, `60d4c26` renewal fixes | The context-renewal plugin writes a summary in a temporary child session on the summary model, passes over a provider that failed for an hour, and leaves a session already on a cheap model to the harness's own compaction | 7 | `renewal.test.ts`, `model-router/tests/routing.rs` |
-| `c3b4e1b` reworded questions | The wording ships in each rule's `instructions`: the shell file guards (5), `cat-to-read` and `hand-rolled-patch` (the first slice with their pieces) and the Code Mode namespace question (6), each replayed against `main`'s recorded requests | 1–6 | `skills/permission/shell-file-*-guard.json`, `skills/rules/{cat-to-read,hand-rolled-patch}.json` |
-| Uncommitted on `main` | Reviewed once committed | — | — |
+| `main` commit                                                                  | v2 home                                                                                                                                                                                                                                                                                                                               | Slice    | Evidence from `main`                                                                             |
+| ------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- | ------------------------------------------------------------------------------------------------ |
+| `f2b087b` judge interface, facts judge                                         | The `match` fact in `distribution/facts/`; `judge.json` routes become step judge names                                                                                                                                                                                                                                                | 4        | `judges/facts/src/lib.rs` tests                                                                  |
+| `bb41c9a` context renewal, session warming                                     | The `context-renewal` and `warming` plugins; the adapter carries out `session.compact` and `session.warm`                                                                                                                                                                                                                             | 7        | `routing.rs`, `renewal.test.ts`, `warming.test.ts`                                               |
+| `22e5391`, `36f6253` skill safety review                                       | The skills plugin's screen-then-review strategy                                                                                                                                                                                                                                                                                       | 6        | `sources/tests.rs` vetting cases                                                                 |
+| `3a18675` Skilld discovery                                                     | The skills plugin's remote sources; fetches run in the plugin, never on the daemon's coordinator (audit A4)                                                                                                                                                                                                                           | 6        | `cli/tests/skills.rs`                                                                            |
+| `c43ecd6` read guard, RPC starvation fix                                       | The guard plugin's `before` hooks; runtime admission permits (audit A3)                                                                                                                                                                                                                                                               | 2, 5     | `read-guard-probes.json`, `rpc-starvation.test.ts`                                               |
+| `9b8e917` rules                                                                | Rule files in `distribution/rules/`; each v1 rule lands in the first slice that has the pieces it needs                                                                                                                                                                                                                               | 1–11     | `capabilities/rules/tests/rules.rs`                                                              |
+| Rulebooks (`/goal`, `/ticket`)                                                 | Rulebook files run by the `rulebooks` plugin; see [Rulebooks](#rulebooks)                                                                                                                                                                                                                                                             | 12       | `skills/rulebooks/*.json`, `rulebooks.test.ts`                                                   |
+| `73bc29e` Homebrew release, CI                                                 | Release scripts, `check.yml` and `release.yml` in v2: rc releases as `chauffeur-next` from slice 1, `1.0.0` at cutover                                                                                                                                                                                                                | 1, 13    | `release.test.mjs`, `smoke.mjs`                                                                  |
+| `f54db24`, `d66a385`, `e7fbabf` docs                                           | Documentation only                                                                                                                                                                                                                                                                                                                    | —        | —                                                                                                |
+| `5330c3b` GLiDE, `fab9ae1` no escalation for permission requests, who answered | `glide.json` over the `systemone` format; escalation is a strategy: System One with `model: "jev"`, then `model: "glide"`, then System Two. The guard's strategy asks one judge and never escalates, since the agent's call waits on it; each round's event names the model that answered and keeps the answers a later step replaced | 3, 5, 11 | `judges/glide/tests/wire.rs`, `docs/judges.md` escalation cases                                  |
+| `0adc459` a failed permission check keeps the host's decision                  | Rules on `permission.asked`: a failed or late answer keeps what the harness decided, since Chauffeur only vetoes what the host allows; a 5 s `before` budget; the harness package retries an unreachable daemon twice, 500 ms apart                                                                                                   | 5        | `permission.test.ts`                                                                             |
+| `16c1433`, `1949263`, `413eb65` tools that stay exposed                        | The `tools` plugin's `base` list: `history_search`, the agent conversation tools and the `agents` Code Mode namespace                                                                                                                                                                                                                 | 6        | `tool-exposure/tests/exposure.rs`, `skills/config/tool-exposure.json`                            |
+| `94e3b4e` 32 remote skill sources                                              | The skills plugin's limit on remote sources is 32                                                                                                                                                                                                                                                                                     | 6        | `sources/discovery_tests.rs`                                                                     |
+| `02aee18`, `60d4c26` renewal fixes                                             | The context-renewal plugin writes a summary in a temporary child session on the summary model, passes over a provider that failed for an hour, and leaves a session already on a cheap model to the harness's own compaction                                                                                                          | 7        | `renewal.test.ts`, `model-router/tests/routing.rs`                                               |
+| `c3b4e1b` reworded questions                                                   | The wording ships in each rule's `instructions`: the shell file guards (5), `cat-to-read` and `hand-rolled-patch` (the first slice with their pieces) and the Code Mode namespace question (6), each replayed against `main`'s recorded requests                                                                                      | 1–6      | `skills/permission/shell-file-*-guard.json`, `skills/rules/{cat-to-read,hand-rolled-patch}.json` |
+| Uncommitted on `main`                                                          | Reviewed once committed                                                                                                                                                                                                                                                                                                               | —        | —                                                                                                |
 
 Context renewal on v2:
 
@@ -156,13 +156,13 @@ flowchart TB
     Dist --> Daemon
 ```
 
-| Kind | What it is | Written by | Examples |
-|---|---|---|---|
-| Rule file | Data: `on`, `when`, `judges`, `asks`, `strategy`, `then` | Chauffeur, an integration, the user or a project | `conventional-commits`, `sourcefed/triage`, `opencode-history/recall` |
-| Fact | A JavaScript module that answers a question without a model | Chauffeur, the user, or a project (pure only) | `match`, `select`, `bm25`, a user's `notes` |
-| Plugin | A TypeScript program that hooks events, asks questions and acts | Chauffeur, the user, anyone | `skills`, `context-renewal`, `warming`, `guard` |
-| Caller | Any program that sends a question and its context | Anyone | sourcefed's daemon, opencode-history, hook scripts |
-| Adapter | Per-harness glue: standard events out, actions in | The shared harness package, one per harness | Its OpenCode plugin, Pi extension, Claude Code mod and Codex hook command |
+| Kind      | What it is                                                      | Written by                                       | Examples                                                                  |
+| --------- | --------------------------------------------------------------- | ------------------------------------------------ | ------------------------------------------------------------------------- |
+| Rule file | Data: `on`, `when`, `judges`, `asks`, `strategy`, `then`        | Chauffeur, an integration, the user or a project | `conventional-commits`, `sourcefed/triage`, `opencode-history/recall`     |
+| Fact      | A JavaScript module that answers a question without a model     | Chauffeur, the user, or a project (pure only)    | `match`, `select`, `bm25`, a user's `notes`                               |
+| Plugin    | A TypeScript program that hooks events, asks questions and acts | Chauffeur, the user, anyone                      | `skills`, `context-renewal`, `warming`, `guard`                           |
+| Caller    | Any program that sends a question and its context               | Anyone                                           | sourcefed's daemon, opencode-history, hook scripts                        |
+| Adapter   | Per-harness glue: standard events out, actions in               | The shared harness package, one per harness      | Its OpenCode plugin, Pi extension, Claude Code mod and Codex hook command |
 
 Policy lives in rule files, facts and plugins. Adapters and callers hold no
 judging logic: an adapter translates, and a caller sends its question and acts
@@ -195,18 +195,18 @@ shipped binary: linked code and dependencies determine size.
 
 Measured on the development machine:
 
-| | Result |
-|---|---|
+|                                                 | Result                     |
+| ----------------------------------------------- | -------------------------- |
 | One message over the Unix socket, 20 KB of JSON | 0.023 ms p50, 0.232 ms p99 |
-| One Jev call (opencode-history's recall replay) | 278 ms p50 |
-| v1's Rust daemon at rest | 66 MB |
-| Idle Bun, idle Node | 10 MB, 37 MB |
+| One Jev call (opencode-history's recall replay) | 278 ms p50                 |
+| v1's Rust daemon at rest                        | 66 MB                      |
+| Idle Bun, idle Node                             | 10 MB, 37 MB               |
 
-| Concern | Rust's part |
-|---|---|
-| Safety | The deciding reason. The daemon parses untrusted input (the socket, project rules, project facts), holds model keys and redacts evidence. Rust gives memory safety there, `serde` rejects malformed input, and Kani and Miri prove strategies finish within their limits |
-| Speed | Not decisive: a hop costs 0.03 ms against a 278 ms model call |
-| Resource use | Decided by design more than language: lazy plugins, idle shutdown and bounded caches |
+| Concern      | Rust's part                                                                                                                                                                                                                                                              |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Safety       | The deciding reason. The daemon parses untrusted input (the socket, project rules, project facts), holds model keys and redacts evidence. Rust gives memory safety there, `serde` rejects malformed input, and Kani and Miri prove strategies finish within their limits |
+| Speed        | Not decisive: a hop costs 0.03 ms against a 278 ms model call                                                                                                                                                                                                            |
+| Resource use | Decided by design more than language: lazy plugins, idle shutdown and bounded caches                                                                                                                                                                                     |
 
 Plugins, adapters and the SDK are TypeScript. gdp-ts types the places where
 a check must come before an action (see [Proofs](#proofs)).
@@ -223,7 +223,7 @@ import { connect } from "@fdcn/chauffeur/client"
 
 const { intents } = await connect().navigate(
   { on: "recall", evidence: { message }, candidates: { p1: "…", p4: "…", p7: "…" } },
-  { signal: AbortSignal.timeout(1_500) },
+  { signal: AbortSignal.timeout(1_500) }
 )
 // intents → [{ rule: "opencode-history/recall", attach: ["p4", "p1"] }]
 ```
@@ -288,11 +288,11 @@ a page in [Programs that ask Chauffeur](../callers/README.md).
 are defined once, in `crates/protocol/schema/navigate.json`, and every binding
 forwards them to the daemon socket unchanged:
 
-| Binding | Caller | Mechanism |
-|---|---|---|
-| `@fdcn/chauffeur/client` | Any TypeScript program | `connect().navigate(request)` over the socket |
-| `chauffeur navigate` | Hook scripts, Git hooks, CI on the same machine | One request on stdin; the JSON-RPC messages on stdout |
-| `crates/protocol` | Rust programs | The same types the daemon uses |
+| Binding                  | Caller                                          | Mechanism                                             |
+| ------------------------ | ----------------------------------------------- | ----------------------------------------------------- |
+| `@fdcn/chauffeur/client` | Any TypeScript program                          | `connect().navigate(request)` over the socket         |
+| `chauffeur navigate`     | Hook scripts, Git hooks, CI on the same machine | One request on stdin; the JSON-RPC messages on stdout |
+| `crates/protocol`        | Rust programs                                   | The same types the daemon uses                        |
 
 Adding a host or a language adds a binding, never a new request format. The
 schema's fixtures run in the protocol crate's tests and in each binding's
@@ -303,10 +303,10 @@ tests.
 Every message to and from the engine is JSON-RPC 2.0, one message per line,
 over two transports:
 
-| Transport | Used by | Why |
-|---|---|---|
+| Transport       | Used by                    | Why                                                                                        |
+| --------------- | -------------------------- | ------------------------------------------------------------------------------------------ |
 | The Unix socket | Clients, the CLI, adapters | Independent programs reach the daemon; the socket's `0700` directory is the access control |
-| stdio | Plugins the daemon starts | A plugin's lifetime is tied to the daemon's, with no socket permissions to manage |
+| stdio           | Plugins the daemon starts  | A plugin's lifetime is tied to the daemon's, with no socket permissions to manage          |
 
 The same messages travel on both. A request with an `id` gets a result or an
 error; a message without one is a notification, used for streamed events.
@@ -315,15 +315,15 @@ cancels everything it carried. JSON-RPC is the standard LSP and MCP use: it
 needs nothing beyond `serde_json`, and its messages stay readable when
 debugging.
 
-| Method | Direction | Carries |
-|---|---|---|
-| `navigate` | Caller → daemon | A request; `event` notifications stream back, then the intents or verdict |
-| `emit`, `before` | Adapter → daemon | A harness event; `before` returns the edits plugins made |
-| `act` | Daemon → adapter | An action, with the revision it applies to |
-| `start` | Daemon → plugin | Discovery or run mode, options and the actions available |
-| `hooks` | Plugin → daemon | The events the plugin hooks with `on` and `before` |
-| `event`, `before` | Daemon → plugin | A hooked event; `before` returns edits |
-| `act`, `navigate` | Plugin → daemon | An action, or a question for the engine |
+| Method            | Direction        | Carries                                                                   |
+| ----------------- | ---------------- | ------------------------------------------------------------------------- |
+| `navigate`        | Caller → daemon  | A request; `event` notifications stream back, then the intents or verdict |
+| `emit`, `before`  | Adapter → daemon | A harness event; `before` returns the edits plugins made                  |
+| `act`             | Daemon → adapter | An action, with the revision it applies to                                |
+| `start`           | Daemon → plugin  | Discovery or run mode, options and the actions available                  |
+| `hooks`           | Plugin → daemon  | The events the plugin hooks with `on` and `before`                        |
+| `event`, `before` | Daemon → plugin  | A hooked event; `before` returns edits                                    |
+| `act`, `navigate` | Plugin → daemon  | An action, or a question for the engine                                   |
 
 ### Stateless invocation
 
@@ -339,11 +339,11 @@ Every judge takes one question and returns one result. Judges come in four
 tiers. A rule names its judges in `judges`, each with a tier, an optional
 model and a confidence, and a step's `judge` names one of them or a tier:
 
-| In a rule | Answered by |
-|---|---|
-| `"quick": { "tier": "system-one", "confidence": 0.7 }` | The tier's models, in the user's fallback order |
+| In a rule                                                                  | Answered by                                                                                                     |
+| -------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `"quick": { "tier": "system-one", "confidence": 0.7 }`                     | The tier's models, in the user's fallback order                                                                 |
 | `"careful": { "tier": "system-one", "model": "glide", "confidence": 0.7 }` | GLiDE; the tier's fallback order applies if GLiDE is unavailable or not configured, and the run's events say so |
-| A step with `"judge": "facts"` | The facts tier, with no model and no confidence |
+| A step with `"judge": "facts"`                                             | The facts tier, with no model and no confidence                                                                 |
 
 Naming the model lets one strategy use two models of the same tier, such as
 Jev for a fast screen and GLiDE, more accurate but slower, for what Jev leaves
@@ -356,9 +356,15 @@ A question is instructions and a list of possible outcomes. Nothing else
 reaches a judge:
 
 ```jsonc
-{ "instructions": "What should the agent do with this message?",
-  "outcomes": ["act", "ignore", { "value": "ask-user", "description": "Unclear; the user decides" }],
-  "evidence": ["thread", "event"] }
+{
+  "instructions": "What should the agent do with this message?",
+  "outcomes": [
+    "act",
+    "ignore",
+    { "value": "ask-user", "description": "Unclear; the user decides" }
+  ],
+  "evidence": ["thread", "event"]
+}
 ```
 
 - 2 to 64 outcomes, each unique. An outcome is a string, or a `value` with a
@@ -373,21 +379,21 @@ reaches a judge:
 
 The SDK's question functions build this shape, using Jev's names:
 
-| Function | Builds | Example |
-|---|---|---|
-| `noul(instructions)` | `outcomes: ["yes", "no"]` | "Does this commit message break Conventional Commits?" |
-| `choice(outcomes, instructions)` | `outcomes` as given | "What should the agent do with this message?" |
-| `score(levels, instructions)` | `outcomes` as given, lowest first | "How hard is the user's request?" |
+| Function                               | Builds                                                               | Example                                                                            |
+| -------------------------------------- | -------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| `noul(instructions)`                   | `outcomes: ["yes", "no"]`                                            | "Does this commit message break Conventional Commits?"                             |
+| `choice(outcomes, instructions)`       | `outcomes` as given                                                  | "What should the agent do with this message?"                                      |
+| `score(levels, instructions)`          | `outcomes` as given, lowest first                                    | "How hard is the user's request?"                                                  |
 | `question({ instructions, outcomes })` | The primitive the others use; anyone can write new functions over it | `question({ instructions, outcomes: ["none", "minor", "major", "irreversible"] })` |
 
 ### Results
 
 A judge either answers or fails. Failure is not an outcome:
 
-| Side | Carries |
-|---|---|
-| Answer | `outcome`: one of the question's outcomes, or `unsure`. `p`: a probability for every outcome. `level`: the probability-weighted position in the list, from 0 (first) to n−1 (last) |
-| Failure | Why: `unavailable`, `rate_limited`, `timeout`, `invalid` or `deadline` |
+| Side    | Carries                                                                                                                                                                            |
+| ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Answer  | `outcome`: one of the question's outcomes, or `unsure`. `p`: a probability for every outcome. `level`: the probability-weighted position in the list, from 0 (first) to n−1 (last) |
+| Failure | Why: `unavailable`, `rate_limited`, `timeout`, `invalid` or `deadline`                                                                                                             |
 
 ```json
 { "answer": { "outcome": "medium", "p": { "low": 0.12, "medium": 0.45, "high": 0.43 }, "level": 1.31 } }
@@ -404,11 +410,11 @@ answers every question, so moving a step between tiers changes only its
 The rule, not the model, decides when an answer is sure enough. A named
 judge's `confidence` is how likely its top outcome must be, from 0 to 1:
 
-| `confidence` | Outcome |
-|---|---|
-| `0.7` | The likeliest outcome when its probability is 0.7 or more; otherwise `unsure` |
+| `confidence`                 | Outcome                                                                                                                                                      |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `0.7`                        | The likeliest outcome when its probability is 0.7 or more; otherwise `unsure`                                                                                |
 | `{ "yes": 0.9, "no": 0.95 }` | Per outcome: here `yes` needs 0.9 and `no` needs 0.95. The map must cover every outcome of every question the judge is used for, checked when the rule loads |
-| none | The likeliest outcome; a tie is `unsure` |
+| none                         | The likeliest outcome; a tie is `unsure`                                                                                                                     |
 
 ```text
 confidence 0.7 on noul "Does this commit message break Conventional Commits?"
@@ -432,12 +438,12 @@ tuned against labelled cases.
 
 ### Tiers
 
-| Tier | Answers with | Shipped |
-|---|---|---|
-| `facts` | JavaScript functions in a sandbox: no model and no credentials | `match`, `select`, `bm25`, `embedding` |
-| `system-one` | A fast classifier, one batched call per round | `jev` (default), `subq`, `glide` |
-| `system-two` | A reasoning model, with a schema-checked answer that cites its evidence | Disabled until reviewed (slice 11) |
-| `person` | The user, asked through the adapter | Each adapter |
+| Tier         | Answers with                                                            | Shipped                                |
+| ------------ | ----------------------------------------------------------------------- | -------------------------------------- |
+| `facts`      | JavaScript functions in a sandbox: no model and no credentials          | `match`, `select`, `bm25`, `embedding` |
+| `system-one` | A fast classifier, one batched call per round                           | `jev` (default), `subq`, `glide`       |
+| `system-two` | A reasoning model, with a schema-checked answer that cites its evidence | Disabled until reviewed (slice 11)     |
+| `person`     | The user, asked through the adapter                                     | Each adapter                           |
 
 ### How a step reaches a model
 
@@ -453,12 +459,12 @@ flowchart LR
     Format -- "answer or failure" --> Confidence["confidence → outcome"]
 ```
 
-| Layer | Defined in | Example |
-|---|---|---|
-| Named judge | A rule's `judges`, or `judge()` in the SDK | `"quick": { "tier": "system-one", "confidence": 0.7 }` |
-| Tier | `models.json` `tiers` | `"system-one": ["jev", "subq"]` |
-| Model entry | `models.json` `models` | `"jev": { "format": "systemone", "endpoint": "…", "key": { "env": "JEV_KEY" } }` |
-| Format | Rust in `crates/judges` | `systemone`, `openai`, `anthropic`, `facts`, `person`, `placeholder` |
+| Layer       | Defined in                                 | Example                                                                          |
+| ----------- | ------------------------------------------ | -------------------------------------------------------------------------------- |
+| Named judge | A rule's `judges`, or `judge()` in the SDK | `"quick": { "tier": "system-one", "confidence": 0.7 }`                           |
+| Tier        | `models.json` `tiers`                      | `"system-one": ["jev", "subq"]`                                                  |
+| Model entry | `models.json` `models`                     | `"jev": { "format": "systemone", "endpoint": "…", "key": { "env": "JEV_KEY" } }` |
+| Format      | Rust in `crates/judges`                    | `systemone`, `openai`, `anthropic`, `facts`, `person`, `placeholder`             |
 
 Every format implements `answer_all`. A model answers every question it
 received in a round with one call, and the format decides how to ask its
@@ -469,20 +475,20 @@ let replies = jev.answer_all(&round_questions, &evidence);
 // → [Ok({ yes: 0.94, no: 0.06 }), Err(Failure::Timeout), …]
 ```
 
-| `Failure` | Then |
-|---|---|
+| `Failure`                               | Then                          |
+| --------------------------------------- | ----------------------------- |
 | `Unavailable`, `RateLimited`, `Timeout` | The tier's next model answers |
-| `Invalid` | The step fails |
+| `Invalid`                               | The step fails                |
 
-| Format | Speaks |
-|---|---|
-| `systemone` | The `/v1/systemone` API that Jev, SubQ Snap and Fastino GLiDE share: its `noul` type for `["yes", "no"]`, and `choice`, which returns every outcome's probability, for the rest. GLiDE's entry sets its reading of `score` as a level |
-| `openai` | OpenAI-compatible chat completions, with a JSON schema whose `enum` is the outcomes; covers local servers such as Ollama |
-| `anthropic` | Anthropic Messages with the same schema |
-| `facts` | Runs a fact in `crates/facts` |
-| `person` | A question to the user through the adapter |
-| `student` | A jev-distill student over its loopback server: the task's labels are the outcomes, and evidence blocks fill its `state` |
-| `placeholder` | Recorded or fixed answers, standing in until the real model is configured |
+| Format        | Speaks                                                                                                                                                                                                                                |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `systemone`   | The `/v1/systemone` API that Jev, SubQ Snap and Fastino GLiDE share: its `noul` type for `["yes", "no"]`, and `choice`, which returns every outcome's probability, for the rest. GLiDE's entry sets its reading of `score` as a level |
+| `openai`      | OpenAI-compatible chat completions, with a JSON schema whose `enum` is the outcomes; covers local servers such as Ollama                                                                                                              |
+| `anthropic`   | Anthropic Messages with the same schema                                                                                                                                                                                               |
+| `facts`       | Runs a fact in `crates/facts`                                                                                                                                                                                                         |
+| `person`      | A question to the user through the adapter                                                                                                                                                                                            |
+| `student`     | A jev-distill student over its loopback server: the task's labels are the outcomes, and evidence blocks fill its `state`                                                                                                              |
+| `placeholder` | Recorded or fixed answers, standing in until the real model is configured                                                                                                                                                             |
 
 An outcome outside the question's list fails the step as `invalid`.
 `crates/judges` turns each tier's models into one core `Judge`, so core sees a
@@ -498,9 +504,17 @@ to use.
 // ~/.config/chauffeur/models.json
 {
   "models": {
-    "local-qwen": { "format": "openai", "endpoint": "http://127.0.0.1:11434/v1", "model": "qwen3:4b" },
-    "reviewer":   { "format": "anthropic", "model": "claude-sonnet-5-5",
-                    "key": { "env": "ANTHROPIC_API_KEY" }, "timeout_ms": 20000 }
+    "local-qwen": {
+      "format": "openai",
+      "endpoint": "http://127.0.0.1:11434/v1",
+      "model": "qwen3:4b"
+    },
+    "reviewer": {
+      "format": "anthropic",
+      "model": "claude-sonnet-5-5",
+      "key": { "env": "ANTHROPIC_API_KEY" },
+      "timeout_ms": 20000
+    }
   },
   "tiers": {
     "system-one": ["jev", "subq", "local-qwen"],
@@ -534,25 +548,42 @@ does.
 // models.json for tests and the playground
 {
   "models": {
-    "one-stand-in":    { "format": "placeholder", "answers": "fixtures/triage-answers.json" },
-    "two-stand-in":    { "format": "placeholder", "otherwise": { "act": 0.8, "ignore": 0.2 } },
-    "person-stand-in": { "format": "placeholder", "otherwise": { "yes": 1, "no": 0 } }
+    "one-stand-in": {
+      "format": "placeholder",
+      "answers": "fixtures/triage-answers.json"
+    },
+    "two-stand-in": {
+      "format": "placeholder",
+      "otherwise": { "act": 0.8, "ignore": 0.2 }
+    },
+    "person-stand-in": {
+      "format": "placeholder",
+      "otherwise": { "yes": 1, "no": 0 }
+    }
   },
   "tiers": {
     "system-one": ["one-stand-in"],
     "system-two": ["two-stand-in"],
-    "person":     ["person-stand-in"]
+    "person": ["person-stand-in"]
   }
 }
 ```
 
 ```jsonc
 // fixtures/triage-answers.json
-{ "answers": [
-  { "evidence": { "event": "thanks, looks good 👍" },     "p": { "yes": 0.52, "no": 0.48 } },
-  { "evidence": { "event": "@agent bump retries to 5" }, "p": { "yes": 0.94, "no": 0.06 } },
-  { "evidence": { "event": "deploy is on fire" },        "failed": "timeout" }
-] }
+{
+  "answers": [
+    {
+      "evidence": { "event": "thanks, looks good 👍" },
+      "p": { "yes": 0.52, "no": 0.48 }
+    },
+    {
+      "evidence": { "event": "@agent bump retries to 5" },
+      "p": { "yes": 0.94, "no": 0.06 }
+    },
+    { "evidence": { "event": "deploy is on fire" }, "failed": "timeout" }
+  ]
+}
 ```
 
 - `answers` is matched by evidence: an entry answers a question whose evidence
@@ -603,14 +634,21 @@ import { query } from "chauffeur:sqlite"
 
 // "notes.bm25": BM25 over the user's own notes database
 export function bm25({ evidence, args }) {
-  const rows = query("~/notes/index.db",
-    "SELECT id FROM notes WHERE notes MATCH ? ORDER BY bm25(notes) LIMIT ?", [evidence.message, args.top ?? 10])
+  const rows = query(
+    "~/notes/index.db",
+    "SELECT id FROM notes WHERE notes MATCH ? ORDER BY bm25(notes) LIMIT ?",
+    [evidence.message, args.top ?? 10]
+  )
   return { ranked: rows.map((row) => row.id) }
 }
 
 // "notes": is the message about something already in the notes?
 export default function ({ evidence }) {
-  const [hit] = query("~/notes/index.db", "SELECT 1 FROM notes WHERE notes MATCH ? LIMIT 1", [evidence.message])
+  const [hit] = query(
+    "~/notes/index.db",
+    "SELECT 1 FROM notes WHERE notes MATCH ? LIMIT 1",
+    [evidence.message]
+  )
   return { p: { yes: hit ? 1 : 0, no: hit ? 0 : 1 } }
 }
 ```
@@ -622,60 +660,71 @@ A facts step names the fact and its arguments as its `ask`:
 { "id": "is-slack", "judge": "facts", "ask": { "match": { "field": "event.source", "equals": "slack" } } }
 ```
 
-| A fact receives | A fact returns |
-|---|---|
-| `evidence`, the request's named blocks | `{ p }` over the outcomes, usually 1 and 0 |
-| `candidates` | `{ ranked: [...] }`: candidate names, best first |
-| `outcomes` of earlier steps, with their `p` and `level` | Throws: the step fails as `invalid` |
-| `args`, from the step | |
+| A fact receives                                         | A fact returns                                   |
+| ------------------------------------------------------- | ------------------------------------------------ |
+| `evidence`, the request's named blocks                  | `{ p }` over the outcomes, usually 1 and 0       |
+| `candidates`                                            | `{ ranked: [...] }`: candidate names, best first |
+| `outcomes` of earlier steps, with their `p` and `level` | Throws: the step fails as `invalid`              |
+| `args`, from the step                                   |                                                  |
 
-| Source | Folder | Host modules |
-|---|---|---|
-| Shipped | `distribution/facts/` | `chauffeur:fs` (read), `chauffeur:sqlite` (read-only), `chauffeur:http` (loopback only) |
-| User | `~/.config/chauffeur/facts/` | The same |
-| Project | `.chauffeur/facts/` | None: pure functions of their inputs |
+| Source  | Folder                       | Host modules                                                                            |
+| ------- | ---------------------------- | --------------------------------------------------------------------------------------- |
+| Shipped | `distribution/facts/`        | `chauffeur:fs` (read), `chauffeur:sqlite` (read-only), `chauffeur:http` (loopback only) |
+| User    | `~/.config/chauffeur/facts/` | The same                                                                                |
+| Project | `.chauffeur/facts/`          | None: pure functions of their inputs                                                    |
 
 ### Shipped facts
 
-| Fact | Does |
-|---|---|
-| `match` | Conditions on evidence fields: `equals`, `one_of`, `contains`, `pattern` (glob), `at_least`, `at_most` (a number, or another field times `times`); combined with `all` and `any`; `cases` answers a choice |
-| `select` | Combines earlier outcomes: `first` settled in a list, `top` N, all at or above `min`, `majority` or `mean`; `by` names the outcome whose probability ranks, such as `yes` |
-| `bm25` | Ranks candidates against a query |
-| `embedding` | Ranks candidates by similarity from the local embedding service |
+| Fact        | Does                                                                                                                                                                                                       |
+| ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `match`     | Conditions on evidence fields: `equals`, `one_of`, `contains`, `pattern` (glob), `at_least`, `at_most` (a number, or another field times `times`); combined with `all` and `any`; `cases` answers a choice |
+| `select`    | Combines earlier outcomes: `first` settled in a list, `top` N, all at or above `min`, `majority` or `mean`; `by` names the outcome whose probability ranks, such as `yes`                                  |
+| `bm25`      | Ranks candidates against a query                                                                                                                                                                           |
+| `embedding` | Ranks candidates by similarity from the local embedding service                                                                                                                                            |
 
 v1's context-renewal rule, as a `match`:
 
 ```jsonc
-{ "id": "renew", "judge": "facts", "ask": { "match": { "all": [
-  { "field": "idle_seconds",   "at_least": { "field": "cache_seconds" } },
-  { "field": "context_tokens", "at_least": { "field": "context_window", "times": 0.5 } }
-] } } }
+{
+  "id": "renew",
+  "judge": "facts",
+  "ask": {
+    "match": {
+      "all": [
+        { "field": "idle_seconds", "at_least": { "field": "cache_seconds" } },
+        {
+          "field": "context_tokens",
+          "at_least": { "field": "context_window", "times": 0.5 }
+        }
+      ]
+    }
+  }
+}
 ```
 
 A field the evidence lacks fails the step as `invalid`, never `no`.
 
 ### Limits
 
-| Concern | Decision |
-|---|---|
-| Runaway code | Each call has a memory cap (16 MiB by default) and an interrupt at the step's deadline; overrunning either fails the step |
-| A missing fact | `unavailable`, so the facts tier's next model answers: a placeholder can stand in |
-| Names | A fact cannot be named `instructions`, `outcomes` or `evidence` |
-| Project facts | Run with no host modules. QuickJS is not a hardened sandbox, so a memory-safety bug in it could let a repository's code escape; the caps and the absence of host modules keep that risk small, and it is accepted |
-| Engine | `rquickjs` in `crates/facts`; core stays dependency-free |
+| Concern        | Decision                                                                                                                                                                                                          |
+| -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Runaway code   | Each call has a memory cap (16 MiB by default) and an interrupt at the step's deadline; overrunning either fails the step                                                                                         |
+| A missing fact | `unavailable`, so the facts tier's next model answers: a placeholder can stand in                                                                                                                                 |
+| Names          | A fact cannot be named `instructions`, `outcomes` or `evidence`                                                                                                                                                   |
+| Project facts  | Run with no host modules. QuickJS is not a hardened sandbox, so a memory-safety bug in it could let a repository's code escape; the caps and the absence of host modules keep that risk small, and it is accepted |
+| Engine         | `rquickjs` in `crates/facts`; core stays dependency-free                                                                                                                                                          |
 
 ## Strategies
 
 A strategy is a list of steps, built from four pieces. Chauffeur has no list
 of built-in strategies: any combination of the pieces is one.
 
-| Piece | What it does |
-|---|---|
-| Step | Asks one judge one question; its confidence turns the answer into an outcome |
-| `after` | Waits for earlier steps, then runs the step or skips it by their outcomes |
-| `for_each` | Copies a step once per candidate, in one round |
-| Earlier outcomes | A step may read earlier steps' outcomes, `p` and `level` as its evidence |
+| Piece            | What it does                                                                 |
+| ---------------- | ---------------------------------------------------------------------------- |
+| Step             | Asks one judge one question; its confidence turns the answer into an outcome |
+| `after`          | Waits for earlier steps, then runs the step or skips it by their outcomes    |
+| `for_each`       | Copies a step once per candidate, in one round                               |
+| Earlier outcomes | A step may read earlier steps' outcomes, `p` and `level` as its evidence     |
 
 ### `after`
 
@@ -703,13 +752,13 @@ settles to one. A new way to combine is a new fact. The protocol lowers
 `for_each`, wildcards, named judges and named asks to plain core steps, so
 core runs every strategy alike.
 
-| Strategy | Built from |
-|---|---|
-| Escalate | A step `after` an earlier one, `when` it is `unsure` or `failed` |
-| Rank | A `for_each` step, then `select` with `top` and `min` |
-| Collect all that pass | A `for_each` step, then `select` with `min` |
-| Check the survivors | Two `for_each` steps, the second `after` `first[item]` `when` `yes` |
-| Vote | Parallel steps, `select` with `majority`, and a review `after` the vote `when` `unsure` |
+| Strategy              | Built from                                                                              |
+| --------------------- | --------------------------------------------------------------------------------------- |
+| Escalate              | A step `after` an earlier one, `when` it is `unsure` or `failed`                        |
+| Rank                  | A `for_each` step, then `select` with `top` and `min`                                   |
+| Collect all that pass | A `for_each` step, then `select` with `min`                                             |
+| Check the survivors   | Two `for_each` steps, the second `after` `first[item]` `when` `yes`                     |
+| Vote                  | Parallel steps, `select` with `majority`, and a review `after` the vote `when` `unsure` |
 
 Escalating from Jev to GLiDE, then to System Two:
 
@@ -761,13 +810,13 @@ recorded answers.
 A rule file needs no code: dropping it into a rules folder is the whole
 install.
 
-| Field | Meaning |
-|---|---|
-| `on`, `when` | The event that triggers the rule, and a cheap filter on it, such as tool names and text the input contains; no judge is asked unless it matches |
-| `judges` | Named judges: a tier, an optional model and a confidence |
-| `asks` | Named questions, so steps that ask the same question share it |
-| `strategy` | The steps, in order: each with an `id`, a `judge` (a named judge or a tier), an `ask` (a named question, one written inline, or a fact), and `after` |
-| `then` | Intents by outcome, first match wins; no match returns no intent |
+| Field                                  | Meaning                                                                                                                                                            |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `on`, `when`                           | The event that triggers the rule, and a cheap filter on it, such as tool names and text the input contains; no judge is asked unless it matches                    |
+| `judges`                               | Named judges: a tier, an optional model and a confidence                                                                                                           |
+| `asks`                                 | Named questions, so steps that ask the same question share it                                                                                                      |
+| `strategy`                             | The steps, in order: each with an `id`, a `judge` (a named judge or a tier), an `ask` (a named question, one written inline, or a fact), and `after`               |
+| `then`                                 | Intents by outcome, first match wins; no match returns no intent                                                                                                   |
 | `priority`, `once`, `cooldown_seconds` | Which rule's message wins when one event triggers more than two; firing once until the next request or for the whole session; the pause per session after it fires |
 
 `when` filters on the event's fields before any judge: `tools`, `input`
@@ -782,12 +831,12 @@ Names in `judges` and `asks` are referred to only by a step's `judge` and
 
 Rules load from four sources, and edits apply without a restart:
 
-| Source | Folder | System Two |
-|---|---|---|
-| Shipped | `distribution/rules/` | Allowed |
-| Integration | `~/.config/chauffeur/rules/<integration>/`, installed by the integration | Allowed |
-| User | `~/.config/chauffeur/rules/` | Allowed |
-| Project | `.chauffeur/rules/`, from the Git worktree root down to the session's directory | Only where `~/.config/chauffeur` allows it for the project |
+| Source      | Folder                                                                          | System Two                                                 |
+| ----------- | ------------------------------------------------------------------------------- | ---------------------------------------------------------- |
+| Shipped     | `distribution/rules/`                                                           | Allowed                                                    |
+| Integration | `~/.config/chauffeur/rules/<integration>/`, installed by the integration        | Allowed                                                    |
+| User        | `~/.config/chauffeur/rules/`                                                    | Allowed                                                    |
+| Project     | `.chauffeur/rules/`, from the Git worktree root down to the session's directory | Only where `~/.config/chauffeur` allows it for the project |
 
 A rule's ID is its path under its folder, such as `sourcefed/triage`. The user
 tunes an integration's rule by editing its file; reinstalling the integration
@@ -802,12 +851,29 @@ keeps a file the user changed.
   "when": { "tools": ["shell"], "input": { "contains": "git commit" } },
   "judges": { "quick": { "tier": "system-one", "confidence": 0.7 } },
   "strategy": [
-    { "id": "nonconventional", "judge": "quick",
-      "ask": { "outcomes": ["yes", "no"], "evidence": ["tool_call"],
-               "instructions": "Does this call create a git commit whose message does not follow Conventional Commits?" } }
+    {
+      "id": "nonconventional",
+      "judge": "quick",
+      "ask": {
+        "outcomes": ["yes", "no"],
+        "evidence": ["tool_call"],
+        "instructions": "Does this call create a git commit whose message does not follow Conventional Commits?"
+      }
+    }
   ],
-  "then": [{ "if": { "nonconventional": "yes" },
-             "message.append": { "parts": [{ "text": "Use Conventional Commits, such as `feat(scope): short description`." }], "delivery": "now" } }],
+  "then": [
+    {
+      "if": { "nonconventional": "yes" },
+      "message.append": {
+        "parts": [
+          {
+            "text": "Use Conventional Commits, such as `feat(scope): short description`."
+          }
+        ],
+        "delivery": "now"
+      }
+    }
+  ],
   "cooldown_seconds": 120
 }
 ```
@@ -828,20 +894,36 @@ on.
 {
   "on": "integration_event",
   "judges": {
-    "quick":    { "tier": "system-one", "confidence": 0.7 },
+    "quick": { "tier": "system-one", "confidence": 0.7 },
     "reasoner": { "tier": "system-two", "confidence": 0.6 }
   },
   "asks": {
-    "needs-agent": { "outcomes": ["yes", "no"], "evidence": ["thread", "event"],
-                     "instructions": "Does the new event ask the agent to do or change something?" }
+    "needs-agent": {
+      "outcomes": ["yes", "no"],
+      "evidence": ["thread", "event"],
+      "instructions": "Does the new event ask the agent to do or change something?"
+    }
   },
   "strategy": [
-    { "id": "screen",   "judge": "quick", "ask": "needs-agent" },
-    { "id": "is-slack", "judge": "facts", "ask": { "match": { "field": "event.source", "equals": "slack" } } },
-    { "id": "review",   "judge": "reasoner",
-      "ask": { "outcomes": ["act", "ignore"], "evidence": ["thread", "event"],
-               "instructions": "Should the agent act on the new message? Cite the evidence." },
-      "after": [{ "step": "screen", "when": ["unsure", "failed"] }, { "step": "is-slack", "when": ["yes"] }] }
+    { "id": "screen", "judge": "quick", "ask": "needs-agent" },
+    {
+      "id": "is-slack",
+      "judge": "facts",
+      "ask": { "match": { "field": "event.source", "equals": "slack" } }
+    },
+    {
+      "id": "review",
+      "judge": "reasoner",
+      "ask": {
+        "outcomes": ["act", "ignore"],
+        "evidence": ["thread", "event"],
+        "instructions": "Should the agent act on the new message? Cite the evidence."
+      },
+      "after": [
+        { "step": "screen", "when": ["unsure", "failed"] },
+        { "step": "is-slack", "when": ["yes"] }
+      ]
+    }
   ],
   "then": [
     { "if": { "screen": "no" }, "withhold": "event" },
@@ -864,11 +946,22 @@ returned; the code gathers them and attaches the result.
 {
   "on": "recall",
   "strategy": [
-    { "id": "helps", "judge": "system-one", "for_each": "candidates",
-      "ask": { "outcomes": ["yes", "no"], "evidence": ["message", "candidate"],
-               "instructions": "Would this passage materially help the agent answer the message, beyond what it already says?" } },
-    { "id": "best", "judge": "facts", "after": ["helps[*]"],
-      "ask": { "select": { "from": "helps[*]", "top": 3, "min": 0.7, "by": "yes" } } }
+    {
+      "id": "helps",
+      "judge": "system-one",
+      "for_each": "candidates",
+      "ask": {
+        "outcomes": ["yes", "no"],
+        "evidence": ["message", "candidate"],
+        "instructions": "Would this passage materially help the agent answer the message, beyond what it already says?"
+      }
+    },
+    {
+      "id": "best",
+      "judge": "facts",
+      "after": ["helps[*]"],
+      "ask": { "select": { "from": "helps[*]", "top": 3, "min": 0.7, "by": "yes" } }
+    }
   ],
   "then": [{ "attach": "best" }]
 }
@@ -880,15 +973,15 @@ attaches nothing.
 
 ### What a caller gets back
 
-| Result | Meaning | `navigate` |
-|---|---|---|
-| Intents | Every matching rule ran | `intents`: each with its `rule`, possibly empty |
-| Verdict | An inline strategy's steps finished | `verdict[id]`: `{ "answer": … }`, `{ "failed": "<reason>" }` or `"skipped"` |
-| Unknown judge | An inline strategy names a tier with no model, or one its source may not use; nothing ran. A rule that does is refused when it loads | `judge_unavailable` error |
-| Limit exceeded | The strategy or evidence is over a named limit; nothing ran | `limit_exceeded` error |
-| Busy | This source's or the daemon's capacity is in use | `busy` error |
-| Deadline | The deadline passed; unfinished steps are unanswered | `deadline` error, with the events so far |
-| Unavailable | The daemon is not running | `unavailable` error |
+| Result         | Meaning                                                                                                                              | `navigate`                                                                  |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------- |
+| Intents        | Every matching rule ran                                                                                                              | `intents`: each with its `rule`, possibly empty                             |
+| Verdict        | An inline strategy's steps finished                                                                                                  | `verdict[id]`: `{ "answer": … }`, `{ "failed": "<reason>" }` or `"skipped"` |
+| Unknown judge  | An inline strategy names a tier with no model, or one its source may not use; nothing ran. A rule that does is refused when it loads | `judge_unavailable` error                                                   |
+| Limit exceeded | The strategy or evidence is over a named limit; nothing ran                                                                          | `limit_exceeded` error                                                      |
+| Busy           | This source's or the daemon's capacity is in use                                                                                     | `busy` error                                                                |
+| Deadline       | The deadline passed; unfinished steps are unanswered                                                                                 | `deadline` error, with the events so far                                    |
+| Unavailable    | The daemon is not running                                                                                                            | `unavailable` error                                                         |
 
 ## Plugins
 
@@ -936,18 +1029,18 @@ out returns `unsupported`.
 
 ### `on` and `before`
 
-| Hook | Holds the harness | Can |
-|---|---|---|
-| `ctx.on(event, handler)` | Never: the event goes ahead at once | Call any action, any time |
+| Hook                                                | Holds the harness                             | Can                          |
+| --------------------------------------------------- | --------------------------------------------- | ---------------------------- |
+| `ctx.on(event, handler)`                            | Never: the event goes ahead at once           | Call any action, any time    |
 | `ctx.before(event, handler, { budget, onTimeout })` | Until the handler returns or `budget` ms pass | Edit what is about to happen |
 
 `before` exists for the points where acting late is acting too late:
 
-| Event | A `before` handler can | `onTimeout` |
-|---|---|---|
-| `prompt.sent` | Append parts, edit the text, block it | `allow` |
-| `tool.before` | Block it, ask the user, rewrite its input | `ask`, `block` or `allow` |
-| `permission.asked` | Reply, or ask the user | `ask` |
+| Event              | A `before` handler can                    | `onTimeout`               |
+| ------------------ | ----------------------------------------- | ------------------------- |
+| `prompt.sent`      | Append parts, edit the text, block it     | `allow`                   |
+| `tool.before`      | Block it, ask the user, rewrite its input | `ask`, `block` or `allow` |
+| `permission.asked` | Reply, or ask the user                    | `ask`                     |
 
 `ask` hands the decision to the user. A guard against irreversible harm uses
 `ask`, so a slow or failed judge never lets the action through silently. Host
@@ -955,12 +1048,12 @@ denials always win over a plugin.
 
 ### Retries
 
-| Kind of action | Examples | If it fails or arrives stale |
-|---|---|---|
-| Sets state | `session.update`, registry `add`, `update` and `remove` | Retried with backoff; the last write wins |
-| One-shot | `session.compact`, `session.interrupt` | Retried once if the adapter was unreachable; dropped if stale |
-| Append | `message.append` | Delivered `next` when the plugin set `late: "next"`; otherwise dropped once its turn has passed |
-| Guard decision | Block, ask the user | Never retried; on timeout, `onTimeout` applies |
+| Kind of action | Examples                                                | If it fails or arrives stale                                                                    |
+| -------------- | ------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| Sets state     | `session.update`, registry `add`, `update` and `remove` | Retried with backoff; the last write wins                                                       |
+| One-shot       | `session.compact`, `session.interrupt`                  | Retried once if the adapter was unreachable; dropped if stale                                   |
+| Append         | `message.append`                                        | Delivered `next` when the plugin set `late: "next"`; otherwise dropped once its turn has passed |
+| Guard decision | Block, ask the user                                     | Never retried; on timeout, `onTimeout` applies                                                  |
 
 Each action carries the session `revision` it applies to, and the adapter
 checks it against the harness before carrying it out, so a stale action never
@@ -1007,12 +1100,12 @@ stateDiagram-v2
 One package, `@fdcn/chauffeur`, with subpath exports so bundlers keep only
 what is imported:
 
-| Import | Holds |
-|---|---|
-| `@fdcn/chauffeur/plugin` | `Plugin.define({ id, setup(ctx) })`; `ctx` holds only `on`, `before` and `options` |
-| `@fdcn/chauffeur/judge` | `ask`, `judge`, `strategy`, and the question functions `question`, `noul`, `choice`, `score` |
-| `@fdcn/chauffeur/harness` | Actions: `session`, `message`, `permission`, and the registries |
-| `@fdcn/chauffeur/client` | `connect().navigate(request)` |
+| Import                    | Holds                                                                                        |
+| ------------------------- | -------------------------------------------------------------------------------------------- |
+| `@fdcn/chauffeur/plugin`  | `Plugin.define({ id, setup(ctx) })`; `ctx` holds only `on`, `before` and `options`           |
+| `@fdcn/chauffeur/judge`   | `ask`, `judge`, `strategy`, and the question functions `question`, `noul`, `choice`, `score` |
+| `@fdcn/chauffeur/harness` | Actions: `session`, `message`, `permission`, and the registries                              |
+| `@fdcn/chauffeur/client`  | `connect().navigate(request)`                                                                |
 
 `ctx` holds what is tied to the plugin's lifetime. Everything else is a
 function to import, and `/judge` works the same from any program through the
@@ -1023,7 +1116,10 @@ client.
 ```ts
 type Result<O extends string> =
   | { ok: true; outcome: O | "unsure"; p: Record<O, number>; level: number }
-  | { ok: false; failed: "unavailable" | "rate_limited" | "timeout" | "invalid" | "deadline" }
+  | {
+      ok: false
+      failed: "unavailable" | "rate_limited" | "timeout" | "invalid" | "deadline"
+    }
 ```
 
 ```ts
@@ -1031,12 +1127,28 @@ import { ask, choice, judge, noul, score } from "@fdcn/chauffeur/judge"
 
 const quick = judge({ tier: "system-one", model: "jev", confidence: 0.7 })
 
-const commit = await ask(noul("Does this commit message break Conventional Commits?"), { judge: quick, evidence })
-if (commit.ok && commit.outcome === "yes") { /* "yes" | "no" | "unsure" */ }
+const commit = await ask(
+  noul("Does this commit message break Conventional Commits?"),
+  { judge: quick, evidence }
+)
+if (commit.ok && commit.outcome === "yes") {
+  /* "yes" | "no" | "unsure" */
+}
 
-const next = await ask(choice(["act", "ignore", "ask-user"], "What should the agent do with this message?"), { judge: quick, evidence })
-const effort = await ask(score(["low", "medium", "high"], "How hard is the user's request?"), { judge: quick, evidence })
-if (effort.ok && effort.level >= 1) { /* medium or higher */ }
+const next = await ask(
+  choice(
+    ["act", "ignore", "ask-user"],
+    "What should the agent do with this message?"
+  ),
+  { judge: quick, evidence }
+)
+const effort = await ask(
+  score(["low", "medium", "high"], "How hard is the user's request?"),
+  { judge: quick, evidence }
+)
+if (effort.ok && effort.level >= 1) {
+  /* medium or higher */
+}
 ```
 
 A question function returns `{ wire, read }`: the generic question, and a
@@ -1061,7 +1173,7 @@ export default Plugin.define({
       if (e.idle_seconds >= e.cache_seconds && e.tokens.used >= e.tokens.window / 2)
         session.compact(e.session, { model: ctx.options.summaryModel })
     })
-  },
+  }
 })
 ```
 
@@ -1071,18 +1183,31 @@ Guard against irreversible harm:
 import { Plugin } from "@fdcn/chauffeur/plugin"
 import { ask, judge, noul } from "@fdcn/chauffeur/judge"
 
-const guard = judge({ tier: "system-one", model: "jev", confidence: { yes: 0.9, no: 0.95 } })
+const guard = judge({
+  tier: "system-one",
+  model: "jev",
+  confidence: { yes: 0.9, no: 0.95 }
+})
 
 export default Plugin.define({
   id: "guard",
   setup(ctx) {
-    ctx.before("tool.before", async (e) => {
-      if (e.tool !== "shell") return
-      const harmful = await ask(noul("Could this command cause irreversible harm?"), { judge: guard, evidence: { command: e.input.command } })
-      if (harmful.ok && harmful.outcome === "yes") e.block("This command may cause irreversible harm.")
-      else if (!harmful.ok || harmful.outcome === "unsure") e.askUser("Chauffeur isn't sure this is safe.")
-    }, { budget: 2_000, onTimeout: "ask" })
-  },
+    ctx.before(
+      "tool.before",
+      async (e) => {
+        if (e.tool !== "shell") return
+        const harmful = await ask(
+          noul("Could this command cause irreversible harm?"),
+          { judge: guard, evidence: { command: e.input.command } }
+        )
+        if (harmful.ok && harmful.outcome === "yes")
+          e.block("This command may cause irreversible harm.")
+        else if (!harmful.ok || harmful.outcome === "unsure")
+          e.askUser("Chauffeur isn't sure this is safe.")
+      },
+      { budget: 2_000, onTimeout: "ask" }
+    )
+  }
 })
 ```
 
@@ -1094,18 +1219,35 @@ import { judge, noul, strategy } from "@fdcn/chauffeur/judge"
 
 const quick = judge({ tier: "system-one", confidence: 0.7 })
 const pick = strategy([
-  { id: "needs", judge: quick, forEach: "candidates", ask: noul("Does this request need this skill?") },
-  { id: "best", judge: "facts", after: ["needs[*]"], ask: { select: { from: "needs[*]", top: 4, min: 0.7, by: "yes" } } },
+  {
+    id: "needs",
+    judge: quick,
+    forEach: "candidates",
+    ask: noul("Does this request need this skill?")
+  },
+  {
+    id: "best",
+    judge: "facts",
+    after: ["needs[*]"],
+    ask: { select: { from: "needs[*]", top: 4, min: 0.7, by: "yes" } }
+  }
 ])
 
 export default Plugin.define({
   id: "skills",
   setup(ctx) {
-    ctx.before("prompt.sent", async (e) => {
-      const best = await pick.run({ evidence: { message: e.text }, candidates: e.skills })
-      if (best.ok) e.append(best.outcome.map((skill) => ({ skill })))
-    }, { budget: 400, onTimeout: "allow" })
-  },
+    ctx.before(
+      "prompt.sent",
+      async (e) => {
+        const best = await pick.run({
+          evidence: { message: e.text },
+          candidates: e.skills
+        })
+        if (best.ok) e.append(best.outcome.map((skill) => ({ skill })))
+      },
+      { budget: 400, onTimeout: "allow" }
+    )
+  }
 })
 ```
 
@@ -1119,7 +1261,7 @@ export default Plugin.define({
   id: "warming",
   setup(ctx) {
     ctx.on("session.idle", (e) => setTimeout(() => session.warm(e.session), 270_000))
-  },
+  }
 })
 ```
 
@@ -1146,11 +1288,11 @@ flowchart LR
     C -- "actions" --> A
 ```
 
-| Chauffeur needs | From the package |
-|---|---|
+| Chauffeur needs           | From the package                                                                                                        |
+| ------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
 | Events and `before` hooks | Delivered to the daemon's socket; the daemon routes them to its rules and plugins and answers within each hook's budget |
-| Actions | The daemon sends its rules' and plugins' actions through the package, which carries them out or returns `unsupported` |
-| The contract | The package's schemas and fidelity table, which `crates/protocol` reads |
+| Actions                   | The daemon sends its rules' and plugins' actions through the package, which carries them out or returns `unsupported`   |
+| The contract              | The package's schemas and fidelity table, which `crates/protocol` reads                                                 |
 
 Chauffeur keeps no per-harness code. A harness slice adopts the package's
 adapter for that harness and proves every feature so far through it.
@@ -1170,14 +1312,33 @@ shape, and the first-party `rulebooks` plugin runs it:
   "args": { "required": true },
   "budget": 20,
   "on_start": "Goal: {args}. Work toward it until evidence shows it is done.",
-  "rules": [{
-    "on": "response.finished",
-    "judges": { "quick": { "tier": "system-one", "confidence": 0.7 } },
-    "strategy": [{ "id": "done", "judge": "quick",
-                   "ask": { "outcomes": ["yes", "no"], "evidence": ["summary", "todos"], "instructions": "Is {args} done and checked?" } }],
-    "then": [{ "if": { "done": "yes" }, "end": "complete" },
-             { "if": { "done": "no" }, "message.append": { "parts": [{ "text": "Not done yet: {args}" }], "delivery": "wake" } }]
-  }]
+  "rules": [
+    {
+      "on": "response.finished",
+      "judges": { "quick": { "tier": "system-one", "confidence": 0.7 } },
+      "strategy": [
+        {
+          "id": "done",
+          "judge": "quick",
+          "ask": {
+            "outcomes": ["yes", "no"],
+            "evidence": ["summary", "todos"],
+            "instructions": "Is {args} done and checked?"
+          }
+        }
+      ],
+      "then": [
+        { "if": { "done": "yes" }, "end": "complete" },
+        {
+          "if": { "done": "no" },
+          "message.append": {
+            "parts": [{ "text": "Not done yet: {args}" }],
+            "delivery": "wake"
+          }
+        }
+      ]
+    }
+  ]
 }
 ```
 
@@ -1191,13 +1352,13 @@ shape, and the first-party `rulebooks` plugin runs it:
 
 ## Proofs
 
-| What | How |
-|---|---|
-| `after` and rounds in core | Kani: a step waits for its needs, decisions follow the rule, a run never stalls and finishes within one round per step |
-| The runtime | Miri: deadlines, cancellation, late results, overflow and capacity |
-| Shipped facts | Exhaustive tests over small inputs, run in the QuickJS sandbox: for example, `select` with `top` and `min` keeps at most `top` candidates, each at or above `min`, best first, for every input up to 4 candidates |
-| Confidence | Kani: for every probability in thousandths and every valid confidence, an answer settles to exactly one outcome, edges inclusive |
-| TypeScript checks before actions | gdp-ts: an adapter carries out an action only with a `RevisionIsCurrent<Session, Revision>` proof, and an action the host gates only with a `HostAllowed<Action>` proof. Its lint preset rejects forged proofs |
+| What                             | How                                                                                                                                                                                                               |
+| -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `after` and rounds in core       | Kani: a step waits for its needs, decisions follow the rule, a run never stalls and finishes within one round per step                                                                                            |
+| The runtime                      | Miri: deadlines, cancellation, late results, overflow and capacity                                                                                                                                                |
+| Shipped facts                    | Exhaustive tests over small inputs, run in the QuickJS sandbox: for example, `select` with `top` and `min` keeps at most `top` candidates, each at or above `min`, best first, for every input up to 4 candidates |
+| Confidence                       | Kani: for every probability in thousandths and every valid confidence, an answer settles to exactly one outcome, edges inclusive                                                                                  |
+| TypeScript checks before actions | gdp-ts: an adapter carries out an action only with a `RevisionIsCurrent<Session, Revision>` proof, and an action the host gates only with a `HostAllowed<Action>` proof. Its lint preset rejects forged proofs    |
 
 ## Access, delivery and failure rules
 
@@ -1346,11 +1507,11 @@ compiled to WASM.
 
 Each slice adds the tab for its feature:
 
-| Tab | Slice | Contents |
-|---|---|---|
-| Question | 1 | A question's outcomes, probabilities and confidence; the settled outcome, `unsure` or `failed` |
-| Strategy | 3 | A strategy editor with an example for each row of the [strategies table](#strategies); validation errors; each round's steps, with their outcome or failure picked by hand; the event timeline and verdict; the strategy in the URL |
-| Facts | 4 | A fact's input and its answer, with its memory and time used |
+| Tab      | Slice | Contents                                                                                                                                                                                                                            |
+| -------- | ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Question | 1     | A question's outcomes, probabilities and confidence; the settled outcome, `unsure` or `failed`                                                                                                                                      |
+| Strategy | 3     | A strategy editor with an example for each row of the [strategies table](#strategies); validation errors; each round's steps, with their outcome or failure picked by hand; the event timeline and verdict; the strategy in the URL |
+| Facts    | 4     | A fact's input and its answer, with its memory and time used                                                                                                                                                                        |
 
 The page calls the same Rust code as the daemon, compiled to WASM. The Vite
 development loop rebuilds Rust changes in `playground/wasm/` and `crates/`,
@@ -1403,13 +1564,13 @@ scripts/         # Packaging, Homebrew formula, smoke tests
 .github/workflows/
 ```
 
-| Rule | Consequence |
-|---|---|
-| `crates/` never embeds content | A build without `distribution/` still runs, with nothing in it |
-| One loader for every source | The shipped `select.js` takes exactly the path a user's `notes.js` takes |
-| Precedence | Shipped, then user; project content is limited (pure facts, no models, System Two only if allowed) |
-| Install | Packaging copies `distribution/` to `~/.local/share/chauffeur/`, so the product and its content release separately |
-| Plugins | `plugins/` holds the first-party plugins. Each is its own package on the SDK, registered in `plugins.json` like anyone else's; nothing in `crates/` depends on them |
+| Rule                           | Consequence                                                                                                                                                         |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `crates/` never embeds content | A build without `distribution/` still runs, with nothing in it                                                                                                      |
+| One loader for every source    | The shipped `select.js` takes exactly the path a user's `notes.js` takes                                                                                            |
+| Precedence                     | Shipped, then user; project content is limited (pure facts, no models, System Two only if allowed)                                                                  |
+| Install                        | Packaging copies `distribution/` to `~/.local/share/chauffeur/`, so the product and its content release separately                                                  |
+| Plugins                        | `plugins/` holds the first-party plugins. Each is its own package on the SDK, registered in `plugins.json` like anyone else's; nothing in `crates/` depends on them |
 
 Each crate arrives with the first slice that needs it. `o11y` waits until the
 core event schema is stable.
@@ -1454,18 +1615,18 @@ sequenceDiagram
     A->>O: text on the next tool result
 ```
 
-| File | Contents |
-|---|---|
-| `crates/core/src/{plan/,judge.rs,event.rs}` | Steps asked in one round, `Outcome`, `Judge`, `Panel`, `Plan::run`, events and `Verdict`; no dependencies |
-| `crates/protocol/src/{rule/,when.rs,then.rs,event.rs}` | Rule files (`on`, `when`, `judges`, `asks`, `strategy`, `then`, `cooldown_seconds`), checked when they load; the `when` filter; `then` entries by outcome, `unsure` or `failed`; harness events and the evidence blocks they give, such as `tool_call` |
-| `crates/judges/src/{question/,confidence/,config/,format.rs,placeholder/}` | Questions and results; confidence and `level`; `models.json` from shipped and user configuration; the `Format` interface; the `placeholder` format |
-| `crates/judges/src/tiers/` | The four tiers; each tier's models in fallback order as one core `Judge`, with the model that answered. `system_one/` holds the `systemone` format with `noul`, behind the default `systemone` feature so the playground builds without HTTP: authentication, timeout, bounded response, 429 and 529. `system_two/`, `facts/` and `person/` gain their formats in slices 11, 4 and 5 |
-| `crates/runtime/src/{run.rs,redact/,log.rs}` | Runs a rule on a worker thread within its deadline; redacts evidence before every model call, with v1's rules and cases and `distribution/safety/redaction.json`; a bounded log |
-| `crates/daemon/src/{paths,state,rpc,socket}.rs`, `crates/daemon/src/route/` | Socket folder `0700`, JSON-RPC 2.0 lines up to 1 MiB, 64 connections; loads shipped and user models, redaction and rules and reloads them on change; routes an event to the rules that hook it, concurrently, with each rule's cooldown per session. Methods `chauffeur.emit`, `chauffeur.events` and `chauffeur.status`; the decider methods follow the harness package's contract |
-| `crates/cli/src/main.rs` | `chauffeur daemon`, `version`, `emit`, `events` and `status`; the installation's name is the executable's, so `chauffeur-next` keeps its own socket and configuration; a second daemon that finds the socket taken exits |
-| `distribution/models/jev.json`, `distribution/rules/conventional-commits.json`, `distribution/safety/redaction.json` | Jev as the default System One; the nudge; the known credential prefixes |
-| `scripts/{package,homebrew,smoke}.mjs`, `.github/workflows/{check,release}.yml` | rc packaging and the `chauffeur-next` formula, with its Homebrew service; `release.yml` publishes a prerelease and the formula on each rc tag |
-| `playground/src/features/question.ts` | The Question tab |
+| File                                                                                                                 | Contents                                                                                                                                                                                                                                                                                                                                                                             |
+| -------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `crates/core/src/{plan/,judge.rs,event.rs}`                                                                          | Steps asked in one round, `Outcome`, `Judge`, `Panel`, `Plan::run`, events and `Verdict`; no dependencies                                                                                                                                                                                                                                                                            |
+| `crates/protocol/src/{rule/,when.rs,then.rs,event.rs}`                                                               | Rule files (`on`, `when`, `judges`, `asks`, `strategy`, `then`, `cooldown_seconds`), checked when they load; the `when` filter; `then` entries by outcome, `unsure` or `failed`; harness events and the evidence blocks they give, such as `tool_call`                                                                                                                               |
+| `crates/judges/src/{question/,confidence/,config/,format.rs,placeholder/}`                                           | Questions and results; confidence and `level`; `models.json` from shipped and user configuration; the `Format` interface; the `placeholder` format                                                                                                                                                                                                                                   |
+| `crates/judges/src/tiers/`                                                                                           | The four tiers; each tier's models in fallback order as one core `Judge`, with the model that answered. `system_one/` holds the `systemone` format with `noul`, behind the default `systemone` feature so the playground builds without HTTP: authentication, timeout, bounded response, 429 and 529. `system_two/`, `facts/` and `person/` gain their formats in slices 11, 4 and 5 |
+| `crates/runtime/src/{run.rs,redact/,log.rs}`                                                                         | Runs a rule on a worker thread within its deadline; redacts evidence before every model call, with v1's rules and cases and `distribution/safety/redaction.json`; a bounded log                                                                                                                                                                                                      |
+| `crates/daemon/src/{paths,state,rpc,socket}.rs`, `crates/daemon/src/route/`                                          | Socket folder `0700`, JSON-RPC 2.0 lines up to 1 MiB, 64 connections; loads shipped and user models, redaction and rules and reloads them on change; routes an event to the rules that hook it, concurrently, with each rule's cooldown per session. Methods `chauffeur.emit`, `chauffeur.events` and `chauffeur.status`; the decider methods follow the harness package's contract  |
+| `crates/cli/src/main.rs`                                                                                             | `chauffeur daemon`, `version`, `emit`, `events` and `status`; the installation's name is the executable's, so `chauffeur-next` keeps its own socket and configuration; a second daemon that finds the socket taken exits                                                                                                                                                             |
+| `distribution/models/jev.json`, `distribution/rules/conventional-commits.json`, `distribution/safety/redaction.json` | Jev as the default System One; the nudge; the known credential prefixes                                                                                                                                                                                                                                                                                                              |
+| `scripts/{package,homebrew,smoke}.mjs`, `.github/workflows/{check,release}.yml`                                      | rc packaging and the `chauffeur-next` formula, with its Homebrew service; `release.yml` publishes a prerelease and the formula on each rc tag                                                                                                                                                                                                                                        |
+| `playground/src/features/question.ts`                                                                                | The Question tab                                                                                                                                                                                                                                                                                                                                                                     |
 
 Verification:
 
@@ -1487,7 +1648,7 @@ Verification:
   closed connection fail safely; an edited rule applies to the next event; a
   rule naming an unknown judge is refused at load, with its path.
 - OpenCode, for real: `fixed stuff` gets the nudge, `feat(parser): handle
-  empty input` gets nothing, and with Jev unreachable nothing is sent and the
+empty input` gets nothing, and with Jev unreachable nothing is sent and the
   event log shows `failed: unavailable`; `ls` and `cargo test` make no Jev
   call; two OpenCode windows share one daemon.
 - Release: packaging dry run and smoke test on Linux and macOS; the rc's
@@ -1558,15 +1719,15 @@ directory: `$XDG_RUNTIME_DIR`, or `$TMPDIR` on macOS.
 
 #### Files
 
-| Path | Contents |
-|---|---|
-| `crates/protocol/src/{request,intent,limits}.rs`, `schema/navigate.json`, `fixtures/` | Requests, intents and limits; the one `navigate` schema, and the valid and invalid requests every binding's tests replay |
-| `crates/runtime/src/admission.rs` | One permit per navigation, held from admission through delivery; per-source and global capacity |
-| `crates/runtime/src/run.rs` | A bounded worker pool; the deadline and cancellation checked before each round; late results discarded |
-| `crates/daemon/src/{socket,rules}.rs` | Several calls per connection, `$/cancelRequest`, cancel on close, `--models FILE` for tests; the integration and project rule sources, refusing System Two in a project rule the user has not allowed and any model or placeholder entry from a project; matching rules run concurrently |
-| `crates/cli/src/navigate.rs` | `chauffeur navigate`: one request on stdin, the JSON-RPC messages on stdout; exit 0 with intents or a verdict, 1 when rejected, 2 when the daemon is unavailable |
-| `packages/chauffeur/src/{client,judge}/` | `@fdcn/chauffeur/client` and `/judge`: `navigate` over the socket, closing on abort; `ask`, `judge`, `noul`, and results typed from their questions |
-| sourcefed: its daemon, installer and `adapters/opencode/bridge.ts` | `navigate` before queuing; installing `sourcefed/triage`; removing `chauffeur.gate` |
+| Path                                                                                  | Contents                                                                                                                                                                                                                                                                                 |
+| ------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `crates/protocol/src/{request,intent,limits}.rs`, `schema/navigate.json`, `fixtures/` | Requests, intents and limits; the one `navigate` schema, and the valid and invalid requests every binding's tests replay                                                                                                                                                                 |
+| `crates/runtime/src/admission.rs`                                                     | One permit per navigation, held from admission through delivery; per-source and global capacity                                                                                                                                                                                          |
+| `crates/runtime/src/run.rs`                                                           | A bounded worker pool; the deadline and cancellation checked before each round; late results discarded                                                                                                                                                                                   |
+| `crates/daemon/src/{socket,rules}.rs`                                                 | Several calls per connection, `$/cancelRequest`, cancel on close, `--models FILE` for tests; the integration and project rule sources, refusing System Two in a project rule the user has not allowed and any model or placeholder entry from a project; matching rules run concurrently |
+| `crates/cli/src/navigate.rs`                                                          | `chauffeur navigate`: one request on stdin, the JSON-RPC messages on stdout; exit 0 with intents or a verdict, 1 when rejected, 2 when the daemon is unavailable                                                                                                                         |
+| `packages/chauffeur/src/{client,judge}/`                                              | `@fdcn/chauffeur/client` and `/judge`: `navigate` over the socket, closing on abort; `ask`, `judge`, `noul`, and results typed from their questions                                                                                                                                      |
+| sourcefed: its daemon, installer and `adapters/opencode/bridge.ts`                    | `navigate` before queuing; installing `sourcefed/triage`; removing `chauffeur.gate`                                                                                                                                                                                                      |
 
 #### Verification
 
@@ -1604,18 +1765,18 @@ the earlier steps it waits for and the outcomes it needs, as in the
 `student` format, and a tier that rests a failed model for 60 seconds before
 asking it again.
 
-| File | Contents |
-|---|---|
-| `crates/core/src/{after,state}.rs` | The `after` rule, validation, and the round API (`questions`, `answer`, `fail`) |
-| `crates/core/src/proofs.rs`, `crates/core/tests/scenarios.rs` | Kani harnesses and scenario tests |
-| `crates/protocol/src/lower.rs` | Lowering named judges, asks and `after` to `chauffeur_core::Plan` |
-| `crates/judges/src/tiers/system_one/` | `choice` with every outcome's probability, and GLiDE's level-valued `score` |
-| `distribution/models/{subq,glide}.json` | SubQ and GLiDE beside Jev |
-| `crates/judges/src/evidence/` | Text and image blocks; an image goes only to a format that accepts images, and only when a step names it |
-| `crates/judges/src/tiers/system_one/student.rs` | The `student` format for jev-distill's loopback server |
-| `crates/judges/src/tiers/fallback.rs` | A model that fails rests for 60 seconds, then is tried again |
-| `crates/cli/src/strategy.rs` | `chauffeur strategy show <rule>` and `--file`: the tree, rounds, resolved models, `after`, confidence, and the maximum rounds and model calls |
-| `playground/src/features/strategy.ts` | The Strategy tab |
+| File                                                          | Contents                                                                                                                                      |
+| ------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `crates/core/src/{after,state}.rs`                            | The `after` rule, validation, and the round API (`questions`, `answer`, `fail`)                                                               |
+| `crates/core/src/proofs.rs`, `crates/core/tests/scenarios.rs` | Kani harnesses and scenario tests                                                                                                             |
+| `crates/protocol/src/lower.rs`                                | Lowering named judges, asks and `after` to `chauffeur_core::Plan`                                                                             |
+| `crates/judges/src/tiers/system_one/`                         | `choice` with every outcome's probability, and GLiDE's level-valued `score`                                                                   |
+| `distribution/models/{subq,glide}.json`                       | SubQ and GLiDE beside Jev                                                                                                                     |
+| `crates/judges/src/evidence/`                                 | Text and image blocks; an image goes only to a format that accepts images, and only when a step names it                                      |
+| `crates/judges/src/tiers/system_one/student.rs`               | The `student` format for jev-distill's loopback server                                                                                        |
+| `crates/judges/src/tiers/fallback.rs`                         | A model that fails rests for 60 seconds, then is tried again                                                                                  |
+| `crates/cli/src/strategy.rs`                                  | `chauffeur strategy show <rule>` and `--file`: the tree, rounds, resolved models, `after`, confidence, and the maximum rounds and model calls |
+| `playground/src/features/strategy.ts`                         | The Strategy tab                                                                                                                              |
 
 Scenario tests:
 
@@ -1635,15 +1796,15 @@ outcome enum. The `after` rule and round state are written over step indices
 and outcome enums, with no strings or maps, so CBMC explores them in seconds;
 the names and events around them stay in the code that calls them:
 
-| Harness | Property |
-|---|---|
-| `a_step_waits_until_every_need_has_finished` | No decision while a named step is `Pending` or `Asked` |
-| `a_decision_follows_the_rule` | `Run` exactly when every `all` need and, if any, one `any` need is met |
-| `a_skipped_step_meets_only_needs_without_when` | Skipped never matches a `when` |
-| `one_pass_settles_every_decidable_step` | Skips propagate within one pass |
-| `a_pass_only_moves_pending_steps_forward` | Each step is asked at most once |
-| `a_pass_with_no_open_round_asks_or_finishes` | A run never stalls, so it finishes within one round per step |
-| `strategy_show_bounds_every_lowered_plan` | A lowered plan has at most the rounds `strategy show` reports |
+| Harness                                        | Property                                                               |
+| ---------------------------------------------- | ---------------------------------------------------------------------- |
+| `a_step_waits_until_every_need_has_finished`   | No decision while a named step is `Pending` or `Asked`                 |
+| `a_decision_follows_the_rule`                  | `Run` exactly when every `all` need and, if any, one `any` need is met |
+| `a_skipped_step_meets_only_needs_without_when` | Skipped never matches a `when`                                         |
+| `one_pass_settles_every_decidable_step`        | Skips propagate within one pass                                        |
+| `a_pass_only_moves_pending_steps_forward`      | Each step is asked at most once                                        |
+| `a_pass_with_no_open_round_asks_or_finishes`   | A run never stalls, so it finishes within one round per step           |
+| `strategy_show_bounds_every_lowered_plan`      | A lowered plan has at most the rounds `strategy show` reports          |
 
 Verification: `main`'s `judges/{subq,glide}/tests/wire.rs` replayed over
 loopback; `"model": "glide"` without GLiDE configured runs on the tier's
@@ -1662,13 +1823,13 @@ in `~/.config/chauffeur/rules/opencode-history/`, its code reduced to one
 
 This slice adds facts, `for_each` over candidates, and `select`.
 
-| File | Contents |
-|---|---|
-| `crates/facts/src/{lib,sandbox,host,limits}.rs` | Fact modules from the three sources; QuickJS with memory caps and deadline interrupts; the read-only host modules for shipped and user facts |
-| `crates/judges/src/tiers/facts/` | The `facts` format |
-| `distribution/facts/{match,select}.js` and their tests | The two shipped facts |
-| `crates/protocol/src/lower.rs` | Candidates, `for_each` copies, wildcards and `[item]` |
-| `playground/src/features/facts.ts` | The Facts tab |
+| File                                                   | Contents                                                                                                                                     |
+| ------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `crates/facts/src/{lib,sandbox,host,limits}.rs`        | Fact modules from the three sources; QuickJS with memory caps and deadline interrupts; the read-only host modules for shipped and user facts |
+| `crates/judges/src/tiers/facts/`                       | The `facts` format                                                                                                                           |
+| `distribution/facts/{match,select}.js` and their tests | The two shipped facts                                                                                                                        |
+| `crates/protocol/src/lower.rs`                         | Candidates, `for_each` copies, wildcards and `[item]`                                                                                        |
+| `playground/src/features/facts.ts`                     | The Facts tab                                                                                                                                |
 
 Verification:
 
@@ -1701,18 +1862,18 @@ fields v1's rules need: `when`'s `input.excludes`, `result`, `agent`,
 `reason`, permission and `history` filters, the evidence blocks each event
 gives, `priority` and `once`.
 
-| File | Contents |
-|---|---|
-| `crates/daemon/src/plugins.rs` | `plugins.json`; the stdio plugin protocol; discovery cache, lazy and eager start, idle stop, restart with backoff, reload on file change |
-| `crates/daemon/src/bus.rs` | `ctx.on` and `ctx.before` routing, `before` budgets and `onTimeout`, retries by kind, the stale-action check |
-| `crates/judges/src/tiers/person/` | The `person` format: a question shown to the user through the harness |
-| `packages/chauffeur/src/{plugin,harness}/` | `@fdcn/chauffeur/plugin` and `/harness` |
-| `plugins/guard/` | The backstop and `confirm` patterns, the irreversible-harm question and its learned list |
-| `plugins/monitors/` | sourcefed monitors for the session's own PRs, Jira issues and Slack threads |
-| `crates/protocol/src/{when,then}.rs` | The `when` filters, `priority`, `once`, and `permission.reply` with the most restrictive reply winning |
-| `distribution/rules/`, `distribution/rules/permission/` | v1's steering, turn-end and permission rules, ported |
-| `crates/runtime/src/redact/learned.rs` | Learned credential shapes, kept in Chauffeur's state |
-| `crates/cli/src/{events,status}.rs` | `chauffeur events --follow`; `chauffeur status --project` |
+| File                                                    | Contents                                                                                                                                 |
+| ------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `crates/daemon/src/plugins.rs`                          | `plugins.json`; the stdio plugin protocol; discovery cache, lazy and eager start, idle stop, restart with backoff, reload on file change |
+| `crates/daemon/src/bus.rs`                              | `ctx.on` and `ctx.before` routing, `before` budgets and `onTimeout`, retries by kind, the stale-action check                             |
+| `crates/judges/src/tiers/person/`                       | The `person` format: a question shown to the user through the harness                                                                    |
+| `packages/chauffeur/src/{plugin,harness}/`              | `@fdcn/chauffeur/plugin` and `/harness`                                                                                                  |
+| `plugins/guard/`                                        | The backstop and `confirm` patterns, the irreversible-harm question and its learned list                                                 |
+| `plugins/monitors/`                                     | sourcefed monitors for the session's own PRs, Jira issues and Slack threads                                                              |
+| `crates/protocol/src/{when,then}.rs`                    | The `when` filters, `priority`, `once`, and `permission.reply` with the most restrictive reply winning                                   |
+| `distribution/rules/`, `distribution/rules/permission/` | v1's steering, turn-end and permission rules, ported                                                                                     |
+| `crates/runtime/src/redact/learned.rs`                  | Learned credential shapes, kept in Chauffeur's state                                                                                     |
+| `crates/cli/src/{events,status}.rs`                     | `chauffeur events --follow`; `chauffeur status --project`                                                                                |
 
 A spike decides whether first-party plugins ship compiled with scriptc. It
 compiles `guard`, and reports which SDK and Node APIs scriptc rejects, start
@@ -1735,12 +1896,12 @@ The tools plugin hides the tools a task will not use, and the agent asks for
 what it lacks with `ask_chauffeur`, as in [Skills](../migration/skills.md),
 [Tools](../migration/tools.md) and [`ask_chauffeur`](../migration/ask-chauffeur.md).
 
-| File | Contents |
-|---|---|
-| `plugins/skills/` | Exposure, drift hand-over, remote sources with fetches inside the plugin (audit A4), and the screen-then-review strategy, using `prompt.sent` edits and the `skill` registry |
-| `plugins/tools/` | Hiding and revealing tool groups, Code Mode notes, shorter built-in descriptions, missing-tool recovery |
-| `plugins/ask-chauffeur/` | The `ask_chauffeur` tool, through the tool registry |
-| `distribution/rules/{jira,slack,twitter}-via-browser.json`, `distribution/skills/handoff/` | The steers that hand over a skill, and the skills they hand over |
+| File                                                                                       | Contents                                                                                                                                                                     |
+| ------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `plugins/skills/`                                                                          | Exposure, drift hand-over, remote sources with fetches inside the plugin (audit A4), and the screen-then-review strategy, using `prompt.sent` edits and the `skill` registry |
+| `plugins/tools/`                                                                           | Hiding and revealing tool groups, Code Mode notes, shorter built-in descriptions, missing-tool recovery                                                                      |
+| `plugins/ask-chauffeur/`                                                                   | The `ask_chauffeur` tool, through the tool registry                                                                                                                          |
+| `distribution/rules/{jira,slack,twitter}-via-browser.json`, `distribution/skills/handoff/` | The steers that hand over a skill, and the skills they hand over                                                                                                             |
 
 The review step runs on System Two from slice 11. Until then, a skill the
 screen leaves `unsure` is withheld.
@@ -1758,10 +1919,10 @@ back once the limit clears, as in
 [Context renewal and warming](../migration/renewal-and-warming.md) and
 [Model router](../migration/model-router.md).
 
-| File | Contents |
-|---|---|
-| `plugins/{context-renewal,warming}/` | The two plugins, using the session events and the `session.compact`, `session.warm` and `session.update` actions the fidelity table marks as supported |
-| `plugins/model-router/`, `distribution/providers/` | Failover and switch-back, and each provider's tier table |
+| File                                               | Contents                                                                                                                                               |
+| -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `plugins/{context-renewal,warming}/`               | The two plugins, using the session events and the `session.compact`, `session.warm` and `session.update` actions the fidelity table marks as supported |
+| `plugins/model-router/`, `distribution/providers/` | Failover and switch-back, and each provider's tier table                                                                                               |
 
 Verification: `main`'s `routing.rs`, `renewal.test.ts`, `warming.test.ts`
 and model-router tests pass; in a real OpenCode, a session resumed after the cache expires is
@@ -1855,26 +2016,26 @@ use.
 
 ## Decisions
 
-| Concern | Decision |
-|---|---|
-| Wire protocol | JSON-RPC 2.0 over the Unix socket and stdio |
-| First-party plugins | `plugins/` in this repository, each its own package on the SDK |
-| Adapters | Adopted from the shared harness package, designed separately; Chauffeur registers as a decider and reads the package's event, action and fidelity data. Slice 1's OpenCode part and its rc wait for the package |
-| Chauffeur for other services | Any program asks through `navigate`, with no harness: sourcefed, Workhorse, neo, opencode-history and scripts. Each passes through when Chauffeur is unavailable |
-| Slices | Each slice is one feature a person uses, built end to end and released as an rc; the pieces arrive with the first feature that needs them. Cutover waits for rulebooks |
-| rc beside v1 | The `chauffeur-next` Homebrew formula installs `chauffeur-next`, with its own socket and `~/.config/chauffeur-next/`, so v1 keeps running untouched until cutover |
-| `bm25` and `embedding` facts | Ship with the first feature that uses them |
-| Jev's `score` type | `choice` for every question that is not yes/no; slice 3 measures `score` on labelled scale cases, and a question gains a hint only if `score` is clearly better |
-| Production dependencies | Core stays dependency-free. Approved: `serde` and `serde_json` (protocol and every config file), `thiserror` (typed errors outside core), `rquickjs` and bundled `rusqlite` (facts and the `chauffeur:sqlite` host module), `notify` (reloading rules, facts and models), `ureq` with rustls (model formats, from slice 1), `tracing` and `jiff` (o11y events and audit timestamps), `clap` and `color-eyre` (the CLI binary only) |
-| Development tools | `cargo-nextest` runs tests (doctests stay on `cargo test --doc`); `cargo-mutants` checks that tests catch changed logic in core, confidence and lowering; `cargo-shear` catches unused dependencies; `criterion` benchmarks the socket hop, confidence, a fact call and lowering; `bacon.toml` holds shared watch jobs |
-| blaze | Builds and tests in the local loop, through `bacon`. Clippy, CI, Kani, Miri and `cargo-mutants` run on cargo with the pinned toolchain, which stays the final word: blaze builds with its own nightly and its borrow checker is incomplete |
-| scriptc | A slice 5 spike for first-party plugins; the engine stays Rust |
+| Concern                      | Decision                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Wire protocol                | JSON-RPC 2.0 over the Unix socket and stdio                                                                                                                                                                                                                                                                                                                                                                                        |
+| First-party plugins          | `plugins/` in this repository, each its own package on the SDK                                                                                                                                                                                                                                                                                                                                                                     |
+| Adapters                     | Adopted from the shared harness package, designed separately; Chauffeur registers as a decider and reads the package's event, action and fidelity data. Slice 1's OpenCode part and its rc wait for the package                                                                                                                                                                                                                    |
+| Chauffeur for other services | Any program asks through `navigate`, with no harness: sourcefed, Workhorse, neo, opencode-history and scripts. Each passes through when Chauffeur is unavailable                                                                                                                                                                                                                                                                   |
+| Slices                       | Each slice is one feature a person uses, built end to end and released as an rc; the pieces arrive with the first feature that needs them. Cutover waits for rulebooks                                                                                                                                                                                                                                                             |
+| rc beside v1                 | The `chauffeur-next` Homebrew formula installs `chauffeur-next`, with its own socket and `~/.config/chauffeur-next/`, so v1 keeps running untouched until cutover                                                                                                                                                                                                                                                                  |
+| `bm25` and `embedding` facts | Ship with the first feature that uses them                                                                                                                                                                                                                                                                                                                                                                                         |
+| Jev's `score` type           | `choice` for every question that is not yes/no; slice 3 measures `score` on labelled scale cases, and a question gains a hint only if `score` is clearly better                                                                                                                                                                                                                                                                    |
+| Production dependencies      | Core stays dependency-free. Approved: `serde` and `serde_json` (protocol and every config file), `thiserror` (typed errors outside core), `rquickjs` and bundled `rusqlite` (facts and the `chauffeur:sqlite` host module), `notify` (reloading rules, facts and models), `ureq` with rustls (model formats, from slice 1), `tracing` and `jiff` (o11y events and audit timestamps), `clap` and `color-eyre` (the CLI binary only) |
+| Development tools            | `cargo-nextest` runs tests (doctests stay on `cargo test --doc`); `cargo-mutants` checks that tests catch changed logic in core, confidence and lowering; `cargo-shear` catches unused dependencies; `criterion` benchmarks the socket hop, confidence, a fact call and lowering; `bacon.toml` holds shared watch jobs                                                                                                             |
+| blaze                        | Builds and tests in the local loop, through `bacon`. Clippy, CI, Kani, Miri and `cargo-mutants` run on cargo with the pinned toolchain, which stays the final word: blaze builds with its own nightly and its borrow checker is incomplete                                                                                                                                                                                         |
+| scriptc                      | A slice 5 spike for first-party plugins; the engine stays Rust                                                                                                                                                                                                                                                                                                                                                                     |
 
 ## Open questions
 
-| Question | Recommended default |
-|---|---|
-| The rulebooks design | Discuss before slice 12; the [sketch](#rulebooks) is the starting point |
-| How the daemon starts when no service runs and only the harness package connects | Settle with the harness package's decider registration |
+| Question                                                                                                                            | Recommended default                                                                              |
+| ----------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| The rulebooks design                                                                                                                | Discuss before slice 12; the [sketch](#rulebooks) is the starting point                          |
+| How the daemon starts when no service runs and only the harness package connects                                                    | Settle with the harness package's decider registration                                           |
 | The harness package carries `request`, `activity` and `history` with each event, and `session.update` with a session's hidden tools | Ask for both in the package's contract before slice 5; v1's rules and the tools plugin need them |
-| Whether jev-distill students may be trained on Jev's labels, given TypeSafe's agreement §2.3(b) | Settle in jev-distill before Chauffeur ships a student in a rule |
+| Whether jev-distill students may be trained on Jev's labels, given TypeSafe's agreement §2.3(b)                                     | Settle in jev-distill before Chauffeur ships a student in a rule                                 |

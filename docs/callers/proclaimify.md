@@ -17,14 +17,19 @@ GLiDE, by changing one line.
   "on": "proclaimify/key",
   "judges": { "keys": { "tier": "system-one", "confidence": 0.5 } },
   "strategy": [
-    { "id": "root", "judge": "keys",
-      "ask": { "outcomes": [
-                 { "value": "A", "description": "A major key" },
-                 { "value": "Bb", "description": "B flat major key" }
-                 /* … the other 15 keys */
-               ],
-               "evidence": ["stanzas"],
-               "instructions": "The evidence is JSON: each key names a stanza, and each array holds the chord string for each line. Which note is the tonic of the whole song as a major key? …" } }
+    {
+      "id": "root",
+      "judge": "keys",
+      "ask": {
+        "outcomes": [
+          { "value": "A", "description": "A major key" },
+          { "value": "Bb", "description": "B flat major key" }
+          /* … the other 15 keys */
+        ],
+        "evidence": ["stanzas"],
+        "instructions": "The evidence is JSON: each key names a stanza, and each array holds the chord string for each line. Which note is the tonic of the whole song as a major key? …"
+      }
+    }
   ],
   "then": [{ "key": "root" }]
 }
@@ -42,7 +47,7 @@ it does when Jev fails.
 
 ## What it needs
 
-| Piece | Slice |
-|---|---|
-| `navigate` and `chauffeur navigate` | 2 |
-| `choice` with every outcome's probability | 3 |
+| Piece                                     | Slice |
+| ----------------------------------------- | ----- |
+| `navigate` and `chauffeur navigate`       | 2     |
+| `choice` with every outcome's probability | 3     |

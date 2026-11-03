@@ -29,10 +29,10 @@ The interface is the same for every caller:
 - **Plugins hook callers' events too.** `ctx.on("recall", …)` works the same
   as `ctx.on("tool.after", …)`, with no harness involved.
 
-| Project | What it asks | Slice | Page |
-|---|---|---|---|
-| sourcefed | Does this integration event need the agent? | 2 | [sourcefed](sourcefed.md) |
-| neo | Does the iPhone screen show what the next irreversible tap expects? | 3 | [neo](neo.md) |
-| Proclaimify | Which key is this song in? | 3 | [Proclaimify](proclaimify.md) |
-| jev-distill | Serves its students as a System One model | 3 | [jev-distill](jev-distill.md) |
-| opencode-history | Which recalled passages help this message? | 4 | [opencode-history](opencode-history.md) |
+| Project          | What it asks                                                        | Slice | Page                                    |
+| ---------------- | ------------------------------------------------------------------- | ----- | --------------------------------------- |
+| sourcefed        | Does this integration event need the agent?                         | 2     | [sourcefed](sourcefed.md)               |
+| neo              | Does the iPhone screen show what the next irreversible tap expects? | 3     | [neo](neo.md)                           |
+| Proclaimify      | Which key is this song in?                                          | 3     | [Proclaimify](proclaimify.md)           |
+| jev-distill      | Serves its students as a System One model                           | 3     | [jev-distill](jev-distill.md)           |
+| opencode-history | Which recalled passages help this message?                          | 4     | [opencode-history](opencode-history.md) |

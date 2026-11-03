@@ -2,12 +2,12 @@
 
 Packaging and the Homebrew formula, with no dependencies beyond Node.
 
-| File | Holds |
-|---|---|
-| `package.mjs` | The workspace's version; one tarball per target with `bin/chauffeur` and `share/chauffeur/` (`distribution/` and the license); `SHA256SUMS` |
-| `homebrew.mjs` | Renders `Formula/chauffeur-next.rb` from a release candidate's `SHA256SUMS` |
-| `smoke.mjs` | Installs a tarball as `chauffeur` and as `chauffeur-next`, then runs each: `version`, the daemon, the shipped rule, a nudge through `emit` |
-| `release.test.mjs` | `node --test scripts/*.test.mjs`: tarball layout, checksums, the formula's URLs, checksums and names |
+| File               | Holds                                                                                                                                       |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `package.mjs`      | The workspace's version; one tarball per target with `bin/chauffeur` and `share/chauffeur/` (`distribution/` and the license); `SHA256SUMS` |
+| `homebrew.mjs`     | Renders `Formula/chauffeur-next.rb` from a release candidate's `SHA256SUMS`                                                                 |
+| `smoke.mjs`        | Installs a tarball as `chauffeur` and as `chauffeur-next`, then runs each: `version`, the daemon, the shipped rule, a nudge through `emit`  |
+| `release.test.mjs` | `node --test scripts/*.test.mjs`: tarball layout, checksums, the formula's URLs, checksums and names                                        |
 
 ## Cutting a release candidate
 
@@ -25,12 +25,12 @@ flowchart LR
     Tap --> Push["push to StevenJPx2/homebrew-taps"]
 ```
 
-| Target | Runner | Rust target |
-|---|---|---|
-| `darwin-arm64` | `macos-latest` | `aarch64-apple-darwin` |
-| `darwin-x64` | `macos-15-intel` | `x86_64-apple-darwin` |
-| `linux-arm64` | `ubuntu-24.04-arm` | `aarch64-unknown-linux-musl` |
-| `linux-x64` | `ubuntu-latest` | `x86_64-unknown-linux-musl` |
+| Target         | Runner             | Rust target                  |
+| -------------- | ------------------ | ---------------------------- |
+| `darwin-arm64` | `macos-latest`     | `aarch64-apple-darwin`       |
+| `darwin-x64`   | `macos-15-intel`   | `x86_64-apple-darwin`        |
+| `linux-arm64`  | `ubuntu-24.04-arm` | `aarch64-unknown-linux-musl` |
+| `linux-x64`    | `ubuntu-latest`    | `x86_64-unknown-linux-musl`  |
 
 - The build stops if the tag is not `v` and the workspace's version.
 - The tap job runs in the `release` environment, which only `v*-rc.*` tags

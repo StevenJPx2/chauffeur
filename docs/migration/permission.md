@@ -6,15 +6,15 @@ reads and writes of project files, and a safety backstop. In v2 the contracts
 and guards are rule files on `permission.asked`, and the backstop is the
 `guard` plugin. All of it lands in slice 5.
 
-| v1 | v2 | Kind |
-|---|---|---|
-| `workspace-edit-gate` | `distribution/rules/permission/edit.json` | Rule |
-| `workspace-shell-gate` | `distribution/rules/permission/shell.json` | Rule |
-| `external-directory-gate` | `distribution/rules/permission/outside-directory.json` | Rule |
-| `shell-file-write-guard` | `distribution/rules/permission/shell-writes.json` | Rule |
-| `shell-file-read-guard` | `distribution/rules/permission/shell-reads.json` | Rule |
-| `safety/backstop.json` patterns and `confirm` | `distribution/safety/backstop.json`, read by the `guard` plugin | Plugin |
-| The irreversible-harm question and `learned-backstop.json` | The `guard` plugin, with its learned list in its own state | Plugin |
+| v1                                                         | v2                                                              | Kind   |
+| ---------------------------------------------------------- | --------------------------------------------------------------- | ------ |
+| `workspace-edit-gate`                                      | `distribution/rules/permission/edit.json`                       | Rule   |
+| `workspace-shell-gate`                                     | `distribution/rules/permission/shell.json`                      | Rule   |
+| `external-directory-gate`                                  | `distribution/rules/permission/outside-directory.json`          | Rule   |
+| `shell-file-write-guard`                                   | `distribution/rules/permission/shell-writes.json`               | Rule   |
+| `shell-file-read-guard`                                    | `distribution/rules/permission/shell-reads.json`                | Rule   |
+| `safety/backstop.json` patterns and `confirm`              | `distribution/safety/backstop.json`, read by the `guard` plugin | Plugin |
+| The irreversible-harm question and `learned-backstop.json` | The `guard` plugin, with its learned list in its own state      | Plugin |
 
 ## How a permission is answered
 
@@ -33,12 +33,12 @@ and guards are rule files on `permission.asked`, and the backstop is the
 
 ## `when` on `permission.asked`
 
-| v1 | v2 |
-|---|---|
-| `match.actions` | `when.actions`: `edit`, `shell`, `external_directory`, … |
-| `match.host_decisions` (default `ask`) | `when.host` (default `["ask"]`) |
-| `required_evidence: ["resource_present"]` | `"resources": { "present": true }` |
-| `resource_within_workspace`, `resource_named_by_user` | `resources.within_workspace`, `resources.named_by_user` |
+| v1                                                    | v2                                                       |
+| ----------------------------------------------------- | -------------------------------------------------------- |
+| `match.actions`                                       | `when.actions`: `edit`, `shell`, `external_directory`, … |
+| `match.host_decisions` (default `ask`)                | `when.host` (default `["ask"]`)                          |
+| `required_evidence: ["resource_present"]`             | `"resources": { "present": true }`                       |
+| `resource_within_workspace`, `resource_named_by_user` | `resources.within_workspace`, `resources.named_by_user`  |
 
 ## A task-approval gate
 
@@ -47,17 +47,11 @@ v1, `skills/permission/workspace-edit-gate.json`, abridged:
 ```json
 {
   "match": {
-    "events": [
-      "permission.evaluate"
-    ],
-    "actions": [
-      "edit"
-    ]
+    "events": ["permission.evaluate"],
+    "actions": ["edit"]
   },
   "predicates": {
-    "required_evidence": [
-      "resource_present"
-    ]
+    "required_evidence": ["resource_present"]
   },
   "decision": {
     "id": "edit_serves_the_task",
@@ -98,12 +92,8 @@ v2, `distribution/rules/permission/edit.json`:
 {
   "on": "permission.asked",
   "when": {
-    "actions": [
-      "edit"
-    ],
-    "host": [
-      "ask"
-    ],
+    "actions": ["edit"],
+    "host": ["ask"],
     "resources": {
       "present": true
     }
@@ -119,15 +109,8 @@ v2, `distribution/rules/permission/edit.json`:
       "id": "serves",
       "judge": "quick",
       "ask": {
-        "outcomes": [
-          "yes",
-          "no"
-        ],
-        "evidence": [
-          "permission",
-          "request",
-          "activity"
-        ],
+        "outcomes": ["yes", "no"],
+        "evidence": ["permission", "request", "activity"],
         "instructions": "OpenCode would ask the user before this edit. Is changing this exact file clearly part of carrying out the user's stated task? …"
       }
     }
@@ -186,13 +169,8 @@ does anything. v2, `distribution/rules/permission/shell-writes.json`:
 {
   "on": "permission.asked",
   "when": {
-    "actions": [
-      "shell"
-    ],
-    "host": [
-      "ask",
-      "allow"
-    ],
+    "actions": ["shell"],
+    "host": ["ask", "allow"],
     "resources": {
       "present": true
     }
@@ -208,13 +186,8 @@ does anything. v2, `distribution/rules/permission/shell-writes.json`:
       "id": "writes",
       "judge": "quick",
       "ask": {
-        "outcomes": [
-          "yes",
-          "no"
-        ],
-        "evidence": [
-          "permission"
-        ],
+        "outcomes": ["yes", "no"],
+        "evidence": ["permission"],
         "instructions": "Does this shell command write or change a project file (source, config, tests or docs) by script, …?"
       }
     }
@@ -242,12 +215,12 @@ that got through.
 
 The `guard` plugin hooks `tool.before` and `permission.asked`:
 
-| Check | Runs | Then |
-|---|---|---|
-| `patterns` from `backstop.json`, shipped and the user's (`replace` drops the shipped list) | Before any model call | Block |
-| `confirm` patterns, such as a force-push to `main` | Before any model call | Ask the user |
-| The learned list | Before any model call | Block |
-| "Could this command cause irreversible harm?" on every shell command | One System One step, `confidence: { "yes": 0.9, "no": 0.95 }` | `yes` blocks and adds the command to the learned list; `unsure`, `failed` or a slow answer asks the user |
+| Check                                                                                      | Runs                                                          | Then                                                                                                     |
+| ------------------------------------------------------------------------------------------ | ------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `patterns` from `backstop.json`, shipped and the user's (`replace` drops the shipped list) | Before any model call                                         | Block                                                                                                    |
+| `confirm` patterns, such as a force-push to `main`                                         | Before any model call                                         | Ask the user                                                                                             |
+| The learned list                                                                           | Before any model call                                         | Block                                                                                                    |
+| "Could this command cause irreversible harm?" on every shell command                       | One System One step, `confidence: { "yes": 0.9, "no": 0.95 }` | `yes` blocks and adds the command to the learned list; `unsure`, `failed` or a slow answer asks the user |
 
 A pattern that names a root matches only the root, so `rm -rf /tmp/build`
 passes. The learned list lives in the plugin's state, apart from
