@@ -59,10 +59,10 @@ function sidebar(all: string[]): DefaultTheme.SidebarItem[] {
   return [
     { text: "Chauffeur", link: "/" },
     section("Plans", "docs/plans/"),
-    section("Programs that ask Chauffeur", "docs/callers/"),
+    section("Integrations", "docs/integrations/"),
     section("Plugins", "docs/plugins/"),
     section("Tools", "docs/tools/"),
-    section("The chauffeur command", "docs/cli/"),
+    section("CLI", "docs/cli/"),
     section("Moving from v1", "docs/migration/"),
     section("Audits", "docs/audits/"),
     section("Crates", "crates/", moduleName),
@@ -107,7 +107,7 @@ export default defineConfig({
     nav: [
       { text: "Roadmap", link: "/docs/plans/pluggability#goal" },
       { text: "Slices", link: "/docs/plans/pluggability#sequence-and-verification" },
-      { text: "Callers", link: "/docs/callers/" },
+      { text: "Integrations", link: "/docs/integrations/" },
       { text: "Plugins", link: "/docs/plugins/" },
       { text: "Tools", link: "/docs/tools/" },
       { text: "CLI", link: "/docs/cli/" },
