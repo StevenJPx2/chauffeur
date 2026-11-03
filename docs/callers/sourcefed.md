@@ -10,10 +10,15 @@ The rule is `sourcefed/triage`, in the plan's
 
 ## The call
 
-sourcefed's daemon asks before it queues an event for a target:
+sourcefed's daemon asks before it queues each event for a target, over one
+connection it keeps for its lifetime:
 
 ```ts
-const { intents } = await connect().navigate(
+import { connect } from "@fdcn/chauffeur/client"
+
+const chauffeur = connect() // at startup; chauffeur.close() at shutdown
+
+const { intents } = await chauffeur.navigate(
   { on: "integration_event", evidence: { event, thread, monitor } },
   { signal: AbortSignal.timeout(3_000) }
 )

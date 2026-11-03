@@ -41,9 +41,9 @@ safety boundary, and Chauffeur never replaces them.
 ## The call
 
 ```ts
-import { connect } from "@fdcn/chauffeur/client"
+import { navigate } from "@fdcn/chauffeur/client"
 
-const { intents } = await connect().navigate(
+const { intents } = await navigate(
   {
     on: "neo/screen-check",
     evidence: {

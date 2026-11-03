@@ -241,9 +241,9 @@ at most 2 rounds · 1 model call · 31 candidates at most
   JSON-RPC 2.0.
 
 ```ts
-import { connect } from "@fdcn/chauffeur/client"
+import { navigate } from "@fdcn/chauffeur/client"
 
-const { intents } = await connect().navigate(
+const { intents } = await navigate(
   { on: "recall", evidence: { message }, candidates: { p1: "…", p4: "…" } },
   { signal: AbortSignal.timeout(1_500) }
 )

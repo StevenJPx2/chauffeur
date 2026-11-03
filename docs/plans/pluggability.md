@@ -219,9 +219,9 @@ every rule whose `on` and `when` match answers it, and the caller receives
 their intents:
 
 ```ts
-import { connect } from "@fdcn/chauffeur/client"
+import { navigate } from "@fdcn/chauffeur/client"
 
-const { intents } = await connect().navigate(
+const { intents } = await navigate(
   { on: "recall", evidence: { message }, candidates: { p1: "…", p4: "…", p7: "…" } },
   { signal: AbortSignal.timeout(1_500) }
 )
@@ -245,6 +245,20 @@ flowchart LR
 - **An inline `strategy` replaces `on`** for scripts, plugins, the playground
   and tests, with its own `judges` and `asks`. It runs only that strategy and
   returns its verdict. The SDK's `ask` and `strategy` send inline strategies.
+- **One call, one connection.** `navigate` connects to `$CHAUFFEUR_SOCKET`,
+  sends the request, and closes the connection when the result arrives or
+  the signal aborts, so a script exits as soon as it is done. A program that
+  makes many calls keeps one connection with `connect()`, which reconnects
+  after a daemon restart, and closes it itself:
+
+  ```ts
+  const chauffeur = connect() // connect({ socket }) for another daemon
+  const triage = await chauffeur.navigate(request, { signal })
+  chauffeur.close()
+  ```
+
+  Inside a plugin, both go over the plugin's stdio, which the daemon owns, and
+  `close` does nothing.
 
 ### sourcefed: one triage for every host
 
@@ -290,7 +304,7 @@ forwards them to the daemon socket unchanged:
 
 | Binding                  | Caller                                          | Mechanism                                             |
 | ------------------------ | ----------------------------------------------- | ----------------------------------------------------- |
-| `@fdcn/chauffeur/client` | Any TypeScript program                          | `connect().navigate(request)` over the socket         |
+| `@fdcn/chauffeur/client` | Any TypeScript program                          | `navigate(request)` over the socket                   |
 | `chauffeur navigate`     | Hook scripts, Git hooks, CI on the same machine | One request on stdin; the JSON-RPC messages on stdout |
 | `crates/protocol`        | Rust programs                                   | The same types the daemon uses                        |
 
@@ -1105,7 +1119,7 @@ what is imported:
 | `@fdcn/chauffeur/plugin`  | `Plugin.define({ id, setup(ctx) })`; `ctx` holds only `on`, `before` and `options`           |
 | `@fdcn/chauffeur/judge`   | `ask`, `judge`, `strategy`, and the question functions `question`, `noul`, `choice`, `score` |
 | `@fdcn/chauffeur/harness` | Actions: `session`, `message`, `permission`, and the registries                              |
-| `@fdcn/chauffeur/client`  | `connect().navigate(request)`                                                                |
+| `@fdcn/chauffeur/client`  | `navigate(request)`, and `connect()` for a program that makes many calls                     |
 
 `ctx` holds what is tied to the plugin's lifetime. Everything else is a
 function to import, and `/judge` works the same from any program through the

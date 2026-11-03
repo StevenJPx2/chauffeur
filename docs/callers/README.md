@@ -17,7 +17,7 @@ flowchart LR
 
 The interface is the same for every caller:
 
-- **One call.** `connect().navigate(request)` in TypeScript, `chauffeur navigate`
+- **One call.** `navigate(request)` in TypeScript, `chauffeur navigate`
   on stdin, or the `crates/protocol` types in Rust.
 - **The caller names the event.** `recall`, `integration_event`,
   `neo/screen-check`: a rule hooks it by name in `on`, as it hooks

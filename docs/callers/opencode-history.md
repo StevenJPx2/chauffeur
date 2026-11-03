@@ -12,7 +12,9 @@ the top-three cut are the rule's.
 ## The call
 
 ```ts
-const { intents } = await connect().navigate(
+import { navigate } from "@fdcn/chauffeur/client"
+
+const { intents } = await navigate(
   {
     on: "recall",
     evidence: { message },
