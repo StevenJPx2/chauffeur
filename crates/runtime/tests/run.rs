@@ -53,9 +53,11 @@ fn context(name: &str, models: &str, files: &[(&str, &str)]) -> Arc<Context> {
     })
 }
 
-fn placeholder(answers: &str) -> Arc<Context> {
+/// `name` keeps each test's folder apart: `cargo test` runs them as threads
+/// of one process.
+fn placeholder(name: &str, answers: &str) -> Arc<Context> {
     context(
-        "placeholder",
+        name,
         r#"{ "models": { "stand-in": { "format": "placeholder", "answers": "answers.json" } },
              "tiers": { "system-one": ["stand-in"] } }"#,
         &[("answers.json", answers)],
@@ -71,7 +73,7 @@ fn a_judge_sees_only_redacted_evidence() {
     );
 
     let Ran::Settled { run: ran, then } = run(
-        &placeholder(&answers),
+        &placeholder("redacted", &answers),
         &commit_rule(),
         &commit(leaked),
         Duration::from_secs(2),
@@ -92,7 +94,7 @@ fn a_judge_sees_only_redacted_evidence() {
 #[test]
 fn with_no_model_answering_the_step_fails_and_nothing_is_returned() {
     let Ran::Settled { run: ran, then } = run(
-        &placeholder(r#"{ "answers": [] }"#),
+        &placeholder("unanswered", r#"{ "answers": [] }"#),
         &commit_rule(),
         &commit("fixed stuff"),
         Duration::from_secs(2),

@@ -64,17 +64,22 @@ impl Install {
 
     /// Spawns `daemon`, which runs `chauffeur daemon`, and waits for its socket.
     fn serve(&mut self, mut daemon: Command) {
-        let child = daemon
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()
-            .unwrap();
-        self.daemon = Some(child);
+        let log = self.root.join("daemon.log");
+        let socket = self.socket();
+        let child = self.daemon.insert(
+            daemon
+                .stdout(Stdio::null())
+                .stderr(fs::File::create(&log).unwrap())
+                .spawn()
+                .unwrap(),
+        );
         let started = Instant::now();
-        while UnixStream::connect(self.socket()).is_err() {
+        while UnixStream::connect(&socket).is_err() {
+            let exited = child.try_wait().unwrap();
             assert!(
-                started.elapsed() < Duration::from_secs(5),
-                "the daemon did not start"
+                exited.is_none() && started.elapsed() < Duration::from_secs(10),
+                "the daemon did not start ({exited:?}): {}",
+                fs::read_to_string(&log).unwrap_or_default()
             );
             thread::sleep(Duration::from_millis(20));
         }
