@@ -18,6 +18,25 @@ A tool group is the ID before the first `_`, such as `artifact` for
 `session.update`, and the adapter removes those tools from every request.
 What it surfaced and revealed is kept per session in the plugin's storage.
 
+## Commands
+
+```sh
+# Each tool group: shown, hidden or never exposed.
+chauffeur tools list --session ses_42
+chauffeur tools reveal artifact --session ses_42
+```
+
+```text
+$ chauffeur tools list --session ses_42
+GROUP      STATE    SINCE
+artifact   hidden   first message
+browser    shown    revealed at message 3
+skill      never    never_exposed
+```
+
+`reveal` shows a group from the session's next step, as an `ask_chauffeur`
+grant does.
+
 ## Options
 
 ```jsonc

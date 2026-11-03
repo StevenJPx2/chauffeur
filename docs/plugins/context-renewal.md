@@ -43,6 +43,20 @@ export default Plugin.define({
   `session.remove`, so it carries the provider's sign-in. A summary that
   fails passes over its provider for an hour, kept in the plugin's storage.
 
+## Commands
+
+```sh
+# The summary model each provider would use, and providers passed over.
+chauffeur context-renewal status
+```
+
+```text
+$ chauffeur context-renewal status
+PROVIDER    SUMMARY MODEL                  PASSED OVER
+anthropic   anthropic/claude-haiku-5-5     -
+openai      openai/gpt-6-luna              until 14:52: usage limit
+```
+
 ## Options
 
 ```json

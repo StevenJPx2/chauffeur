@@ -101,6 +101,8 @@ and first-party plugins in development, run from source on Bun.
 
 Files: `plugins/guard/`
 
+Commands: `chauffeur guard check`, `learned` and `forget`.
+
 ```json
 {
   "patterns": ["rm -rf /", "mkfs", "of=/dev/"],
@@ -119,6 +121,8 @@ Starts monitors for the session's own PRs, Jira issues and Slack threads;
 sourcefed's installer adds it to `plugins.json` with `sourcefed/triage`.
 
 Files, in sourcefed: `adapters/chauffeur/` and its installer
+
+Commands: `chauffeur sourcefed monitors`.
 
 ```ts
 ctx.on("tool.after", async (e) => {

@@ -33,7 +33,8 @@ const harm = judge({
 export default Plugin.define({
   id: "guard",
   setup(ctx) {
-    const backstop = loadBackstop(ctx.options, ctx.storage) // patterns, confirm, learned
+    // Patterns, confirm, learned.
+    const backstop = loadBackstop(ctx.options, ctx.storage)
     ctx.before(
       "tool.before",
       async (e) => {
@@ -59,6 +60,25 @@ export default Plugin.define({
   }
 })
 ```
+
+## Commands
+
+```sh
+# What the guard would do, without running it.
+chauffeur guard check 'git push --force origin main'
+# The commands it learned to block.
+chauffeur guard learned
+# Take one off the learned list.
+chauffeur guard forget 'rm -rf ./build'
+```
+
+```text
+$ chauffeur guard check 'git push --force origin main'
+ask: matches confirm pattern "push --force origin main"
+```
+
+`check` asks the harm question only when no pattern decides, and says which
+model answered.
 
 ## Options
 

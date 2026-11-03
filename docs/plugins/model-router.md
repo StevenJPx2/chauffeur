@@ -39,6 +39,22 @@ The tier tables are `distribution/providers/<provider>.json`; the user's file
 of the same name replaces a table's `tiers`. The models left behind and the
 providers that hit limits are kept in the plugin's storage.
 
+## Commands
+
+```sh
+# Sessions moved off a model, and providers at a limit.
+chauffeur model-router status
+# Treat a provider's limit as cleared.
+chauffeur model-router forget anthropic
+```
+
+```text
+$ chauffeur model-router status
+SESSION   FROM                               NOW                    SINCE
+ses_42    anthropic/claude-opus-5-5#high     openai/gpt-6.1-sol#high 13:58
+LIMITED   anthropic (usage limit, lasting)
+```
+
 ## Options
 
 ```jsonc

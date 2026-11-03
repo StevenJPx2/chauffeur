@@ -34,6 +34,19 @@ export default Plugin.define({
   harness can neither, the plugin does nothing. Leave the harness's own
   warming setting off, or the session is warmed twice.
 
+## Commands
+
+```sh
+# Sessions being warmed, keep-alives sent and left.
+chauffeur warming status
+```
+
+```text
+$ chauffeur warming status
+SESSION   MODEL                       SENT  LEFT  NEXT
+ses_42    anthropic/claude-opus-5-5   3     11    14:31:10
+```
+
 ## Options
 
 ```json

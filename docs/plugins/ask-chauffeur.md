@@ -34,3 +34,12 @@ The reply carries the revealed tools' best matches, and the chosen skill's
 body with its base directory. The tool is in the [`tools`](tools.md)
 plugin's `base`, so it is never hidden, and the adapter leaves its calls out
 of `tool.after`, so no rule judges them.
+
+## Commands
+
+```sh
+chauffeur ask-chauffeur try "post a reply in a Slack thread" --session ses_42
+```
+
+`try` runs the same strategy for a session and prints what the agent would
+get, without revealing anything, so a need's wording can be tuned.

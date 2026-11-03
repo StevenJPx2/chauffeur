@@ -21,6 +21,8 @@ screen leaves `unsure` is withheld.
 
 Files: `plugins/skills/`
 
+Commands: `chauffeur skills list`, `show` and `approve`.
+
 ```ts
 ctx.before(
   "prompt.sent",
@@ -51,6 +53,8 @@ descriptions, and missing-tool recovery.
 
 Files: `plugins/tools/`
 
+Commands: `chauffeur tools list` and `reveal`.
+
 ```ts
 ctx.before(
   "prompt.sent",
@@ -73,6 +77,8 @@ Verified by:
 The `ask_chauffeur` tool, through the tool registry.
 
 Files: `plugins/ask-chauffeur/`
+
+Commands: `chauffeur ask-chauffeur try`.
 
 ```ts
 tool.add({

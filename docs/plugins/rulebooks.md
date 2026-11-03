@@ -14,3 +14,10 @@ discussed; the sketch is in the plan's
 Books load from `distribution/rulebooks/`, `~/.config/chauffeur/rulebooks/` and
 `.chauffeur/rulebooks/`, as rules do. Each session's running books, their
 arguments and remaining budget are kept in the plugin's storage.
+
+## Commands
+
+```sh
+# The books, and the sessions running each with their budget left.
+chauffeur rulebooks list
+```

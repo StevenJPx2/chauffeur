@@ -39,7 +39,8 @@ export default Plugin.define({
     ctx.before(
       "prompt.sent",
       async (e) => {
-        // the harness's catalog, cut to the 16 closest by the bm25 fact, plus pinned, named and project skills
+        // The harness's catalog, cut to the 16 closest by the bm25 fact,
+        // plus the pinned, named and project skills.
         const candidates = await closest(
           await skill.list(e.session),
           e.text,
@@ -83,6 +84,29 @@ candidate at the next message, with nothing to configure in Chauffeur:
 
 At most four skills and 64 KiB attach per message, likeliest first.
 
+## Commands
+
+```sh
+# Every skill the harness offers, its source and screen.
+chauffeur skills list
+# Its description, base directory, source and screen.
+chauffeur skills show jira-cli
+# Offer a third-party skill its screen withheld.
+chauffeur skills approve some-skill
+```
+
+```text
+$ chauffeur skills list
+ID             SOURCE                                   SCREEN
+jira-cli       ~/.config/opencode/skills                own
+review-pr      .opencode/skills                         project
+deploy-docs    https://example.com/opencode/skills/ v3  passed
+yolo-shell     https://example.com/opencode/skills/ v1  withheld: runs remote scripts
+```
+
+`approve` records the skill and its version in the plugin's storage; a new
+version is screened again.
+
 ## Options
 
 ```jsonc
@@ -104,5 +128,4 @@ At most four skills and 64 KiB attach per message, likeliest first.
 
 `ranking.fact` is `bm25` or `embedding`. A project skill's `no` needs 0.7, so
 `unsure` attaches it. Which skills passed their screen, per version, is kept
-in the plugin's storage. The plugin adds `chauffeur skills list`, which lists
-the catalog, each skill's source and its screen.
+in the plugin's storage; [its commands](#commands) list and approve them.

@@ -20,6 +20,8 @@ actions the fidelity table marks as supported.
 
 Files: `plugins/context-renewal/`, `plugins/warming/`
 
+Commands: `chauffeur context-renewal status` and `chauffeur warming status`.
+
 ```ts
 ctx.on("session.resumed", (e) => {
   if (
@@ -41,6 +43,8 @@ Verified by:
 Failover on a usage limit and switch-back, with each provider's tier table.
 
 Files: `plugins/model-router/`, `distribution/providers/`
+
+Commands: `chauffeur model-router status` and `forget`.
 
 ```ts
 ctx.on("response.finished", async (e) => {

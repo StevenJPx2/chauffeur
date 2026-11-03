@@ -47,6 +47,8 @@ sequenceDiagram
 | [`model-router`](model-router.md)       | Moves the agent to another provider on a usage limit, and back                  | 7     |
 | [`rulebooks`](rulebooks.md)             | `/goal` and other books of rules switched on for one session                    | 12    |
 
+Each plugin adds its own `chauffeur` commands, listed in [CLI](../cli/README.md#commands-from-plugins).
+
 ## Using a plugin
 
 Plugins are listed in `~/.config/chauffeur/plugins.json`, keyed by ID. The

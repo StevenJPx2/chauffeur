@@ -16,10 +16,21 @@ socket, configuration and audit log beside an installed `chauffeur`.
 ## Commands from plugins
 
 A plugin adds its own commands under its ID, so they come and go with the
-plugin. The [`skills` plugin](../plugins/skills.md) adds `chauffeur skills list`;
-[Writing a plugin](../plugins/writing.md#commands) shows how. `chauffeur --help`
-lists them while the daemon runs, and each needs the daemon, which starts
-the plugin if it is stopped.
+plugin; [Writing a plugin](../plugins/writing.md#commands) shows how.
+`chauffeur --help` lists them while the daemon runs, and each needs the
+daemon, which starts the plugin if it is stopped.
+
+| Command                                      | Does                                                                         | Plugin                                                      |
+| -------------------------------------------- | ---------------------------------------------------------------------------- | ----------------------------------------------------------- |
+| `chauffeur guard check`, `learned`, `forget` | Tries a command against the guard; lists and prunes what it learned to block | [`guard`](../plugins/guard.md#commands)                     |
+| `chauffeur skills list`, `show`, `approve`   | The harness's skills, their sources and screens; offers a withheld one       | [`skills`](../plugins/skills.md#commands)                   |
+| `chauffeur tools list`, `reveal`             | A session's tool groups, shown or hidden; reveals one                        | [`tools`](../plugins/tools.md#commands)                     |
+| `chauffeur ask-chauffeur try`                | What `ask_chauffeur` would grant for a need, without granting it             | [`ask-chauffeur`](../plugins/ask-chauffeur.md#commands)     |
+| `chauffeur context-renewal status`           | Each provider's summary model, and providers passed over                     | [`context-renewal`](../plugins/context-renewal.md#commands) |
+| `chauffeur warming status`                   | Sessions being warmed, and keep-alives left                                  | [`warming`](../plugins/warming.md#commands)                 |
+| `chauffeur model-router status`, `forget`    | Sessions moved off a model, providers at a limit; clears one                 | [`model-router`](../plugins/model-router.md#commands)       |
+| `chauffeur rulebooks list`                   | The books, and the sessions running them                                     | [`rulebooks`](../plugins/rulebooks.md#commands)             |
+| `chauffeur sourcefed monitors`               | What sourcefed follows for a session                                         | [sourcefed](../integrations/sourcefed.md#the-plugin)        |
 
 ## Where things are
 

@@ -71,6 +71,13 @@ session.
 }
 ```
 
+Its command:
+
+```sh
+# What sourcefed follows for the session, and why.
+chauffeur sourcefed monitors --session ses_42
+```
+
 ## What it needs
 
 | Piece                                                       | Slice |
