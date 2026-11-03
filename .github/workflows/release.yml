@@ -2,8 +2,8 @@ name: Release
 
 # A release candidate: push a tag such as v1.0.0-rc.1 whose version is the
 # workspace's. Each target is built and smoke-tested on its own machine, the
-# tarballs go to a GitHub prerelease, and chauffeur-next is regenerated in the
-# tap from that release's SHA256SUMS.
+# tarballs go to a GitHub prerelease, and, once approved, chauffeur-next is
+# regenerated in the tap from that release's SHA256SUMS.
 
 on:
   push:
@@ -72,30 +72,31 @@ jobs:
     runs-on: macos-latest
     environment: release
     env:
-      HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+      TAP_DEPLOY_KEY: ${{ secrets.TAP_DEPLOY_KEY }}
       GH_TOKEN: ${{ github.token }}
     steps:
-      - name: Skip without a tap token
-        if: env.HOMEBREW_TAP_TOKEN == ''
-        run: echo "::notice::HOMEBREW_TAP_TOKEN is not set; the release is published and the tap is unchanged"
-      - if: env.HOMEBREW_TAP_TOKEN != ''
+      - name: Skip without the tap's deploy key
+        if: env.TAP_DEPLOY_KEY == ''
+        run: echo "::notice::TAP_DEPLOY_KEY is not set; the release is published and the tap is unchanged"
+      - if: env.TAP_DEPLOY_KEY != ''
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - if: env.HOMEBREW_TAP_TOKEN != ''
+      - if: env.TAP_DEPLOY_KEY != ''
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: StevenJPx2/homebrew-taps
-          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          # A deploy key that can write to the tap and nothing else; it stays for the push.
+          ssh-key: ${{ secrets.TAP_DEPLOY_KEY }}
           path: tap
       - name: Render chauffeur-next from the release's checksums
-        if: env.HOMEBREW_TAP_TOKEN != ''
+        if: env.TAP_DEPLOY_KEY != ''
         run: |
           set -euo pipefail
           gh release download "$GITHUB_REF_NAME" --pattern SHA256SUMS --dir release
           node scripts/homebrew.mjs "${GITHUB_REF_NAME#v}" release/SHA256SUMS > "tap/Formula/chauffeur-next.rb"
       - name: Audit, install and test it from the tap
-        if: env.HOMEBREW_TAP_TOKEN != ''
+        if: env.TAP_DEPLOY_KEY != ''
         run: |
           set -euo pipefail
           taps="$(brew --repository)/Library/Taps/stevenjpx2"
@@ -108,7 +109,7 @@ jobs:
           brew install --formula stevenjpx2/taps/chauffeur-next
           brew test stevenjpx2/taps/chauffeur-next
       - name: Push to the tap
-        if: env.HOMEBREW_TAP_TOKEN != ''
+        if: env.TAP_DEPLOY_KEY != ''
         working-directory: tap
         run: |
           set -euo pipefail

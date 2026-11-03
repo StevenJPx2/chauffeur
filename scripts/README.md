@@ -33,8 +33,9 @@ flowchart LR
 | `linux-x64` | `ubuntu-latest` | `x86_64-unknown-linux-musl` |
 
 - The build stops if the tag is not `v` and the workspace's version.
-- The tap job runs in the `release` environment with `HOMEBREW_TAP_TOKEN`, a
-  fine-grained token with contents write on `StevenJPx2/homebrew-taps` only.
+- The tap job runs in the `release` environment, which only `v*-rc.*` tags
+  may use and which waits for your approval. Its `TAP_DEPLOY_KEY` is an SSH
+  deploy key that can write to `StevenJPx2/homebrew-taps` and nothing else.
   Without it, the prerelease is still published and the tap is unchanged.
 - The formula and its binary are both `chauffeur-next`: Homebrew's `@`
   names take only version numbers, and the binary's name chooses its socket,
