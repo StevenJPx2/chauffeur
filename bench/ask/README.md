@@ -40,7 +40,10 @@ Results on 2026-11-03, two repeats each (26 runs):
 | Before (every match, "any part" wording) | 7 | 3 | 47 | 3.7 | 1.7 s |
 | Need-only wording, best few, closest named | 19 | 4 | 5 | 1.4 | 1.1 s |
 | + 24 skills judged, a pick among several, no `skill` namespace | 23 | 2 | 1 | 1.3 | 1.3 s |
+| + Jev only, wrangler's description names its logs | 24 | 2 | 0 | 1.2 | 0.52 s |
 
 The first row used fixed namespace examples; the others use `code-mode.json`.
+`catalog.json` carries wrangler's description as overridden in
+`skill-sources.json`. `work-calendar` sits near the bar and passed 5 of 8 runs.
 On `ranking.json`, BM25 put the right skill first as often as the embeddings
 (35 of 45) and ranked it lower otherwise; fusing both changed nothing.
