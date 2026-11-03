@@ -88,7 +88,7 @@ flowchart LR
 
 ### Parity table
 
-Branch point `73bc29e`. Watermark: `e7fbabf`.
+Branch point `73bc29e`. Watermark: `c3b4e1b`.
 
 | `main` commit | v2 home | Slice | Evidence from `main` |
 |---|---|---|---|
@@ -99,9 +99,15 @@ Branch point `73bc29e`. Watermark: `e7fbabf`.
 | `c43ecd6` read guard, RPC starvation fix | The guard plugin's `before` hooks; runtime admission permits (audit A3) | 2, 5 | `read-guard-probes.json`, `rpc-starvation.test.ts` |
 | `9b8e917` rules | Rule files in `distribution/rules/`; each v1 rule lands in the first slice that has the pieces it needs | 1–11 | `capabilities/rules/tests/rules.rs` |
 | Rulebooks (`/goal`, `/ticket`) | Rulebook files run by the `rulebooks` plugin; see [Rulebooks](#rulebooks) | 12 | `skills/rulebooks/*.json`, `rulebooks.test.ts` |
-| `73bc29e` Homebrew release, CI | Release scripts and `check.yml` in v2: rc releases from slice 1, `1.0.0` at cutover | 1, 13 | `release.test.mjs`, `smoke.mjs` |
+| `73bc29e` Homebrew release, CI | Release scripts, `check.yml` and `release.yml` in v2: rc releases as `chauffeur-next` from slice 1, `1.0.0` at cutover | 1, 13 | `release.test.mjs`, `smoke.mjs` |
 | `f54db24`, `d66a385`, `e7fbabf` docs | Documentation only | — | — |
-| In progress on `main`: GLiDE provider, confidence escalation | `glide.json` over the `systemone` format; escalation is a strategy: System One with `model: "jev"`, then `model: "glide"`, then System Two | 3, 11 | `judges/glide/tests/wire.rs`, `docs/judges.md` escalation cases |
+| `5330c3b` GLiDE, `fab9ae1` no escalation for permission requests, who answered | `glide.json` over the `systemone` format; escalation is a strategy: System One with `model: "jev"`, then `model: "glide"`, then System Two. The guard's strategy asks one judge and never escalates, since the agent's call waits on it; each round's event names the model that answered and keeps the answers a later step replaced | 3, 5, 11 | `judges/glide/tests/wire.rs`, `docs/judges.md` escalation cases |
+| `0adc459` a failed permission check keeps the host's decision | The guard's `before` hooks: a failed or late answer keeps what the harness decided, since Chauffeur only vetoes what the host allows; a 5 s `before` budget; the harness package retries an unreachable daemon twice, 500 ms apart | 5 | `permission.test.ts` |
+| `16c1433`, `1949263`, `413eb65` tools that stay exposed | The skills plugin's always-exposed list in `distribution/`: `history_search`, the agent conversation tools and the `agents` Code Mode namespace | 6 | `tool-exposure/tests/exposure.rs`, `skills/config/tool-exposure.json` |
+| `94e3b4e` 32 remote skill sources | The skills plugin's limit on remote sources is 32 | 6 | `sources/discovery_tests.rs` |
+| `02aee18`, `60d4c26` renewal fixes | The context-renewal plugin writes a summary in a temporary child session on the summary model, passes over a provider that failed for an hour, and leaves a session already on a cheap model to the harness's own compaction | 7 | `renewal.test.ts`, `model-router/tests/routing.rs` |
+| `c3b4e1b` reworded questions | The wording ships in each rule's `instructions`: the shell file guards (5), `cat-to-read` and `hand-rolled-patch` (the first slice with their pieces) and the Code Mode namespace question (6), each replayed against `main`'s recorded requests | 1–6 | `skills/permission/shell-file-*-guard.json`, `skills/rules/{cat-to-read,hand-rolled-patch}.json` |
+| Uncommitted on `main` | Reviewed once committed | — | — |
 
 Context renewal on v2:
 
