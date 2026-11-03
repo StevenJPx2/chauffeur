@@ -20,6 +20,18 @@ actions the fidelity table marks as supported.
 
 Files: `plugins/context-renewal/`, `plugins/warming/`
 
+```ts
+ctx.on("session.resumed", (e) => {
+  if (
+    e.idle_seconds >= cacheSeconds(e.provider) &&
+    e.tokens.used >= budget(e.tokens.window)
+  )
+    session.compact(e.session, { model: summaryModel(e) })
+})
+
+ctx.on("session.idle", (e) => schedule(e, () => session.warm(e.session)))
+```
+
 Verified by:
 
 - `main`'s `renewal.test.ts` and `warming.test.ts`.
@@ -29,6 +41,22 @@ Verified by:
 Failover on a usage limit and switch-back, with each provider's tier table.
 
 Files: `plugins/model-router/`, `distribution/providers/`
+
+```ts
+ctx.on("response.finished", async (e) => {
+  if (e.reason !== "error" || !isLimit(e.error)) return
+  const pick = await ask(
+    choice(candidates(e), "Which model should the agent continue on?"),
+    { judge: quick, evidence: { error: e.error.message } }
+  )
+  session.update(e.session, {
+    model: pick.ok && pick.outcome !== "unsure" ? pick.outcome : candidates(e)[0]
+  })
+  message.append(e.session, [{ text: "Switched model after a usage limit." }], {
+    delivery: "wake"
+  })
+})
+```
 
 Verified by:
 

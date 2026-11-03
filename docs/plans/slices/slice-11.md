@@ -16,6 +16,33 @@ ships disabled until a model and its evaluations are reviewed.
 
 Files: `crates/judges/src/tiers/system_two/`
 
+```json
+{
+  "models": {
+    "reviewer": {
+      "format": "anthropic",
+      "model": "claude-sonnet-5-5",
+      "key": { "env": "ANTHROPIC_API_KEY" },
+      "effort": "low",
+      "timeout_ms": 20000,
+      "max_output_tokens": 1024
+    }
+  },
+  "tiers": { "system-two": ["reviewer"] }
+}
+```
+
+```json
+{
+  "answer": {
+    "outcome": "ignore",
+    "p": { "act": 0.2, "ignore": 0.8 },
+    "level": 0.8
+  },
+  "cites": ["event"]
+}
+```
+
 Verified by:
 
 - Loopback cases for valid, refused, malformed, truncated, unavailable and

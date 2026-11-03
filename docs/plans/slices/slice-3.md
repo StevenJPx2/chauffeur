@@ -25,6 +25,23 @@ the round API: `questions`, `answer` and `fail`.
 Files: `crates/core/src/after.rs`, `state.rs`, `proofs.rs`,
 `crates/core/tests/scenarios.rs`
 
+```json
+"strategy": [
+  { "id": "fast", "judge": "jev", "ask": "nonconventional" },
+  { "id": "sure", "judge": "glide", "ask": "nonconventional",
+    "after": [{ "step": "fast", "when": ["unsure", "failed"] }] }
+]
+```
+
+```rust
+let mut state = plan.start();
+while let Some(round) = state.questions() { // the steps whose needs are met
+    // Or state.fail(step, Failure::Timeout).
+    state = state.answer(ask_judges(&round))?;
+}
+let verdict = state.finish(); // "sure" is skipped when "fast" said yes or no
+```
+
 Verified by scenario tests:
 
 - Escalation, with recorded answers at every tier.
@@ -59,6 +76,11 @@ Named judges, asks and `after` in a rule file become a `chauffeur_core::Plan`.
 
 Files: `crates/protocol/src/lower.rs`
 
+```rust
+// Named judges become core judges, such as "system-one:glide".
+let plan = lower(&rule, &models)?;
+```
+
 Verified by:
 
 - Kani: `strategy_show_bounds_every_lowered_plan`, a lowered plan has at most
@@ -71,6 +93,24 @@ in the `systemone` format; SubQ and GLiDE shipped beside Jev.
 
 Files: `crates/judges/src/tiers/system_one/`, `distribution/models/subq.json`,
 `glide.json`
+
+```json
+{
+  "outcomes": ["low", "medium", "high"],
+  "evidence": ["prompt"],
+  "instructions": "How hard is the user's request?"
+}
+```
+
+```json
+{
+  "answer": {
+    "outcome": "medium",
+    "p": { "low": 0.12, "medium": 0.45, "high": 0.43 },
+    "level": 1.31
+  }
+}
+```
 
 Verified by:
 
@@ -85,6 +125,17 @@ accepts images, and only when a step names it.
 
 Files: `crates/judges/src/evidence/`
 
+```json
+{
+  "on": "neo.screen-check",
+  "evidence": {
+    "screenshot": { "image": "iVBORw0KGgo…", "media_type": "image/png" },
+    "ocr_text": "Pay ₹250 to Ravi",
+    "question": "Is this the payment confirmation for ₹250 to Ravi?"
+  }
+}
+```
+
 Verified by:
 
 - neo's screen check, with a recorded screenshot, reaches Jev with its opt-in
@@ -97,6 +148,18 @@ outcomes, and evidence blocks fill its `state`.
 
 Files: `crates/judges/src/tiers/system_one/student.rs`
 
+```json
+{
+  "models": {
+    "routing-student": {
+      "format": "student",
+      "endpoint": "http://127.0.0.1:8787",
+      "task": "routing"
+    }
+  }
+}
+```
+
 Verified by:
 
 - A question whose outcomes differ from the task's labels fails as `invalid`
@@ -107,6 +170,12 @@ Verified by:
 A model that fails rests for 60 seconds, then is tried again.
 
 Files: `crates/judges/src/tiers/fallback.rs`
+
+```text
+13:54:43  jev timed out        → subq answers; jev rests until 13:55:43
+13:55:10  jev skipped          → subq answers
+13:55:50  jev asked again      → jev answers
+```
 
 Verified by:
 
@@ -119,6 +188,14 @@ model calls. `strategy show <rule>` and `--file`: the tree, rounds, resolved
 models, `after`, confidence, and the maximum rounds and model calls.
 
 Files: `crates/cli/src/strategy.rs`
+
+```text
+$ chauffeur strategy show conventional-commits
+conventional-commits  on tool.after
+└─ fast    system-one:jev    confidence 0.7
+   └─ sure system-one:glide  confidence 0.7   after fast is unsure or failed
+at most 2 rounds · 2 model calls
+```
 
 Verified by:
 

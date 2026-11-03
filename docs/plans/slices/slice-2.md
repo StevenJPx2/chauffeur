@@ -31,12 +31,19 @@ A `navigate` request, `event` notifications, then the result, as
 
 ```sh
 chauffeur navigate <<'EOF'
-{"protocol": 1, "deadline_ms": 3000, "on": "sourcefed.event", "evidence": {"event": "…", "thread": "…"}}
+{ "protocol": 1, "deadline_ms": 3000, "on": "sourcefed.event",
+  "evidence": { "event": "…", "thread": "…" } }
 EOF
-# → {"jsonrpc": "2.0", "method": "event", "params": {"id": 1, "rule_matched": {"rule": "sourcefed/triage"}}}
-# → {"jsonrpc": "2.0", "method": "event", "params": {"id": 1, "round_ready": {"rule": "sourcefed/triage", "round": 1, "steps": ["screen"]}}}
-# → {"jsonrpc": "2.0", "method": "event", "params": {"id": 1, "step_settled": {"step": "screen", "answer": {"outcome": "no", "p": {"yes": 0.04, "no": 0.96}, "level": 0.96}}}}
-# → {"jsonrpc": "2.0", "id": 1, "result": {"intents": [{"rule": "sourcefed/triage", "withhold": "event"}]}}
+```
+
+It prints one JSON-RPC message per line: `event` notifications as the run
+goes, then the result. Their contents, in order:
+
+```text
+event   rule_matched  { "rule": "sourcefed/triage" }
+event   round_ready   { "rule": "sourcefed/triage", "round": 1, "steps": ["screen"] }
+event   step_settled  { "step": "screen", "answer": { "outcome": "no", … } }
+result  intents       [{ "rule": "sourcefed/triage", "withhold": "event" }]
 ```
 
 A rejection is a JSON-RPC error whose `data.reason` names it:
@@ -73,6 +80,18 @@ replay.
 Files: `crates/protocol/src/request.rs`, `intent.rs`, `limits.rs`,
 `schema/navigate.json`, `fixtures/`
 
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "error": {
+    "code": -32602,
+    "message": "evidence is over 256 KiB",
+    "data": { "reason": "limit_exceeded", "limit": "evidence_bytes", "max": 262144 }
+  }
+}
+```
+
 Verified by:
 
 - Round-trip and rejection cases for every limit and malformed field,
@@ -86,6 +105,15 @@ per-source and global capacity; a bounded worker pool; the deadline and
 cancellation checked before each round; late results discarded.
 
 Files: `crates/runtime/src/admission.rs`, `run.rs`
+
+```rust
+// Err(Busy) while the source's share is in use.
+let permit = admission.admit(Source::Integration)?;
+// The deadline and cancellation are checked before each round.
+let ran = pool.run(navigation, deadline, &cancel);
+deliver(ran); // a result after the deadline is discarded
+drop(permit); // released once, after delivery
+```
 
 Verified by:
 
@@ -103,6 +131,18 @@ System Two in a project rule the user has not allowed and any model or
 placeholder entry from a project. Matching rules run concurrently.
 
 Files: `crates/daemon/src/socket.rs`, `rules.rs`
+
+```json
+{ "jsonrpc": "2.0", "method": "$/cancelRequest", "params": { "id": 1 } }
+```
+
+```text
+distribution/rules/                     shipped
+~/.config/chauffeur/rules/sourcefed/    an integration's, installed by it
+~/.config/chauffeur/rules/              the user's
+.chauffeur/rules/                       a project's: no models, and
+                                        System Two only where allowed
+```
 
 Verified by:
 
@@ -123,6 +163,25 @@ results typed from their questions.
 Files: `crates/cli/src/navigate.rs`, `packages/chauffeur/src/client/`,
 `packages/chauffeur/src/judge/`
 
+```ts
+import { navigate } from "@fdcn/chauffeur/client"
+import { ask, judge, noul } from "@fdcn/chauffeur/judge"
+
+const { intents } = await navigate(
+  { on: "sourcefed.event", evidence: { event, thread } },
+  { signal: AbortSignal.timeout(3_000) }
+)
+
+const quick = judge({ tier: "system-one", confidence: 0.7 })
+const done = await ask(noul("Is the migration finished?"), {
+  judge: quick,
+  evidence: { log }
+})
+if (done.ok && done.outcome === "yes") {
+  /* "yes" | "no" | "unsure" */
+}
+```
+
 Verified by:
 
 - The client, `/judge` and `chauffeur navigate` accept and reject every
@@ -137,6 +196,15 @@ Its daemon navigates before queuing each event, its installer adds
 `sourcefed/triage`, and its OpenCode adapter's `chauffeur.gate` call goes.
 
 Files, in sourcefed: its daemon, its installer, `adapters/opencode/bridge.ts`
+
+```ts
+const chauffeur = connect() // kept for the daemon's lifetime
+const { intents } = await chauffeur.navigate({
+  on: "sourcefed.event",
+  evidence: { event, thread, monitor }
+})
+if (!intents.some((intent) => intent.withhold === "event")) queue(target, event)
+```
 
 Verified by the end-to-end checks below.
 

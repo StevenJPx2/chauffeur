@@ -32,6 +32,14 @@ and the `Verdict`. Core has no dependencies.
 
 Files: `crates/core/src/plan/`, `judge.rs`, `event.rs`
 
+```rust
+let step = Step::new("commit", "system-one", "Is this message conventional?");
+let plan = Plan::new([step])?;
+let yes = |_: &&str| Outcome::Value("yes");
+let run = plan.run(&Panel::new().with("system-one", &yes))?;
+assert_eq!(run.verdict.get("commit"), Some(&Outcome::Value("yes")));
+```
+
 Verified by:
 
 - Scenario tests, Miri and `cargo-mutants` over the one-round run. Core's
@@ -46,6 +54,17 @@ give, such as `tool_call`.
 
 Files: `crates/protocol/src/rule/`, `when.rs`, `then.rs`, `event.rs`
 
+```rust
+// A RuleError names the rule and the reason.
+let rule = Rule::parse("conventional-commits", &text)?;
+let event = Event::parse(
+    r#"{ "event": "tool.after", "tool": "shell",
+         "input": { "command": "git commit -m wip" } }"#,
+)?;
+// on and when match, before any judge is asked.
+assert!(rule.hooks(&event));
+```
+
 Verified by:
 
 - A rule naming an unknown judge is refused when it loads, with its path.
@@ -57,6 +76,18 @@ user configuration; the `Format` interface; the `placeholder` format.
 
 Files: `crates/judges/src/question/`, `confidence/`, `config/`, `format.rs`,
 `placeholder/`
+
+```rust
+let instructions = "Does this commit message break Conventional Commits?";
+let question = Question::noul(instructions, ["commit"])?;
+let p = Probabilities::read(question.outcomes(), [("yes", 0.94), ("no", 0.06)])?;
+let bar = Confidence::Bar(Milli::new(700).ok_or("bar")?);
+let by = AnsweredBy { model: "jev".into(), placeholder: false };
+let answer = Answer::settle(&question, p, &bar, by);
+assert_eq!(answer.outcome(), &Settled::Outcome("yes".into()));
+
+let models = Models::load(&[shipped, user])?; // the user's entries win
+```
 
 Verified by:
 
@@ -78,6 +109,14 @@ and 5.
 
 Files: `crates/judges/src/tiers/`
 
+```rust
+let keys = |env: &str| std::env::var(env).ok();
+let jev_first = Fallback::build(&models, Tier::SystemOne, None, keys)?;
+let judge = NamedJudge::new(&jev_first, &confidence, &evidence);
+let run = plan.run(&Panel::new().with("quick", &judge))?;
+// each answer names its model: AnsweredBy { model: "jev", placeholder: false }
+```
+
 Verified by:
 
 - `main`'s `judges/jev/tests/wire.rs` replayed over loopback HTTP.
@@ -90,6 +129,17 @@ Runs a rule on a worker thread within its deadline, and redacts evidence
 before every model call, with v1's rules and `distribution/safety/redaction.json`.
 
 Files: `crates/runtime/src/run.rs`, `redact/`
+
+```rust
+// "export TOKEN=[REDACTED]"
+let sent = redactor.redact("export TOKEN=ghp_…", &mut Masking::default());
+
+match run(&context, &rule, &event, Duration::from_secs(2)) {
+    Ran::Settled { run, then } => { /* run.verdict, and the first then entry met */ }
+    Ran::Refused(reason) => { /* a placeholder whose answers would not load */ }
+    Ran::Deadline => { /* nothing settled in time */ }
+}
+```
 
 Verified by:
 
@@ -109,6 +159,16 @@ follow the harness package's contract.
 Files: `crates/daemon/src/paths.rs`, `state.rs`, `rpc.rs`, `socket.rs`,
 `audit.rs`, `route/`
 
+```rust
+// The socket, configuration, distribution and state folders.
+let paths = Paths::from_env("chauffeur", None);
+chauffeur_daemon::run(&paths)?; // serves until the listener fails
+
+let router = Router::new(loaded, Audit::new(&paths.state, MAX_BYTES));
+let actions = router.emit(&event, Duration::from_millis(1500));
+let last = audit::recent(&paths.state, 20)?; // one JSON line per run, oldest first
+```
+
 Verified by:
 
 - Another user's socket folder is refused.
@@ -126,6 +186,15 @@ that finds the socket taken exits.
 
 Files: `crates/cli/src/main.rs`, `audit.rs`
 
+```sh
+chauffeur daemon run &
+echo '{ "event": "tool.after", "session": "s1", "tool": "shell",
+        "input": { "command": "git commit -m wip" } }' | chauffeur emit
+chauffeur audit --brief
+# 13:54:43  conventional-commits  s1  nonconventional yes 0.93 jev  312 ms  → …
+chauffeur daemon status   # version, loaded rules, refused rule files
+```
+
 Verified by:
 
 - The binary against a real daemon: the nudge through `emit`, `daemon status`,
@@ -138,6 +207,23 @@ Jev as the default System One, the nudge, and the known credential prefixes.
 Files: `distribution/models/jev.json`, `distribution/rules/conventional-commits.json`,
 `distribution/safety/redaction.json`
 
+```json
+{
+  "models": {
+    "jev": {
+      "format": "systemone",
+      "endpoint": "https://api.typesafe.ai",
+      "model": "jev-latest",
+      "key": { "env": "TYPESAFE_API_KEY" },
+      "timeout_ms": 3000
+    }
+  },
+  "tiers": { "system-one": ["jev"] }
+}
+```
+
+The rule is in the plan's [Commit messages](../pluggability.md#commit-messages).
+
 Verified by the end-to-end checks below.
 
 ### Release
@@ -147,6 +233,15 @@ rc packaging and the `chauffeur-next` formula with its Homebrew service.
 
 Files: `scripts/package.mjs`, `homebrew.mjs`, `smoke.mjs`,
 `.github/workflows/check.yml`, `release.yml`
+
+```sh
+node scripts/package.mjs tarball --target darwin-arm64 \
+  --binary target/release/chauffeur --out dist
+node scripts/package.mjs sums dist
+# Installs it as chauffeur and as chauffeur-next, then runs each.
+node scripts/smoke.mjs dist/chauffeur-*.tar.gz
+node scripts/homebrew.mjs 1.0.0-rc.1 dist/SHA256SUMS  # Formula/chauffeur-next.rb
+```
 
 Verified by:
 
@@ -160,6 +255,20 @@ The Question tab: a question's probabilities settled under a confidence, as
 the daemon does.
 
 Files: `playground/src/features/question.ts`
+
+```ts
+const result = JSON.parse(
+  settle(
+    JSON.stringify({
+      outcomes: ["yes", "no"],
+      p: { yes: 0.58, no: 0.42 },
+      confidence: 0.7
+    })
+  )
+)
+// { answer: { outcome: "unsure", level: 0.42,
+//              p: [{ outcome: "yes", p: 0.58 }, { outcome: "no", p: 0.42 }] } }
+```
 
 Verified by:
 

@@ -21,6 +21,23 @@ screen leaves `unsure` is withheld.
 
 Files: `plugins/skills/`
 
+```ts
+ctx.before(
+  "prompt.sent",
+  async (e) => {
+    const candidates = await closest(
+      await skill.list(e.session),
+      e.text,
+      ctx.options.ranking
+    )
+    // A yes/no per skill, then select keeps the best four.
+    const best = await pick.run({ evidence: { message: e.text }, candidates })
+    if (best.ok) e.append(best.outcome.map((id) => ({ skill: id })))
+  },
+  { budget: 400, onTimeout: "allow" }
+)
+```
+
 Verified by:
 
 - `main`'s `sources/tests.rs` vetting cases.
@@ -34,6 +51,19 @@ descriptions, and missing-tool recovery.
 
 Files: `plugins/tools/`
 
+```ts
+ctx.before(
+  "prompt.sent",
+  async (e) => {
+    if (!e.first) return
+    // A yes/no per group outside base; hidden when no reaches 0.7.
+    const hidden = await unneededGroups(e)
+    session.update(e.session, { tools: { hidden } })
+  },
+  { budget: 400, onTimeout: "allow" }
+)
+```
+
 Verified by:
 
 - `main`'s `tool-exposure/tests/exposure.rs`.
@@ -43,6 +73,15 @@ Verified by:
 The `ask_chauffeur` tool, through the tool registry.
 
 Files: `plugins/ask-chauffeur/`
+
+```ts
+tool.add({
+  name: "ask_chauffeur",
+  description: "Ask for a tool or skill you lack, in plain words.",
+  input: { need: "string" },
+  run: (input, e) => grant(input.need, e)
+})
+```
 
 Verified by:
 
@@ -55,6 +94,18 @@ the harness's skill sources when Chauffeur is installed.
 
 Files: `distribution/rules/jira-via-browser.json`, `slack-via-browser.json`,
 `twitter-via-browser.json`, `distribution/skills/handoff/`
+
+```json
+{
+  "message.append": {
+    "parts": [
+      { "text": "Chauffeur: Use slackcli for Slack instead of the browser; …" },
+      { "skill": "slack-cli" }
+    ],
+    "delivery": "now"
+  }
+}
+```
 
 Verified by:
 
