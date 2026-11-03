@@ -1,17 +1,18 @@
 # Plugins
 
 A plugin is a long-running TypeScript program that hooks events, asks
-Chauffeur's judges questions, and acts on the harness. The daemon starts it,
+Chauffeur's judges questions, and acts on the answers: through the harness,
+or by itself. The daemon starts it,
 passes it the events it hooks, and carries its actions to the adapter. A
 plugin is harness-agnostic: it works in every harness whose adapter supports
 the actions it uses. [Writing a plugin](writing.md) shows how to build one.
 
 Rule files and plugins split the work:
 
-| Use         | When the behaviour                                                                   | Example                                    |
-| ----------- | ------------------------------------------------------------------------------------ | ------------------------------------------ |
-| A rule file | Is a decision: an event, a filter, questions and what to return                      | `conventional-commits`, `sourcefed/triage` |
-| A plugin    | Keeps state, acts over time, registers tools or commands, or computes its candidates | `skills`, `warming`, `model-router`        |
+| Use         | When the behaviour                                                                                                                                            | Example                                    |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------ |
+| A rule file | Is a decision: an event, a filter, questions and what to return                                                                                               | `conventional-commits`, `sourcefed/triage` |
+| A plugin    | Keeps state, acts over time, registers tools or commands, computes its candidates, or does the work itself: writes files, calls APIs, starts background tasks | `skills`, `warming`, `model-router`        |
 
 ## How a message reaches a plugin
 

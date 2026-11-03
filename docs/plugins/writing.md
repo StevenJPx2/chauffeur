@@ -54,6 +54,44 @@ Register it under the same ID in `~/.config/chauffeur/plugins.json`:
 { "notes": { "path": "~/code/chauffeur-notes" } }
 ```
 
+## Acting on an answer
+
+An answer can drive the agent, or the plugin can act on it itself. A plugin
+is an ordinary Bun program with the user's access, so it can write files,
+call APIs, run commands or start longer work; harness actions are one kind
+of effect among several. The same plugin, writing the note itself:
+
+```ts
+import { appendFile } from "node:fs/promises"
+import { join } from "node:path"
+
+ctx.on("response.finished", async (e) => {
+  const decided = await ask(
+    noul("Did the user and the agent settle a decision worth noting?"),
+    {
+      judge: quick,
+      evidence: { summary: e.summary, request: e.request }
+    }
+  )
+  if (decided.ok && decided.outcome === "yes")
+    await appendFile(join(e.workspace, "NOTES.md"), "- " + e.summary + "\n")
+})
+```
+
+| Effect              | Through                          | Example                                                                        |
+| ------------------- | -------------------------------- | ------------------------------------------------------------------------------ |
+| Steer the agent     | `message.append`                 | Ask the agent to update `NOTES.md`                                             |
+| Change the harness  | `session.*`, the registries      | Compact a session, switch its model, register a tool                           |
+| Act directly        | The plugin's own code            | Write `NOTES.md`, file an issue, post to Slack, run a build, index the session |
+| Tell other programs | Its own events, `navigate`, HTTP | Send `notes.saved`, which rules and other plugins can hook                     |
+
+- **Inside `ctx.before`,** return within the budget, and start longer work
+  without awaiting it.
+- **Work that outlives the event,** such as a timer or a watch, needs
+  `"eager": true`: a lazy plugin stops after 10 idle minutes.
+- **The plugin bounds its own work:** its queues, retries and timeouts. The
+  daemon bounds only the events queued for it.
+
 ## The SDK
 
 One package, `@fdcn/chauffeur`, with subpath exports so bundlers keep only

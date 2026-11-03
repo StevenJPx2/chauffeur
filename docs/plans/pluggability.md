@@ -1004,8 +1004,10 @@ attaches nothing.
 ## Plugins
 
 A plugin is a long-running TypeScript program that hooks into events, asks
-questions and acts on the harness. The daemon starts it, passes it the events
-it hooks, and carries its actions to the adapter. Plugins are harness-agnostic:
+questions and acts on the answers: through the harness, such as steering the
+agent, or by itself, such as writing a file or starting a background task.
+The daemon starts it, passes it the events it hooks, and carries its harness
+actions to the adapter. Plugins are harness-agnostic:
 the same plugin works in every harness whose adapter supports the actions it
 uses.
 
