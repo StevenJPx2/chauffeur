@@ -1,24 +1,8 @@
 # `ask_chauffeur`
 
 With `ask_chauffeur`, the agent asks in plain words for a tool or skill it
-lacks. In v2 it is the `ask-chauffeur` plugin, in slice 6.
-
-```ts
-import { Plugin } from "@fdcn/chauffeur/plugin"
-import { tool } from "@fdcn/chauffeur/harness"
-
-export default Plugin.define({
-  id: "ask-chauffeur",
-  setup(ctx) {
-    tool.add({
-      name: "ask_chauffeur",
-      description: "Ask for a tool or skill you lack, in plain words.",
-      input: { need: "string" },
-      run: (input, e) => grant(input.need, e) // tools and skills, in one round
-    })
-  }
-})
-```
+lacks. In v2 it is the [`ask-chauffeur` plugin](../plugins/ask-chauffeur.md),
+in slice 6.
 
 | v1                                                                                         | v2                                                                                                                |
 | ------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------- |

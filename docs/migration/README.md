@@ -3,7 +3,8 @@
 Every v1 feature ships in v2, rebuilt on v2's pieces: rule files for
 decisions that are data, plugins for behaviour that keeps state or acts over
 time, and the harness package for the harness. Each page shows v1's file and
-the v2 file or plugin that replaces it. Cutover, slice 13, waits until every
+the v2 file or plugin that replaces it; each plugin has its own page under
+[Plugins](../plugins/README.md). Cutover, slice 13, waits until every
 row has landed and passes v1's cases.
 
 | v1 feature                                           | v2                                              | Slice                  | Page                                                  |

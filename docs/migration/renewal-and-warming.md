@@ -3,8 +3,8 @@
 v1 kept an idle session's prompt cache warm, and when the user came back after
 it had expired to a long conversation, had a cheaper model summarize it before
 the prompt ran on the user's own model. In v2 these are the
-`context-renewal` and `warming` plugins, in slice 7. Their code is in the
-plan's [Plugins from v1's features](../plans/pluggability.md#plugins-from-v1-s-features).
+[`context-renewal`](../plugins/context-renewal.md) and
+[`warming`](../plugins/warming.md) plugins, in slice 7.
 
 ## Context renewal
 
@@ -29,24 +29,6 @@ plan's [Plugins from v1's features](../plans/pluggability.md#plugins-from-v1-s-f
 | Not warmed: under 20,000 tokens, an unknown cache-read price, a limited provider, a subagent   | The same                                                                                    |
 | `session.generate` with the keep-alive prompt                                                  | `session.warm`; where the harness only has its own warming setting, the plugin does nothing |
 
-## Options
-
-```jsonc
-{
-  "context-renewal": {
-    "options": {
-      "cache_seconds": {
-        "anthropic": 300,
-        "openai": 1800,
-        "deepseek": 3600,
-        "*": 300
-      },
-      "budget": { "share": 0.215, "min_tokens": 50000, "max_tokens": 100000 },
-      "pins": []
-    }
-  },
-  "warming": {
-    "options": { "max_seconds": 3600, "lead_seconds": 60, "min_tokens": 20000 }
-  }
-}
-```
+`model-router.json`'s `renewal` settings become the two plugins'
+[renewal](../plugins/context-renewal.md#options) and
+[warming](../plugins/warming.md#options) options.

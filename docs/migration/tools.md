@@ -3,7 +3,8 @@
 v1's tool exposure kept the prompt lean: it hid the tool groups a task would
 not use, brought them back when a later message needed them, pointed the
 agent at the Code Mode namespaces a request needed, and shortened the longest
-built-in tool descriptions. In v2 this is the `tools` plugin, in slice 6.
+built-in tool descriptions. In v2 this is the [`tools` plugin](../plugins/tools.md),
+in slice 6.
 
 | v1                                                                                                                     | v2                                                                                                    |
 | ---------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
@@ -16,42 +17,5 @@ built-in tool descriptions. In v2 this is the `tools` plugin, in slice 6.
 | Shorter built-in tool descriptions                                                                                     | The plugin replaces them through the tool registry, from `distribution/tools/descriptions.json`       |
 | Hidden tools recorded on message metadata and removed in the `context` hook                                            | `session.update` with the hidden list; the adapter removes those tools from each request              |
 
-## Options
-
-```jsonc
-{
-  "tools": {
-    "options": {
-      "base": [
-        "read",
-        "edit",
-        "patch",
-        "write",
-        "shell",
-        "grep",
-        "glob",
-        "question",
-        "subagent",
-        "webfetch",
-        "websearch",
-        "history_search",
-        "agents_spawn",
-        "agents_send",
-        "agents_read",
-        "agents_list",
-        "agents_stop"
-      ],
-      "never_exposed": ["skill"],
-      "hide": { "no": 0.7 },
-      "reveal": { "yes": 0.7 },
-      "code_mode": {
-        "trim": false,
-        "always": ["context7", "jina", "opencode", "agents"]
-      }
-    }
-  }
-}
-```
-
-The harness package needs `session.update` to carry a session's hidden tools,
-in every adapter that can remove tools from a request.
+`skills/config/tool-exposure.json` becomes the plugin's
+[options](../plugins/tools.md#options).

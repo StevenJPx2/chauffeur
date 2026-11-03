@@ -213,16 +213,11 @@ that got through.
 
 ## The backstop
 
-The `guard` plugin hooks `tool.before` and `permission.asked`:
+The backstop is the [`guard` plugin](../plugins/guard.md).
 
-| Check                                                                                      | Runs                                                          | Then                                                                                                     |
-| ------------------------------------------------------------------------------------------ | ------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| `patterns` from `backstop.json`, shipped and the user's (`replace` drops the shipped list) | Before any model call                                         | Block                                                                                                    |
-| `confirm` patterns, such as a force-push to `main`                                         | Before any model call                                         | Ask the user                                                                                             |
-| The learned list                                                                           | Before any model call                                         | Block                                                                                                    |
-| "Could this command cause irreversible harm?" on every shell command                       | One System One step, `confidence: { "yes": 0.9, "no": 0.95 }` | `yes` blocks and adds the command to the learned list; `unsure`, `failed` or a slow answer asks the user |
-
-A pattern that names a root matches only the root, so `rm -rf /tmp/build`
-passes. The learned list lives in the plugin's state, apart from
-configuration, so it can be reviewed. The plugin's code is in the plan's
-[Plugins from v1's features](../plans/pluggability.md#plugins-from-v1-s-features).
+| v1                                                                                 | v2                                                                                    |
+| ---------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| `skills/safety/backstop.json` `patterns`, compiled in; the user's adds or replaces | `distribution/safety/backstop.json`, read by the plugin; the user's file the same way |
+| `confirm` patterns ask the user before any model call                              | The same                                                                              |
+| Jev's irreversible-harm question on shell requests; a confident yes denies         | The same question, `yes` at 0.9; `unsure` or `failed` asks the user                   |
+| `learned-backstop.json` in the state folder                                        | `learned.json` in the plugin's storage                                                |

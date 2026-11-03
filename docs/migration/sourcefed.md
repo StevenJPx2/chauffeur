@@ -40,6 +40,8 @@ v1's question, abridged, becomes the rule's `needs-agent` ask:
 
 ## Monitors
 
+The [`monitors` plugin](../plugins/monitors.md):
+
 | v1                                                                                                               | v2                                                                      |
 | ---------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
 | After a tool result, exact facts name candidates: a PR link from `gh pr create`, a Jira key, a Slack thread link | `ctx.on("tool.after")` in the `monitors` plugin, with the same patterns |

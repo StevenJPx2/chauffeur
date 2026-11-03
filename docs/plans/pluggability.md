@@ -896,7 +896,7 @@ keeps a file the user changed.
 }
 ```
 
-A rule on a harness event names [actions](#actions) in its `then`, and the
+A rule on a harness event names [actions](../plugins/writing.md#actions) in its `then`, and the
 daemon passes them to the adapter. A rule on a caller's event, such as
 `sourcefed.event` or `opencode-history.recall`, returns intents the caller defines, such as
 `withhold` and `attach`.
@@ -1009,25 +1009,20 @@ it hooks, and carries its actions to the adapter. Plugins are harness-agnostic:
 the same plugin works in every harness whose adapter supports the actions it
 uses.
 
-### How a message reaches a plugin
+The [plugins guide](../plugins/README.md) has a page for each first-party
+plugin, and [Writing a plugin](../plugins/writing.md) covers the SDK, hooks,
+actions, questions, options, storage and lifecycle. The decisions they rest
+on:
 
-```mermaid
-sequenceDiagram
-    participant U as User
-    participant O as OpenCode
-    participant A as OpenCode adapter
-    participant D as Chauffeur daemon
-    participant P as skills plugin
-    U->>O: sends a message
-    O->>A: prompt hook fires
-    A->>D: event prompt.sent
-    D->>P: prompt.sent, starting the plugin if needed
-    P->>D: ask its strategy pick-skills
-    D-->>P: review-pr, rust-style
-    P->>D: edit: append skills review-pr, rust-style
-    D->>A: append skills
-    A->>O: skills attached to the prompt
-```
+| Concern      | Decision                                                                                                                                                             |
+| ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Hooks        | `ctx.on` never holds the harness; `ctx.before` holds it until its handler returns or its budget passes, then applies its `onTimeout`                                 |
+| Questions    | `ask` and `strategy` send inline strategies through `navigate`, so confidence, fallback, redaction and keys stay in the engine; a plugin never holds a model key     |
+| Actions      | Named by resource and verb, carried out by the harness package, retried by kind, and checked against the session's `revision` so a stale one never lands             |
+| Process      | A child of the daemon, speaking JSON-RPC 2.0 over stdio; lazy, stopped after 10 idle minutes unless eager; a crash restarts it with backoff and affects nothing else |
+| Discovery    | `setup` runs once to record the hooks, cached against the plugin's file hash, and again when its files change                                                        |
+| Registration | `~/.config/chauffeur/plugins.json`, keyed by ID; a project can never add a plugin                                                                                    |
+| State        | `ctx.storage`, the plugin's own folder under `~/.local/state/chauffeur/plugins/`                                                                                     |
 
 ### Events
 
@@ -1045,256 +1040,6 @@ refuses a plugin's event outside the plugin's own namespace: only the
 `monitors` plugin sends `monitors.*`, and no plugin can pose as sourcefed.
 Programs on the socket are the user's own, as in
 [Access, delivery and failure rules](#access-delivery-and-failure-rules).
-
-### Actions
-
-Actions are named by resource and verb, such as `message.append` with a
-delivery of `now`, `next` or `wake`, or `session.compact`. A plugin can check
-the fidelity table before relying on one; an action a harness cannot carry
-out returns `unsupported`.
-
-### `on` and `before`
-
-| Hook                                                | Holds the harness                             | Can                          |
-| --------------------------------------------------- | --------------------------------------------- | ---------------------------- |
-| `ctx.on(event, handler)`                            | Never: the event goes ahead at once           | Call any action, any time    |
-| `ctx.before(event, handler, { budget, onTimeout })` | Until the handler returns or `budget` ms pass | Edit what is about to happen |
-
-`before` exists for the points where acting late is acting too late:
-
-| Event              | A `before` handler can                    | `onTimeout`               |
-| ------------------ | ----------------------------------------- | ------------------------- |
-| `prompt.sent`      | Append parts, edit the text, block it     | `allow`                   |
-| `tool.before`      | Block it, ask the user, rewrite its input | `ask`, `block` or `allow` |
-| `permission.asked` | Reply, or ask the user                    | `ask`                     |
-
-`ask` hands the decision to the user. A guard against irreversible harm uses
-`ask`, so a slow or failed judge never lets the action through silently. Host
-denials always win over a plugin.
-
-### Retries
-
-| Kind of action | Examples                                                | If it fails or arrives stale                                                                    |
-| -------------- | ------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
-| Sets state     | `session.update`, registry `add`, `update` and `remove` | Retried with backoff; the last write wins                                                       |
-| One-shot       | `session.compact`, `session.interrupt`                  | Retried once if the adapter was unreachable; dropped if stale                                   |
-| Append         | `message.append`                                        | Delivered `next` when the plugin set `late: "next"`; otherwise dropped once its turn has passed |
-| Guard decision | Block, ask the user                                     | Never retried; on timeout, `onTimeout` applies                                                  |
-
-Each action carries the session `revision` it applies to, and the adapter
-checks it against the harness before carrying it out, so a stale action never
-lands on a newer state.
-
-### Lifecycle
-
-```mermaid
-stateDiagram-v2
-    [*] --> Discovered: installed or changed
-    Discovered --> Stopped: hooks recorded
-    Stopped --> Starting: a hooked event arrives, or eager
-    Starting --> Ready: setup done
-    Ready --> Ready: events in, actions out
-    Ready --> Stopped: idle for 10 minutes, unless eager
-    Ready --> Backoff: crashes
-    Backoff --> Starting: after 1 s, 2 s, 4 s … up to 60 s
-    Stopped --> [*]: removed from plugins.json
-```
-
-- **Registration.** The user lists plugins in `~/.config/chauffeur/plugins.json`.
-  A project can never add a plugin.
-- **Discovery.** When a plugin is installed or its files change, the daemon
-  runs its `setup` once in discovery mode: `ctx.on` and `ctx.before` only
-  record the hooks, and the plugin stops. The hooks are cached against the
-  plugin's file hash. `setup` must register hooks before doing work with side
-  effects.
-- **Lazy by default.** The first event the plugin hooks starts it, and events
-  queue until it is ready. An idle plugin stops after 10 minutes.
-- **Eager.** `"chauffeur": { "eager": true }` in the plugin's `package.json`
-  starts it with the daemon and keeps it running, for plugins with timers or
-  their own connections.
-- **Transport.** The daemon starts each plugin as a child process and speaks
-  [JSON-RPC 2.0](#json-rpc-20) over its stdin and stdout, so a plugin never
-  outlives the daemon.
-- **Hot reload.** When a plugin's files change, the daemon reruns discovery
-  and restarts the plugin; its next event reaches the new code. Plugins run
-  from source on Bun, so nothing is compiled first.
-- **Isolation.** A crash affects only that plugin. A slow plugin's `on` events
-  queue to a bound; overflow drops the oldest and says so in an event.
-
-### The SDK
-
-One package, `@fdcn/chauffeur`, with subpath exports so bundlers keep only
-what is imported:
-
-| Import                    | Holds                                                                                        |
-| ------------------------- | -------------------------------------------------------------------------------------------- |
-| `@fdcn/chauffeur/plugin`  | `Plugin.define({ id, setup(ctx) })`; `ctx` holds only `on`, `before` and `options`           |
-| `@fdcn/chauffeur/judge`   | `ask`, `judge`, `strategy`, and the question functions `question`, `noul`, `choice`, `score` |
-| `@fdcn/chauffeur/harness` | Actions: `session`, `message`, `permission`, and the registries                              |
-| `@fdcn/chauffeur/client`  | `navigate(request)`, and `connect()` for a program that makes many calls                     |
-
-`ctx` holds what is tied to the plugin's lifetime. Everything else is a
-function to import, and `/judge` works the same from any program through the
-client.
-
-`ask` returns a result typed from its question:
-
-```ts
-type Result<O extends string> =
-  | { ok: true; outcome: O | "unsure"; p: Record<O, number>; level: number }
-  | {
-      ok: false
-      failed: "unavailable" | "rate_limited" | "timeout" | "invalid" | "deadline"
-    }
-```
-
-```ts
-import { ask, choice, judge, noul, score } from "@fdcn/chauffeur/judge"
-
-const quick = judge({ tier: "system-one", model: "jev", confidence: 0.7 })
-
-const commit = await ask(
-  noul("Does this commit message break Conventional Commits?"),
-  { judge: quick, evidence }
-)
-if (commit.ok && commit.outcome === "yes") {
-  /* "yes" | "no" | "unsure" */
-}
-
-const next = await ask(
-  choice(
-    ["act", "ignore", "ask-user"],
-    "What should the agent do with this message?"
-  ),
-  { judge: quick, evidence }
-)
-const effort = await ask(
-  score(["low", "medium", "high"], "How hard is the user's request?"),
-  { judge: quick, evidence }
-)
-if (effort.ok && effort.level >= 1) {
-  /* medium or higher */
-}
-```
-
-A question function returns `{ wire, read }`: the generic question, and a
-reader that types the reply. `question` is the primitive the others use, so a
-plugin defines a new kind of question without any change to the engine. An
-outcome outside the list fails as `invalid` at run time, and a comparison with
-an impossible outcome fails to compile. A strategy's `when` accepts only the
-outcomes its step can produce.
-
-### Plugins from v1's features
-
-Context renewal:
-
-```ts
-import { Plugin } from "@fdcn/chauffeur/plugin"
-import { session } from "@fdcn/chauffeur/harness"
-
-export default Plugin.define({
-  id: "context-renewal",
-  setup(ctx) {
-    ctx.on("session.resumed", (e) => {
-      if (e.idle_seconds >= e.cache_seconds && e.tokens.used >= e.tokens.window / 2)
-        session.compact(e.session, { model: ctx.options.summaryModel })
-    })
-  }
-})
-```
-
-Guard against irreversible harm:
-
-```ts
-import { Plugin } from "@fdcn/chauffeur/plugin"
-import { ask, judge, noul } from "@fdcn/chauffeur/judge"
-
-const guard = judge({
-  tier: "system-one",
-  model: "jev",
-  confidence: { yes: 0.9, no: 0.95 }
-})
-
-export default Plugin.define({
-  id: "guard",
-  setup(ctx) {
-    ctx.before(
-      "tool.before",
-      async (e) => {
-        if (e.tool !== "shell") return
-        const harmful = await ask(
-          noul("Could this command cause irreversible harm?"),
-          { judge: guard, evidence: { command: e.input.command } }
-        )
-        if (harmful.ok && harmful.outcome === "yes")
-          e.block("This command may cause irreversible harm.")
-        else if (!harmful.ok || harmful.outcome === "unsure")
-          e.askUser("Chauffeur isn't sure this is safe.")
-      },
-      { budget: 2_000, onTimeout: "ask" }
-    )
-  }
-})
-```
-
-Skill exposure, with its own strategy:
-
-```ts
-import { Plugin } from "@fdcn/chauffeur/plugin"
-import { judge, noul, strategy } from "@fdcn/chauffeur/judge"
-
-const quick = judge({ tier: "system-one", confidence: 0.7 })
-const pick = strategy([
-  {
-    id: "needs",
-    judge: quick,
-    forEach: "candidates",
-    ask: noul("Does this request need this skill?")
-  },
-  {
-    id: "best",
-    judge: "facts",
-    after: ["needs[*]"],
-    ask: { select: { from: "needs[*]", top: 4, min: 0.7, by: "yes" } }
-  }
-])
-
-export default Plugin.define({
-  id: "skills",
-  setup(ctx) {
-    ctx.before(
-      "prompt.sent",
-      async (e) => {
-        const best = await pick.run({
-          evidence: { message: e.text },
-          candidates: e.skills
-        })
-        if (best.ok) e.append(best.outcome.map((skill) => ({ skill })))
-      },
-      { budget: 400, onTimeout: "allow" }
-    )
-  }
-})
-```
-
-Session warming:
-
-```ts
-import { Plugin } from "@fdcn/chauffeur/plugin"
-import { session } from "@fdcn/chauffeur/harness"
-
-export default Plugin.define({
-  id: "warming",
-  setup(ctx) {
-    ctx.on("session.idle", (e) => setTimeout(() => session.warm(e.session), 270_000))
-  }
-})
-```
-
-`strategy(...).run` returns the last step's result. `ask` and `strategy` send
-inline strategies through `navigate`, so limits,
-confidence, model fallback, redaction and keys stay in the engine. Plugins
-never hold model keys.
 
 ## Adapters
 
@@ -2061,9 +1806,9 @@ use.
 
 ## Open questions
 
-| Question                                                                                                                            | Recommended default                                                                              |
-| ----------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| The rulebooks design                                                                                                                | Discuss before slice 12; the [sketch](#rulebooks) is the starting point                          |
-| How the daemon starts when no service runs and only the harness package connects                                                    | Settle with the harness package's decider registration                                           |
-| The harness package carries `request`, `activity` and `history` with each event, and `session.update` with a session's hidden tools | Ask for both in the package's contract before slice 5; v1's rules and the tools plugin need them |
-| Whether jev-distill students may be trained on Jev's labels, given TypeSafe's agreement §2.3(b)                                     | Settle in jev-distill before Chauffeur ships a student in a rule                                 |
+| Question                                                                                                                                                                                        | Recommended default                                                                                            |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| The rulebooks design                                                                                                                                                                            | Discuss before slice 12; the [sketch](#rulebooks) is the starting point                                        |
+| How the daemon starts when no service runs and only the harness package connects                                                                                                                | Settle with the harness package's decider registration                                                         |
+| The harness package carries `request`, `activity` and `history` with each event, `session.update` with a session's hidden tools, and `session.warm` in OpenCode as a transient generate request | Ask for all three in the package's contract before slice 5; v1's rules, the tools plugin and warming need them |
+| Whether jev-distill students may be trained on Jev's labels, given TypeSafe's agreement §2.3(b)                                                                                                 | Settle in jev-distill before Chauffeur ships a student in a rule                                               |

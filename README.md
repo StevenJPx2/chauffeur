@@ -361,6 +361,8 @@ architecture: judges, facts, strategies, rule files, plugins, adapters and the
 
 - [Programs that ask Chauffeur](docs/callers/README.md): any program, with or
   without a harness, such as sourcefed, neo and opencode-history.
+- [Plugins](docs/plugins/README.md): each first-party plugin, and how to
+  write one.
 - [Moving from v1](docs/migration/README.md): each v1 feature beside the v2
   rule file or plugin that replaces it.
 

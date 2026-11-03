@@ -5,9 +5,8 @@ skill list, handed over a better skill when the agent drifted, served skills
 from remote sources, and reviewed third-party skills before agents followed
 them. In v2 it is the `skills` plugin, in slice 6, over the skills the
 harness already knows: its own folders and configured sources, which the
-plugin reads through the harness package's `skill` registry. Its prompt
-strategy is in the plan's
-[Plugins from v1's features](../plans/pluggability.md#plugins-from-v1-s-features).
+plugin reads through the harness package's `skill` registry. Its hooks,
+options and sources are on the [`skills` plugin's page](../plugins/skills.md).
 
 | v1                                                                                                                              | v2                                                                                                                                                                        |
 | ------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -22,48 +21,5 @@ strategy is in the plan's
 | Skill review: System One screens, System Two reviews what is unsure                                                             | A screen-then-review strategy: System One in slice 6, System Two from slice 11                                                                                            |
 | Handover skills in `skills/handoff/`, linked into a folder OpenCode reads                                                       | `distribution/skills/handoff/`, added to the harness's skill sources when Chauffeur is installed                                                                          |
 
-## Options
-
-`skills/config/skill-exposure.json` becomes the plugin's options in
-`~/.config/chauffeur/plugins.json`:
-
-```jsonc
-{
-  "skills": {
-    "options": {
-      "attach": { "confidence": 0.7, "top": 4, "bytes": 65536 },
-      "project": { "confidence": { "yes": 0.3, "no": 0.7 } },
-      "ranking": { "fact": "bm25", "judged": 16, "always": [] },
-      "drift": {
-        "confidence": 0.7,
-        "cooldown_seconds": 60,
-        "browser_only": ["browser-harness"]
-      }
-    }
-  }
-}
-```
-
-A project skill attaches unless the judge is confident it is not needed:
-`no` needs 0.7 there, so `unsure` attaches.
-
-## Where skills come from
-
-The candidates are the harness's catalog: each skill's ID, description,
-base directory and source. A skill the user adds to the harness is a
-candidate at the next message, with nothing to configure in Chauffeur:
-
-```jsonc
-// opencode.jsonc
-{
-  "skills": ["~/shared/opencode-skills", "https://example.com/opencode/skills/"]
-}
-```
-
-- **Project skills** are the ones from the session's project folders, such
-  as `.opencode/skills/`, and get the project wording.
-- **Third-party skills**, from an HTTP catalog or a folder outside the
-  user's own, are screened once per version before the plugin offers them.
-- **A Git repository** of skills is cloned and listed as a local folder.
-- **Harnesses without skill sources** offer what their own folders hold,
-  such as `~/.claude/skills/` in Claude Code.
+`skills/config/skill-exposure.json` becomes the plugin's
+[options](../plugins/skills.md#options).
