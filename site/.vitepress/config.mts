@@ -61,11 +61,12 @@ function sidebar(all: string[]): DefaultTheme.SidebarItem[] {
     section("Plans", "docs/plans/"),
     section("Programs that ask Chauffeur", "docs/callers/"),
     section("Plugins", "docs/plugins/"),
+    section("Tools", "docs/tools/"),
     section("The chauffeur command", "docs/cli/"),
     section("Moving from v1", "docs/migration/"),
     section("Audits", "docs/audits/"),
     section("Crates", "crates/", moduleName),
-    { text: "Tools", items: [...under("playground/"), ...under("scripts/"), ...under("site/")].map((page) => item(page)) },
+    { text: "Repository", items: [...under("playground/"), ...under("scripts/"), ...under("site/")].map((page) => item(page)) },
   ]
 }
 
@@ -108,6 +109,7 @@ export default defineConfig({
       { text: "Slices", link: "/docs/plans/pluggability#sequence-and-verification" },
       { text: "Callers", link: "/docs/callers/" },
       { text: "Plugins", link: "/docs/plugins/" },
+      { text: "Tools", link: "/docs/tools/" },
       { text: "CLI", link: "/docs/cli/" },
       { text: "Migration", link: "/docs/migration/" },
       { text: "Crates", link: "/crates/" },
