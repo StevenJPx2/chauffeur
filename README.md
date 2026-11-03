@@ -289,7 +289,11 @@ export default ({ evidence }) =>
 
 [`docs/plans/pluggability.md`](docs/plans/pluggability.md) describes the
 architecture: judges, facts, strategies, rule files, plugins, adapters and the
-`navigate` protocol.
+`navigate` protocol. Its slice table is the roadmap.
+
+Every Markdown file here, with its diagrams drawn, is also at
+[chauffeur-docs.stevenjpx2.workers.dev](https://chauffeur-docs.stevenjpx2.workers.dev),
+rebuilt on each push to `v2`.
 
 ## Develop
 
@@ -317,6 +321,15 @@ cd playground
 bun install
 bun run dev     # rebuilds Rust on change and reloads the page
 bun run check   # release build and type check
+```
+
+The documentation site needs Bun, and Node for deploying:
+
+```sh
+cd site
+bun install
+bun run dev      # every Markdown file in the repository, live
+bun run deploy   # build, then cf deploy to Cloudflare
 ```
 
 ## License

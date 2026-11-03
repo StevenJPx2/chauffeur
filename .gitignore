@@ -4,3 +4,7 @@ node_modules/
 .DS_Store
 /playground/src/wasm/
 /playground/dist/
+/site/.vitepress/cache/
+/site/.vitepress/dist/
+/site/.wrangler/
+/site/.cloudflare/

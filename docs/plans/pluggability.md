@@ -1367,6 +1367,7 @@ distribution/
 playground/
   wasm/          # Thin wasm-bindgen bridge to core and protocol
   src/features/  # One interactive tab per feature under test
+site/            # The documentation site: every Markdown file, on Cloudflare
 scripts/         # Packaging, Homebrew formula, smoke tests
 .github/workflows/
 ```
