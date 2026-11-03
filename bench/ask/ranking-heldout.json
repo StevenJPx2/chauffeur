@@ -1,0 +1,152 @@
+[
+  {
+    "query": "open my logged-in Chrome profile and check the admin dashboard",
+    "want": "browser-harness",
+    "style": "paraphrase"
+  },
+  {
+    "query": "fix it, check it on the live merchant site, open the pull request and keep an eye on the CI run",
+    "want": "ship-pr",
+    "style": "paraphrase"
+  },
+  {
+    "query": "is our AGENTS.md getting too long? audit how much context the agent setup uses",
+    "want": "repo-hygiene",
+    "style": "paraphrase"
+  },
+  {
+    "query": "set up a brand new merchant integration for patagonia",
+    "want": "scaffold-merchant",
+    "style": "paraphrase"
+  },
+  {
+    "query": "the overlay shows stale prices after hydration, figure out why",
+    "want": "debug-overlay",
+    "style": "paraphrase"
+  },
+  {
+    "query": "add a feature flag merchants can toggle to hide the reviews tab",
+    "want": "add-config-item",
+    "style": "paraphrase"
+  },
+  {
+    "query": "add a new zoom button control to the overlay end to end",
+    "want": "add-control",
+    "style": "paraphrase"
+  },
+  {
+    "query": "pull the colors and fonts off the merchant's site into our theme tokens",
+    "want": "theme-extract",
+    "style": "paraphrase"
+  },
+  {
+    "query": "show me three very different takes on this pricing card so I can pick",
+    "want": "prototype",
+    "style": "paraphrase"
+  },
+  {
+    "query": "why did chauffeur hide my tools on that last prompt?",
+    "want": "chauffeur",
+    "style": "paraphrase"
+  },
+  {
+    "query": "draw me a diagram of how the request flows through these services",
+    "want": "show-me",
+    "style": "paraphrase"
+  },
+  {
+    "query": "audit this product page for conversion problems and suggest A/B tests",
+    "want": "pdp-audit",
+    "style": "paraphrase"
+  },
+  {
+    "query": "the add-to-cart selector broke on the merchant's new layout",
+    "want": "add-selector-config",
+    "style": "paraphrase"
+  },
+  {
+    "query": "how do I configure a custom agent in opencode.json",
+    "want": "opencode",
+    "style": "paraphrase"
+  },
+  {
+    "query": "build the settings form with nuxt ui components",
+    "want": "nuxt-ui",
+    "style": "paraphrase"
+  },
+  {
+    "query": "the swipe gesture animation in the expo app feels off",
+    "want": "animate-expo",
+    "style": "paraphrase"
+  },
+  {
+    "query": "the dropdown animation stutters and drops frames",
+    "want": "animation-performance",
+    "style": "paraphrase"
+  },
+  {
+    "query": "what's the name of that bouncy effect when a button gets pressed",
+    "want": "animation-vocabulary",
+    "style": "paraphrase"
+  },
+  {
+    "query": "add a toast when the save finishes using sonner",
+    "want": "ask-sonner",
+    "style": "paraphrase"
+  },
+  {
+    "query": "on iPhone the input zooms in when focused and 100vh is wrong",
+    "want": "mobile-native",
+    "style": "paraphrase"
+  },
+  {
+    "query": "there's way too much motion in this dashboard, cut what isn't needed",
+    "want": "remove-animations",
+    "style": "paraphrase"
+  },
+  {
+    "query": "which Cloudflare product should I use to store user uploads",
+    "want": "cloudflare",
+    "style": "paraphrase"
+  },
+  {
+    "query": "add a guard that redirects to login on protected routes in vue router",
+    "want": "vue-router-best-practices",
+    "style": "paraphrase"
+  },
+  {
+    "query": "check this permission check uses the entitlement helpers properly",
+    "want": "gdp-ts",
+    "style": "paraphrase"
+  },
+  {
+    "query": "review my UI for accessibility issues",
+    "want": "web-design-guidelines",
+    "style": "paraphrase"
+  },
+  {
+    "query": "publish this markdown as a nicely styled google doc",
+    "want": "doc-kit",
+    "style": "paraphrase"
+  },
+  {
+    "query": "make a visual recap of what changed in this PR",
+    "want": "visual-recap",
+    "style": "paraphrase"
+  },
+  {
+    "query": "move the mouse and click the menu bar in this mac app",
+    "want": "macos-harness",
+    "style": "paraphrase"
+  },
+  {
+    "query": "switch the deploy to use structured logging in the worker per cloudflare best practice",
+    "want": "workers-best-practices",
+    "style": "paraphrase"
+  },
+  {
+    "query": "this function is a dense wall of code, give it some breathing room",
+    "want": "code-breathing-room",
+    "style": "paraphrase"
+  }
+]

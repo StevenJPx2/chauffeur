@@ -21,6 +21,7 @@ fn step(id: &str) -> (Question, Rule) {
             instructions: format!("does {id} hold?"),
             kind: QuestionKind::Noul,
             facts: Facts::new(),
+            second_opinion: Default::default(),
         },
         YES,
     )

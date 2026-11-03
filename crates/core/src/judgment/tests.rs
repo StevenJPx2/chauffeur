@@ -4,7 +4,7 @@ use super::strategy::{self, Candidate, Chained, Escalation, Screened};
 use super::{Judgment, NONE, Rule};
 use crate::capability::Round;
 use crate::judge::Facts;
-use crate::system_one::{Answer, AnswerValue, ChoiceOption, Question, QuestionKind};
+use crate::system_one::{Answer, AnswerValue, ChoiceOption, Question, QuestionKind, SecondOpinion};
 use crate::system_two::{Reasoned, Reasoning, ReasoningFailure, Schema};
 
 fn noul_question(id: &str) -> Question {
@@ -13,6 +13,7 @@ fn noul_question(id: &str) -> Question {
         instructions: format!("is {id} so?"),
         kind: QuestionKind::Noul,
         facts: Facts::new(),
+        second_opinion: Default::default(),
     }
 }
 
@@ -21,6 +22,7 @@ fn choice_question(id: &str, options: &[&str]) -> Question {
         id: id.into(),
         instructions: "which?".into(),
         facts: Facts::new(),
+        second_opinion: Default::default(),
         kind: QuestionKind::Choice {
             options: options
                 .iter()
@@ -605,6 +607,54 @@ fn a_fan_out_can_feed_one_review_of_what_it_admitted() {
 
     assert_eq!(kept, ["pr"]);
     assert_eq!(asked[1].1, ["pick"]);
+}
+
+#[test]
+fn a_rule_decides_at_the_stricter_of_its_bar_and_its_confidence() {
+    assert!((Rule::yes(0.7, 0.4).bar() - 0.7).abs() < 1e-6);
+    assert!((Rule::yes(0.6, 0.6).bar() - 0.8).abs() < 1e-6);
+    assert!((Rule::no(0.3, 0.2).bar() - 0.3).abs() < 1e-6);
+    assert!((Rule::unless_no(0.4, 0.6).bar() - 0.2).abs() < 1e-6);
+}
+
+#[test]
+fn strategies_mark_each_question_with_where_its_rules_decide() {
+    let single = strategy::single(noul_question("one"), Rule::yes(0.7, 0.4));
+    let screened = strategy::screen(
+        noul_question("two"),
+        Rule::yes(0.7, 0.4),
+        Rule::no(0.3, 0.4),
+    );
+    let both = strategy::fan_out_with(
+        [Candidate {
+            key: "three",
+            question: noul_question("three"),
+            rule: Rule::yes(0.7, 0.4),
+        }],
+        Rule::no(0.3, 0.4),
+    );
+
+    let never = strategy::single(
+        Question {
+            second_opinion: SecondOpinion::Never,
+            ..noul_question("four")
+        },
+        Rule::yes(0.7, 0.4),
+    );
+
+    assert_eq!(
+        single.questions()[0].second_opinion,
+        SecondOpinion::Near(vec![0.7])
+    );
+    assert_eq!(
+        screened.questions()[0].second_opinion,
+        SecondOpinion::Near(vec![0.7, 0.3])
+    );
+    assert_eq!(
+        both.questions()[0].second_opinion,
+        SecondOpinion::Near(vec![0.7, 0.3])
+    );
+    assert_eq!(never.questions()[0].second_opinion, SecondOpinion::Never);
 }
 
 #[cfg(debug_assertions)]

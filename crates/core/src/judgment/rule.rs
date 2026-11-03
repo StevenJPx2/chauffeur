@@ -66,6 +66,17 @@ impl Rule {
         Pick { confidence }
     }
 
+    /// The P(yes) where this rule's decision changes, for an answer whose
+    /// confidence is its margin from an even split: the stricter of `at` and
+    /// the minimum confidence.
+    #[must_use]
+    pub fn bar(&self) -> f32 {
+        match self.kind {
+            Kind::Yes => self.at.max(f32::midpoint(1.0, self.confidence)),
+            Kind::No | Kind::UnlessNo => self.at.min(f32::midpoint(1.0, -self.confidence)),
+        }
+    }
+
     /// Whether `answer`, `None` for a failed call, holds.
     #[must_use]
     pub fn holds(&self, answer: Option<&Answer>) -> bool {

@@ -23,7 +23,7 @@ pub enum QuestionKind {
     Noul,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Question {
     pub id: String,
     pub instructions: String,
@@ -32,6 +32,23 @@ pub struct Question {
     /// such as the facts judge. A model judge reads only the instructions,
     /// so a question that may be routed to one states the same facts there.
     pub facts: Facts,
+    /// Which answers a second judge is asked about, when escalation is on.
+    pub second_opinion: SecondOpinion,
+}
+
+/// When an answer is worth a second judge's opinion.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub enum SecondOpinion {
+    /// When its confidence is under the escalation bar: the rules reading
+    /// it are not known.
+    #[default]
+    Unsure,
+    /// When a yes/no answer is near one of these P(yes) values, where the
+    /// rules reading it change their decision: only there could a second
+    /// opinion change it.
+    Near(Vec<f32>),
+    /// Never: the decision is not worth the wait.
+    Never,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -242,6 +259,7 @@ mod tests {
                 ],
             },
             facts: Facts::new(),
+            second_opinion: Default::default(),
         };
         let good = Answer {
             id: "q".into(),

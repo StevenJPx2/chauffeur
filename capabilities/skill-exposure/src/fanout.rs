@@ -3,7 +3,9 @@
 //! about the prompt choose a skill's wording and the rule its answer meets.
 
 use chauffeur_core::judgment::strategy::Candidate;
-use chauffeur_core::{CatalogEntry, Question, QuestionKind, Rule, Signal, SignalKind};
+use chauffeur_core::{
+    CatalogEntry, Question, QuestionKind, Rule, SecondOpinion, Signal, SignalKind,
+};
 
 use crate::{SkillExposureConfig, SkillTexts};
 
@@ -70,9 +72,14 @@ pub(crate) fn judged<'a>(
         offerable.iter().copied().partition(|skill| pinned(skill));
 
     if !ranking.is_empty() {
+        let judged = match signal.kind {
+            SignalKind::AgentRequest { .. } => config.request.judged,
+            _ => config.ranking.judged,
+        };
+
         rest.retain(|skill| ranking.contains(&skill.id));
         rest.sort_by_key(|skill| rank(ranking, &skill.id));
-        rest.truncate(config.ranking.judged);
+        rest.truncate(judged);
     }
 
     chosen.extend(rest);
@@ -88,6 +95,13 @@ pub fn candidates(
     config: &SkillExposureConfig,
 ) -> Vec<Candidate<String>> {
     let facts = Facts::of(signal);
+    // The agent waits on its own request: Jev's answer stands, as a second
+    // opinion changed no outcome on the bench/ask set and doubled the wait.
+    let second_opinion = if matches!(signal.kind, SignalKind::AgentRequest { .. }) {
+        SecondOpinion::Never
+    } else {
+        SecondOpinion::default()
+    };
 
     offerable
         .iter()
@@ -101,6 +115,7 @@ pub fn candidates(
                     instructions: instructions(signal, skill, basis, &config.texts),
                     kind: QuestionKind::Noul,
                     facts: chauffeur_core::Facts::new(),
+                    second_opinion: second_opinion.clone(),
                 },
                 rule: basis.rule(config),
             }

@@ -1,0 +1,205 @@
+[
+  {
+    "id": "send-to-session",
+    "note": "audit 2026-11-02: got the unrelated opencode skill",
+    "user_request": "write this down. and then send it to the \"workhorse first-principles\" session to review",
+    "need": "Send a message to another existing OpenCode session by session ID asking that agent to review a document, and get its reply back here (e.g. the opencode-agents send tool)",
+    "want": [
+      [
+        "skill:opencode-agents"
+      ]
+    ],
+    "allow": []
+  },
+  {
+    "id": "send-to-session-attached",
+    "note": "the same, with opencode-agents already in the context: nothing new fits",
+    "user_request": "write this down. and then send it to the \"workhorse first-principles\" session to review",
+    "need": "Send a message to another existing OpenCode session by session ID asking that agent to review a document, and get its reply back here",
+    "attached": [
+      "opencode-agents"
+    ],
+    "want": [],
+    "allow": []
+  },
+  {
+    "id": "read-x-post",
+    "note": "audit 2026-11-02: got 3 browser skills and 4 namespaces",
+    "user_request": "https://x.com/opencode/status/2116198602523513081",
+    "need": "Read the X post at https://x.com/opencode/status/2116198602523513081. twitter CLI is not installed and search namespace browser returned no tools; please provide available browser access.",
+    "want": [
+      [
+        "ns:agent-browser",
+        "ns:browser",
+        "ns:browser-harness",
+        "ns:yab-browser",
+        "ns:safari",
+        "skill:browsers",
+        "skill:aside-browser",
+        "skill:browser-harness",
+        "skill:yab-browser"
+      ]
+    ],
+    "allow": [
+      "ns:agent-browser",
+      "ns:browser",
+      "ns:browser-harness",
+      "ns:yab-browser",
+      "ns:safari",
+      "skill:browsers",
+      "skill:aside-browser",
+      "skill:browser-harness",
+      "skill:yab-browser",
+      "skill:browser",
+      "ns:webfetch"
+    ],
+    "max": 3
+  },
+  {
+    "id": "load-ad-tile",
+    "note": "audit 2026-11-02: right answer",
+    "user_request": "Load the ad-tile skill and run its bot mode for merchant hanna-andersson.",
+    "need": "Load the ad-tile skill requested by the user; it is not present in the project's .claude/skills directory. Need its bot-mode workflow instructions.",
+    "want": [
+      [
+        "skill:ad-tile"
+      ]
+    ],
+    "allow": [
+      "skill:hpdp-overlay"
+    ]
+  },
+  {
+    "id": "ad-tile-base-directory",
+    "note": "audit 2026-11-02: got hpdp-overlay and the opencode namespace; nothing Chauffeur has fits",
+    "user_request": "Load the ad-tile skill and run its bot mode for merchant hanna-andersson.",
+    "need": "The ad-tile skill content was supplied but its pinned Base directory was omitted. Please provide that exact directory so I can source scripts from it.",
+    "attached": [
+      "ad-tile"
+    ],
+    "want": [],
+    "allow": []
+  },
+  {
+    "id": "slack-thread-reply",
+    "user_request": "summarize what we found and reply in https://adeptmind.slack.com/archives/C07ABCDEF/p1730000000000000",
+    "need": "Post a reply in a Slack thread (adeptmind.slack.com archives link) with a summary",
+    "want": [
+      [
+        "skill:slack-cli"
+      ]
+    ],
+    "allow": []
+  },
+  {
+    "id": "jira-issue",
+    "user_request": "file this bug in jira under ADEPT",
+    "need": "Create a Jira issue in the ADEPT project from the command line",
+    "want": [
+      [
+        "skill:jira-cli"
+      ]
+    ],
+    "allow": []
+  },
+  {
+    "id": "worker-logs",
+    "user_request": "why is the api worker returning 500s in production?",
+    "need": "Tail the production logs of a deployed Cloudflare Worker and inspect its recent errors",
+    "want": [
+      [
+        "skill:wrangler",
+        "ns:cloudflare"
+      ]
+    ],
+    "allow": [
+      "skill:wrangler",
+      "ns:cloudflare",
+      "skill:cloudflare",
+      "skill:workers-best-practices"
+    ],
+    "max": 2
+  },
+  {
+    "id": "library-docs",
+    "user_request": "migrate the schemas to effect 4",
+    "need": "Current documentation for the Effect 4 Schema API",
+    "want": [
+      [
+        "ns:context7",
+        "skill:read-the-damn-docs"
+      ]
+    ],
+    "allow": [
+      "ns:context7",
+      "skill:read-the-damn-docs",
+      "ns:webfetch",
+      "ns:websearch"
+    ]
+  },
+  {
+    "id": "postgres-nothing",
+    "user_request": "run the pending migration against staging",
+    "need": "A Postgres client or tool to connect to the staging database and run a SQL migration",
+    "want": [],
+    "allow": [
+      "ns:shell"
+    ],
+    "note": "nothing Chauffeur adds fits; pointing back at shell (psql) is acceptable"
+  },
+  {
+    "id": "lights",
+    "user_request": "turn off the living room lights when you're done",
+    "need": "Turn off the living room lights",
+    "want": [
+      [
+        "ns:homeassistant"
+      ]
+    ],
+    "allow": []
+  },
+  {
+    "id": "work-calendar",
+    "user_request": "find me a free hour tomorrow on my work calendar",
+    "need": "Read the user's work Google Calendar to find free time tomorrow",
+    "want": [
+      [
+        "ns:google-workspace-work",
+        "ns:iMCP"
+      ]
+    ],
+    "allow": [
+      "skill:google-workspace",
+      "ns:iMCP",
+      "ns:yab-browser",
+      "skill:yab-browser"
+    ]
+  },
+  {
+    "id": "screenshot-localhost",
+    "user_request": "does the new header look right? the dev server is on localhost:3000",
+    "need": "Open http://localhost:3000 in a browser and take a screenshot to check the header layout",
+    "want": [
+      [
+        "ns:agent-browser",
+        "ns:browser",
+        "ns:browser-harness",
+        "ns:yab-browser",
+        "skill:browsers",
+        "skill:browser"
+      ]
+    ],
+    "allow": [
+      "ns:agent-browser",
+      "ns:browser",
+      "ns:browser-harness",
+      "ns:yab-browser",
+      "skill:browsers",
+      "skill:browser",
+      "skill:debug-browser",
+      "skill:browser-preflight",
+      "ns:safari"
+    ],
+    "max": 3
+  }
+]

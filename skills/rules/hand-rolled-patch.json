@@ -14,7 +14,7 @@
   ],
   "then": {
     "delivery": "steer",
-    "text": "Chauffeur: Change files with the edit, write, or patch tools, not scripts, heredocs, or redirects. They show the change and keep permission checks working."
+    "text": "Chauffeur: Change files with the edit, write, or patch tools, called directly or through Code Mode's execute, not scripts, heredocs, or redirects. They show the change and keep permission checks working."
   },
   "cooldown_seconds": 120
 }

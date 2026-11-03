@@ -29,12 +29,14 @@ fn questions() -> Vec<Question> {
                 ],
             },
             facts: Facts::new(),
+            second_opinion: Default::default(),
         },
         Question {
             id: "ok".into(),
             instructions: "Coding task?".into(),
             kind: QuestionKind::Noul,
             facts: Facts::new(),
+            second_opinion: Default::default(),
         },
         Question {
             id: "lvl".into(),
@@ -43,6 +45,7 @@ fn questions() -> Vec<Question> {
                 levels: vec!["low".into(), "medium".into(), "high".into()],
             },
             facts: Facts::new(),
+            second_opinion: Default::default(),
         },
     ]
 }

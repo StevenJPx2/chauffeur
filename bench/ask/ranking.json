@@ -1,0 +1,227 @@
+[
+  {
+    "query": "Tail the production logs of a deployed Cloudflare Worker and inspect its recent errors",
+    "want": "wrangler",
+    "style": "paraphrase"
+  },
+  {
+    "query": "deploy this worker to production with wrangler",
+    "want": "wrangler",
+    "style": "named"
+  },
+  {
+    "query": "Post a reply in a Slack thread with a summary of the fix",
+    "want": "slack-cli",
+    "style": "named"
+  },
+  {
+    "query": "tell the team in the #releases channel that the build is out",
+    "want": "slack-cli",
+    "style": "paraphrase"
+  },
+  {
+    "query": "Create a Jira issue in the ADEPT project for this bug",
+    "want": "jira-cli",
+    "style": "named"
+  },
+  {
+    "query": "move ADEPT-45130 to In Review and assign it to me",
+    "want": "jira-cli",
+    "style": "paraphrase"
+  },
+  {
+    "query": "Send a message to another running agent session and wait for its reply",
+    "want": "opencode-agents",
+    "style": "paraphrase"
+  },
+  {
+    "query": "spawn two agents to work on the frontend and the backend in parallel",
+    "want": "opencode-agents",
+    "style": "paraphrase"
+  },
+  {
+    "query": "check the current docs for the Effect 4 Schema API before using it",
+    "want": "read-the-damn-docs",
+    "style": "paraphrase"
+  },
+  {
+    "query": "read what this tweet says https://x.com/opencode/status/2116198602523513081",
+    "want": "twitter-cli",
+    "style": "paraphrase"
+  },
+  {
+    "query": "how did the checkout experiment do on revenue per visitor last week",
+    "want": "ga4",
+    "style": "paraphrase"
+  },
+  {
+    "query": "open the Q4 sales spreadsheet and add a profit margin column",
+    "want": "xlsx",
+    "style": "paraphrase"
+  },
+  {
+    "query": "turn these notes into a Word document",
+    "want": "docx",
+    "style": "paraphrase"
+  },
+  {
+    "query": "make a 10 slide pitch deck as a PowerPoint file",
+    "want": "pptx",
+    "style": "paraphrase"
+  },
+  {
+    "query": "upload this screenshot and give me a link I can paste",
+    "want": "imgup",
+    "style": "paraphrase"
+  },
+  {
+    "query": "make a playlist of this Sunday's worship set",
+    "want": "ytmusic",
+    "style": "paraphrase"
+  },
+  {
+    "query": "convert this book PDF into an audiobook with chapters",
+    "want": "audiobook-studio",
+    "style": "paraphrase"
+  },
+  {
+    "query": "render an animated explainer video for the launch",
+    "want": "fframes-video",
+    "style": "paraphrase"
+  },
+  {
+    "query": "build a talk deck in markdown with live code highlighting",
+    "want": "slidev",
+    "style": "paraphrase"
+  },
+  {
+    "query": "bundle this TypeScript library with type declarations for npm",
+    "want": "tsdown",
+    "style": "paraphrase"
+  },
+  {
+    "query": "the turbo cache keeps missing in CI, fix the pipeline in turbo.json",
+    "want": "turborepo",
+    "style": "named"
+  },
+  {
+    "query": "add a stateful websocket room coordinator on Cloudflare",
+    "want": "durable-objects",
+    "style": "paraphrase"
+  },
+  {
+    "query": "add bot protection to the signup form with a Cloudflare captcha",
+    "want": "turnstile-spin",
+    "style": "paraphrase"
+  },
+  {
+    "query": "review this Rust crate for problems before I publish it",
+    "want": "rust-review",
+    "style": "paraphrase"
+  },
+  {
+    "query": "port this Python CLI to Rust and keep its behavior",
+    "want": "rust-port",
+    "style": "paraphrase"
+  },
+  {
+    "query": "fix the Swift 6 data race warnings in the iOS app",
+    "want": "write-swift",
+    "style": "paraphrase"
+  },
+  {
+    "query": "write component tests for the Vue settings page",
+    "want": "vue-testing-best-practices",
+    "style": "paraphrase"
+  },
+  {
+    "query": "fix this bug test-first: red, green, refactor",
+    "want": "tdd",
+    "style": "named"
+  },
+  {
+    "query": "ask Codex to review this diff",
+    "want": "codex",
+    "style": "named"
+  },
+  {
+    "query": "add my new ghostty config to my dotfiles repo",
+    "want": "dotfiles",
+    "style": "named"
+  },
+  {
+    "query": "pin hanna-andersson to the exact package versions before deploy",
+    "want": "pin-deploy",
+    "style": "paraphrase"
+  },
+  {
+    "query": "why is LCP so slow on the product page? check core web vitals",
+    "want": "web-perf",
+    "style": "paraphrase"
+  },
+  {
+    "query": "click through the macOS System Settings app to turn on a permission",
+    "want": "agent-desktop-macos",
+    "style": "paraphrase"
+  },
+  {
+    "query": "create a Google Doc with the meeting notes and share it",
+    "want": "google-workspace",
+    "style": "paraphrase"
+  },
+  {
+    "query": "the overlay grid is scrolling weirdly on the merchant's page, debug it live",
+    "want": "debug-browser",
+    "style": "paraphrase"
+  },
+  {
+    "query": "rewrite this blog post so it sounds like me and is easier to read",
+    "want": "clarity",
+    "style": "paraphrase"
+  },
+  {
+    "query": "write a design doc for the new sync service",
+    "want": "writing-plans",
+    "style": "paraphrase"
+  },
+  {
+    "query": "turn this workflow into a reusable skill",
+    "want": "skill-creator",
+    "style": "named"
+  },
+  {
+    "query": "cut this week's comic strips into panels and upscale them",
+    "want": "apolotoons-pipeline",
+    "style": "paraphrase"
+  },
+  {
+    "query": "find outliers in the merchant's product feed",
+    "want": "classify-merchant-feed",
+    "style": "paraphrase"
+  },
+  {
+    "query": "compare the designer's Figma tokens to the merchant theme",
+    "want": "theme-validate-figma",
+    "style": "paraphrase"
+  },
+  {
+    "query": "stress test the user card with very long names and empty fields",
+    "want": "break-ui",
+    "style": "paraphrase"
+  },
+  {
+    "query": "which library should I use for an OTP input and toasts",
+    "want": "pick-ui-library",
+    "style": "paraphrase"
+  },
+  {
+    "query": "file a bug report for opencode with diagnostics",
+    "want": "report",
+    "style": "paraphrase"
+  },
+  {
+    "query": "refresh the hanna-andersson promo tile in the recommendations grid",
+    "want": "ad-tile",
+    "style": "paraphrase"
+  }
+]

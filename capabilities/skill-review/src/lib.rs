@@ -421,6 +421,7 @@ impl Judged for SkillReview {
             instructions: config.texts.question.render(&[("skill", &text)]),
             kind: QuestionKind::Noul,
             facts: Facts::new(),
+            second_opinion: Default::default(),
         };
         let screen = strategy::screen(question, config.safe.yes(), config.unsafe_at.no())
             // System One cannot clear what it did not see.

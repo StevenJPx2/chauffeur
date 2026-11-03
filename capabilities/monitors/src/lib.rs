@@ -277,5 +277,6 @@ fn question(template: &Template, index: usize, watch: &Watch, call: (&str, &str)
         ]),
         kind: QuestionKind::Noul,
         facts: Facts::new(),
+        second_opinion: Default::default(),
     }
 }

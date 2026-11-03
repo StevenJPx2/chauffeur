@@ -206,6 +206,7 @@ impl Judged for EventGate {
             ]),
             kind: QuestionKind::Noul,
             facts: Facts::new(),
+            second_opinion: Default::default(),
         };
 
         Some(strategy::single(question, self.config.withhold.no()))

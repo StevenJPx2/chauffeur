@@ -26,6 +26,8 @@ pub struct SkillExposureConfig {
     pub drift: Drift,
     /// What one signal may attach.
     pub budget: Budget,
+    /// What the agent's own request may be handed.
+    pub request: Request,
     /// Which skills a prompt judges when the daemon ranks them by meaning.
     pub ranking: Ranking,
     /// The wording of the questions to System One and of what is delivered.
@@ -60,6 +62,11 @@ pub struct SkillTexts {
     pub drift_notice: Template,
     /// Names an attached skill for the user: `{skill}`.
     pub label: Template,
+    /// Names a skill that came close to the agent's request: `{skill}`.
+    pub closest: Template,
+    /// Which of several skills that serve the agent's request is made for
+    /// exactly it: `{need}`.
+    pub request_choice: Template,
 }
 
 impl SkillTexts {
@@ -93,6 +100,8 @@ impl SkillTexts {
             ("texts.no_skill", &self.no_skill, &[][..]),
             ("texts.drift_notice", &self.drift_notice, skill),
             ("texts.label", &self.label, skill),
+            ("texts.closest", &self.closest, skill),
+            ("texts.request_choice", &self.request_choice, &["need"][..]),
         ] {
             template.check(field, allowed)?;
         }
@@ -121,6 +130,26 @@ pub struct Budget {
     pub bytes: u64,
     /// Skills one signal attaches, at most, most likely first.
     pub skills: usize,
+}
+
+/// The agent's request is answered with the best match, not everything
+/// related: the agent asked for one thing.
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct Request {
+    /// Ranked skills judged beyond the pinned ones: more than a prompt, as
+    /// the agent asks only when its own tools fall short.
+    pub judged: usize,
+    /// Skills one request is handed, at most. When more serve it, one more
+    /// question picks the skill made for exactly the need.
+    pub skills: usize,
+    /// That pick is taken with at least this confidence; otherwise the
+    /// likeliest skills are handed over.
+    pub confidence: Confidence,
+    /// When none fits, the closest this many are named, not handed over.
+    pub closest: usize,
+    /// A skill is named as close only at this P(yes) or above.
+    pub closest_at: f32,
 }
 
 /// With a ranking, a prompt judges its pinned skills plus the closest
@@ -152,12 +181,23 @@ impl SkillExposureConfig {
     ///
     /// # Errors
     ///
-    /// When `budget.skills` is not in `1..=64`, `drift.browser_only` lists
+    /// When `budget.skills` or `request.skills` is not in `1..=64`,
+    /// `request.closest_at` is outside `[0, 1]`, `drift.browser_only` lists
     /// more than 64 skills, or a text is empty, oversized, or names an unknown
     /// placeholder.
     pub fn checked(mut self) -> Result<Self, String> {
         if !(1..=MAX_OPTIONS).contains(&self.budget.skills) {
             return Err(format!("budget.skills must be in 1..={MAX_OPTIONS}"));
+        }
+
+        if !(1..=MAX_OPTIONS).contains(&self.request.skills)
+            || !(1..=MAX_OPTIONS).contains(&self.request.judged)
+            || self.request.closest > MAX_OPTIONS
+            || !(0.0..=1.0).contains(&self.request.closest_at)
+        {
+            return Err(format!(
+                "request.skills and request.judged must be in 1..={MAX_OPTIONS}, request.closest at most {MAX_OPTIONS}, and request.closest_at in [0, 1]"
+            ));
         }
 
         if self.drift.browser_only.len() > MAX_OPTIONS {

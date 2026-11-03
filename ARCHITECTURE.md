@@ -243,16 +243,23 @@ single pick. Everything else the engine remembers per agent
 is persisted by the daemon (see Failure and bounds).
 
 Which skills a prompt judges is a ranking, not the whole catalog. Before the
-engine sees a prompt or `ask_chauffeur` request, the daemon embeds its text
-(with the agent's previous prompt, so a short follow-up keeps its topic) on a
-loopback embedding service, EmbeddingGemma 2 by default
-(`CHAUFFEUR_EMBEDDINGS`), and fills the signal's `ranking` with skill IDs,
-closest first. Skill vectors are cached by ID and description and embedded in
-the background, so a prompt waits at most 400 ms, normally about 0.1 s. The
+engine sees a prompt or `ask_chauffeur` request, the daemon ranks the skills
+against its text (with the agent's previous prompt, so a short follow-up keeps
+its topic; for a request, the user's request and the need) and fills the
+signal's `ranking` with skill IDs, closest first. By default (`CHAUFFEUR_RANKING=bm25`)
+it scores shared words with BM25 over each skill's ID and description, with a
+light stemmer that gives a word's forms one root (deployed and deployment,
+release and releases, running and runs), in under a millisecond. On the
+`bench/ask` ranking sets it put the needed skill first in 39 of 45 and 28 of
+30 requests, against 35 and 26 for embeddings, with every needed skill in the
+judged 16. `CHAUFFEUR_RANKING=embeddings` ranks by meaning on a loopback
+embedding service instead, EmbeddingGemma 2 by default (`CHAUFFEUR_EMBEDDINGS`).
+Skill vectors are cached by ID and description and embedded in
+the background, so a prompt waits at most 400 ms, normally about 0.13 s. The
 skill judge then asks about its pinned skills, those in `ranking.always`
 (skills triggered by the kind of work rather than its topic), those the
 request names, and the project's own, plus the closest `ranking.judged`
-(16) others. Without a ranking (service off, slow, or still embedding) it asks
+(16) others, or `request.judged` (24) for a request. Without a ranking (`off`, or the embedding service off, slow, or still embedding) it asks
 about every skill up to 64, pinned first. Skills not asked about at a prompt
 remain hand-over options mid-turn, closest first. Replayed against 62 logged
 prompts, this judged 19 skills on average instead of 60 and kept every skill
@@ -298,16 +305,21 @@ come first in that prefix.
   own search would find them); at a context's first message it first waits,
   at most 10 s, until no MCP server is still connecting, since OpenCode builds
   that request's catalog once they have. Tool exposure asks one question per
-  namespace not yet surfaced in the context (P ≥ 0.7, confidence ≥ 0.4),
+  namespace not yet surfaced in the session (P ≥ 0.7, confidence ≥ 0.4),
   naming its matches and saying in a short clause what the first four do (on
   logged prompts, tool IDs alone left Jev unsure of 37% of these questions;
   with what they do, 16%), and,
-  for the chosen ones, writes a note listing those matches with the
-  `search({ namespace })` call for exact paths. It arrives as a `context`
-  effect with `prompt` delivery, a text attachment that reaches the first step
-  and adds nothing to the system prompt. Tool exposure remembers what it
-  surfaced per agent, resets at a new context, and persists it with the rest
-  of its state.
+  for each chosen one, writes a note listing those matches with the
+  `search({ namespace })` call for exact paths. Each arrives as a `context`
+  effect with `prompt` delivery, a text attachment named after its namespace
+  (`chauffeur-code-mode-browser.txt`) that reaches the first step
+  and adds nothing to the system prompt. Tool exposure remembers per agent
+  what it surfaced and which namespaces the agent has called (the
+  `tools.<namespace>` paths in `execute`'s code, and the calls the host
+  reports from inside it). Neither gets a note again, even after a
+  compaction: the agent already knows those tools, and `search` or
+  `ask_chauffeur` still find them. It persists this with the rest of its
+  state.
 - **Code Mode trimming** (`tool-exposure.json` `code_mode.trim`, off). The
   same answers also withhold, at a context's first message, every namespace
   confidently not needed (P ≤ 0.3), except `code_mode.always` (context7, jina,
@@ -366,15 +378,29 @@ The adapter registers the tool (never hidden, never in Code Mode) with one
 input, `need`: what the agent has to do, in plain words. A call sends an
 `agent_request` signal with the need, the user's latest request, the tools
 hidden in this context, and the host's Code Mode namespaces ranked against
-the need. Both exposure capabilities fan out in the same Jev call: tool
-exposure asks, per hidden group and per namespace, whether it covers any part
-of the need, since one request can need several; skill exposure asks, per
-skill the agent was not yet given, whether it serves the need. Each grant
-needs P ≥ 0.7 with confidence ≥ 0.4. Granted groups are revealed from the
-agent's next step; granted namespaces' best matches and skills' bodies come
-back in the tool's reply, which also says what was revealed. Nothing granted,
-or a failed judgment, replies that nothing fits, so the agent carries on. The call itself is not reported as a
-tool result, so no rule judges it.
+the need. Both exposure capabilities fan out in the same Jev call, each
+question worded on the need, with the user's request as context only: tool
+exposure asks, per hidden group and per namespace (never one holding only
+never-exposed tools, such as the host's `skill` loader), whether it is what
+the need calls for; skill exposure asks, per skill the agent was not yet given
+among the 24 closest to the need, whether it is meant for exactly that need.
+Each grant needs P ≥ 0.7 with confidence ≥ 0.4 from Jev alone (no answer
+escalates: the agent waits, and a second opinion changed nothing on the
+bench), and a request gets the best,
+not everything related: at most two groups or namespaces, likeliest first,
+and one skill. When several skills pass, one more Jev choice picks the one
+made for the need (a dedicated CLI's skill over a general browser skill that
+mentions the same site); an unsure pick keeps the likeliest. Granted groups
+are revealed from the agent's next step; granted namespaces' best matches and
+skills' bodies, with each skill's base directory, come back in the tool's
+reply, which also says what was revealed. A skill already in the context is
+not sent again, and the reply records the skills it carried. When nothing is
+granted, each capability names its closest candidates (P ≥ 0.3) in a
+`suggest` effect, and the reply says nothing clearly fits, lists them, and
+tells the agent to carry on with its own tools or ask again naming one. The
+call itself is not reported as a tool result, so no rule judges it.
+`bench/ask` replays these requests against the running daemon and scores
+what each hands over.
 
 ## Skills
 

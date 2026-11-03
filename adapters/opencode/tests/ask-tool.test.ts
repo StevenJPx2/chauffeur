@@ -28,11 +28,16 @@ type Need = { readonly need: string }
 type Registered = {
   readonly name: string
   readonly options?: { readonly codemode?: boolean }
-  readonly execute: (input: Need, context: { readonly sessionID: string; readonly agent: string }) => Effect.Effect<{ readonly content: string }>
+  readonly execute: (input: Need, context: { readonly sessionID: string; readonly agent: string }) => Effect.Effect<{ readonly content: string; readonly metadata?: { readonly "chauffeur.skills"?: ReadonlyArray<string> } }>
 }
 
+const CONTEXT = [
+  { type: "user", text: "Check the landing page renders", metadata: {} },
+  { type: "user", text: "CI failed", metadata: { sourcefed: { kind: "ci" } } },
+]
+
 /** Install the tool and return its registered definition. */
-async function registered(daemon: DaemonClient, exposure: ExposureControl) {
+async function registered(daemon: DaemonClient, exposure: ExposureControl, context: ReadonlyArray<unknown> = CONTEXT, skills: ReadonlyArray<{ id: string; content: string; path?: string }> = [{ id: "jira-cli", content: "Use jira issue create.", path: "/skills/jira-cli/SKILL.md" }]) {
   const tools: Registered[] = []
 
   const host = fakeHost({
@@ -44,12 +49,9 @@ async function registered(daemon: DaemonClient, exposure: ExposureControl) {
       }),
     },
     session: {
-      context: () => Effect.succeed([
-        { type: "user", text: "Check the landing page renders", metadata: {} },
-        { type: "user", text: "CI failed", metadata: { sourcefed: { kind: "ci" } } },
-      ]),
+      context: () => Effect.succeed(context),
     },
-    skill: { list: () => Effect.succeed({ data: [{ id: "jira-cli", content: "Use jira issue create." }] }) },
+    skill: { list: () => Effect.succeed({ data: skills }) },
   })
 
   const plugin = await install(installAskTool(exposure), host, daemon)
@@ -58,9 +60,10 @@ async function registered(daemon: DaemonClient, exposure: ExposureControl) {
 
   if (tool === undefined) throw new Error("ask_chauffeur was not registered")
 
-  const ask = (need: Need) => Effect.runPromise(tool.execute(need, { sessionID, agent: "build" })).then((result) => result.content)
+  const call = (need: Need) => Effect.runPromise(tool.execute(need, { sessionID, agent: "build" }))
+  const ask = (need: Need) => call(need).then((result) => result.content)
 
-  return { tool, ask, close: plugin.close }
+  return { tool, ask, call, close: plugin.close }
 }
 
 function replying(sent: Signal[], effects: ReadonlyArray<HostEffect>): DaemonClient {
@@ -104,9 +107,61 @@ test("a request carries the need, the user's words, hidden tools, and Code Mode,
   expect(revealed).toEqual([["browser_open"]])
   expect(reply).toContain("revealed these tools; they are available from your next step: browser_open")
   expect(reply).toContain("Use jira issue create.")
+  // Without it the agent cannot find the skill's scripts or references.
+  expect(reply).toContain("Base directory for this skill: /skills/jira-cli\n")
   expect(reply).not.toContain("not for this session")
 
   await close()
+})
+
+test("a skill already in the context is not sent again, and the reply records the skills it carries", async () => {
+  // Before the compaction, jira-cli was attached: the current context lacks it.
+  const context = [
+    { type: "user", text: "Earlier", skills: [{ id: "jira-cli" }], metadata: {} },
+    { type: "compaction", metadata: {} },
+    { type: "user", text: "Open a PR", skills: [{ id: "deploy" }], metadata: {} },
+    { type: "synthetic", text: "Hand-over", metadata: { "chauffeur.skills": ["browser"] } },
+    { type: "skill", skill: "gh", name: "gh", text: "Use gh pr view.", metadata: {} },
+    { type: "assistant", content: [
+      { type: "text", text: "Asking" },
+      { type: "tool", name: ASK_TOOL, state: { status: "completed", input: {}, content: [{ type: "text", text: "…" }], metadata: { "chauffeur.skills": ["linear"] } } },
+      { type: "tool", name: "read", state: { status: "running", input: {} } },
+    ] },
+  ]
+
+  const skills = ["deploy", "browser", "gh", "linear", "jira-cli"].map((id) => ({ id, content: `Use ${id} well.` }))
+
+  const { call, close } = await registered(replying([], [
+    { type: "context", agent_id: sessionID, delivery: "steer", label: "present", skills: ["deploy", "browser", "gh", "linear"], text: null },
+    { type: "context", agent_id: sessionID, delivery: "steer", label: "skill jira-cli", skills: ["jira-cli"], text: null },
+    { type: "context", agent_id: sessionID, delivery: "steer", label: "again", skills: ["jira-cli"], text: null },
+  ]), fakeExposure(), context, skills)
+
+  const result = await call({ need: "file an issue" })
+
+  expect(result.content.match(/<skill_content name="([^"]+)"/g)).toEqual(['<skill_content name="jira-cli"'])
+  expect(result.metadata).toEqual({ "chauffeur.skills": ["jira-cli"] })
+
+  await close()
+})
+
+test("the closest matches are named only when nothing is handed over", async () => {
+  const suggest: HostEffect = { type: "suggest", agent_id: sessionID, names: ["the jira-cli skill", "the safari Code Mode tools"] }
+
+  const nothing = await registered(replying([], [suggest]), fakeExposure())
+
+  const something = await registered(replying([], [
+    suggest,
+    { type: "context", agent_id: sessionID, delivery: "steer", label: "skill jira-cli", skills: ["jira-cli"], text: null },
+  ]), fakeExposure())
+
+  const named = await nothing.ask({ need: "file an issue" })
+
+  expect(named).toStartWith("Nothing Chauffeur has clearly fits. The closest were the jira-cli skill, the safari Code Mode tools;")
+  expect(named).toContain("nothing restricts them")
+  expect(await something.ask({ need: "file an issue" })).not.toContain("closest")
+  await nothing.close()
+  await something.close()
 })
 
 test("nothing granted, a failed reveal, or a daemon failure still replies", async () => {

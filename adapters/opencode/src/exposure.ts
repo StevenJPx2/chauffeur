@@ -4,16 +4,16 @@ import { Effect, Schema, type Scope } from "effect"
 import { warnClippedSkills } from "./clipped-skills.js"
 import { codeModeNamespaces } from "./code-mode.js"
 import { Daemon } from "./daemon.js"
-import { type HistoryMessage, Host, type HostTool, type SessionID } from "./host.js"
+import { currentContext, type HistoryMessage, Host, type HostTool, type SessionID } from "./host.js"
 import { hostModel, ref, sameModel } from "./model-router.js"
 import { mcpSettled } from "./mcp-settle.js"
 import { applyNamespaces } from "./namespaces.js"
 import { ASK_TOOL } from "./ask-tool.js"
-import { currentContext, NO_RENEWAL, type RenewalControl } from "./renewal.js"
+import { NO_RENEWAL, type RenewalControl } from "./renewal.js"
 import { Texts, type TextsSource } from "./texts.js"
 import { TODO_TOOL } from "./todo-data.js"
 import { catalogEntry, signal, TEXT_CODE_POINTS, type CatalogEntry, type CodeModeNamespace, type ContextEffect, type HostEffect, type ModelRef } from "./protocol.js"
-import { hostLoadsSkills, SKILLS_METADATA_KEY } from "./skills.js"
+import { hostLoadsSkills, skillsInContext } from "./skills.js"
 import { clip, isIntegrationMessage, userText } from "./text.js"
 
 const MAX_SESSIONS = 256
@@ -142,7 +142,7 @@ export const installExposure = (renewal: RenewalControl = NO_RENEWAL): Effect.Ef
     return Effect.gen(function* () {
       // A compaction queued ahead of this prompt starts a new context for it.
       const renewed = yield* renewal.renew(event.sessionID)
-      const { firstInContext, skills, model, agent, workspace } = yield* admission(host, event, (set) => hidden.remember(sessionID, set), renewed)
+      const { firstInContext, skills, attached, model, agent, workspace } = yield* admission(host, event, (set) => hidden.remember(sessionID, set), renewed)
       const requestTools = hidden.requests.forAgent(agent)
 
       hidden.requests.admit(sessionID, agent)
@@ -175,6 +175,7 @@ export const installExposure = (renewal: RenewalControl = NO_RENEWAL): Effect.Ef
       }), EXPOSURE_TIMEOUT)
 
       yield* apply(host, event, effects, {
+        attached,
         hidden: hidden.cached(sessionID),
         expected: model ? ref(model) : null,
         remember: (set) => hidden.remember(sessionID, set),
@@ -230,7 +231,7 @@ function control(host: Plugin.Context, hidden: HiddenTools, texts: TextsSource):
 }
 
 /** What applying the engine's effects to one prompt needs. */
-type Applying = { hidden: Hidden; expected: ModelRef | null; remember: (set: Hidden) => void }
+type Applying = { attached: ReadonlySet<string>; hidden: Hidden; expected: ModelRef | null; remember: (set: Hidden) => void }
 
 function apply(host: Plugin.Context, event: SessionPrompt, effects: ReadonlyArray<HostEffect>, applying: Applying): Effect.Effect<void, unknown> {
   return Effect.forEach(effects, (effect) => {
@@ -243,7 +244,7 @@ function apply(host: Plugin.Context, event: SessionPrompt, effects: ReadonlyArra
     // Before admission, so the request this prompt starts already has them.
     if (effect.type === "namespaces") return applyNamespaces(event.sessionID, effect).pipe(Effect.provideService(Host, host))
 
-    if (effect.type === "context" && effect.delivery === "prompt") attach(effect, event)
+    if (effect.type === "context" && effect.delivery === "prompt") attach(effect, event, applying.attached)
 
     return Effect.void
   }, { discard: true })
@@ -287,6 +288,7 @@ function admission(host: Plugin.Context, event: SessionPrompt, remember: (set: H
     return {
       firstInContext: fresh && !session.parentID,
       skills: yield* skillsToJudge(host, context, event),
+      attached: skillsInContext(context),
       model: session.model,
       agent: session.agent,
       workspace: clip(String(session.location.directory), TEXT_CODE_POINTS),
@@ -332,25 +334,21 @@ function skillsToJudge(host: Plugin.Context, context: ReadonlyArray<HistoryMessa
   return host.skill.list().pipe(Effect.map((skills) => skills.data.filter((skill) => !attached.has(skill.id)).slice(0, MAX_CATALOG)))
 }
 
-/** Skills already in this context: attached to user messages or delivered mid-turn. */
+/** Skills already in this context, and those this prompt already carries. */
 function attachedSkills(context: ReadonlyArray<HistoryMessage>, event?: SessionPrompt): Set<string> {
-  return new Set([
-    ...context.flatMap((message) => (message.type === "user" ? message.skills ?? [] : [])).map((skill) => skill.id),
-    ...context.flatMap((message) => {
-      const ids = message.type === "synthetic" ? message.metadata?.[SKILLS_METADATA_KEY] : undefined
-
-      return isStringList(ids) ? ids : []
-    }),
-    ...(event?.prompt.skills ?? []).map((skill) => skill.id),
-  ])
+  return new Set([...skillsInContext(context), ...(event?.prompt.skills ?? []).map((skill) => String(skill.id))])
 }
 
 /**
- * Skills join the prompt as user-selected skills; text joins it as a text
- * attachment. Both reach the first step and add nothing to the system prompt.
+ * Skills join the prompt as user-selected skills, unless the context or the
+ * prompt already has them; text joins it as a text attachment. Both reach the
+ * first step and add nothing to the system prompt.
  */
-function attach(effect: ContextEffect, event: SessionPrompt): void {
-  event.prompt.skills = [...(event.prompt.skills ?? []), ...effect.skills.map((id) => ({ id: Skill.ID.make(id) }))]
+function attach(effect: ContextEffect, event: SessionPrompt, attached: ReadonlySet<string>): void {
+  const present = new Set([...attached, ...(event.prompt.skills ?? []).map((skill) => String(skill.id))])
+  const skills = effect.skills.filter((id) => !present.has(id))
+
+  event.prompt.skills = [...(event.prompt.skills ?? []), ...skills.map((id) => ({ id: Skill.ID.make(id) }))]
 
   if (effect.text) {
     const name = `chauffeur-${effect.label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}.txt`

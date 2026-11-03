@@ -36,10 +36,26 @@ pub struct ToolExposureConfig {
     pub listed_tools: usize,
     /// Hidden tools offered in a missing-tool recovery choice.
     pub recovery_candidates: usize,
+    /// What the agent's own request may be handed.
+    pub request: RequestConfig,
     /// Whether Code Mode namespaces are withheld, and which never are.
     pub code_mode: CodeModeConfig,
     /// The wording of the questions to System One and of what is delivered.
     pub texts: ToolTexts,
+}
+
+/// The agent's request is answered with the best matches, not everything
+/// related: the agent asked for one thing.
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct RequestConfig {
+    /// Hidden groups and Code Mode namespaces one request is handed, at
+    /// most, most likely first.
+    pub grants: usize,
+    /// When none fits, the closest this many are named, not handed over.
+    pub closest: usize,
+    /// A group or namespace is named as close only at this P(yes) or above.
+    pub closest_at: f32,
 }
 
 /// Code Mode trimming. With `trim`, a context's first message withholds every
@@ -92,10 +108,15 @@ pub struct ToolTexts {
     pub keep_option: Template,
     /// The confirmation option that keeps it hidden as uncertain.
     pub uncertain_option: Template,
-    /// Names the Code Mode note for the user.
+    /// Names a Code Mode note for the user, and its attachment's file:
+    /// `{namespace}` (several, comma-separated, in one reply).
     pub code_mode_label: Template,
     /// One tool in the note: `{tool}`, `{description}`.
     pub code_mode_tool: Template,
+    /// Names a hidden group that came close to the agent's request: `{group}`.
+    pub closest_group: Template,
+    /// Names a Code Mode namespace that came close to it: `{namespace}`.
+    pub closest_namespace: Template,
     /// One namespace in the note: `{namespace}`, `{size}`, `{tools}` (the
     /// rendered `code_mode_tool` lines).
     pub code_mode_section: Template,
@@ -141,8 +162,18 @@ impl ToolTexts {
             ("texts.reveal_option", &self.reveal_option, &[][..]),
             ("texts.keep_option", &self.keep_option, &[][..]),
             ("texts.uncertain_option", &self.uncertain_option, &[][..]),
-            ("texts.code_mode_label", &self.code_mode_label, &[][..]),
+            (
+                "texts.code_mode_label",
+                &self.code_mode_label,
+                &["namespace"][..],
+            ),
             ("texts.code_mode_tool", &self.code_mode_tool, tool),
+            ("texts.closest_group", &self.closest_group, &["group"][..]),
+            (
+                "texts.closest_namespace",
+                &self.closest_namespace,
+                &["namespace"][..],
+            ),
             (
                 "texts.code_mode_section",
                 &self.code_mode_section,
@@ -200,6 +231,15 @@ impl ToolExposureConfig {
         if !(1..=MAX_RECOVERY_CANDIDATES).contains(&self.recovery_candidates) {
             return Err(format!(
                 "recovery_candidates must be in 1..={MAX_RECOVERY_CANDIDATES}"
+            ));
+        }
+
+        if !(1..=MAX_RECOVERY_CANDIDATES).contains(&self.request.grants)
+            || self.request.closest > MAX_RECOVERY_CANDIDATES
+            || !(0.0..=1.0).contains(&self.request.closest_at)
+        {
+            return Err(format!(
+                "request.grants must be in 1..={MAX_RECOVERY_CANDIDATES}, request.closest at most {MAX_RECOVERY_CANDIDATES}, and request.closest_at in [0, 1]"
             ));
         }
 

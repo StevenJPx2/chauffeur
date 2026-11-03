@@ -61,6 +61,7 @@ fn question(kind: QuestionKind) -> Question {
         instructions: "Judge this evidence".into(),
         kind,
         facts: Facts::new(),
+        second_opinion: Default::default(),
     }
 }
 

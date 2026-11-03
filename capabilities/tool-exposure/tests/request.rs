@@ -1,10 +1,11 @@
 //! The agent asks for a tool: System One judges every hidden group and Code
-//! Mode namespace, and each one that serves the request is granted.
+//! Mode namespace, and the best few that serve the request are granted; when
+//! none does, the closest are named instead.
 
 use chauffeur_capability_tool_exposure::{ToolExposure, ToolExposureConfig};
 use chauffeur_core::{
     Answer, AnswerValue, Capability, CatalogEntry, CodeModeNamespace, Delivery, Effect, Judging,
-    Plan, QuestionKind, Signal, SignalKind, Situation,
+    Plan, QuestionKind, SecondOpinion, Signal, SignalKind, Situation,
 };
 
 fn tool(id: &str) -> CatalogEntry {
@@ -90,13 +91,47 @@ fn each_hidden_group_and_namespace_is_asked_but_base_tools_never() {
 }
 
 #[test]
-fn two_groups_and_a_namespace_are_all_granted_together() {
+fn the_agent_waits_on_its_request_so_no_question_escalates() {
+    let Plan::Ask(questions) = exposure().plan(
+        &Situation::default(),
+        &request(&["browser_open"], &["safari"]),
+    ) else {
+        panic!("expected questions")
+    };
+
+    assert!(
+        questions
+            .iter()
+            .all(|question| question.second_opinion == SecondOpinion::Never)
+    );
+}
+
+#[test]
+fn the_hosts_skill_loader_is_never_offered_through_code_mode() {
+    let mut signal = request(&[], &["safari"]);
+
+    if let SignalKind::AgentRequest { code_mode, .. } = &mut signal.kind {
+        code_mode.push(CodeModeNamespace {
+            name: "skill".into(),
+            size: 1,
+            tools: vec![tool("skill")],
+        });
+    }
+
+    assert_eq!(
+        asked(&exposure().plan(&Situation::default(), &signal)),
+        ["code-mode:safari"]
+    );
+}
+
+#[test]
+fn only_the_two_likeliest_that_serve_the_request_are_granted() {
     let signal = request(
         &["browser_open", "browser_click", "github_merge", "jira_view"],
         &["safari", "jina"],
     );
     let answers = [
-        noul("tools:browser", 0.9, 0.8),
+        noul("tools:browser", 0.95, 0.8),
         noul("tools:github", 0.8, 0.8),
         noul("tools:jira", 0.2, 0.8),
         noul("code-mode:safari", 0.9, 0.8),
@@ -116,19 +151,30 @@ fn two_groups_and_a_namespace_are_all_granted_together() {
     };
 
     assert!(hide.is_empty());
-    assert_eq!(reveal, &["browser_open", "browser_click", "github_merge"]);
+    assert_eq!(reveal, &["browser_open", "browser_click"]);
     assert!(text.contains("safari_open") && !text.contains("jina"));
 }
 
 #[test]
-fn no_confident_yes_grants_nothing() {
-    let signal = request(&["browser_open"], &["safari"]);
+fn no_confident_yes_grants_nothing_but_names_the_closest() {
+    let signal = request(&["browser_open", "jira_view"], &["safari", "jina"]);
     let answers = [
         noul("tools:browser", 0.5, 0.9),
+        noul("tools:jira", 0.1, 0.9),
         noul("code-mode:safari", 0.9, 0.2),
+        noul("code-mode:jina", 0.2, 0.9),
     ];
 
-    assert!(granted(&signal, Some(&answers)).is_empty());
+    assert_eq!(
+        granted(&signal, Some(&answers)),
+        [Effect::Suggest {
+            agent_id: "ses".into(),
+            names: vec![
+                "the safari Code Mode tools".into(),
+                "the hidden browser tools".into()
+            ],
+        }]
+    );
 }
 
 #[test]

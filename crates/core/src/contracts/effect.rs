@@ -69,6 +69,13 @@ pub enum Effect {
         skills: Vec<String>,
         text: Option<String>,
     },
+    /// Name what came closest to the agent's request when nothing clearly
+    /// served it, without handing it over. The host shows the names only
+    /// when it hands over nothing else for that request.
+    Suggest {
+        agent_id: String,
+        names: Vec<String>,
+    },
     /// Whether the integration event being gated reaches the agent.
     Gate { agent_id: String, deliver: bool },
     /// Compact the agent's context before the prompt being admitted, with

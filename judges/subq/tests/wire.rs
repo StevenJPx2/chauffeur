@@ -78,6 +78,7 @@ fn questions() -> Vec<Question> {
             instructions: "Needed?".into(),
             kind: QuestionKind::Noul,
             facts: Facts::new(),
+            second_opinion: Default::default(),
         },
         Question {
             id: "skill-exposure/pick".into(),
@@ -95,6 +96,7 @@ fn questions() -> Vec<Question> {
                 ],
             },
             facts: Facts::new(),
+            second_opinion: Default::default(),
         },
         Question {
             id: "urgency".into(),
@@ -103,6 +105,7 @@ fn questions() -> Vec<Question> {
                 levels: vec!["routine".into(), "urgent".into()],
             },
             facts: Facts::new(),
+            second_opinion: Default::default(),
         },
     ]
 }

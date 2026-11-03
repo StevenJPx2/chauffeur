@@ -10,4 +10,11 @@ export type SessionInfo = Effect.Success<ReturnType<Plugin.Context["session"]["g
 
 export type HistoryMessage = Effect.Success<ReturnType<Plugin.Context["session"]["context"]>>[number]
 
+/** Messages since the most recent compaction, which begins a new context. */
+export function currentContext(messages: ReadonlyArray<HistoryMessage>): HistoryMessage[] {
+  const lastCompaction = messages.findLastIndex((message) => message.type === "compaction")
+
+  return messages.slice(lastCompaction + 1)
+}
+
 export type HostTool = Effect.Success<ReturnType<Plugin.Context["tool"]["list"]>>[number]

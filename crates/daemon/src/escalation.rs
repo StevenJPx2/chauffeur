@@ -9,16 +9,19 @@ use std::time::{Duration, Instant};
 
 use chauffeur_core::system_two::{self, MAX_REASONING_INPUT_BYTES};
 use chauffeur_core::{
-    Answer, AnswerValue, Evidence, Question, QuestionKind, Reasoning, Schema, SystemOne,
-    SystemOneError, SystemTwo, validate_answers,
+    Answer, AnswerValue, Evidence, Question, QuestionKind, Reasoning, Schema, SecondOpinion,
+    SystemOne, SystemOneError, SystemTwo, validate_answers,
 };
 use serde_json::Value;
 
 /// Time a second System One call needs to be worth starting.
 const MIN_SECOND: Duration = Duration::from_millis(500);
-/// Time a review needs to be worth starting.
-const MIN_REVIEW: Duration = Duration::from_secs(2);
-/// Kept back from a review for the engine's next round.
+/// How close to one of its question's bars a yes/no answer must be for a
+/// second opinion to be able to change the decision.
+const NEAR_BAR: f32 = 0.15;
+/// Time a review needs to be worth starting, after the round reserve.
+const MIN_REVIEW: Duration = Duration::from_secs(1);
+/// Kept back from every escalation step for the engine's next round.
 const ROUND_RESERVE: Duration = Duration::from_secs(1);
 /// Questions one review answers at most: System Two's object field limit.
 const MAX_REVIEWED: usize = 16;
@@ -95,8 +98,13 @@ impl Escalate {
         let mut used = self.first.name().to_string();
         let unsure = self.unsure(questions, &answers);
 
-        if !unsure.is_empty() && has_time(deadline, MIN_SECOND) {
-            match ask(self.second.as_mut(), state, &unsure, deadline) {
+        // Each step ends a round reserve before the signal's deadline, so the
+        // answers in hand reach the engine before the signal expires.
+        let before =
+            deadline.map(|deadline| deadline.checked_sub(ROUND_RESERVE).unwrap_or(deadline));
+
+        if !unsure.is_empty() && has_time(before, MIN_SECOND) {
+            match ask(self.second.as_mut(), state, &unsure, before) {
                 Ok(second) => {
                     replace(&mut answers, second, &mut self.replaced);
                     used = format!("{used}+{}", self.second.name());
@@ -113,12 +121,12 @@ impl Escalate {
         let unsure = self.unsure(questions, &answers);
 
         if let Some(review) = self.review.as_mut().filter(|_| !unsure.is_empty()) {
-            if has_time(deadline, MIN_REVIEW)
+            if has_time(before, MIN_REVIEW)
                 && review_into(
                     review,
                     state,
                     &unsure,
-                    deadline,
+                    before,
                     &mut answers,
                     &mut self.replaced,
                 )
@@ -131,14 +139,26 @@ impl Escalate {
         Ok(answers)
     }
 
+    /// The questions whose answers a second opinion could change: a yes/no
+    /// answer near one of its question's bars, or, when the bars are not
+    /// known, any answer under the confidence bar. A question may opt out.
     fn unsure(&self, questions: &[Question], answers: &[Answer]) -> Vec<Question> {
         questions
             .iter()
             .filter(|question| {
+                if question.second_opinion == SecondOpinion::Never {
+                    return false;
+                }
+
                 answers
                     .iter()
                     .find(|answer| answer.id == question.id)
-                    .is_none_or(|answer| answer.effective_confidence() < self.below)
+                    .is_none_or(|answer| match (&answer.value, &question.second_opinion) {
+                        (AnswerValue::Noul(p), SecondOpinion::Near(bars)) if !bars.is_empty() => {
+                            bars.iter().any(|bar| (p - bar).abs() < NEAR_BAR)
+                        }
+                        _ => answer.effective_confidence() < self.below,
+                    })
             })
             .cloned()
             .collect()
@@ -218,9 +238,7 @@ fn review_into(
 
     let request = request(&review.profile, state, &questions);
     let timeout = deadline.map_or(Duration::MAX, |deadline| {
-        deadline
-            .saturating_duration_since(Instant::now())
-            .saturating_sub(ROUND_RESERVE)
+        deadline.saturating_duration_since(Instant::now())
     });
     let attempt = system_two::run_attempt(Some(review.executor.as_mut()), &request, timeout);
 
@@ -409,6 +427,14 @@ mod tests {
             instructions: format!("{id}?"),
             kind: QuestionKind::Noul,
             facts: Facts::new(),
+            second_opinion: Default::default(),
+        }
+    }
+
+    fn barred(id: &str, bars: &[f32]) -> Question {
+        Question {
+            second_opinion: SecondOpinion::Near(bars.to_vec()),
+            ..noul(id)
         }
     }
 
@@ -425,6 +451,7 @@ mod tests {
                     .to_vec(),
             },
             facts: Facts::new(),
+            second_opinion: Default::default(),
         }
     }
 
@@ -480,6 +507,68 @@ mod tests {
 
         assert!(asked.lock().unwrap().is_empty());
         assert_eq!(judge.name(), "jev");
+    }
+
+    #[test]
+    fn only_answers_near_their_bar_escalate() {
+        let (first, _) = fake(
+            "jev",
+            vec![Ok(vec![
+                answer("far", 0.25),
+                answer("near", 0.63),
+                answer("low", 0.2),
+            ])],
+        );
+        let (second, asked) = fake(
+            "glide",
+            vec![Ok(vec![answer("near", 0.8), answer("low", 0.4)])],
+        );
+        let mut judge = Escalate::new(first, second, 0.6, None);
+
+        judge
+            .ask(
+                "state",
+                &[
+                    barred("far", &[0.7]),
+                    barred("near", &[0.7]),
+                    barred("low", &[0.7, 0.3]),
+                ],
+            )
+            .unwrap();
+
+        assert_eq!(
+            *asked.lock().unwrap(),
+            vec![vec!["near".to_string(), "low".to_string()]]
+        );
+    }
+
+    #[test]
+    fn a_question_that_opts_out_never_escalates() {
+        let (first, _) = fake("jev", vec![Ok(vec![answer("note", 0.5)])]);
+        let (second, asked) = fake("glide", vec![]);
+        let mut judge = Escalate::new(first, second, 0.6, None);
+        let question = Question {
+            second_opinion: SecondOpinion::Never,
+            ..noul("note")
+        };
+
+        judge.ask("state", &[question]).unwrap();
+
+        assert!(asked.lock().unwrap().is_empty());
+        assert_eq!(judge.name(), "jev");
+    }
+
+    #[test]
+    fn escalation_keeps_a_round_reserve_before_the_deadline() {
+        let (first, _) = fake("jev", vec![Ok(vec![answer("q", 0.5)])]);
+        let (second, asked) = fake("glide", vec![]);
+        let mut judge = Escalate::new(first, second, 0.6, None);
+        let deadline = Instant::now() + ROUND_RESERVE + MIN_SECOND / 2;
+
+        let answers = judge.ask_by("s", &[noul("q")], deadline).unwrap();
+
+        assert_eq!(answers[0].value, AnswerValue::Noul(0.5));
+        assert!(asked.lock().unwrap().is_empty());
     }
 
     #[test]

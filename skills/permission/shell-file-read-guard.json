@@ -25,7 +25,7 @@
   "outcomes": {
     "positive": {
       "effect": "deny",
-      "message": "Chauffeur: Read project source, configuration, tests and docs with the read tool, not shell printers or Python/Node file reads, including scripts that print transformed source. Read the file first; use build tools for compilation and edit or patch tools for changes."
+      "message": "Chauffeur: Read project source, configuration, tests and docs with the read tool, called directly or through Code Mode's execute, not shell printers or Python/Node file reads, including scripts that print transformed source. Read the file first; use build tools for compilation and edit or patch tools for changes."
     },
     "negative": {
       "effect": "abstain",

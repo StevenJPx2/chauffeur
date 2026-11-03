@@ -6,6 +6,7 @@ mod escalation;
 mod judge;
 mod judges;
 mod learned;
+mod lexical;
 mod ranking;
 mod reasoning;
 mod scheduler;
@@ -19,6 +20,7 @@ mod completion_review;
 
 pub use engine::EngineOptions;
 pub use judge::{JudgeConfig, SystemOneFactory};
+pub use ranking::Ranking;
 pub use scheduler::{EngineHandle, SystemTwoFactory};
 
 use std::net::SocketAddr;
@@ -115,9 +117,10 @@ pub struct DaemonOptions {
     pub disabled: Vec<String>,
     pub state_file: Option<PathBuf>,
     pub audit_file: Option<PathBuf>,
-    /// The loopback embedding service that ranks skills, unless
-    /// `CHAUFFEUR_EMBEDDINGS=off`; EmbeddingGemma's port by default.
-    pub embeddings: Option<String>,
+    /// How skills are ranked: `CHAUFFEUR_RANKING` is `bm25` (the default),
+    /// `embeddings` (the loopback service at `CHAUFFEUR_EMBEDDINGS`,
+    /// EmbeddingGemma's port by default), or `off`.
+    pub ranking: Ranking,
     /// The service manager that restarts this daemon, such as `brew`, from
     /// `CHAUFFEUR_MANAGED`; `None` when a host started it.
     pub managed: Option<String>,
@@ -154,11 +157,7 @@ impl DaemonOptions {
                 .collect(),
             state_file: Some(state.join("state.json")),
             audit_file: Some(state.join("audit.jsonl")),
-            embeddings: match std::env::var("CHAUFFEUR_EMBEDDINGS") {
-                Ok(value) if value == "off" => None,
-                Ok(url) => Some(url),
-                Err(_) => Some("http://127.0.0.1:18791".into()),
-            },
+            ranking: ranking_from_env()?,
             managed: std::env::var("CHAUFFEUR_MANAGED")
                 .ok()
                 .filter(|manager| !manager.trim().is_empty()),
@@ -192,7 +191,14 @@ pub async fn serve(options: DaemonOptions) -> Result<(), String> {
         ))))
     };
     let texts = Arc::new(Mutex::new(HostTexts::load(&options.config_dir)?));
-    let ranker = ranking::Ranker::new(options.embeddings.as_deref())?;
+    let ranker = ranking::Ranker::new(
+        &options.ranking,
+        options
+            .state_file
+            .as_ref()
+            .and_then(|path| path.parent())
+            .map(|state| state.join("skill-vectors.json")),
+    )?;
     let skill_config = options.config_dir.join("skill-sources.json");
     let skill_cache = options
         .state_file
@@ -373,6 +379,22 @@ fn authorized(headers: &HeaderMap, token: Option<&str>) -> bool {
 
 /// `CHAUFFEUR_STATE_DIR`, else `$XDG_STATE_HOME/chauffeur`, else
 /// `~/.local/state/chauffeur`; created if missing.
+/// `CHAUFFEUR_RANKING`: `bm25` unless set; `embeddings` uses the service at
+/// `CHAUFFEUR_EMBEDDINGS`, EmbeddingGemma's port by default.
+fn ranking_from_env() -> Result<Ranking, String> {
+    match std::env::var("CHAUFFEUR_RANKING").as_deref() {
+        Err(_) | Ok("bm25") => Ok(Ranking::Bm25),
+        Ok("off") => Ok(Ranking::Off),
+        Ok("embeddings") => Ok(Ranking::Embeddings(
+            std::env::var("CHAUFFEUR_EMBEDDINGS")
+                .unwrap_or_else(|_| "http://127.0.0.1:18791".into()),
+        )),
+        Ok(other) => Err(format!(
+            "CHAUFFEUR_RANKING is {other}; use bm25, embeddings, or off"
+        )),
+    }
+}
+
 fn state_dir(home: &Path) -> Result<PathBuf, String> {
     let dir = std::env::var_os("CHAUFFEUR_STATE_DIR")
         .map(PathBuf::from)

@@ -599,6 +599,7 @@ fn question(
         instructions,
         kind: QuestionKind::Noul,
         facts: Facts::new(),
+        second_opinion: Default::default(),
     }
 }
 

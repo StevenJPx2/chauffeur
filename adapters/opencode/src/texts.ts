@@ -17,6 +17,8 @@ const HostTextsSchema = Schema.Struct({
     nothing_found: Schema.String,
     nothing_found_skill_tool: Schema.String,
     revealed: Schema.String,
+    /** Before the answer when nothing was handed over: `{names}`. */
+    closest: Schema.String,
     failed: Schema.String,
   }),
   /** Replacement descriptions for host tools, keyed by tool name. */

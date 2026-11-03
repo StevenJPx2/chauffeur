@@ -7,9 +7,10 @@
     "browser_only": ["browser-harness"]
   },
   "budget": { "bytes": 65536, "skills": 4 },
+  "request": { "judged": 24, "skills": 1, "confidence": 0.5, "closest": 2, "closest_at": 0.3 },
   "ranking": { "judged": 16, "always": [] },
   "texts": {
-    "request": "The coding agent asked for: \"{need}\" (the user's latest request: {user_request}). Does the {skill} skill ({description}) serve what it asked for? Answer yes only when it clearly does.",
+    "request": "The coding agent asked for: \"{need}\". For context only, the user's latest request was: {user_request}. Does the {skill} skill ({description}) give the agent what it asked for? Answer yes only when the skill is clearly meant for that exact need, not when it only shares a topic with it or with the user's request.",
     "project": "The coding session works inside the {skill} project ({workspace}). The {skill} skill: {description}. Does the user's latest request involve work in this project that the skill covers? Answer no only when the request is clearly about something else.",
     "named": "The user's latest request mentions {word}. The {skill} skill: {description}. Does the agent need this skill to act on the request?",
     "offered": "The coding session works in {workspace}. Does the user's latest request need the {skill} skill ({description}) for the agent to act on it? Answer yes only when the skill clearly helps with this request.",
@@ -18,6 +19,8 @@
     "unknown_action": "unknown",
     "no_skill": "No skill clearly helps.",
     "drift_notice": "Chauffeur: the {skill} skill fits this work better than the current approach.",
-    "label": "skill {skill}"
+    "label": "skill {skill}",
+    "closest": "the {skill} skill",
+    "request_choice": "The coding agent asked for: \"{need}\". Several skills could help. Which one is made for exactly this? Prefer the skill dedicated to this task or tool over a general one that only mentions it among many."
   }
 }

@@ -5,7 +5,7 @@
 //! the namespaces' best matches reach the running turn.
 
 use chauffeur_core::judgment::strategy::Candidate;
-use chauffeur_core::{CodeModeNamespace, Facts, Question, QuestionKind, Rule};
+use chauffeur_core::{CodeModeNamespace, Facts, Question, QuestionKind, Rule, SecondOpinion};
 
 use crate::config::ToolTexts;
 use crate::{Grant, code_mode};
@@ -39,6 +39,8 @@ pub fn candidates(
             ]),
             kind: QuestionKind::Noul,
             facts: Facts::new(),
+            // The agent waits on this reply: Jev's answer stands.
+            second_opinion: SecondOpinion::Never,
         },
         rule: needed,
     });
@@ -54,6 +56,8 @@ pub fn candidates(
             ]),
             kind: QuestionKind::Noul,
             facts: Facts::new(),
+            // The agent waits on this reply: Jev's answer stands.
+            second_opinion: SecondOpinion::Never,
         },
         rule: needed,
     });

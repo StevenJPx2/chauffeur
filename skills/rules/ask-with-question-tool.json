@@ -16,7 +16,7 @@
   ],
   "then": {
     "delivery": "resume",
-    "text": "Chauffeur: Put that question to the user with the question tool instead of in plain text. Give each way forward as an option, the one you recommend first and marked \"(Recommended)\", so the answer comes straight back into this same turn. Ask only for what you cannot decide yourself, then carry on from the answer."
+    "text": "Chauffeur: Put that question to the user with the question tool, called directly or through Code Mode's execute (or whichever tool you have that asks the user with options), instead of in plain text. Give each way forward as an option, the one you recommend first and marked \"(Recommended)\", so the answer comes straight back into this same turn. Ask only for what you cannot decide yourself, then carry on from the answer."
   },
   "cooldown_seconds": 900
 }

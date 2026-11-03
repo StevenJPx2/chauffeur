@@ -42,8 +42,8 @@ pub use signal::{
 };
 pub use situation::{Situation, SituationTexts};
 pub use system_one::{
-    Answer, AnswerValue, ChoiceOption, Question, QuestionKind, SystemOne, SystemOneError,
-    validate_answers,
+    Answer, AnswerValue, ChoiceOption, Question, QuestionKind, SecondOpinion, SystemOne,
+    SystemOneError, validate_answers,
 };
 pub use system_two::{
     AttemptMetadata, Backend, Completion, CompletionMetadata, Evidence, Reasoned, Reasoning,

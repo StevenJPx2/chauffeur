@@ -14,7 +14,7 @@
   ],
   "then": {
     "delivery": "steer",
-    "text": "Chauffeur: Read project files with the read tool, not shell printers or Python/Node file reads, including scripts that print transformed source. Use build tools for compilation and edit or patch tools for changes."
+    "text": "Chauffeur: Read project files with the read tool, called directly or through Code Mode's execute, not shell printers or Python/Node file reads, including scripts that print transformed source. Use build tools for compilation and edit or patch tools for changes."
   },
   "cooldown_seconds": 120
 }

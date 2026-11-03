@@ -161,9 +161,21 @@ export CHAUFFEUR_JUDGE_REVIEW=system-one-review  # optional System Two step
 ```
 
 - The primary (with its fallback, if any) answers every question first.
-- Each answer under the bar, by effective confidence, is asked again of the
-  escalation judge in one call with the same redacted state. Its answers
-  replace those: it was benchmarked as the more accurate judge.
+- Each answer a second opinion could change is asked again of the escalation
+  judge in one call with the same redacted state. For a yes/no question, that
+  is an answer within 0.15 of a P(yes) where the rules reading it decide: a
+  skill that attaches at 0.7 escalates an answer between 0.55 and 0.85, while
+  a 0.25 stays with the first judge, since no second opinion near it would
+  attach the skill. Every bar a strategy reads is marked on its question. Other
+  questions, and yes/no questions without a marked bar, escalate under the
+  bar by effective confidence. A question can opt out: Code Mode namespace
+  questions do unless `code_mode.trim` is on, since without trimming their
+  answer only chooses what the Code Mode note lists. `ask_chauffeur`'s questions
+  opt out too: the agent waits on the reply, and on the `bench/ask` set (39
+  requests each) a second opinion changed no outcome beyond noise. Jev alone
+  passed 35, with GLiDE 35, with GLiDE and the System Two review 36, at median
+  0.35 s, 0.81 s and 0.81 s (p90 0.63 s, 1.3 s and 3.9 s). The escalation judge's answers replace the
+  first judge's: it was benchmarked as the more accurate judge.
 - With `CHAUFFEUR_JUDGE_REVIEW`, answers still under the bar go to that
   System Two profile, which answers each from the state or abstains. An
   abstention keeps the escalation judge's answer. System Two must be enabled
@@ -172,9 +184,9 @@ export CHAUFFEUR_JUDGE_REVIEW=system-one-review  # optional System Two step
   questions per call.
 - Every step is best effort. A failed, invalid, or late step keeps the
   answers already in hand; only a primary failure fails the judgment.
-- Steps share the signal's deadline. The escalation call starts only with
-  500 ms left and the review only with 2 s left, keeping 1 s for the
-  engine's next round.
+- Steps share the signal's deadline and end 1 s before it, so the answers in
+  hand reach the engine before the signal expires. The escalation call starts
+  only with 500 ms left before that and the review only with 1 s.
 - Permission requests never escalate: the agent's tool call waits on them,
   and their unsure answers abstain anyway. Over two days of live traffic,
   escalation ran on half of them, added about 0.9 s to each, and turned 5 of

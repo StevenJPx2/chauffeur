@@ -6,6 +6,7 @@
     "nothing_found": "Chauffeur has no extra tool or skill for that. Your listed tools are available as usual and nothing restricts them: do it with them.",
     "nothing_found_skill_tool": "Chauffeur has no extra tool for that. If a skill fits, load it with the skill tool. Your listed tools are available as usual and nothing restricts them: do it with them.",
     "revealed": "Chauffeur revealed these tools; they are available from your next step: {tools}.",
+    "closest": "Nothing Chauffeur has clearly fits. The closest were {names}; if one of them is what you need, ask again naming it.",
     "failed": "Chauffeur could not answer: {error}. Continue with the tools you have."
   },
   "tool_descriptions": {

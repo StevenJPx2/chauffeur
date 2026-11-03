@@ -17,10 +17,10 @@ mod request;
 
 use std::collections::HashSet;
 
-use chauffeur_core::judgment::strategy::{self, Candidate};
+use chauffeur_core::judgment::strategy::{self, Candidate, Ranked};
 use chauffeur_core::{
     CatalogEntry, ChoiceOption, CodeModeNamespace, Delivery, Effect, Facts, Judged, Judgment,
-    Question, QuestionKind, Rule, Signal, SignalKind, Situation,
+    Question, QuestionKind, Rule, SecondOpinion, Signal, SignalKind, Situation,
 };
 
 use code_mode::Surfaced;
@@ -57,8 +57,12 @@ pub enum Verdict {
     },
     /// A missing-tool result: the hidden direct tool to reveal, if any.
     Recover(Option<String>),
-    /// The agent's request: everything that serves it.
-    Request(Vec<Grant>),
+    /// The agent's request: the best few that serve it, or, when none
+    /// does, the closest few to name.
+    Request {
+        grants: Vec<Grant>,
+        closest: Vec<Grant>,
+    },
 }
 
 /// What the agent's request may be granted.
@@ -99,6 +103,14 @@ impl ToolExposure {
 
     fn judgeable(&self, tool: &CatalogEntry) -> bool {
         !self.base.contains(&tool.id) && !self.never_exposed(tool)
+    }
+
+    /// A Code Mode namespace holding only never-exposed tools, such as the
+    /// host's `skill` loader: it is never offered.
+    fn never_offered(&self, namespace: &CodeModeNamespace) -> bool {
+        !namespace.tools.is_empty()
+            && u32::try_from(namespace.tools.len()).is_ok_and(|listed| listed >= namespace.size)
+            && namespace.tools.iter().all(|tool| self.never_exposed(tool))
     }
 
     /// Judgeable tools grouped by prefix, groups in first-seen order.
@@ -168,10 +180,6 @@ impl ToolExposure {
         };
         let first = *first_in_context;
 
-        if first {
-            self.surfaced.reset(&signal.agent_id);
-        }
-
         // A group the task confidently will not need is hidden; a hidden
         // group or namespace clearly needed is brought in.
         let needed = self.config.reveal.yes();
@@ -224,8 +232,8 @@ impl ToolExposure {
         )
     }
 
-    /// The namespaces not yet surfaced in this context, each asked whether
-    /// the request needs it.
+    /// The namespaces not yet surfaced in this session nor called by the
+    /// agent, each asked whether the request needs it.
     fn namespace_candidates(
         &self,
         agent_id: &str,
@@ -236,6 +244,7 @@ impl ToolExposure {
         self.surfaced
             .pending(agent_id, code_mode)
             .into_iter()
+            .filter(|namespace| !self.never_offered(namespace))
             .take(MAX_GROUPS)
             .map(|namespace| Candidate {
                 key: namespace.name.clone(),
@@ -255,6 +264,12 @@ impl ToolExposure {
         if first && self.config.code_mode.trim {
             strategy::fan_out_with(candidates, self.config.hide.no())
         } else {
+            // Without trimming, the answer only words a note: not worth a second judge's wait.
+            let candidates = candidates.into_iter().map(|mut candidate| {
+                candidate.question.second_opinion = SecondOpinion::Never;
+                candidate
+            });
+
             strategy::fan_out(candidates).map(|needed| (needed, Vec::new()))
         }
     }
@@ -340,16 +355,44 @@ impl ToolExposure {
                 )
             })
             .collect();
+        let namespaces: Vec<CodeModeNamespace> = code_mode
+            .iter()
+            .filter(|namespace| !self.never_offered(namespace))
+            .cloned()
+            .collect();
         let candidates = request::candidates(
             &groups,
-            code_mode,
+            &namespaces,
             need,
             user_request,
             self.config.reveal.yes(),
             &self.config.texts,
         );
 
-        (!candidates.is_empty()).then(|| strategy::fan_out(candidates).map(Verdict::Request))
+        let limits = self.config.request;
+
+        (!candidates.is_empty()).then(|| {
+            strategy::ranked(candidates).map(move |ranked: Vec<Ranked<Grant>>| {
+                let grants: Vec<Grant> = ranked
+                    .iter()
+                    .filter(|candidate| candidate.held)
+                    .take(limits.grants)
+                    .map(|candidate| candidate.key.clone())
+                    .collect();
+                let closest = if grants.is_empty() {
+                    ranked
+                        .into_iter()
+                        .filter(|candidate| candidate.p >= limits.closest_at)
+                        .take(limits.closest)
+                        .map(|candidate| candidate.key)
+                        .collect()
+                } else {
+                    Vec::new()
+                };
+
+                Verdict::Request { grants, closest }
+            })
+        })
     }
 
     /// Hide or reveal the judged groups, and surface the judged namespaces
@@ -433,6 +476,25 @@ impl ToolExposure {
         })
     }
 
+    /// Name the groups and namespaces that came closest, without handing them over.
+    fn suggested(&self, signal: &Signal, closest: &[Grant]) -> Option<Effect> {
+        let texts = &self.config.texts;
+        let names: Vec<String> = closest
+            .iter()
+            .map(|grant| match grant {
+                Grant::Group(group) => texts.closest_group.render(&[("group", group)]),
+                Grant::Namespace(namespace) => {
+                    texts.closest_namespace.render(&[("namespace", namespace)])
+                }
+            })
+            .collect();
+
+        (!names.is_empty()).then(|| Effect::Suggest {
+            agent_id: signal.agent_id.clone(),
+            names,
+        })
+    }
+
     /// Reveal every granted group in one effect, and bring every granted
     /// namespace's matches into the running turn in one note.
     fn granted(&mut self, signal: &Signal, grants: &[Grant]) -> Vec<Effect> {
@@ -492,7 +554,18 @@ impl Judged for ToolExposure {
     fn judge(&mut self, _: &Situation, signal: &Signal) -> Option<Judgment<Verdict>> {
         match signal.kind {
             SignalKind::UserMessage { .. } => self.message(signal),
-            SignalKind::ToolResult { .. } => self.recover(signal),
+            SignalKind::ToolResult {
+                ref tool,
+                ok,
+                ref input,
+                ..
+            } => {
+                if ok {
+                    self.surfaced.called(&signal.agent_id, tool, input);
+                }
+
+                self.recover(signal)
+            }
             SignalKind::AgentRequest { .. } => self.request(signal),
             _ => None,
         }
@@ -515,7 +588,12 @@ impl Judged for ToolExposure {
                 effects
             }
             Verdict::Recover(tool) => effect(&signal.agent_id, tool.into_iter().collect(), true),
-            Verdict::Request(grants) => self.granted(signal, &grants),
+            Verdict::Request { grants, closest } => {
+                let mut effects = self.granted(signal, &grants);
+
+                effects.extend(self.suggested(signal, &closest));
+                effects
+            }
         }
     }
 }
@@ -571,6 +649,7 @@ fn hide_question(group: &Group<'_>, listed: usize, texts: &ToolTexts) -> Questio
         ]),
         kind: QuestionKind::Noul,
         facts: Facts::new(),
+        second_opinion: Default::default(),
     }
 }
 
@@ -583,6 +662,7 @@ fn reveal_question(group: &Group<'_>, listed: usize, texts: &ToolTexts) -> Quest
         ]),
         kind: QuestionKind::Noul,
         facts: Facts::new(),
+        second_opinion: Default::default(),
     }
 }
 
@@ -613,6 +693,7 @@ fn choose_question(
             .render(&[("user_request", user_request), ("evidence", evidence)]),
         kind: QuestionKind::Choice { options },
         facts: Facts::new(),
+        second_opinion: Default::default(),
     }
 }
 
@@ -648,5 +729,6 @@ fn confirm_question(
                 .collect(),
         },
         facts: Facts::new(),
+        second_opinion: Default::default(),
     }
 }

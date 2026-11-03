@@ -3,7 +3,8 @@
 
 use chauffeur_capability_skill_exposure::{SkillExposure, SkillExposureConfig};
 use chauffeur_core::{
-    Answer, AnswerValue, CatalogEntry, Delivery, Effect, Engine, Judging, Signal, SignalKind, Step,
+    Answer, AnswerValue, CatalogEntry, Delivery, Effect, Engine, Judging, QuestionKind,
+    SecondOpinion, Signal, SignalKind, Step,
 };
 
 const PROJECT: &str = "/Users/me/Projects/hpdp-overlay/ADEPT-45130";
@@ -246,5 +247,101 @@ fn the_agents_request_is_answered_in_the_running_turn_and_a_skill_is_given_once(
             "skill-exposure/skill:slack-cli",
             "skill-exposure/skill:hpdp-overlay"
         ]
+    );
+}
+
+/// A prompt that attaches nothing, then the agent's request answered with `answers`.
+fn requested(answers: Vec<Answer>) -> Step {
+    requesting(answers).1
+}
+
+fn requesting(answers: Vec<Answer>) -> (Engine, Step) {
+    let mut engine = engine();
+
+    engine.begin(&prompt("continue", catalog())).unwrap();
+    engine.finish(Ok(Vec::new()), 1);
+    engine
+        .begin(&request("post a reply in a Slack thread"))
+        .unwrap();
+
+    let step = engine.finish(Ok(answers), 1);
+
+    (engine, step)
+}
+
+fn choice(value: &str, confidence: f32) -> Answer {
+    Answer {
+        id: "skill-exposure/best".into(),
+        value: AnswerValue::Choice(value.into()),
+        confidence: Some(confidence),
+    }
+}
+
+#[test]
+fn a_request_one_skill_serves_gets_it_without_a_second_question() {
+    let step = requested(vec![
+        yes("skill:slack-cli", 0.95),
+        yes("skill:hpdp-overlay", 0.1),
+        yes("skill:jira-cli", 0.2),
+    ]);
+
+    assert_eq!(attached(&step), [("slack-cli", Delivery::Steer)]);
+}
+
+#[test]
+fn when_several_skills_serve_a_request_one_question_picks_the_one_made_for_it() {
+    let answers = || {
+        vec![
+            yes("skill:hpdp-overlay", 0.96),
+            yes("skill:slack-cli", 0.93),
+            yes("skill:jira-cli", 0.2),
+        ]
+    };
+    let (mut engine, step) = requesting(answers());
+
+    // Only the skills that served the request are offered, likeliest first.
+    let Step::Ask { questions, .. } = &step else {
+        panic!("expected the choice, got {step:?}")
+    };
+    let QuestionKind::Choice { options } = &questions[0].kind else {
+        panic!("expected a choice")
+    };
+    let offered: Vec<&str> = options.iter().map(|option| option.value.as_str()).collect();
+
+    assert_eq!(asked(&step), ["skill-exposure/best"]);
+    // The agent waits on its own request: no answer goes to a second judge.
+    assert_eq!(questions[0].second_opinion, SecondOpinion::Never);
+    assert_eq!(offered, ["hpdp-overlay", "slack-cli", "none"]);
+    assert_eq!(
+        attached(&engine.finish(Ok(vec![choice("slack-cli", 0.9)]), 1)),
+        [("slack-cli", Delivery::Steer)]
+    );
+
+    // An unsure pick keeps the likeliest.
+    let (mut engine, _) = requesting(answers());
+
+    assert_eq!(
+        attached(&engine.finish(Ok(vec![choice("slack-cli", 0.2)]), 1)),
+        [("hpdp-overlay", Delivery::Steer)]
+    );
+}
+
+#[test]
+fn a_request_no_skill_serves_names_the_closest_without_attaching_them() {
+    let step = requested(vec![
+        yes("skill:slack-cli", 0.6),
+        yes("skill:hpdp-overlay", 0.1),
+        yes("skill:jira-cli", 0.35),
+    ]);
+    let Step::Done(effects) = &step else {
+        panic!("expected effects, got {step:?}")
+    };
+
+    assert_eq!(
+        effects,
+        &[Effect::Suggest {
+            agent_id: "ses".into(),
+            names: vec!["the slack-cli skill".into(), "the jira-cli skill".into()],
+        }]
     );
 }

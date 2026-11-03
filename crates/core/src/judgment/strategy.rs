@@ -3,7 +3,7 @@
 
 use serde::Deserialize;
 
-use crate::system_one::Question;
+use crate::system_one::{Question, SecondOpinion};
 
 use super::rule::probability;
 use super::{Judgment, Rule};
@@ -58,14 +58,16 @@ pub struct Chained<K> {
 /// One question and one rule: whether it holds.
 #[must_use]
 pub fn single(question: Question, rule: Rule) -> Judgment<bool> {
-    Judgment::ask(question, move |answer| rule.holds(answer))
+    Judgment::ask(deciding(question, &[rule]), move |answer| {
+        rule.holds(answer)
+    })
 }
 
 /// One question read as a confident `yes`, a confident `no`, unsure, or a
 /// failed call.
 #[must_use]
 pub fn screen(question: Question, yes: Rule, no: Rule) -> Judgment<Screened> {
-    Judgment::ask(question, move |answer| match answer {
+    Judgment::ask(deciding(question, &[yes, no]), move |answer| match answer {
         None => Screened::Failed,
         Some(_) if yes.holds(answer) => Screened::Yes,
         Some(_) if no.holds(answer) => Screened::No,
@@ -106,7 +108,7 @@ pub fn fan_out<K: Send + 'static>(
                  question,
                  rule,
              }| {
-                Judgment::ask(question, move |answer| {
+                Judgment::ask(deciding(question, &[rule]), move |answer| {
                     rule.holds(answer)
                         .then(|| (key, answer.and_then(probability).unwrap_or_default()))
                 })
@@ -119,6 +121,44 @@ pub fn fan_out<K: Send + 'static>(
 
         held.sort_by(|a, b| b.1.total_cmp(&a.1));
         held.into_iter().map(|(key, _)| key).collect()
+    })
+}
+
+/// A candidate's answer: how likely its question's yes, and whether its rule held.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Ranked<K> {
+    pub key: K,
+    pub p: f32,
+    pub held: bool,
+}
+
+/// Every candidate asked in the same round, each read by its own rule;
+/// all of them, most likely first, so a caller can take the best few or
+/// name the closest when none held.
+#[must_use]
+pub fn ranked<K: Send + 'static>(
+    candidates: impl IntoIterator<Item = Candidate<K>>,
+) -> Judgment<Vec<Ranked<K>>> {
+    let judges = candidates
+        .into_iter()
+        .map(
+            |Candidate {
+                 key,
+                 question,
+                 rule,
+             }| {
+                Judgment::ask(deciding(question, &[rule]), move |answer| Ranked {
+                    key,
+                    p: answer.and_then(probability).unwrap_or_default(),
+                    held: rule.holds(answer),
+                })
+            },
+        )
+        .collect();
+
+    Judgment::all(judges).map(|mut ranked: Vec<Ranked<K>>| {
+        ranked.sort_by(|a, b| b.p.total_cmp(&a.p));
+        ranked
     })
 }
 
@@ -138,7 +178,7 @@ pub fn fan_out_with<K: Clone + Send + 'static>(
                  question,
                  rule,
              }| {
-                Judgment::ask(question, move |answer| {
+                Judgment::ask(deciding(question, &[rule, other]), move |answer| {
                     let p = answer.and_then(probability).unwrap_or_default();
 
                     (key, p, rule.holds(answer), other.holds(answer))
@@ -163,6 +203,26 @@ pub fn fan_out_with<K: Clone + Send + 'static>(
 
         (held.into_iter().map(|(key, _)| key).collect(), others)
     })
+}
+
+/// `question`, marked with where `rules` decide.
+fn deciding(mut question: Question, rules: &[Rule]) -> Question {
+    let mut bars = match question.second_opinion {
+        SecondOpinion::Never => return question,
+        SecondOpinion::Unsure => Vec::new(),
+        SecondOpinion::Near(bars) => bars,
+    };
+
+    for rule in rules {
+        let bar = rule.bar();
+
+        if !bars.contains(&bar) {
+            bars.push(bar);
+        }
+    }
+
+    question.second_opinion = SecondOpinion::Near(bars);
+    question
 }
 
 /// Every candidate's steps in order, candidates side by side; the keys whose

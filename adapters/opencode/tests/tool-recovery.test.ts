@@ -7,15 +7,15 @@ import { fakeExposure, fakeHost, Hooks, install, noRulebooks, noSkills, shippedT
 
 const sessionID = "ses_recovery"
 
-function toolHost(hooks: Hooks, delivered: string[]) {
+function toolHost(hooks: Hooks, delivered: string[], skills: ReadonlyArray<string> = []) {
   return fakeHost({
     tool: { hook: hooks.register },
     session: {
-      context: () => Effect.succeed([{ type: "user", text: "Open a browser tab for example.com" }]),
+      context: () => Effect.succeed([{ type: "user", text: "Open a browser tab for example.com", skills: skills.map((id) => ({ id })) }]),
       get: () => Effect.succeed({ location: { directory: "/projects/chauffeur" } }),
       synthetic: (message: { readonly text: string }) => Effect.sync(() => { delivered.push(message.text) }),
     },
-    skill: { list: () => Effect.succeed({ data: [] }) },
+    skill: { list: () => Effect.succeed({ data: [{ id: "twitter-cli", content: "Use twitter-cli." }, { id: "gh", content: "Use gh." }] }) },
   })
 }
 
@@ -124,6 +124,24 @@ test("a steer after a tool result reaches the running turn; prompt context does 
   await hooks.emit("execute.after", { sessionID, tool: "shell", status: "completed", input: { command: "curl https://api.github.com" }, result: { output: "{}" } })
 
   expect(delivered).toEqual(["Use gh for GitHub."])
+
+  await plugin.close()
+})
+
+test("a steer keeps its words but not a skill the context already has", async () => {
+  const hooks = new Hooks()
+  const delivered: string[] = []
+
+  const plugin = await install(installToolResults(fakeExposure()), toolHost(hooks, delivered, ["twitter-cli"]), daemon([], [
+    { type: "context", agent_id: sessionID, delivery: "steer", label: "X", skills: ["twitter-cli", "gh"], text: "Read X with twitter-cli." },
+  ]))
+
+  await hooks.emit("execute.after", { sessionID, tool: "execute", status: "completed", input: { code: "browser" }, result: { content: "x.com" } })
+
+  expect(delivered).toHaveLength(1)
+  expect(delivered[0]).toStartWith("Read X with twitter-cli.")
+  expect(delivered[0]).toContain('<skill_content name="gh">')
+  expect(delivered[0]).not.toContain('<skill_content name="twitter-cli">')
 
   await plugin.close()
 })

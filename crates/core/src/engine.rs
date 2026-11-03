@@ -1185,12 +1185,14 @@ mod tests {
                     instructions: "?".into(),
                     kind: QuestionKind::Noul,
                     facts: Facts::new(),
+                    second_opinion: Default::default(),
                 },
                 Question {
                     id: "b".into(),
                     instructions: "?".into(),
                     kind: QuestionKind::Noul,
                     facts: Facts::new(),
+                    second_opinion: Default::default(),
                 },
             ])
         }
@@ -1401,6 +1403,7 @@ mod tests {
                     instructions: "why ".repeat(self.chars),
                     kind: QuestionKind::Noul,
                     facts: Facts::new(),
+                    second_opinion: Default::default(),
                 }])
             }
 
@@ -1564,6 +1567,7 @@ mod tests {
                 instructions: "first?".into(),
                 kind: QuestionKind::Noul,
                 facts: Facts::new(),
+                second_opinion: Default::default(),
             }])
         }
 
@@ -1577,7 +1581,7 @@ mod tests {
             let answers = outcome.answers;
 
             if round == 1 && answers.is_some_and(|answers| matches!(answers.first(), Some(Answer { value: AnswerValue::Noul(p), .. }) if *p > 0.7)) {
-                return PipeStep::Next(vec![Question { id: "second".into(), instructions: "second?".into(), kind: QuestionKind::Noul, facts: Facts::new() }]);
+                return PipeStep::Next(vec![Question { id: "second".into(), instructions: "second?".into(), kind: QuestionKind::Noul, facts: Facts::new(), second_opinion: Default::default() }]);
             }
 
             PipeStep::Done(

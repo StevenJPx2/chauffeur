@@ -246,6 +246,7 @@ mod tests {
                 .iter()
                 .map(|(name, value)| ((*name).to_string(), *value))
                 .collect(),
+            second_opinion: Default::default(),
         }
     }
 

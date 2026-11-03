@@ -120,6 +120,7 @@ pub fn harm(signal: &Signal, texts: &LearningTexts) -> Option<(String, Question)
         instructions: texts.irreversible.render(&[("command", &command)]),
         kind: QuestionKind::Noul,
         facts: Facts::new(),
+        second_opinion: Default::default(),
     };
 
     Some((command, question))
@@ -141,6 +142,7 @@ pub fn secrets(masking: &Masking, texts: &LearningTexts) -> Vec<Question> {
                 .render(&[("shape", &describe(index + 1, shape, key))]),
             kind: QuestionKind::Noul,
             facts: Facts::new(),
+            second_opinion: Default::default(),
         })
         .collect()
 }

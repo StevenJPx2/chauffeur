@@ -1,0 +1,1121 @@
+{
+ "skills": [
+  {
+   "id": "browser-harness",
+   "description": "Drive the user's real Chrome over CDP, with their logins and any profile: open or verify logged-in or bot-protected pages, navigate, fill forms, click, type, scroll, screenshot, extract data, record evidence. Use it ahead of WebFetch and built-in browser tools. For public sites, check the browsers skill first. Not for Jira, Slack, GitHub, or services with their own CLI or skill.",
+   "bytes": 4000
+  },
+  {
+   "id": "browsers",
+   "description": "Use before any web task to pick the tool: browser-harness for the user's real Chrome (logins, profiles, tab groups); the agent-browser MCP for public sites, forms and multi-step flows in its own headless Chrome; lightpanda fetch or Jina read_url to read a public page as text; the safari MCP for Safari. GitHub, Jira, Slack and X/Twitter use their own CLIs.",
+   "bytes": 4000
+  },
+  {
+   "id": "code-discipline",
+   "description": "Enforces Simple, Explicit, Bounded, Vertical, and Proof-driven development. MUST be used whenever writing, modifying, refactoring, reviewing, or debugging Rust, Go, TypeScript, JavaScript, or project architecture; includes language-specific lint, testing, Effect, anti-slop, Fallow, and line-limit rules.",
+   "bytes": 4000
+  },
+  {
+   "id": "ad-tile",
+   "description": "Build or refresh a merchant's similar-products ad tile (the promo card in the first cell of the HPDP overlay's recommendations grid) from the merchant's homepage promotions, to one consistent quality bar. Use when an mpd site-watch change bundle arrives, when asked to make, update or refresh an ad tile, rec ad or promo tile (Hanna Andersson today), or when reviewing an ad tile PR.",
+   "bytes": 4000
+  },
+  {
+   "id": "ship-pr",
+   "description": "Ship the end-to-end fix-to-PR workflow: reproduce, fix, validate on a live merchant, open PR, and watch CI. Delegates to the Claude skill.",
+   "bytes": 4000
+  },
+  {
+   "id": "test-overlay",
+   "description": "Build, inject, and verify a merchant overlay on a live page, including visual rendering and click forwarding. Delegates to the Claude skill.",
+   "bytes": 4000
+  },
+  {
+   "id": "repo-hygiene",
+   "description": "Audit agent context health, including AGENTS.md size, skill usage, pending proposals, rule firings, journal freshness, and hooks. Delegates to the Claude command.",
+   "bytes": 4000
+  },
+  {
+   "id": "browser-preflight",
+   "description": "Clean up stale browser MCP sessions and check dev-port occupants before browser validation. Delegates to the Claude skill.",
+   "bytes": 4000
+  },
+  {
+   "id": "scaffold-merchant",
+   "description": "Scaffold a new merchant integration, verify generated files, and set the initial productIdPattern. Delegates to the Claude skill.",
+   "bytes": 4000
+  },
+  {
+   "id": "debug-overlay",
+   "description": "Diagnose overlay rendering, sync, click forwarding, stale data, hydration, and lifecycle issues through code analysis. Delegates to the Claude skill.",
+   "bytes": 4000
+  },
+  {
+   "id": "theme-onboard",
+   "description": "Create a merchant theme.ts from a DTCG/Figma token export through the figma-to-theme pipeline. Delegates to the Claude skill.",
+   "bytes": 4000
+  },
+  {
+   "id": "add-config-item",
+   "description": "Add a merchant-facing config option, feature flag, schema field, default, or behavior toggle in HPDP. Delegates to the Claude skill.",
+   "bytes": 4000
+  },
+  {
+   "id": "launch-playwright",
+   "description": "Set up the preferred worktree-aware Playwright MCP browser session and inject the HPDP overlay. Delegates to the Claude skill.",
+   "bytes": 4000
+  },
+  {
+   "id": "visual-pr",
+   "description": "Only use when the user explicitly invokes this skill by name.",
+   "bytes": 4000
+  },
+  {
+   "id": "add-control",
+   "description": "Add a new interactive overlay control end-to-end, including OverlayAction, UI, host action handling, availability, and hydration. Delegates to the Claude skill.",
+   "bytes": 4000
+  },
+  {
+   "id": "launch-chrome",
+   "description": "Set up a worktree-aware Chrome DevTools MCP browser session and inject the HPDP overlay. Delegates to the Claude skill.",
+   "bytes": 4000
+  },
+  {
+   "id": "classify-merchant-feed",
+   "description": "Analyze a merchant product feed, find configurator outliers, productIdPattern gaps, and denylist candidates. Delegates to the Claude skill.",
+   "bytes": 4000
+  },
+  {
+   "id": "codex",
+   "description": "Run or resume a nested Codex CLI session for analysis, review, or automated edits. Delegates to the Claude skill.",
+   "bytes": 4000
+  },
+  {
+   "id": "quick-recap",
+   "description": "Use when adding or following the red/yellow/green final status block convention for agent responses, especially by installing managed AGENTS.md or CLAUDE.md instructions.",
+   "bytes": 4000
+  },
+  {
+   "id": "theme-extract",
+   "description": "Extract computed host-site styles and map colors, typography, spacing, radii, and component tokens to HPDP theme config. Delegates to the Claude skill.",
+   "bytes": 4000
+  },
+  {
+   "id": "debug-browser",
+   "description": "Debug visual bugs, layout issues, scroll problems, rendering glitches, and merchant page behavior in a live browser. Delegates to the Claude skill.",
+   "bytes": 4000
+  },
+  {
+   "id": "theme-generate-spec",
+   "description": "Generate a designer-facing markdown table of HPDP design token values across merchants. Delegates to the Claude skill.",
+   "bytes": 4000
+  },
+  {
+   "id": "theme-validate-figma",
+   "description": "Compare designer DTCG/Figma token exports against merchant theme code and report mismatches. Delegates to the Claude skill.",
+   "bytes": 4000
+  },
+  {
+   "id": "prototype",
+   "description": "Build multiple genuinely different versions of a UI piece you describe, rendered behind a visual picker so you can flip through them live and promote the one that feels right. Only runs when explicitly invoked; it does not trigger on its own.",
+   "bytes": 4000
+  },
+  {
+   "id": "browser",
+   "description": "Use the in-app browser: open and read pages, click and fill forms, take screenshots, check console and network logs, and profile performance and memory. Load it before your first browser tool call.",
+   "bytes": 4000
+  },
+  {
+   "id": "chauffeur",
+   "description": "Operate, configure, and debug Chauffeur, the daemon that judges an agent's prompts, permissions, and tool calls. Use when a skill, rule, rulebook, or permission decision is wrong or missing; to write a rule or rulebook; to add a remote skill source; to read the audit log; or to restart the daemon. Not for general OpenCode setup.",
+   "bytes": 4000
+  },
+  {
+   "id": "dotfiles",
+   "description": "Manage this dotfiles repository (StevenJPx2/dotfiles): bootstrap a machine, add or update a config package, run just recipes, and register remote skills. Use when editing configs/, scripts/, Brewfile, or skill sources; when running just update/bundle; or when onboarding a new machine.",
+   "bytes": 4000
+  },
+  {
+   "id": "show-me",
+   "description": "Help the user understand the current topic visually with concise diagrams, code-shape sketches, and focused HTML artifacts.",
+   "bytes": 4000
+  },
+  {
+   "id": "apolotoons-pipeline",
+   "description": "Run the Apolotoons comic production pipeline on request: scaffold episode folders, remove speech bubbles, upscale strips with Upscayl, cut strips into panels, and verify the cuts. Use when the user mentions Apolotoons, comic episodes or strips, panel cutting, upscaling slides, bubble removal, or the Generated/Cleaned/Upscaled/Panels folders.",
+   "bytes": 4000
+  },
+  {
+   "id": "visual-plan",
+   "description": "Use when explaining or planning architecture, data flow, responsibilities, or a multi-step change. Present a concise Mermaid diagram and focused tables directly in chat, so the user can understand and review the design visually.",
+   "bytes": 4000
+  },
+  {
+   "id": "pin-deploy",
+   "description": "Pin a merchant to exact package versions, lock dependencies, and guide deployment readiness. Delegates to the Claude skill.",
+   "bytes": 4000
+  },
+  {
+   "id": "report",
+   "description": "Use when the user wants to report an opencode issue or bug. Collect standard diagnostics, add user-specific reproduction context, and publish the issue with GitHub CLI.",
+   "bytes": 4000
+  },
+  {
+   "id": "pdp-audit",
+   "description": "Audit an ecommerce product detail page for UX, CRO, PDP optimization, conversion issues, and A/B test ideas. Delegates to the Claude skill.",
+   "bytes": 4000
+  },
+  {
+   "id": "web-perf",
+   "description": "Analyze web performance with Chrome DevTools MCP: Core Web Vitals (LCP, INP, CLS), FCP, TBT, Speed Index, render-blocking resources, request chains, layout shifts, caching, and accessibility gaps. Use when asked to audit, profile, debug, or optimize page load, Lighthouse scores, or site speed. Prefers current documentation over trained knowledge.",
+   "bytes": 4000
+  },
+  {
+   "id": "add-selector-config",
+   "description": "Add, fix, or validate merchant selectors, ElementDescriptor fields, state selectors, OOS selectors, bindings, and fallback selectors. Delegates to the Claude skill.",
+   "bytes": 4000
+  },
+  {
+   "id": "read-the-damn-docs",
+   "description": "Read current official docs before relying on memory: web-search and read primary sources. Use when implementing, upgrading, debugging, or answering about third-party APIs, libraries, frameworks, CLIs, cloud services, or model SDKs; unfamiliar repo docs; latest or official behavior; errors suggesting API drift; and auth, security, billing, data, migration, deployment, or privacy work.",
+   "bytes": 4000
+  },
+  {
+   "id": "opencode",
+   "description": "Use this skill for any question about OpenCode itself, including how OpenCode works, using or configuring it, migrating from V1 to V2, troubleshooting it, developing plugins or integrations, using the OpenCode SDK, clients, server, or API, and contributing to the OpenCode codebase. Also use it for OpenCode agents, commands, skills, tools, permissions, MCP servers, providers, models, themes, keybin",
+   "bytes": 4000
+  },
+  {
+   "id": "jira-cli",
+   "description": "Use the jira command line (ankitpokhrel/jira-cli) for ALL Jira work — viewing issues and comments, listing and searching with JQL, commenting, assigning, and moving issues between statuses. Never drive a browser or call Jira's web API by hand for these.",
+   "bytes": 4000
+  },
+  {
+   "id": "slack-cli",
+   "description": "Use slackcli for ALL Slack work — reading channels and threads, searching messages, looking up people, and sending replies. Never drive a browser or call Slack's web API by hand for these.",
+   "bytes": 4000
+  },
+  {
+   "id": "nuxt-ui",
+   "description": "Build UIs with @nuxt/ui v4 — 125+ accessible Vue components with Tailwind CSS theming. Use when creating interfaces, customizing themes to match a brand, building forms, or composing layouts like dashboards, docs sites, and chat interfaces.",
+   "bytes": 4000
+  },
+  {
+   "id": "animate-expo",
+   "description": "Build animations in React Native and Expo with Reanimated, Gesture Handler, Expo Router, and expo-haptics: which thread, properties, spring or timing, gesture hand-off, degradation. Use when animating anything in an Expo app, adding gestures, sheets, screen transitions, press feedback, or haptics, or fixing motion that stutters on device. For web animation use animate.",
+   "bytes": 4000
+  },
+  {
+   "id": "animate",
+   "description": "Build an animation from scratch and write it, deciding in order: whether to animate, its purpose, tool, properties, curve and duration, interruption, and exit. Use when asked to animate something, add motion, make a component feel alive, or build a transition. To critique existing motion use review-animations; to audit a whole codebase use improve-animations.",
+   "bytes": 4000
+  },
+  {
+   "id": "animation-performance",
+   "description": "Use when a web animation is janky, stutters, or drops frames; when choosing which property to animate; when deciding CSS vs WAAPI vs requestAnimationFrame on performance grounds; or when reaching for will-change or GPU layers. Covers composite-only properties, main-thread cost, Framer Motion, React re-renders, blur cost. For easing or duration use animate.",
+   "bytes": 4000
+  },
+  {
+   "id": "animation-vocabulary",
+   "description": "Reverse-lookup glossary that names a vaguely described web animation or motion effect (\"the bouncy thing when a popover opens\" is Pop in). Use when the user asks \"what's it called when...\" or wants the right term to prompt an AI or designer with. For naming an effect, not designing or building one.",
+   "bytes": 4000
+  },
+  {
+   "id": "apple-design",
+   "description": "Apple's approach to interface design and fluid, physical motion, for the web. Use when building or reviewing gesture-driven UI, springs, drag/swipe/sheet interactions, momentum and interruptible transitions, translucent materials and depth, typography (optical sizing, tracking, leading), reduced motion, or Apple-style foundations: feedback, spatial consistency, restraint.",
+   "bytes": 4000
+  },
+  {
+   "id": "ask-sonner",
+   "description": "Guide to Sonner, the React toast library: setting up the Toaster, toast() calls, promise and loading toasts, updating, dismissing, persisting, styling, theming, icons, positions, multiple toasters. Use when working with Sonner or when toasts don't appear, appear twice, lose styles, ignore Tailwind classes, sit behind a modal, or ignore dark mode.",
+   "bytes": 4000
+  },
+  {
+   "id": "break-ui",
+   "description": "Stress-test a piece of UI with worst-case data (long names, unbreakable emails, missing fields, huge counts, zero items, non-Latin text, emoji, extreme numbers), show it behind a \"Demo data / Worst case\" toggle, and report each break with its fix. Use when asked to stress-test, break, or find edge cases in a component or screen. For design critique use emil-design-eng; motion, review-animations.",
+   "bytes": 4000
+  },
+  {
+   "id": "emil-design-eng",
+   "description": "This skill encodes Emil Kowalski's philosophy on UI polish, component design, animation decisions, and the invisible details that make software feel great.",
+   "bytes": 4000
+  },
+  {
+   "id": "find-animation-opportunities",
+   "description": "Search a codebase or UI for places that don't animate but should, and reject everything that shouldn't. Read-only; it proposes motion with exact values, it does not implement it. Use when the user asks \"what could be animated here?\" or wants to \"make this feel more alive\". For fixing existing animations, use improve-animations or review-animations instead.",
+   "bytes": 4000
+  },
+  {
+   "id": "improve-animations",
+   "description": "Audit a codebase's animation and motion code as a senior motion advisor and write a prioritized audit with self-contained implementation plans for other agents to execute. Read-only: it plans, it does not apply. Use when asked to \"improve the animations\", \"audit the motion\", \"make this app feel better\", or for a roadmap of animation fixes rather than a review of one diff.",
+   "bytes": 4000
+  },
+  {
+   "id": "mobile-native",
+   "description": "Make a web app feel native on a phone: sticky hover, tap highlights, the 100vh bug, inputs that zoom, laggy taps, pull-to-refresh, the notch, long-press text selection, carousels, status bars, testing on real hardware. Use when building or reviewing a web app, PWA, bottom sheet, or touch UI for mobile, or when it \"feels wrong on my phone\". For motion use animate; for React Native, animate-expo.",
+   "bytes": 4000
+  },
+  {
+   "id": "pick-ui-library",
+   "description": "Pick the right library for a given frontend task from a curated, opinionated list — numbers, OTP inputs, charts, command menus, virtualization, drag and drop, toasts, state, styling, and more. Only runs when explicitly invoked; it does not trigger on its own.",
+   "bytes": 4000
+  },
+  {
+   "id": "remove-animations",
+   "description": "Find the animations an interface doesn't need and remove them — motion on keyboard actions, high-frequency surfaces, functional data, and decoration with no purpose — then clean up what they leave behind. Edits code, but only to subtract; it never adds or retunes motion. Use when the user says the app \"feels slow\", \"has too much animation\", \"feels over-animated\", wants to \"tone down the motion",
+   "bytes": 4000
+  },
+  {
+   "id": "review-animations",
+   "description": "Reviews animation and motion code against a high craft bar derived from Emil Kowalski's design engineering philosophy. Default to flagging; approval is earned.",
+   "bytes": 4000
+  },
+  {
+   "id": "write-swift",
+   "description": "Writing modern Swift well: value types, Swift 6 data-race safety and approachable concurrency (@concurrent, main-actor default, actors, task groups), protocols and generics (some vs any), API design, performance and ARC, Swift Testing, macros, and newer features. Use when writing, reviewing, or migrating Swift, or fixing a concurrency error, hang, data race, retain cycle, or performance problem.",
+   "bytes": 4000
+  },
+  {
+   "id": "cloudflare",
+   "description": "Discover and choose Cloudflare products for apps, APIs, AI agents, storage, networking, and security. Use for architecture and product selection, including when the user describes a need without naming a Cloudflare product; then find the relevant skill or documentation.",
+   "bytes": 4000
+  },
+  {
+   "id": "durable-objects",
+   "description": "Build, debug, or review Cloudflare Durable Objects code for persistent state and coordination.",
+   "bytes": 4000
+  },
+  {
+   "id": "turnstile-spin",
+   "description": "Set up Cloudflare Turnstile end to end: scan the codebase, create the widget through the Cloudflare API, embed it where requests need bot verification (forms, SPA actions, API endpoints, downloads), add server-side siteverify, and validate. Use when asked to add Turnstile or a CAPTCHA, protect a form or endpoint from bots, or fix a Turnstile integration.",
+   "bytes": 4000
+  },
+  {
+   "id": "workers-best-practices",
+   "description": "Cloudflare Workers best practices for production applications. Use when writing, reviewing, or configuring Workers.",
+   "bytes": 4000
+  },
+  {
+   "id": "wrangler",
+   "description": "Run or troubleshoot Wrangler CLI commands in projects that have a wrangler.jsonc, wrangler.json, or wrangler.toml file, including local development, Previews, deployment, and resource management. For new projects and projects without a Wrangler configuration file, use the cf CLI instead.",
+   "bytes": 4000
+  },
+  {
+   "id": "vue-best-practices",
+   "description": "MUST be used for Vue.js tasks. Strongly recommends Composition API with `<script setup>` and TypeScript as the standard approach. Covers Vue 3, SSR, Volar, vue-tsc. Load for any Vue, .vue files, Vue Router, Pinia, or Vite with Vue work. ALWAYS use Composition API unless the project explicitly requires Options API.",
+   "bytes": 4000
+  },
+  {
+   "id": "vue-router-best-practices",
+   "description": "Vue Router 4 patterns, navigation guards, route params, and route-component lifecycle interactions.",
+   "bytes": 4000
+  },
+  {
+   "id": "vue-testing-best-practices",
+   "description": "Use for Vue.js testing. Covers Vitest, Vue Test Utils, component testing, mocking, testing patterns, and Playwright for E2E testing.",
+   "bytes": 4000
+  },
+  {
+   "id": "tdd",
+   "description": "Test-driven development. Use when the user wants to build features or fix bugs test-first, mentions \"red-green-refactor\", or wants integration tests.",
+   "bytes": 4000
+  },
+  {
+   "id": "rust-skills",
+   "description": "Supplemental Rust rule lookup for a focused question about serde, numeric safety, macros, collections, or measured performance. Use a relevant rule file, not the whole catalog as another mandatory discipline. BeautifulRust's rust-best-practices supplies general idioms; code-discipline's references/rust.md remains authoritative for local policy.",
+   "bytes": 4000
+  },
+  {
+   "id": "twitter-cli",
+   "description": "Use twitter-cli for ALL Twitter/X operations — reading tweets, posting, replying, quoting, liking, retweeting, following, searching, user lookups. Invoke whenever user requests any Twitter interaction.",
+   "bytes": 4000
+  },
+  {
+   "id": "gdp-ts",
+   "description": "Use when adding, changing, or reviewing authorization, entitlement, or ownership checks in TypeScript that uses gdp-ts (imports of name, Named, Proof, or defineProof), when adopting the pattern, or when fixing type errors that mention Named<...> or proof types. Models preconditions as compile-time proofs (Ghosts of Departed Proofs).",
+   "bytes": 4000
+  },
+  {
+   "id": "slidev",
+   "description": "Create and present web-based slidedecks for developers using Slidev with Markdown, Vue components, code highlighting, animations, and interactive features. Use when building technical presentations, conference talks, code walkthroughs, teaching materials, or developer decks.",
+   "bytes": 4000
+  },
+  {
+   "id": "tsdown",
+   "description": "Bundle TypeScript and JavaScript libraries with blazing-fast speed powered by Rolldown. Use when building libraries, generating type declarations, bundling for multiple formats, or migrating from tsup.",
+   "bytes": 4000
+  },
+  {
+   "id": "turborepo",
+   "description": "Turborepo monorepo guidance: turbo.json, task pipelines, dependsOn, caching and remote cache, the turbo CLI, --filter, --affected, CI, environment variables, internal packages, boundaries. Use when configuring tasks or pipelines, creating packages, setting up or structuring a monorepo, sharing code between apps, running affected packages, or debugging the cache.",
+   "bytes": 4000
+  },
+  {
+   "id": "vueuse-functions",
+   "description": "Apply VueUse composables where appropriate to build concise, maintainable Vue.js / Nuxt features.",
+   "bytes": 4000
+  },
+  {
+   "id": "web-design-guidelines",
+   "description": "Review UI code for Web Interface Guidelines compliance. Use when asked to \"review my UI\", \"check accessibility\", \"audit design\", \"review UX\", or \"check my site against best practices\".",
+   "bytes": 4000
+  },
+  {
+   "id": "fframes-video",
+   "description": "Create, animate, review and render videos in code with fframes (Rust, SVG scenes, ffmpeg encoding, Skia GPU rendering). Use whenever the user wants a video, animation, motion graphic, explainer, promo, social clip, title card, podcast visual, lyric/caption video or any rendered .mp4/.webm made programmatically, or asks to change, fix, speed up or check an fframes video. Covers installing fframes, ",
+   "bytes": 4000
+  },
+  {
+   "id": "improve-claude-md",
+   "description": "improve a CLAUDE.md file using <important if> blocks to improve instruction adherence",
+   "bytes": 4000
+  },
+  {
+   "id": "rust-port",
+   "description": "Use when porting or rewriting C, C++, Python, Go, JavaScript, or TypeScript into Rust. Ports tests first, preserves observable behavior, designs an idiomatic API, and documents API/test mappings and differences. Load code-discipline's references/rust.md and rust-best-practices too; the local safety rules and validation gate take precedence.",
+   "bytes": 4000
+  },
+  {
+   "id": "rust-review",
+   "description": "Use when asked to review, audit, or critique Rust code, a crate, module, diff, or PR. Produces prioritized findings with file:line, named rules, and concrete fixes without rewriting code. Load code-discipline's references/rust.md and rust-best-practices too; the local safety rules and validation gate take precedence.",
+   "bytes": 4000
+  },
+  {
+   "id": "opencode-agents",
+   "description": "Use when spawning another OpenCode agent, messaging an agent or another session, replying to a message headed \"[opencode-agents]\", running work in parallel across agents, or asking another agent for a review. Covers the agents tools (spawn, send, read, list, stop), reached in Code Mode as tools.agents.* or directly as agents_*.",
+   "bytes": 4000
+  },
+  {
+   "id": "aside-browser",
+   "description": "Read when you need a browser, or have to work across user's logged-in websites (e.g. Gmail, Slack, cloud consoles, etc.), or have to refer personal contexts like memory and browsing history.",
+   "bytes": 4000
+  },
+  {
+   "id": "audiobook-studio",
+   "description": "Turn a book PDF into a chaptered .m4b audiobook via the local `abs` CLI (local LLM chapter detection + Kokoro TTS). Use when the user wants to convert a PDF/book to audio, an audiobook or .m4b, detect or edit chapters in a PDF, or mentions audiobook-studio, abs, Kokoro, or narration.",
+   "bytes": 4000
+  },
+  {
+   "id": "clarity",
+   "description": "Draft, rewrite, or review reader-facing prose so it is specific, useful, and recognizably the author's without inventing facts or performing humanness. Use for essays, articles, newsletters, documentation, talks, launch copy, and other important prose that feels generic, hollow, or AI-shaped. Supports co-write, rewrite, review, and lint modes.",
+   "bytes": 4000
+  },
+  {
+   "id": "code-breathing-room",
+   "description": "MUST use when writing or refactoring functions, or when code feels dense or wall-of-text. Add blank lines inside function bodies and block scopes to separate logical sections (setup, core work, return). Use whenever the user mentions readability, spacing, whitespace, formatting, or grouping statements.",
+   "bytes": 4000
+  },
+  {
+   "id": "doc-kit",
+   "description": "Create, edit and review Google Docs with the `doc-kit` CLI. Publish Markdown as a styled native Google Doc (tables, coloured lifts, callouts, aligned images), edit an existing Doc in place, pull its Markdown, and list, reply to, resolve or apply its comments. Use whenever a Google Doc needs to be made, updated or worked through, especially customer-facing reports.",
+   "bytes": 4000
+  },
+  {
+   "id": "efficient-frontier",
+   "description": "Apply the same orchestration as `/efficient-fable` to any high-cost frontier model: delegate research, coding, and testing to cheaper subagents while keeping planning, synthesis, and final review with the expensive model.",
+   "bytes": 4000
+  },
+  {
+   "id": "ga4",
+   "description": "Query Google Analytics 4 and monitor A/B experiments through the `ga4` CLI (exploration segments, saved segments, dimensions, RPV, conversion, saved queries). Use when the user asks to look up GA4 numbers, compare experiment arms (control vs treatment), check RPV/CVR/revenue, pull data from a GA4 exploration, or monitor experiment underperformance.",
+   "bytes": 4000
+  },
+  {
+   "id": "hpdp-overlay",
+   "description": "Develop, test, visually validate, and ship HPDP Overlay changes across merchant apps and shared packages. Use when working in the hpdp-overlay repository, on ADEPT tickets, merchant presets, Lit overlay UI, live merchant previews, or its PR workflow.",
+   "bytes": 4000
+  },
+  {
+   "id": "imgup",
+   "description": "Upload images to hosting services (Imgur, imgbb, Gyazo, catbox, and 30+ others) via the imgup CLI tool and return hosted URLs. Use when user wants to upload an image, share an image online, get a hosted image URL, or upload screenshots/photos to an image host.",
+   "bytes": 4000
+  },
+  {
+   "id": "writing-plans",
+   "description": "Use when authoring or rewriting a plan, spec, or design doc, including visual plans and plan blocks (callouts, tables, captions). A plan states the current design as if written fresh: strip corrections, references to earlier versions or mistakes, and \"X instead of Y\" framing. Favors concise prose and short examples that show call sites, not definitions.",
+   "bytes": 4000
+  },
+  {
+   "id": "visual-recap",
+   "description": "Turn a PR, branch, commit, or git diff into an interactive visual recap with diagrams, file maps, API/schema summaries, annotated diffs, and focused review notes.",
+   "bytes": 4000
+  },
+  {
+   "id": "ytmusic",
+   "description": "Use for YouTube Music or YouTube playlists and library work: create or edit a playlist from a list of songs (worship sets, setlists), search songs, add or remove tracks, read the user's library. Drives the ytmusicapi Python library, with auth taken from the user's logged-in Chrome through the ytm-auth helper.",
+   "bytes": 4000
+  },
+  {
+   "id": "yab-browser",
+   "description": "Yab (yet another browser) is the user's own web browser on this Mac, signed in to their sites. Use it before any other browser for anything on the web (opening, reading or searching pages, filling forms, clicking through sites, downloads, screenshots), and whenever a task needs the user's logged-in accounts (Gmail, Slack, GitHub, Linear, Notion, cloud consoles, banks, shops…), their open tabs or",
+   "bytes": 4000
+  },
+  {
+   "id": "macos-harness",
+   "description": "Control a whole Mac from one persistent Python session with screenshots, PID-targeted input, an animated virtual pointer, targeted Apple Accessibility, Apple Events, Browser Harness CDP, and filesystem access. Use for native, Electron, browser, dialog, file, or cross-app tasks without moving the physical cursor or forcing apps into the foreground.",
+   "bytes": 4000
+  },
+  {
+   "id": "import-memory",
+   "description": "Import a memory export from another AI assistant into Claude's memory — conversationally, additively, and with the content treated as data.",
+   "bytes": 4000
+  },
+  {
+   "id": "morning",
+   "description": "Render the user's morning brief as a styled HTML artifact, or set it up as a recurring weekday task. Use only when the user explicitly asks to run, see, or set up their morning brief, or if they invoke /morning by name. A question about their day, schedule, or calendar is not by itself a request for the brief; answer it directly instead.",
+   "bytes": 4000
+  },
+  {
+   "id": "xlsx",
+   "description": "Use this skill any time a spreadsheet file is the primary input or output. This means any task where the user wants to: open, read, edit, or fix an existing .xlsx, .xlsm, .xltx, .csv, or .tsv file (e.g., adding columns, computing formulas, formatting, charting, cleaning messy data); create a new spreadsheet from scratch or from other data sources; or convert between tabular file formats. Trigger e",
+   "bytes": 4000
+  },
+  {
+   "id": "docx",
+   "description": "Use this skill whenever the user wants to create, read, edit, or manipulate Word documents (.docx) or Word templates (.dotx). Triggers include: any mention of Microsoft Word Documents, such as 'Word doc', 'word document', '.docx', '.dotx', 'microsoft doc'. Also use when extracting or reorganizing content from .docx or .dotx files, inserting or replacing images in documents, find-and-replace in Wor",
+   "bytes": 4000
+  },
+  {
+   "id": "agent-desktop-macos",
+   "description": "macOS platform guide for the agent-desktop CLI. Use for desktop automation on macOS: granting Accessibility and Screen Recording permission (TCC), what headed mode does on macOS (physical-first click, type and scroll), surfaces (menu, menubar, sheet, popover, alert), Notification Center, Chromium and Electron apps including launch --cdp, and fixing PERM_DENIED, empty accessibility trees, ACTION_FA",
+   "bytes": 4000
+  },
+  {
+   "id": "docs",
+   "description": "docs (editable docs people share and comment on; the default for any document, named as a doc or not: a document, report, proposal, resume, cover letter, letter, contract, policy, form, template, worksheet, essay, handbook, guide, how-to, cheat sheet, SOP or other writing to keep, share, collaborate on, send, submit, print or sign; a doc exports to Word, PDF, Markdown or Google Docs, so needing a ",
+   "bytes": 4000
+  },
+  {
+   "id": "google-workspace",
+   "description": "Read this before the first Google Drive, Docs, Sheets or Slides connector call whenever the task creates or changes a Google file. Use this skill whenever the user wants to create or change a Google Doc, Sheet or Slides file in their Google Drive. Triggers include: a request that names Google Docs, Sheets, Slides or Drive and asks to make, edit, format, copy or rename a file; a docs.google.com lin",
+   "bytes": 4000
+  },
+  {
+   "id": "skill-creator",
+   "description": "Create new skills, modify and improve existing skills, and measure skill performance. Use when users want to create a skill from scratch, edit, or optimize an existing skill, run evals to test a skill, benchmark skill performance with variance analysis, or optimize a skill's description for better triggering accuracy.",
+   "bytes": 4000
+  },
+  {
+   "id": "pptx",
+   "description": "Use this skill any time a .pptx or .potx file is involved in any way — as input, output, or both. This includes: creating slide decks, pitch decks, or presentations as PowerPoint (.pptx) files; reading, parsing, or extracting text from any .pptx or .potx file (even if the extracted content will be used elsewhere, like in an email, summary, or creating a different type of slide deck); editing, mo",
+   "bytes": 4000
+  }
+ ],
+ "code_mode": [
+  {
+   "name": "agent-browser",
+   "size": 29,
+   "tools": [
+    {
+     "id": "agent-browser_agent_browser_tools_profiles",
+     "description": "List MCP startup tool profiles and how to enable them",
+     "bytes": 0
+    },
+    {
+     "id": "agent-browser_agent_browser_back",
+     "description": "Navigate back",
+     "bytes": 0
+    },
+    {
+     "id": "agent-browser_agent_browser_check",
+     "description": "Check a checkbox or switch",
+     "bytes": 0
+    },
+    {
+     "id": "agent-browser_agent_browser_click",
+     "description": "Click an element by @ref or CSS selector",
+     "bytes": 0
+    },
+    {
+     "id": "agent-browser_agent_browser_close",
+     "description": "",
+     "bytes": 0
+    },
+    {
+     "id": "agent-browser_agent_browser_eval",
+     "description": "",
+     "bytes": 0
+    },
+    {
+     "id": "agent-browser_agent_browser_fill",
+     "description": "",
+     "bytes": 0
+    },
+    {
+     "id": "agent-browser_a",
+     "description": "",
+     "bytes": 0
+    }
+   ]
+  },
+  {
+   "name": "browser-harness",
+   "size": 23,
+   "tools": [
+    {
+     "id": "browser-harness_browser_stop_recording",
+     "description": "Stop the active recording and return its directory",
+     "bytes": 0
+    },
+    {
+     "id": "browser-harness_browser_http_get",
+     "description": "HTTP GET `url` (browser-less)",
+     "bytes": 0
+    },
+    {
+     "id": "browser-harness_browser_wait_for_load",
+     "description": "Wait until the current tab's readyState is 'complete'",
+     "bytes": 0
+    },
+    {
+     "id": "browser-harness_browser_close_tab",
+     "description": "Close a tab",
+     "bytes": 0
+    },
+    {
+     "id": "browser-harness_browser_current_tab",
+     "description": "",
+     "bytes": 0
+    },
+    {
+     "id": "browser-harness_browser_new_tab",
+     "description": "",
+     "bytes": 0
+    },
+    {
+     "id": "browser-harness_browser_cdp",
+     "description": "",
+     "bytes": 0
+    },
+    {
+     "id": "browse",
+     "description": "",
+     "bytes": 0
+    }
+   ]
+  },
+  {
+   "name": "cloudflare",
+   "size": 3762,
+   "tools": [
+    {
+     "id": "cloudflare_post_accounts_registrar_registrations",
+     "description": "POST /accounts/{account_id}/registrar/registrations Create Registration Starts…",
+     "bytes": 0
+    },
+    {
+     "id": "cloudflare_get_analytics_sql_introspection",
+     "description": "GET /analytics/sql/introspection List available analytics datasets Returns the…",
+     "bytes": 0
+    },
+    {
+     "id": "cloudflare_post_accounts_registrar_domaincheck",
+     "description": "POST /accounts/{account_id}/registrar/domain-check Check domain availability Pe…",
+     "bytes": 0
+    },
+    {
+     "id": "cloudflare_post_accoun",
+     "description": "",
+     "bytes": 0
+    }
+   ]
+  },
+  {
+   "name": "context7",
+   "size": 2,
+   "tools": [
+    {
+     "id": "context7_resolve-library-id",
+     "description": "Resolves a package/product name to a Context7-compatible library ID and returns…",
+     "bytes": 0
+    }
+   ]
+  },
+  {
+   "name": "google-workspace-personal",
+   "size": 57,
+   "tools": [
+    {
+     "id": "google-workspace-personal_docs_create",
+     "description": "Creates a new Google Doc",
+     "bytes": 0
+    },
+    {
+     "id": "google-workspace-personal_drive_search",
+     "description": "Searches for files and folders in Google Drive",
+     "bytes": 0
+    },
+    {
+     "id": "google-workspace-personal_gmail_batchModify",
+     "description": "Bulk modify up to 1,000 Gmail messages at once",
+     "bytes": 0
+    },
+    {
+     "id": "google-workspace-personal_gmail_modify",
+     "description": "Modify a Gmail message",
+     "bytes": 0
+    },
+    {
+     "id": "google-workspace-personal_gmail_modifyThread",
+     "description": "",
+     "bytes": 0
+    },
+    {
+     "id": "google-workspace-personal_auth_clear",
+     "description": "",
+     "bytes": 0
+    }
+   ]
+  },
+  {
+   "name": "google-workspace-work",
+   "size": 57,
+   "tools": [
+    {
+     "id": "google-workspace-work_docs_create",
+     "description": "Creates a new Google Doc",
+     "bytes": 0
+    },
+    {
+     "id": "google-workspace-work_drive_search",
+     "description": "Searches for files and folders in Google Drive",
+     "bytes": 0
+    },
+    {
+     "id": "google-workspace-work_gmail_batchModify",
+     "description": "Bulk modify up to 1,000 Gmail messages at once",
+     "bytes": 0
+    },
+    {
+     "id": "google-workspace-work_gmail_modify",
+     "description": "Modify a Gmail message",
+     "bytes": 0
+    },
+    {
+     "id": "google-workspace-work_gmail_modifyThread",
+     "description": "",
+     "bytes": 0
+    },
+    {
+     "id": "google-workspace-work_auth_clear",
+     "description": "",
+     "bytes": 0
+    },
+    {
+     "id": "google-workspace-work_auth_r",
+     "description": "",
+     "bytes": 0
+    }
+   ]
+  },
+  {
+   "name": "grep-app",
+   "size": 1,
+   "tools": []
+  },
+  {
+   "name": "homeassistant",
+   "size": 21,
+   "tools": [
+    {
+     "id": "homeassistant_todo__HassListAddItem",
+     "description": "Add item to a todo list",
+     "bytes": 0
+    },
+    {
+     "id": "homeassistant_assist_satellite__HassBroadcast",
+     "description": "Broadcast a message through the home",
+     "bytes": 0
+    },
+    {
+     "id": "homeassistant_homeassistant__GetLiveContext",
+     "description": "Provides real-time information about the CURRENT state, value, or mode of devic…",
+     "bytes": 0
+    },
+    {
+     "id": "homeassistant_intent__HassCancelAllTimers",
+     "description": "Cancels all timers",
+     "bytes": 0
+    },
+    {
+     "id": "homeassistant_intent__HassTurnOff",
+     "description": "",
+     "bytes": 0
+    },
+    {
+     "id": "homeassistant_intent__HassTurnOn",
+     "description": "",
+     "bytes": 0
+    }
+   ]
+  },
+  {
+   "name": "iMCP",
+   "size": 39,
+   "tools": [
+    {
+     "id": "iMCP_contacts_me",
+     "description": "Get contact information about the user, including name, phone number, email, bi…",
+     "bytes": 0
+    },
+    {
+     "id": "iMCP_events_update",
+     "description": "Update an existing calendar event",
+     "bytes": 0
+    },
+    {
+     "id": "iMCP_messages_attachment_read",
+     "description": "Read one attachment of a message, by the @id messages_fetch lists with attachme…",
+     "bytes": 0
+    },
+    {
+     "id": "iMCP_events_delete",
+     "description": "Delete a calendar event by identifier",
+     "bytes": 0
+    },
+    {
+     "id": "iMCP_events_fetch",
+     "description": "",
+     "bytes": 0
+    },
+    {
+     "id": "iMCP_messages_fetch",
+     "description": "",
+     "bytes": 0
+    },
+    {
+     "id": "iMCP_contacts_update",
+     "description": "",
+     "bytes": 0
+    }
+   ]
+  },
+  {
+   "name": "safari",
+   "size": 97,
+   "tools": [
+    {
+     "id": "safari_safari_screenshot",
+     "description": "Take a visual screenshot (base64 JPEG)",
+     "bytes": 0
+    },
+    {
+     "id": "safari_safari_snapshot",
+     "description": "PREFERRED way to see page state",
+     "bytes": 0
+    },
+    {
+     "id": "safari_safari_wait",
+     "description": "Wait for a fixed time in milliseconds",
+     "bytes": 0
+    },
+    {
+     "id": "safari_safari_native_hover",
+     "description": "OS-level mouse hover via macOS CGEvent — moves the real cursor to an element to…",
+     "bytes": 0
+    },
+    {
+     "id": "safari_safari_native_type",
+     "description": "",
+     "bytes": 0
+    },
+    {
+     "id": "safari_safari_react_select_list_options",
+     "description": "",
+     "bytes": 0
+    },
+    {
+     "id": "safari_safari_replace_editor",
+     "description": "",
+     "bytes": 0
+    },
+    {
+     "id": "safari_safari_select_op",
+     "description": "",
+     "bytes": 0
+    }
+   ]
+  },
+  {
+   "name": "tampermonkey",
+   "size": 6,
+   "tools": [
+    {
+     "id": "tampermonkey_tampermonkey_get_connection_code",
+     "description": "REQUIRED FIRST STEP: Get the connection code to connect Tampermonkey Editors to…",
+     "bytes": 0
+    },
+    {
+     "id": "tampermonkey_tampermonkey_get",
+     "description": "Get the content of a specific userscript",
+     "bytes": 0
+    },
+    {
+     "id": "tampermonkey_tampermonkey_patch",
+     "description": "Update the content of a userscript",
+     "bytes": 0
+    },
+    {
+     "id": "tampermonkey_tampermonkey_put",
+     "description": "Create a new userscript",
+     "bytes": 0
+    },
+    {
+     "id": "tampermonkey_tampermonkey_delete",
+     "description": "",
+     "bytes": 0
+    }
+   ]
+  },
+  {
+   "name": "opencode",
+   "size": 8,
+   "tools": [
+    {
+     "id": "opencode_list_mcp_resources",
+     "description": "List documents, records, and other data exposed by MCP servers",
+     "bytes": 0
+    },
+    {
+     "id": "opencode_read_mcp_resource",
+     "description": "Read one MCP resource by server and URI",
+     "bytes": 0
+    },
+    {
+     "id": "opencode_session_move",
+     "description": "Move a session to another directory, or omit sessionID to move the current sess…",
+     "bytes": 0
+    },
+    {
+     "id": "opencode_models",
+     "description": "Search the models available to use",
+     "bytes": 0
+    },
+    {
+     "id": "opencode_worktree_remove",
+     "description": "",
+     "bytes": 0
+    },
+    {
+     "id": "opencode_session_rename",
+     "description": "",
+     "bytes": 0
+    },
+    {
+     "id": "opencode_worktree_create",
+     "description": "",
+     "bytes": 0
+    },
+    {
+     "id": "opencode_worktr",
+     "description": "",
+     "bytes": 0
+    }
+   ]
+  },
+  {
+   "name": "artifact",
+   "size": 3,
+   "tools": [
+    {
+     "id": "artifact_publish",
+     "description": "Publish an artifact from a Markdown string/file (preferred) or an HTML body str…",
+     "bytes": 0
+    },
+    {
+     "id": "artifact_edit",
+     "description": "Edit an existing artifact while keeping its URL and ID",
+     "bytes": 0
+    }
+   ]
+  },
+  {
+   "name": "monitor",
+   "size": 5,
+   "tools": [
+    {
+     "id": "monitor_create",
+     "description": "Create a detect-only monitor that watches a Jira issue, GitHub PR, Slack thread…",
+     "bytes": 0
+    },
+    {
+     "id": "monitor_list",
+     "description": "List monitors created by the current session (id, name, source, delivery, enabl…",
+     "bytes": 0
+    },
+    {
+     "id": "monitor_status",
+     "description": "Get the status of a monitor created by the current session",
+     "bytes": 0
+    },
+    {
+     "id": "monitor_start",
+     "description": "Start (re-enable) a stopped monitor created by the current session",
+     "bytes": 0
+    }
+   ]
+  },
+  {
+   "name": "browser",
+   "size": 45,
+   "tools": [
+    {
+     "id": "browser_back",
+     "description": "Go back in this tab and wait for loading to finish",
+     "bytes": 0
+    },
+    {
+     "id": "browser_stop",
+     "description": "Stop loading this tab",
+     "bytes": 0
+    },
+    {
+     "id": "browser_trace_analyze",
+     "description": "Analyze a retained trace from this tab: event totals, long tasks, scripting/ren…",
+     "bytes": 0
+    },
+    {
+     "id": "browser_heap_summary",
+     "description": "",
+     "bytes": 0
+    },
+    {
+     "id": "browser_tabs_list",
+     "description": "",
+     "bytes": 0
+    },
+    {
+     "id": "browser_tabs_close",
+     "description": "",
+     "bytes": 0
+    }
+   ]
+  },
+  {
+   "name": "yab-browser",
+   "size": 80,
+   "tools": [
+    {
+     "id": "yab-browser_history",
+     "description": "The user's browsing history",
+     "bytes": 0
+    },
+    {
+     "id": "yab-browser_run",
+     "description": "Run JavaScript that drives tabs with the same tools, several steps in one call:…",
+     "bytes": 0
+    },
+    {
+     "id": "yab-browser_autofill",
+     "description": "Fill a form on this tab with what Yab keeps for the user",
+     "bytes": 0
+    },
+    {
+     "id": "yab-browser_bookmarks",
+     "description": "List or search the user's bookmarks and folders by title or URL, with exact ids…",
+     "bytes": 0
+    },
+    {
+     "id": "yab-browser_files_search",
+     "description": "",
+     "bytes": 0
+    },
+    {
+     "id": "yab-browser_form_answers",
+     "description": "",
+     "bytes": 0
+    },
+    {
+     "id": "yab-browser_open",
+     "description": "",
+     "bytes": 0
+    },
+    {
+     "id": "yab-",
+     "description": "",
+     "bytes": 0
+    }
+   ]
+  },
+  {
+   "name": "patch",
+   "size": 1,
+   "tools": []
+  },
+  {
+   "name": "edit",
+   "size": 1,
+   "tools": []
+  },
+  {
+   "name": "glob",
+   "size": 1,
+   "tools": []
+  },
+  {
+   "name": "grep",
+   "size": 1,
+   "tools": []
+  },
+  {
+   "name": "experimental",
+   "size": 1,
+   "tools": []
+  },
+  {
+   "name": "question",
+   "size": 1,
+   "tools": []
+  },
+  {
+   "name": "read",
+   "size": 1,
+   "tools": []
+  },
+  {
+   "name": "shell",
+   "size": 1,
+   "tools": []
+  },
+  {
+   "name": "skill",
+   "size": 1,
+   "tools": []
+  },
+  {
+   "name": "subagent",
+   "size": 1,
+   "tools": []
+  },
+  {
+   "name": "todowrite",
+   "size": 1,
+   "tools": []
+  },
+  {
+   "name": "webfetch",
+   "size": 1,
+   "tools": []
+  },
+  {
+   "name": "websearch",
+   "size": 1,
+   "tools": []
+  },
+  {
+   "name": "write",
+   "size": 1,
+   "tools": []
+  },
+  {
+   "name": "ask",
+   "size": 1,
+   "tools": []
+  },
+  {
+   "name": "history",
+   "size": 1,
+   "tools": []
+  }
+ ]
+}

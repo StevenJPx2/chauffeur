@@ -1,7 +1,7 @@
 use chauffeur_capability_tool_exposure::{ToolExposure, ToolExposureConfig, group};
 use chauffeur_core::{
     Answer, AnswerValue, Capability, CatalogEntry, CodeModeNamespace, Delivery, Effect, Engine,
-    Judging, Plan, Signal, SignalKind, Situation, Step,
+    Judging, Plan, SecondOpinion, Signal, SignalKind, Situation, Step,
 };
 
 fn tool(id: &str) -> CatalogEntry {
@@ -378,7 +378,7 @@ fn with_code_mode(first_in_context: bool) -> Signal {
 }
 
 #[test]
-fn a_code_mode_namespace_the_request_needs_gets_a_note_once_per_context() {
+fn a_code_mode_namespace_the_request_needs_gets_a_note_once_per_session() {
     let mut exposure = exposure();
     let signal = with_code_mode(false);
     let answers = [
@@ -411,10 +411,87 @@ fn a_code_mode_namespace_the_request_needs_gets_a_note_once_per_context() {
         asked(&exposure.plan(&Situation::default(), &signal)),
         vec!["code-mode:cloudflare"]
     );
-    // A new context starts over.
+    // A compaction keeps it: the note is not sent again.
     assert_eq!(
         asked(&exposure.plan(&Situation::default(), &with_code_mode(true))),
-        vec!["code-mode:browser", "code-mode:cloudflare"]
+        vec!["code-mode:cloudflare"]
+    );
+}
+
+#[test]
+fn a_namespace_the_agent_already_called_gets_no_note_even_after_a_compaction() {
+    let mut exposure = exposure();
+    let mut called = recovery(&[]);
+
+    if let SignalKind::ToolResult { input, .. } = &mut called.kind {
+        *input = r#"{"code":"return await tools.browser.browser_tabs_open({})"}"#.into();
+    }
+
+    exposure.plan(&Situation::default(), &called);
+
+    assert_eq!(
+        asked(&exposure.plan(&Situation::default(), &with_code_mode(true))),
+        vec!["code-mode:cloudflare"]
+    );
+}
+
+#[test]
+fn each_needed_namespace_is_its_own_note_named_after_it() {
+    let mut exposure = exposure();
+    let signal = with_code_mode(false);
+
+    exposure.plan(&Situation::default(), &signal);
+    let effects = exposure.decide(
+        &signal,
+        Some(&[
+            noul("code-mode:browser", 0.9),
+            noul("code-mode:cloudflare", 0.9),
+        ]),
+    );
+    let notes: Vec<(&str, &str)> = effects
+        .iter()
+        .filter_map(|effect| match effect {
+            Effect::Context {
+                delivery: Delivery::Prompt,
+                label,
+                text: Some(text),
+                ..
+            } => Some((label.as_str(), text.as_str())),
+            _ => None,
+        })
+        .collect();
+
+    assert_eq!(
+        notes.iter().map(|(label, _)| *label).collect::<Vec<_>>(),
+        ["Code Mode browser", "Code Mode cloudflare"]
+    );
+    assert!(notes[0].1.contains("- browser_tabs_open:") && !notes[0].1.contains("cloudflare"));
+    assert!(notes[1].1.contains("- cloudflare_get_live:") && !notes[1].1.contains("browser"));
+}
+
+#[test]
+fn only_a_namespace_question_that_can_withhold_asks_for_a_second_opinion() {
+    let opinions = |exposure: &mut Judging<ToolExposure>| {
+        let Plan::Ask(questions) = exposure.plan(&Situation::default(), &with_code_mode(true))
+        else {
+            panic!("expected questions")
+        };
+
+        questions
+            .iter()
+            .map(|question| question.second_opinion.clone())
+            .collect::<Vec<_>>()
+    };
+
+    assert!(
+        opinions(&mut exposure())
+            .iter()
+            .all(|opinion| *opinion == SecondOpinion::Never)
+    );
+    assert!(
+        opinions(&mut trimming(&[]))
+            .iter()
+            .all(|opinion| matches!(opinion, SecondOpinion::Near(bars) if bars.len() == 2))
     );
 }
 

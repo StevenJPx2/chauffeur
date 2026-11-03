@@ -16,10 +16,10 @@ use std::collections::{HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
 
-use chauffeur_core::judgment::strategy;
+use chauffeur_core::judgment::strategy::{self, Ranked};
 use chauffeur_core::{
     CatalogEntry, ChoiceOption, Delivery, Effect, Facts, Judged, Judgment, Question, QuestionKind,
-    Signal, SignalKind, Situation,
+    SecondOpinion, Signal, SignalKind, Situation,
 };
 
 pub use config::{Budget, Drift, Ranking, SkillExposureConfig, SkillTexts};
@@ -31,6 +31,10 @@ pub const NONE: &str = chauffeur_core::judgment::NONE;
 pub const MAX_OPTIONS: usize = 64;
 const MAX_AGENTS: usize = 256;
 const DRIFT: &str = "drift";
+/// The question that picks among several skills serving the agent's request.
+const BEST: &str = "best";
+/// Skills that question chooses among, likeliest first.
+const FINALISTS: usize = 4;
 /// A shell command naming this CLI drives a browser.
 const BROWSER_CLI: &str = "browser-harness";
 
@@ -87,6 +91,23 @@ impl Agent {
     }
 }
 
+/// The skills to attach, and for an agent's request that none serves, the
+/// closest ones, to name without attaching.
+#[derive(Debug, Default, PartialEq)]
+pub struct Picked {
+    pub skills: Vec<String>,
+    pub closest: Vec<String>,
+}
+
+impl Picked {
+    fn skills(skills: Vec<String>) -> Self {
+        Self {
+            skills,
+            closest: Vec::new(),
+        }
+    }
+}
+
 /// `default()` uses the shipped config.
 #[derive(Default)]
 pub struct SkillExposure {
@@ -118,6 +139,70 @@ impl SkillExposure {
         let candidates = fanout::candidates(signal, &judged, &self.config);
 
         (!candidates.is_empty()).then(|| strategy::fan_out(candidates))
+    }
+
+    /// The agent's request: the skills that serve it, and when more do than
+    /// it may be handed, a second question picks the one made for exactly
+    /// the need; when none does, the closest few by name.
+    fn request(&self, signal: &Signal) -> Option<Judgment<Picked>> {
+        let SignalKind::AgentRequest { need, .. } = &signal.kind else {
+            return None;
+        };
+        let agent = self.agents.get(&signal.agent_id)?;
+        let judged = fanout::judged(signal, &agent.offerable(), &self.config);
+        let candidates = fanout::candidates(signal, &judged, &self.config);
+
+        if candidates.is_empty() {
+            return None;
+        }
+
+        let limits = self.config.request;
+        let texts = self.config.texts.clone();
+        let instructions = texts.request_choice.render(&[("need", need)]);
+        let offered: Vec<CatalogEntry> = judged.into_iter().cloned().collect();
+
+        Some(
+            strategy::ranked(candidates).then(move |ranked: Vec<Ranked<String>>| {
+                let held: Vec<String> = ranked
+                    .iter()
+                    .filter(|candidate| candidate.held)
+                    .map(|candidate| candidate.key.clone())
+                    .collect();
+
+                if held.is_empty() {
+                    let closest = ranked
+                        .into_iter()
+                        .filter(|candidate| candidate.p >= limits.closest_at)
+                        .take(limits.closest)
+                        .map(|candidate| candidate.key)
+                        .collect();
+
+                    return Judgment::done(Picked {
+                        skills: Vec::new(),
+                        closest,
+                    });
+                }
+
+                if held.len() <= limits.skills {
+                    return Judgment::done(Picked::skills(held));
+                }
+
+                let finalists: Vec<&CatalogEntry> = held
+                    .iter()
+                    .take(FINALISTS)
+                    .filter_map(|id| offered.iter().find(|skill| skill.id == *id))
+                    .collect();
+                let question = Question {
+                    second_opinion: SecondOpinion::Never,
+                    ..choice(BEST, &instructions, &finalists, &texts)
+                };
+                let pick = limits.confidence.pick();
+
+                Judgment::ask(question, move |answer| {
+                    Picked::skills(best_first(held, pick.chosen(answer), limits.skills))
+                })
+            }),
+        )
     }
 
     /// At a tool result or turn end, whether a drift check is due; records
@@ -183,7 +268,7 @@ impl SkillExposure {
 }
 
 impl Judged for SkillExposure {
-    type Verdict = Vec<String>;
+    type Verdict = Picked;
 
     fn id(&self) -> &str {
         ID
@@ -199,7 +284,7 @@ impl Judged for SkillExposure {
         }
     }
 
-    fn judge(&mut self, _: &Situation, signal: &Signal) -> Option<Judgment<Vec<String>>> {
+    fn judge(&mut self, _: &Situation, signal: &Signal) -> Option<Judgment<Picked>> {
         match &signal.kind {
             SignalKind::UserMessage {
                 skills, ranking, ..
@@ -212,12 +297,14 @@ impl Judged for SkillExposure {
                 };
 
                 self.fan_out(signal)
+                    .map(|judgment| judgment.map(Picked::skills))
             }
-            SignalKind::AgentRequest { .. } => self.fan_out(signal),
+            SignalKind::AgentRequest { .. } => self.request(signal),
             SignalKind::ToolResult { .. } | SignalKind::TurnEnd { .. }
                 if self.drift_due(signal) =>
             {
                 self.drift(signal)
+                    .map(|judgment| judgment.map(Picked::skills))
             }
             _ => None,
         }
@@ -225,8 +312,18 @@ impl Judged for SkillExposure {
 
     /// Attach the admitted skills in order while they fit the signal's byte
     /// budget and count; one that does not fit is skipped for a smaller one.
-    fn act(&mut self, signal: &Signal, skills: Vec<String>) -> Vec<Effect> {
+    /// The closest skills are named, not attached.
+    fn act(&mut self, signal: &Signal, picked: Picked) -> Vec<Effect> {
+        let Picked { skills, closest } = picked;
         let budget = self.config.budget;
+        let texts = &self.config.texts;
+        let suggestion = (!closest.is_empty()).then(|| Effect::Suggest {
+            agent_id: signal.agent_id.clone(),
+            names: closest
+                .iter()
+                .map(|skill| texts.closest.render(&[("skill", skill)]))
+                .collect(),
+        });
         let agent = self.agent(&signal.agent_id);
         let mut spent: u64 = 0;
         let mut chosen = Vec::new();
@@ -254,8 +351,22 @@ impl Judged for SkillExposure {
         chosen
             .iter()
             .map(|skill| context(signal, skill, &self.config.texts))
+            .chain(suggestion)
             .collect()
     }
+}
+
+/// The `limit` skills to hand over: the chosen one first when it is one of
+/// `held`, then the likeliest others.
+fn best_first(mut held: Vec<String>, chosen: Option<String>, limit: usize) -> Vec<String> {
+    if let Some(at) = chosen.and_then(|chosen| held.iter().position(|skill| *skill == chosen)) {
+        let best = held.remove(at);
+
+        held.insert(0, best);
+    }
+
+    held.truncate(limit);
+    held
 }
 
 /// A prompt's skills join the user's message; a skill the agent asked for
@@ -298,5 +409,6 @@ fn choice(id: &str, instructions: &str, skills: &[&CatalogEntry], texts: &SkillT
         instructions: instructions.into(),
         kind: QuestionKind::Choice { options },
         facts: Facts::new(),
+        second_opinion: Default::default(),
     }
 }

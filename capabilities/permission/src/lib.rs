@@ -290,6 +290,7 @@ fn question(template: &Template, skill: &Skill, request: &SignalKind) -> Questio
         ]),
         kind,
         facts: Facts::new(),
+        second_opinion: Default::default(),
     }
 }
 

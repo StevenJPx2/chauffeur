@@ -61,6 +61,7 @@ impl Judged for Review {
                 instructions: "Is the goal done?".into(),
                 kind: QuestionKind::Noul,
                 facts: Facts::new(),
+                second_opinion: Default::default(),
             };
 
             strategy::escalate(

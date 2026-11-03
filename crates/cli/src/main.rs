@@ -152,10 +152,18 @@ fn validate_skill(path: &str) -> Result<(), String> {
 /// Send one signal from a JSON file and print the effects it produced.
 async fn signal(args: &[String]) -> Result<(), String> {
     let path = option(args, "--file").ok_or("signal needs --file PATH")?;
+    // The host's wait, as a host sends it, so the daemon answers within it.
+    let deadline_ms = option(args, "--deadline-ms")
+        .map(|value| {
+            value
+                .parse::<u64>()
+                .map_err(|_| format!("--deadline-ms must be milliseconds, not {value}"))
+        })
+        .transpose()?;
     let bytes = read_bounded(path, MAX_SIGNAL_BYTES)?;
     let signal: Signal =
         serde_json::from_slice(&bytes).map_err(|error| format!("decode signal: {error}"))?;
-    let effects = client()?.signal(signal).await?;
+    let effects = client()?.signal_with_deadline(signal, deadline_ms).await?;
     let encoded = serde_json::to_string_pretty(&effects).map_err(|error| error.to_string())?;
 
     println!("{encoded}");
@@ -194,5 +202,5 @@ pub(crate) fn option<'a>(args: &'a [String], name: &str) -> Option<&'a str> {
 }
 
 fn usage() -> String {
-    "usage: chauffeur daemon [--port PORT] | mcp | health | skills | audit [N] [--brief] [--follow] | skill validate PATH | skill discover WORDS... | skill approve OWNER/REPOSITORY[/SKILL] | signal --file PATH | setup opencode [--service] [--force] [--dry-run] | --version".into()
+    "usage: chauffeur daemon [--port PORT] | mcp | health | skills | audit [N] [--brief] [--follow] | skill validate PATH | skill discover WORDS... | skill approve OWNER/REPOSITORY[/SKILL] | signal --file PATH [--deadline-ms MS] | setup opencode [--service] [--force] [--dry-run] | --version".into()
 }

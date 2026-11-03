@@ -364,6 +364,7 @@ impl ModelRouter {
             ]),
             kind: QuestionKind::Noul,
             facts: Facts::new(),
+            second_opinion: Default::default(),
         };
 
         let bar = self.config.switch_back.bar.yes();
@@ -430,6 +431,7 @@ impl ModelRouter {
             ]),
             kind: QuestionKind::Noul,
             facts,
+            second_opinion: Default::default(),
         };
 
         Some(
@@ -654,6 +656,7 @@ impl ModelRouter {
             instructions,
             kind: QuestionKind::Choice { options },
             facts: Facts::new(),
+            second_opinion: Default::default(),
         }
     }
 }

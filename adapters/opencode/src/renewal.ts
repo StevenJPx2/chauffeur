@@ -1,7 +1,7 @@
 import type { SessionCompaction } from "@opencode/plugin/effect/session"
 import { Data, DateTime, type Duration, Effect, Predicate, Schema, type Scope } from "effect"
 import { Daemon } from "./daemon.js"
-import { type HistoryMessage, Host, type SessionID } from "./host.js"
+import { currentContext, type HistoryMessage, Host, type SessionID } from "./host.js"
 import { available, hostModel, modelKey, ref } from "./model-router.js"
 import { signal, type ModelRef } from "./protocol.js"
 import { fill, type HostTexts, Texts } from "./texts.js"
@@ -169,12 +169,6 @@ export const installRenewal = (warming: WarmingControl = { lastWarmed: () => und
   }
 })
 
-/** Messages since the most recent compaction, which begins a new context. */
-export function currentContext(messages: ReadonlyArray<HistoryMessage>): HistoryMessage[] {
-  const lastCompaction = messages.findLastIndex((message) => message.type === "compaction")
-
-  return messages.slice(lastCompaction + 1)
-}
 
 /**
  * The context's size at its latest measured reply, as OpenCode measures it,

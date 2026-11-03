@@ -441,6 +441,7 @@ mod tests {
                 instructions: "Needed?".into(),
                 kind: QuestionKind::Noul,
                 facts: chauffeur_core::Facts::new(),
+                second_opinion: Default::default(),
             }],
         )
     }

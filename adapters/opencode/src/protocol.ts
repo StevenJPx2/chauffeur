@@ -147,6 +147,7 @@ const HostEffect = Schema.Union([
     skills: Schema.Array(Schema.String),
     text: Schema.NullOr(Schema.String),
   }),
+  Schema.Struct({ type: Schema.Literal("suggest"), agent_id: Schema.String, names: Schema.Array(Schema.String) }),
   Schema.Struct({ type: Schema.Literal("gate"), agent_id: Schema.String, deliver: Schema.Boolean }),
   Schema.Struct({ type: Schema.Literal("compact"), agent_id: Schema.String, model: ModelRef }),
   Schema.Struct({ type: Schema.Literal("warm"), agent_id: Schema.String, every_seconds: Schema.Number, times: Schema.Number }),
