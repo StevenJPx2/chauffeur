@@ -518,9 +518,9 @@ every round. A failed judgment confirms nothing new; rules an earlier round
 confirmed still deliver.
 
 Rules come from three places. `skills/rules/` ships thirteen: nine steers
-(hand-rolled patch scripts, `grep -r`, `cat` to read files, a cheaper model for
-routine subagents, a dependency's source before its docs, and X, Slack, Jira,
-or GitHub through a browser, handing over `twitter-cli`, `slack-cli`, and
+(hand-rolled patch scripts, shell searches the grep tool would do, `cat` to
+read files, a cheaper model for routine subagents, a dependency's source before
+its docs, and X, Slack, Jira, or GitHub through a browser, handing over `twitter-cli`, `slack-cli`, and
 `jira-cli`; on 13 labelled calls they made no false nudges and one near miss),
 two session reminders, `git-conflict-loop` and `jira-transition-after-merge`,
 and two turn-end rules, one that puts a question asked in plain text to the

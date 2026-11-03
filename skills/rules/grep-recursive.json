@@ -1,20 +1,20 @@
 {
   "schema_version": 2,
   "id": "grep-recursive",
-  "name": "Recursive grep",
+  "name": "Searching files through the shell",
   "on": "tool_result",
   "when": { "tools": ["shell"] },
   "steps": [
     {
       "id": "misuse",
-      "question": "Does this call search file contents with grep -r or grep -R instead of rg?",
+      "question": "Does this call search the contents of local files from the shell, which the grep tool does? YES: grep -r or grep -R anywhere in the command, or rg, grep or git grep given file or folder paths to search (source, config, docs, or a dependency's files), even when head or tail trims the matches. NO when rg or grep only filter another command's output (after a pipe, such as cargo test | rg FAILED or ps | grep node); when it searches a log file; when the result only drives the script (rg -q, or a match count a loop tests); for rg --files and other listings; and for commands that search nothing.",
       "yes_at_or_above": 0.7,
       "minimum_confidence": 0.4
     }
   ],
   "then": {
     "delivery": "steer",
-    "text": "Chauffeur: Search file contents with rg, not grep -r: it is faster and respects .gitignore."
+    "text": "Chauffeur: Search file contents with the grep tool, called directly or through Code Mode's execute. When a shell script must search files, use rg, not grep -r: it is faster and respects .gitignore."
   },
   "cooldown_seconds": 120
 }
