@@ -3,8 +3,8 @@
 v1 decided which sourcefed events reach the agent, and started sourcefed
 monitors for the PR, Jira issue or Slack thread the agent was working on.
 In v2 the first is the `sourcefed/triage` rule that sourcefed calls through
-`navigate`, in slice 2, and the second is the `monitors` plugin, in slice 5
-with the other first plugins.
+`navigate`, in slice 2, and the second is the `sourcefed` plugin, kept in
+sourcefed's repository, in slice 5 with the other first plugins.
 
 ## The event gate
 
@@ -40,13 +40,14 @@ v1's question, abridged, becomes the rule's `needs-agent` ask:
 
 ## Monitors
 
-The [`monitors` plugin](../plugins/monitors.md):
+The [`sourcefed` plugin](../callers/sourcefed.md#the-plugin), in sourcefed's
+`adapters/chauffeur/`:
 
-| v1                                                                                                               | v2                                                                      |
-| ---------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
-| After a tool result, exact facts name candidates: a PR link from `gh pr create`, a Jira key, a Slack thread link | `ctx.on("tool.after")` in the `monitors` plugin, with the same patterns |
-| A candidate a monitor already watches is dropped                                                                 | The plugin asks sourcefed's daemon first                                |
-| "Is this the session's own work to keep following?" at P ≥ 0.7                                                   | The same yes/no, `confidence: 0.7`                                      |
-| Creates the monitor, then steers: "sourcefed now watches …"                                                      | sourcefed's RPC, then `message.append` with `now`                       |
-| Each candidate judged once per agent; unreachable sourcefed creates nothing                                      | The same, in the plugin's state                                         |
-| `SOURCEFED_DAEMON_URL`, `SOURCEFED_DAEMON_TOKEN`, `CHAUFFEUR_SOURCEFED=off`                                      | The plugin's options; leaving it out of `plugins.json` turns it off     |
+| v1                                                                                                               | v2                                                                       |
+| ---------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| After a tool result, exact facts name candidates: a PR link from `gh pr create`, a Jira key, a Slack thread link | `ctx.on("tool.after")` in the `sourcefed` plugin, with the same patterns |
+| A candidate a monitor already watches is dropped                                                                 | The plugin asks sourcefed's daemon first                                 |
+| "Is this the session's own work to keep following?" at P ≥ 0.7                                                   | The same yes/no, `confidence: 0.7`                                       |
+| Creates the monitor, then steers: "sourcefed now watches …"                                                      | sourcefed's RPC, then `message.append` with `now`                        |
+| Each candidate judged once per agent; unreachable sourcefed creates nothing                                      | The same, in the plugin's state                                          |
+| `SOURCEFED_DAEMON_URL`, `SOURCEFED_DAEMON_TOKEN`, `CHAUFFEUR_SOURCEFED=off`                                      | The plugin's options; leaving it out of `plugins.json` turns it off      |

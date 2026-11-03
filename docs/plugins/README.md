@@ -39,7 +39,6 @@ sequenceDiagram
 | Plugin                                  | Does                                                                            | Slice |
 | --------------------------------------- | ------------------------------------------------------------------------------- | ----- |
 | [`guard`](guard.md)                     | Blocks irreversible commands, asks before risky ones, learns what it blocked    | 5     |
-| [`monitors`](monitors.md)               | Starts sourcefed monitors for the session's own PRs, issues and threads         | 5     |
 | [`skills`](skills.md)                   | Attaches the skills a message needs, and a better one when the agent drifts     | 6     |
 | [`tools`](tools.md)                     | Hides the tools a task will not use, and points at the Code Mode tools it needs | 6     |
 | [`ask-chauffeur`](ask-chauffeur.md)     | The `ask_chauffeur` tool, for asking for a tool or skill in plain words         | 6     |
@@ -47,6 +46,15 @@ sequenceDiagram
 | [`warming`](warming.md)                 | Keeps an idle session's prompt cache warm while that is cheaper                 | 7     |
 | [`model-router`](model-router.md)       | Moves the agent to another provider on a usage limit, and back                  | 7     |
 | [`rulebooks`](rulebooks.md)             | `/goal` and other books of rules switched on for one session                    | 12    |
+
+## Plugins from other projects
+
+An integration keeps its plugin in its own repository, beside the code it
+talks to, and installs it with its rules:
+
+| Plugin      | From                                                                   | Does                                                                    | Slice |
+| ----------- | ---------------------------------------------------------------------- | ----------------------------------------------------------------------- | ----- |
+| `sourcefed` | [sourcefed](../callers/sourcefed.md#the-plugin), `adapters/chauffeur/` | Starts sourcefed monitors for the session's own PRs, issues and threads | 5     |
 
 ## Using a plugin
 

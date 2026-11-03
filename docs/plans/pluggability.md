@@ -1039,7 +1039,8 @@ A caller's or plugin's own events are keyed by its name, before a dot:
 event by accident. The harness package's namespaces (`tool`, `prompt`,
 `permission`, `response`, `session`, `compaction`) are reserved. The daemon
 refuses a plugin's event outside the plugin's own namespace: only the
-`monitors` plugin sends `monitors.*`, and no plugin can pose as sourcefed.
+`sourcefed` plugin sends `sourcefed.*`, and no other plugin can pose as
+sourcefed.
 Programs on the socket are the user's own, as in
 [Access, delivery and failure rules](#access-delivery-and-failure-rules).
 
@@ -1635,18 +1636,18 @@ fields v1's rules need: `when`'s `input.excludes`, `result`, `agent`,
 `reason`, permission and `history` filters, the evidence blocks each event
 gives, `priority` and `once`.
 
-| File                                                    | Contents                                                                                                                                 |
-| ------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| `crates/daemon/src/plugins.rs`                          | `plugins.json`; the stdio plugin protocol; discovery cache, lazy and eager start, idle stop, restart with backoff, reload on file change |
-| `crates/daemon/src/bus.rs`                              | `ctx.on` and `ctx.before` routing, `before` budgets and `onTimeout`, retries by kind, the stale-action check                             |
-| `crates/judges/src/tiers/person/`                       | The `person` format: a question shown to the user through the harness                                                                    |
-| `packages/chauffeur/src/{plugin,harness}/`              | `@fdcn/chauffeur/plugin` and `/harness`                                                                                                  |
-| `plugins/guard/`                                        | The backstop and `confirm` patterns, the irreversible-harm question and its learned list                                                 |
-| `plugins/monitors/`                                     | sourcefed monitors for the session's own PRs, Jira issues and Slack threads                                                              |
-| `crates/protocol/src/{when,then}.rs`                    | The `when` filters, `priority`, `once`, and `permission.reply` with the most restrictive reply winning                                   |
-| `distribution/rules/`, `distribution/rules/permission/` | v1's steering, turn-end and permission rules, ported                                                                                     |
-| `crates/runtime/src/redact/learned.rs`                  | Learned credential shapes, kept in Chauffeur's state                                                                                     |
-| `crates/cli/src/{events,status}.rs`                     | `chauffeur events --follow`; `chauffeur status --project`                                                                                |
+| File                                                    | Contents                                                                                                                                                |
+| ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `crates/daemon/src/plugins.rs`                          | `plugins.json`; the stdio plugin protocol; discovery cache, lazy and eager start, idle stop, restart with backoff, reload on file change                |
+| `crates/daemon/src/bus.rs`                              | `ctx.on` and `ctx.before` routing, `before` budgets and `onTimeout`, retries by kind, the stale-action check                                            |
+| `crates/judges/src/tiers/person/`                       | The `person` format: a question shown to the user through the harness                                                                                   |
+| `packages/chauffeur/src/{plugin,harness}/`              | `@fdcn/chauffeur/plugin` and `/harness`                                                                                                                 |
+| `plugins/guard/`                                        | The backstop and `confirm` patterns, the irreversible-harm question and its learned list                                                                |
+| sourcefed: `adapters/chauffeur/` and its installer      | The `sourcefed` plugin, which starts monitors for the session's own PRs, Jira issues and Slack threads, added to `plugins.json` with `sourcefed/triage` |
+| `crates/protocol/src/{when,then}.rs`                    | The `when` filters, `priority`, `once`, and `permission.reply` with the most restrictive reply winning                                                  |
+| `distribution/rules/`, `distribution/rules/permission/` | v1's steering, turn-end and permission rules, ported                                                                                                    |
+| `crates/runtime/src/redact/learned.rs`                  | Learned credential shapes, kept in Chauffeur's state                                                                                                    |
+| `crates/cli/src/{events,status}.rs`                     | `chauffeur events --follow`; `chauffeur status --project`                                                                                               |
 
 A spike decides whether first-party plugins ship compiled with scriptc. It
 compiles `guard`, and reports which SDK and Node APIs scriptc rejects, start
@@ -1794,7 +1795,7 @@ use.
 | Concern                      | Decision                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Wire protocol                | JSON-RPC 2.0 over the Unix socket and stdio                                                                                                                                                                                                                                                                                                                                                                                        |
-| First-party plugins          | `plugins/` in this repository, each its own package on the SDK                                                                                                                                                                                                                                                                                                                                                                     |
+| First-party plugins          | `plugins/` in this repository, each its own package on the SDK. An integration's plugin lives in the integration's repository and is installed with its rules, such as sourcefed's                                                                                                                                                                                                                                                 |
 | Adapters                     | Adopted from the shared harness package, designed separately; Chauffeur registers as a decider and reads the package's event, action and fidelity data. Slice 1's OpenCode part and its rc wait for the package                                                                                                                                                                                                                    |
 | Chauffeur for other services | Any program asks through `navigate`, with no harness: sourcefed, Workhorse, neo, opencode-history and scripts. Each passes through when Chauffeur is unavailable                                                                                                                                                                                                                                                                   |
 | Slices                       | Each slice is one feature a person uses, built end to end and released as an rc; the pieces arrive with the first feature that needs them. Cutover waits for rulebooks                                                                                                                                                                                                                                                             |
