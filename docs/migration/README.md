@@ -22,7 +22,7 @@ row has landed and passes v1's cases.
 | Model failover and switch-back                       | The `model-router` plugin                                                     | 7                      | [Model router](model-router.md)                       |
 | Context renewal, session warming                     | The `context-renewal` and `warming` plugins                                   | 7                      | [Context renewal and warming](renewal-and-warming.md) |
 | `/goal`, `/ticket`, project rulebooks                | The `rulebooks` plugin                                                        | 12                     | [Rulebooks](rulebooks.md)                             |
-| Audit feed, rule validation                          | `chauffeur audit`, `chauffeur status`                                         | 1, 5                   | [Seeing what it decided](audit.md)                    |
+| Audit feed, rule validation                          | `chauffeur audit`, `chauffeur daemon status`                                  | 1, 5                   | [Seeing what it decided](audit.md)                    |
 
 ## Where configuration goes
 

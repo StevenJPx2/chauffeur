@@ -1024,6 +1024,7 @@ on:
 | Process      | A child of the daemon, speaking JSON-RPC 2.0 over stdio; lazy, stopped after 10 idle minutes unless eager; a crash restarts it with backoff and affects nothing else |
 | Discovery    | `setup` runs once to record the hooks, cached against the plugin's file hash, and again when its files change                                                        |
 | Registration | `~/.config/chauffeur/plugins.json`, keyed by ID; a project can never add a plugin                                                                                    |
+| Commands     | `ctx.command` adds `chauffeur <plugin> <command>`, recorded at discovery and run in the plugin; a plugin cannot take a built-in command's name                       |
 | State        | `ctx.storage`, the plugin's own folder under `~/.local/state/chauffeur/plugins/`                                                                                     |
 
 ### Events
@@ -1300,7 +1301,7 @@ own; nothing in `crates/` embeds it.
 ```mermaid
 flowchart LR
     subgraph Product["Product: building blocks, no content"]
-        Daemon["chauffeur daemon<br/>loads sources from paths"]
+        Daemon["chauffeur daemon run<br/>loads sources from paths"]
     end
     Dist[("distribution/<br/>models, facts, rules, safety")] -- "shipped, lowest precedence" --> Daemon
     User[("~/.config/chauffeur/")] -- "user" --> Daemon
@@ -1316,7 +1317,8 @@ crates/
   facts/         # QuickJS sandbox: runs a fact with caps and host modules. Ships no facts
   runtime/       # Admission, deadlines, workers, redaction
   daemon/        # Socket; loads models, facts and rules; event bus; plugin supervisor
-  cli/           # chauffeur binary: navigate, strategy show, setup and audit
+  cli/           # chauffeur binary: daemon, emit, audit, navigate, strategy, migrate,
+                 #   and each plugin's own commands
   o11y/          # Event consumers, on tracing
 packages/
   chauffeur/     # @fdcn/chauffeur: /client, /judge, /plugin, /harness
@@ -1397,7 +1399,7 @@ sequenceDiagram
 | `crates/judges/src/tiers/`                                                                                           | The four tiers; each tier's models in fallback order as one core `Judge`, with the model that answered. `system_one/` holds the `systemone` format with `noul`, behind the default `systemone` feature so the playground builds without HTTP: authentication, timeout, bounded response, 429 and 529. `system_two/`, `facts/` and `person/` gain their formats in slices 11, 4 and 5                                                                                                              |
 | `crates/runtime/src/{run.rs,redact/}`                                                                                | Runs a rule on a worker thread within its deadline; redacts evidence before every model call, with v1's rules and cases and `distribution/safety/redaction.json`                                                                                                                                                                                                                                                                                                                                  |
 | `crates/daemon/src/{paths,state,rpc,socket,audit}.rs`, `crates/daemon/src/route/`                                    | Socket folder `0700`, JSON-RPC 2.0 lines up to 1 MiB, 64 connections; loads shipped and user models, redaction and rules and reloads them on change; routes an event to the rules that hook it, concurrently, with each rule's cooldown per session. Methods `chauffeur.emit` and `chauffeur.status`; the decider methods follow the harness package's contract. Every run is appended to `audit.jsonl` in `~/.local/state/<name>/`, a folder only the user can open, moved aside once past 8 MiB |
-| `crates/cli/src/{main,audit}.rs`                                                                                     | `chauffeur daemon`, `version`, `emit`, `audit` and `status`; `audit` reads the log's files, so it works with no daemon, with `--follow` and `--brief`; the installation's name is the executable's, so `chauffeur-next` keeps its own socket, configuration and log; a second daemon that finds the socket taken exits                                                                                                                                                                            |
+| `crates/cli/src/{main,audit}.rs`                                                                                     | `chauffeur daemon run`, `daemon status`, `version`, `emit` and `audit`; `audit` reads the log's files, so it works with no daemon, with `--follow` and `--brief`; the installation's name is the executable's, so `chauffeur-next` keeps its own socket, configuration and log; a second daemon that finds the socket taken exits                                                                                                                                                                 |
 | `distribution/models/jev.json`, `distribution/rules/conventional-commits.json`, `distribution/safety/redaction.json` | Jev as the default System One; the nudge; the known credential prefixes                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | `scripts/{package,homebrew,smoke}.mjs`, `.github/workflows/{check,release}.yml`                                      | rc packaging and the `chauffeur-next` formula, with its Homebrew service; `release.yml` publishes a prerelease and the formula on each rc tag                                                                                                                                                                                                                                                                                                                                                     |
 | `playground/src/features/question.ts`                                                                                | The Question tab                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
@@ -1540,18 +1542,18 @@ the earlier steps it waits for and the outcomes it needs, as in the
 `student` format, and a tier that rests a failed model for 60 seconds before
 asking it again.
 
-| File                                                          | Contents                                                                                                                                      |
-| ------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| `crates/core/src/{after,state}.rs`                            | The `after` rule, validation, and the round API (`questions`, `answer`, `fail`)                                                               |
-| `crates/core/src/proofs.rs`, `crates/core/tests/scenarios.rs` | Kani harnesses and scenario tests                                                                                                             |
-| `crates/protocol/src/lower.rs`                                | Lowering named judges, asks and `after` to `chauffeur_core::Plan`                                                                             |
-| `crates/judges/src/tiers/system_one/`                         | `choice` with every outcome's probability, and GLiDE's level-valued `score`                                                                   |
-| `distribution/models/{subq,glide}.json`                       | SubQ and GLiDE beside Jev                                                                                                                     |
-| `crates/judges/src/evidence/`                                 | Text and image blocks; an image goes only to a format that accepts images, and only when a step names it                                      |
-| `crates/judges/src/tiers/system_one/student.rs`               | The `student` format for jev-distill's loopback server                                                                                        |
-| `crates/judges/src/tiers/fallback.rs`                         | A model that fails rests for 60 seconds, then is tried again                                                                                  |
-| `crates/cli/src/strategy.rs`                                  | `chauffeur strategy show <rule>` and `--file`: the tree, rounds, resolved models, `after`, confidence, and the maximum rounds and model calls |
-| `playground/src/features/strategy.ts`                         | The Strategy tab                                                                                                                              |
+| File                                                          | Contents                                                                                                                                                                                                                                          |
+| ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `crates/core/src/{after,state}.rs`                            | The `after` rule, validation, and the round API (`questions`, `answer`, `fail`)                                                                                                                                                                   |
+| `crates/core/src/proofs.rs`, `crates/core/tests/scenarios.rs` | Kani harnesses and scenario tests                                                                                                                                                                                                                 |
+| `crates/protocol/src/lower.rs`                                | Lowering named judges, asks and `after` to `chauffeur_core::Plan`                                                                                                                                                                                 |
+| `crates/judges/src/tiers/system_one/`                         | `choice` with every outcome's probability, and GLiDE's level-valued `score`                                                                                                                                                                       |
+| `distribution/models/{subq,glide}.json`                       | SubQ and GLiDE beside Jev                                                                                                                                                                                                                         |
+| `crates/judges/src/evidence/`                                 | Text and image blocks; an image goes only to a format that accepts images, and only when a step names it                                                                                                                                          |
+| `crates/judges/src/tiers/system_one/student.rs`               | The `student` format for jev-distill's loopback server                                                                                                                                                                                            |
+| `crates/judges/src/tiers/fallback.rs`                         | A model that fails rests for 60 seconds, then is tried again                                                                                                                                                                                      |
+| `crates/cli/src/strategy.rs`                                  | `chauffeur strategy list`: each loaded rule with its event, steps, and most rounds and model calls; `chauffeur strategy show <rule>` and `--file`: the tree, rounds, resolved models, `after`, confidence, and the maximum rounds and model calls |
+| `playground/src/features/strategy.ts`                         | The Strategy tab                                                                                                                                                                                                                                  |
 
 Scenario tests:
 
@@ -1637,18 +1639,18 @@ fields v1's rules need: `when`'s `input.excludes`, `result`, `agent`,
 `reason`, permission and `history` filters, the evidence blocks each event
 gives, `priority` and `once`.
 
-| File                                                    | Contents                                                                                                                                                |
-| ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `crates/daemon/src/plugins.rs`                          | `plugins.json`; the stdio plugin protocol; discovery cache, lazy and eager start, idle stop, restart with backoff, reload on file change                |
-| `crates/daemon/src/bus.rs`                              | `ctx.on` and `ctx.before` routing, `before` budgets and `onTimeout`, retries by kind, the stale-action check                                            |
-| `crates/judges/src/tiers/person/`                       | The `person` format: a question shown to the user through the harness                                                                                   |
-| `packages/chauffeur/src/{plugin,harness}/`              | `@fdcn/chauffeur/plugin` and `/harness`                                                                                                                 |
-| `plugins/guard/`                                        | The backstop and `confirm` patterns, the irreversible-harm question and its learned list                                                                |
-| sourcefed: `adapters/chauffeur/` and its installer      | The `sourcefed` plugin, which starts monitors for the session's own PRs, Jira issues and Slack threads, added to `plugins.json` with `sourcefed/triage` |
-| `crates/protocol/src/{when,then}.rs`                    | The `when` filters, `priority`, `once`, and `permission.reply` with the most restrictive reply winning                                                  |
-| `distribution/rules/`, `distribution/rules/permission/` | v1's steering, turn-end and permission rules, ported                                                                                                    |
-| `crates/runtime/src/redact/learned.rs`                  | Learned credential shapes, kept in Chauffeur's state                                                                                                    |
-| `crates/cli/src/status.rs`                              | `chauffeur status --project`                                                                                                                            |
+| File                                                                 | Contents                                                                                                                                                                        |
+| -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `crates/daemon/src/plugins.rs`                                       | `plugins.json`; the stdio plugin protocol; discovery cache, lazy and eager start, idle stop, restart with backoff, reload on file change                                        |
+| `crates/daemon/src/bus.rs`                                           | `ctx.on` and `ctx.before` routing, `before` budgets and `onTimeout`, retries by kind, the stale-action check                                                                    |
+| `crates/judges/src/tiers/person/`                                    | The `person` format: a question shown to the user through the harness                                                                                                           |
+| `packages/chauffeur/src/{plugin,harness}/`                           | `@fdcn/chauffeur/plugin` and `/harness`                                                                                                                                         |
+| `plugins/guard/`                                                     | The backstop and `confirm` patterns, the irreversible-harm question and its learned list                                                                                        |
+| sourcefed: `adapters/chauffeur/` and its installer                   | The `sourcefed` plugin, which starts monitors for the session's own PRs, Jira issues and Slack threads, added to `plugins.json` with `sourcefed/triage`                         |
+| `crates/protocol/src/{when,then}.rs`                                 | The `when` filters, `priority`, `once`, and `permission.reply` with the most restrictive reply winning                                                                          |
+| `distribution/rules/`, `distribution/rules/permission/`              | v1's steering, turn-end and permission rules, ported                                                                                                                            |
+| `crates/runtime/src/redact/learned.rs`                               | Learned credential shapes, kept in Chauffeur's state                                                                                                                            |
+| `crates/cli/src/{daemon,plugin}.rs`, `crates/daemon/src/commands.rs` | `chauffeur daemon status --project`; plugins' own commands: `ctx.command` recorded at discovery, listed in `--help`, run in the plugin through the daemon's `chauffeur.command` |
 
 A spike decides whether first-party plugins ship compiled with scriptc. It
 compiles `guard`, and reports which SDK and Node APIs scriptc rejects, start

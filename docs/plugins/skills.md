@@ -104,5 +104,5 @@ At most four skills and 64 KiB attach per message, likeliest first.
 
 `ranking.fact` is `bm25` or `embedding`. A project skill's `no` needs 0.7, so
 `unsure` attaches it. Which skills passed their screen, per version, is kept
-in the plugin's storage; `chauffeur skills` lists the catalog, each skill's
-source and its screen.
+in the plugin's storage. The plugin adds `chauffeur skills list`, which lists
+the catalog, each skill's source and its screen.

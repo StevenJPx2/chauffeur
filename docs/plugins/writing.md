@@ -97,12 +97,12 @@ ctx.on("response.finished", async (e) => {
 One package, `@fdcn/chauffeur`, with subpath exports so bundlers keep only
 what is imported:
 
-| Import                    | Holds                                                                                              |
-| ------------------------- | -------------------------------------------------------------------------------------------------- |
-| `@fdcn/chauffeur/plugin`  | `Plugin.define({ id, defaults, setup(ctx) })`; `ctx` holds `on`, `before`, `options` and `storage` |
-| `@fdcn/chauffeur/judge`   | `ask`, `judge`, `strategy`, and the question functions `question`, `noul`, `choice`, `score`       |
-| `@fdcn/chauffeur/harness` | Actions: `session`, `message`, `permission`, and the registries                                    |
-| `@fdcn/chauffeur/client`  | `navigate(request)`, and `connect()` for a program that makes many calls                           |
+| Import                    | Holds                                                                                                         |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `@fdcn/chauffeur/plugin`  | `Plugin.define({ id, defaults, setup(ctx) })`; `ctx` holds `on`, `before`, `command`, `options` and `storage` |
+| `@fdcn/chauffeur/judge`   | `ask`, `judge`, `strategy`, and the question functions `question`, `noul`, `choice`, `score`                  |
+| `@fdcn/chauffeur/harness` | Actions: `session`, `message`, `permission`, and the registries                                               |
+| `@fdcn/chauffeur/client`  | `navigate(request)`, and `connect()` for a program that makes many calls                                      |
 
 `ctx` holds what is tied to the plugin's lifetime. Everything else is a
 function to import, and `/judge` works the same from any program.
@@ -201,6 +201,33 @@ reader that types the reply. `question` is the primitive the others use, so
 a plugin defines a new kind of question without any change to the engine. An
 outcome outside the list fails as `invalid` at run time, and a comparison
 with an impossible outcome fails to compile.
+
+## Commands
+
+`ctx.command` adds a command to the `chauffeur` binary, under the plugin's ID:
+
+```ts
+ctx.command(
+  "list",
+  { description: "List the decisions noted so far", options: { since: "string" } },
+  async (args) => readNotes(ctx.storage, args.since) // printed as JSON
+)
+```
+
+```sh
+chauffeur notes list --since 2026-11-01
+```
+
+- **Recorded at discovery,** with the hooks, so `chauffeur --help` lists a
+  plugin's commands while the daemon runs, even when the plugin is stopped.
+- **Run in the plugin.** The binary sends the command to the daemon, which
+  starts the plugin if needed; the handler's result is printed, and a thrown
+  error exits 1 with its message.
+- **Named by the plugin's ID.** A plugin whose ID is a built-in command, such
+  as `daemon` or `audit`, is refused at discovery.
+
+These are commands for the person at a terminal. A slash command inside the
+harness, such as `/goal`, is the harness's `command` registry.
 
 ## Options and storage
 
