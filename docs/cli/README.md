@@ -1,4 +1,4 @@
-# The `chauffeur` command
+# CLI
 
 One binary runs the daemon and talks to it. Its name is the installation's:
 `chauffeur`, or `chauffeur-next` for a release candidate, which keeps its own

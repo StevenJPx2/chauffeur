@@ -1,6 +1,6 @@
 # Seeing what it decided
 
-Each command has its own page under [The `chauffeur` command](../cli/README.md).
+Each command has its own page under [CLI](../cli/README.md).
 
 | v1                                                      | v2                                                                                                                                                                          | Slice |
 | ------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----- |

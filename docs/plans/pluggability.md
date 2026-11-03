@@ -20,7 +20,7 @@ Chauffeur is a judgment engine with plugins around it.
   which any program can use; Chauffeur is one of the deciders it asks.
 - **Callers**, any program, send a question with its context through
   `chauffeur.navigate`, with or without a harness. Rule files, which are
-  data, decide how to answer. [Programs that ask Chauffeur](../callers/README.md)
+  data, decide how to answer. [Integrations](../integrations/README.md)
   has one page per program.
 
 Shipped content (models, facts, rules) lives apart from the engine, in
@@ -297,7 +297,7 @@ passages the `attach` intent names.
 A program needs no harness to ask Chauffeur. neo navigates
 `neo.screen-check` with an iPhone screenshot before each irreversible tap,
 and jev-distill's students answer as System One models. Each has
-a page in [Programs that ask Chauffeur](../callers/README.md).
+a page in [Integrations](../integrations/README.md).
 
 ### One protocol, many bindings
 

@@ -47,15 +47,6 @@ sequenceDiagram
 | [`model-router`](model-router.md)       | Moves the agent to another provider on a usage limit, and back                  | 7     |
 | [`rulebooks`](rulebooks.md)             | `/goal` and other books of rules switched on for one session                    | 12    |
 
-## Plugins from other projects
-
-An integration keeps its plugin in its own repository, beside the code it
-talks to, and installs it with its rules:
-
-| Plugin      | From                                                                   | Does                                                                    | Slice |
-| ----------- | ---------------------------------------------------------------------- | ----------------------------------------------------------------------- | ----- |
-| `sourcefed` | [sourcefed](../callers/sourcefed.md#the-plugin), `adapters/chauffeur/` | Starts sourcefed monitors for the session's own PRs, issues and threads | 5     |
-
 ## Using a plugin
 
 Plugins are listed in `~/.config/chauffeur/plugins.json`, keyed by ID. The
@@ -71,7 +62,9 @@ sets options, and turns any off:
 }
 ```
 
-- A first-party plugin needs no `path`; a user's plugin names its folder.
+- A first-party plugin needs no `path`; a user's plugin names its folder,
+  and an integration's installer adds its own, as on the integration's page
+  in [Integrations](../integrations/README.md).
 - Options merge over the plugin's defaults, key by key.
 - Edits apply without a restart.
 - A project's `.chauffeur/` can never add a plugin: plugins run code.
