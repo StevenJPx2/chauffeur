@@ -9,11 +9,32 @@ back once the limit clears, as in
 [Context renewal and warming](../../migration/renewal-and-warming.md) and
 [Model router](../../migration/model-router.md).
 
-| File                                               | Contents                                                                                                                                               |
-| -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `plugins/{context-renewal,warming}/`               | The two plugins, using the session events and the `session.compact`, `session.warm` and `session.update` actions the fidelity table marks as supported |
-| `plugins/model-router/`, `distribution/providers/` | Failover and switch-back, and each provider's tier table                                                                                               |
+## What it builds
 
-Verification: `main`'s `routing.rs`, `renewal.test.ts`, `warming.test.ts`
-and model-router tests pass; in a real OpenCode, a session resumed after the cache expires is
-compacted before the prompt runs.
+### The `context-renewal` and `warming` plugins
+
+A long, cold session summarized by a cheaper model before the next prompt,
+and an idle session's cache kept warm while that is cheaper, using the
+session events and the `session.compact`, `session.warm` and `session.update`
+actions the fidelity table marks as supported.
+
+Files: `plugins/context-renewal/`, `plugins/warming/`
+
+Verified by:
+
+- `main`'s `renewal.test.ts` and `warming.test.ts`.
+
+### The `model-router` plugin
+
+Failover on a usage limit and switch-back, with each provider's tier table.
+
+Files: `plugins/model-router/`, `distribution/providers/`
+
+Verified by:
+
+- `main`'s `routing.rs` and model-router tests.
+
+## End to end
+
+- In a real OpenCode, a session resumed after the cache expires is compacted
+  before the prompt runs.

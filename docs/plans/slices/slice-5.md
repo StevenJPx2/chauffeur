@@ -16,28 +16,120 @@ fields v1's rules need: `when`'s `input.excludes`, `result`, `agent`,
 `reason`, permission and `history` filters, the evidence blocks each event
 gives, `priority` and `once`.
 
-| File                                                                 | Contents                                                                                                                                                                        |
-| -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `crates/daemon/src/plugins.rs`                                       | `plugins.json`; the stdio plugin protocol; discovery cache, lazy and eager start, idle stop, restart with backoff, reload on file change                                        |
-| `crates/daemon/src/bus.rs`                                           | `ctx.on` and `ctx.before` routing, `before` budgets and `onTimeout`, retries by kind, the stale-action check                                                                    |
-| `crates/judges/src/tiers/person/`                                    | The `person` format: a question shown to the user through the harness                                                                                                           |
-| `packages/chauffeur/src/{plugin,harness}/`                           | `@fdcn/chauffeur/plugin` and `/harness`                                                                                                                                         |
-| `plugins/guard/`                                                     | The backstop and `confirm` patterns, the irreversible-harm question and its learned list                                                                                        |
-| sourcefed: `adapters/chauffeur/` and its installer                   | The `sourcefed` plugin, which starts monitors for the session's own PRs, Jira issues and Slack threads, added to `plugins.json` with `sourcefed/triage`                         |
-| `crates/protocol/src/{when,then}.rs`                                 | The `when` filters, `priority`, `once`, and `permission.reply` with the most restrictive reply winning                                                                          |
-| `distribution/rules/`, `distribution/rules/permission/`              | v1's steering, turn-end and permission rules, ported                                                                                                                            |
-| `crates/runtime/src/redact/learned.rs`                               | Learned credential shapes, kept in Chauffeur's state                                                                                                                            |
-| `crates/cli/src/{daemon,plugin}.rs`, `crates/daemon/src/commands.rs` | `chauffeur daemon status --project`; plugins' own commands: `ctx.command` recorded at discovery, listed in `--help`, run in the plugin through the daemon's `chauffeur.command` |
+## What it builds
 
-A spike decides whether first-party plugins ship compiled with scriptc. It
-compiles `guard`, and reports which SDK and Node APIs scriptc rejects, start
-time and memory against Bun, and build time. User plugins, and first-party
-plugins in development, run from source on Bun.
+### The plugin host
 
-Verification: a plugin crash, a missed `before` budget and a stale action each
-behave as specified; `onTimeout: "ask"` hands a tool call to the user;
-discovery records the same hooks a full start registers; `main`'s
-`read-guard-probes.json` and `rpc-starvation.test.ts` pass; `main`'s rule
-tests, labelled tool calls and recorded permission requests give the same
-nudges and replies; in a real OpenCode, a destructive command is blocked or
-asked about and `ls` runs within the budget.
+`plugins.json`; the stdio plugin protocol; the discovery cache, lazy and eager
+start, idle stop, restart with backoff and reload on file change. `ctx.on` and
+`ctx.before` routing, `before` budgets and `onTimeout`, retries by kind, and
+the stale-action check.
+
+Files: `crates/daemon/src/plugins.rs`, `bus.rs`
+
+Verified by:
+
+- A plugin crash, a missed `before` budget and a stale action each behave as
+  specified.
+- `onTimeout: "ask"` hands a tool call to the user.
+- Discovery records the same hooks a full start registers.
+- `main`'s `rpc-starvation.test.ts` passes.
+
+### The person tier
+
+The `person` format: a question shown to the user through the harness.
+
+Files: `crates/judges/src/tiers/person/`
+
+Verified by:
+
+- A person step reaches the harness and settles to the user's answer.
+
+### The SDK
+
+`@fdcn/chauffeur/plugin` and `/harness`.
+
+Files: `packages/chauffeur/src/plugin/`, `harness/`
+
+Verified by:
+
+- The first-party plugins of this slice build and run on it.
+
+### The `guard` plugin
+
+The backstop and `confirm` patterns, the irreversible-harm question and its
+learned list. A spike decides whether first-party plugins ship compiled with
+scriptc: it compiles `guard`, and reports which SDK and Node APIs scriptc
+rejects, start time and memory against Bun, and build time. User plugins,
+and first-party plugins in development, run from source on Bun.
+
+Files: `plugins/guard/`
+
+Verified by:
+
+- `main`'s `read-guard-probes.json` passes.
+
+### The `sourcefed` plugin
+
+Starts monitors for the session's own PRs, Jira issues and Slack threads;
+sourcefed's installer adds it to `plugins.json` with `sourcefed/triage`.
+
+Files, in sourcefed: `adapters/chauffeur/` and its installer
+
+Verified by:
+
+- v1's monitor cases: a PR the agent opened is followed, one it only looked
+  up is not, and an unreachable sourcefed creates nothing.
+
+### Rule-file fields for v1's rules
+
+The `when` filters (`input.excludes`, `result`, `agent`, `reason`, a
+permission's `actions`, `host` and `resources`, `history`), the evidence
+blocks each event gives, `priority`, `once`, and `permission.reply` with the
+most restrictive reply winning.
+
+Files: `crates/protocol/src/when.rs`, `then.rs`
+
+Verified by:
+
+- Each filter admits and skips the cases in [Rule files: v1 to
+  v2](../../migration/rule-format.md).
+
+### v1's rules, ported
+
+The steering, turn-end and permission rules.
+
+Files: `distribution/rules/`, `distribution/rules/permission/`
+
+Verified by:
+
+- `main`'s rule tests, labelled tool calls and recorded permission requests
+  give the same nudges and replies.
+
+### Learned credential shapes
+
+Shapes a judge confirmed as secret, kept in Chauffeur's state.
+
+Files: `crates/runtime/src/redact/learned.rs`
+
+Verified by:
+
+- A learned shape is redacted on the next run, and a reviewed-out one is not.
+
+### Commands
+
+`chauffeur daemon status --project`; plugins' own commands, recorded with
+`ctx.command` at discovery, listed in `--help`, and run in the plugin through
+the daemon's `chauffeur.command`.
+
+Files: `crates/cli/src/daemon.rs`, `plugin.rs`, `crates/daemon/src/commands.rs`
+
+Verified by:
+
+- A plugin's command runs while the plugin is stopped, and a plugin named
+  after a built-in command is refused.
+
+## End to end
+
+- In a real OpenCode, a destructive command is blocked or asked about, and
+  `ls` runs within the budget.

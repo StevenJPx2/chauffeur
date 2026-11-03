@@ -9,25 +9,69 @@ in `~/.config/chauffeur/rules/opencode-history/`, its code reduced to one
 
 This slice adds facts, `for_each` over candidates, and `select`.
 
-| File                                                   | Contents                                                                                                                                     |
-| ------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| `crates/facts/src/{lib,sandbox,host,limits}.rs`        | Fact modules from the three sources; QuickJS with memory caps and deadline interrupts; the read-only host modules for shipped and user facts |
-| `crates/judges/src/tiers/facts/`                       | The `facts` format                                                                                                                           |
-| `distribution/facts/{match,select}.js` and their tests | The two shipped facts                                                                                                                        |
-| `crates/protocol/src/lower.rs`                         | Candidates, `for_each` copies, wildcards and `[item]`                                                                                        |
-| `playground/src/features/facts.ts`                     | The Facts tab                                                                                                                                |
+## What it builds
 
-Verification:
+### The facts sandbox
 
-- Facts: `match` passes v1's facts-judge cases; `select` passes exhaustive
-  tests over every input up to 4 candidates; a fact over its memory cap or
-  deadline fails the step; a project fact cannot import a host module; a
-  missing fact falls back to a placeholder.
-- Strategies: each row of the [strategies table](../pluggability.md#strategies) runs as a rule
-  with recorded answers; `after` with `[item]` skips exactly the candidates
-  whose earlier copy did not match.
-- Recall: Jev scores recorded by opencode-history's replay feed a placeholder
-  System One, and navigating `opencode-history.recall` attaches the replay's top three passages
-  scoring 0.7 or above. Live, it makes one Jev call per message, with judge
-  time within the replay's 278 ms p50 and 318 ms p95 plus local overhead. No
-  agent session or history is sent.
+Fact modules from the three sources, run in QuickJS with memory caps and
+deadline interrupts, with read-only host modules for shipped and user facts.
+
+Files: `crates/facts/src/lib.rs`, `sandbox.rs`, `host.rs`, `limits.rs`
+
+Verified by:
+
+- A fact over its memory cap or deadline fails the step.
+- A project fact cannot import a host module.
+
+### The `facts` format
+
+The facts tier: a step whose `judge` is `facts` runs a fact.
+
+Files: `crates/judges/src/tiers/facts/`
+
+Verified by:
+
+- A missing fact falls back to a placeholder.
+
+### Shipped facts
+
+`match` and `select`, with their tests.
+
+Files: `distribution/facts/match.js`, `select.js`
+
+Verified by:
+
+- `match` passes v1's facts-judge cases.
+- `select` passes exhaustive tests over every input up to 4 candidates.
+
+### Candidates and `for_each`
+
+Candidates, `for_each` copies, wildcards and `[item]` in lowering.
+
+Files: `crates/protocol/src/lower.rs`
+
+Verified by:
+
+- Each row of the [strategies table](../pluggability.md#strategies) runs as a
+  rule with recorded answers.
+- `after` with `[item]` skips exactly the candidates whose earlier copy did not
+  match.
+
+### The playground
+
+The Facts tab.
+
+Files: `playground/src/features/facts.ts`
+
+Verified by:
+
+- The tab runs `match` and `select` in a real browser.
+
+## End to end
+
+- Jev scores recorded by opencode-history's replay feed a placeholder System
+  One, and navigating `opencode-history.recall` attaches the replay's top
+  three passages scoring 0.7 or above.
+- Live, it makes one Jev call per message, with judge time within the
+  replay's 278 ms p50 and 318 ms p95 plus local overhead. No agent session or
+  history is sent.

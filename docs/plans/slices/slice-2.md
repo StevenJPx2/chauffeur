@@ -62,36 +62,86 @@ directory: `$XDG_RUNTIME_DIR`, or `$TMPDIR` on macOS.
   question; 64 evidence blocks and candidates; 256 KiB of evidence; 30 s
   deadline. Each rejection names its limit.
 
-## Files
+## What it builds
 
-| Path                                                                                  | Contents                                                                                                                                                                                                                                                                                 |
-| ------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `crates/protocol/src/{request,intent,limits}.rs`, `schema/navigate.json`, `fixtures/` | Requests, intents and limits; the one `navigate` schema, and the valid and invalid requests every binding's tests replay                                                                                                                                                                 |
-| `crates/runtime/src/admission.rs`                                                     | One permit per navigation, held from admission through delivery; per-source and global capacity                                                                                                                                                                                          |
-| `crates/runtime/src/run.rs`                                                           | A bounded worker pool; the deadline and cancellation checked before each round; late results discarded                                                                                                                                                                                   |
-| `crates/daemon/src/{socket,rules}.rs`                                                 | Several calls per connection, `$/cancelRequest`, cancel on close, `--models FILE` for tests; the integration and project rule sources, refusing System Two in a project rule the user has not allowed and any model or placeholder entry from a project; matching rules run concurrently |
-| `crates/cli/src/navigate.rs`                                                          | `chauffeur navigate`: one request on stdin, the JSON-RPC messages on stdout; exit 0 with intents or a verdict, 1 when rejected, 2 when the daemon is unavailable                                                                                                                         |
-| `packages/chauffeur/src/{client,judge}/`                                              | `@fdcn/chauffeur/client` and `/judge`: `navigate` over the socket, closing on abort; `ask`, `judge`, `noul`, and results typed from their questions                                                                                                                                      |
-| sourcefed: its daemon, installer and `adapters/opencode/bridge.ts`                    | `navigate` before queuing; installing `sourcefed/triage`; removing `chauffeur.gate`                                                                                                                                                                                                      |
+### Requests, intents and limits
 
-## Verification
+The `navigate` request and its intents, the limits above, and the one
+`navigate` schema with the valid and invalid requests every binding's tests
+replay.
 
-- Protocol: round-trip and rejection cases for every limit and malformed
-  field, including duplicate outcomes, reserved outcome names and a
-  per-outcome confidence that misses an outcome.
-- Runtime under Miri: deadline, cancellation, late result, overflow, and
-  exhausted capacity, including audit A3's flood: 81 submissions with capacity
-  8 admit 8 and reject 73 with `capacity`.
+Files: `crates/protocol/src/request.rs`, `intent.rs`, `limits.rs`,
+`schema/navigate.json`, `fixtures/`
+
+Verified by:
+
+- Round-trip and rejection cases for every limit and malformed field,
+  including duplicate outcomes, reserved outcome names and a per-outcome
+  confidence that misses an outcome.
+
+### Admission and running
+
+One permit per navigation, held from admission through delivery, with
+per-source and global capacity; a bounded worker pool; the deadline and
+cancellation checked before each round; late results discarded.
+
+Files: `crates/runtime/src/admission.rs`, `run.rs`
+
+Verified by:
+
+- Miri over deadline, cancellation, a late result, overflow and exhausted
+  capacity, including audit A3's flood: 81 submissions with capacity 8 admit 8
+  and reject 73 with `capacity`.
 - Kani: a permit is released exactly once on every terminal path; the event
   log never exceeds its bound.
-- Rules: each of the four sources loads; a project rule naming System Two, and
-  a model or placeholder entry in a project's `.chauffeur/`, are refused; two
-  matching rules both return their intents; a rule that misses the deadline
-  drops only its own intents.
-- Bindings: the client, `/judge` and `chauffeur navigate` accept and reject
-  every fixture identically and return the same verdicts; aborting any caller
-  cancels the navigation; an unsupported protocol reports as `unavailable`;
-  `ask`'s result types reject impossible outcomes at compile time.
+
+### The daemon's socket and rule sources
+
+Several calls per connection, `$/cancelRequest`, and cancelling on close;
+`--models FILE` for tests. The integration and project rule sources, refusing
+System Two in a project rule the user has not allowed and any model or
+placeholder entry from a project. Matching rules run concurrently.
+
+Files: `crates/daemon/src/socket.rs`, `rules.rs`
+
+Verified by:
+
+- Each of the four sources loads.
+- A project rule naming System Two, and a model or placeholder entry in a
+  project's `.chauffeur/`, are refused.
+- Two matching rules both return their intents; a rule that misses the
+  deadline drops only its own intents.
+
+### The bindings
+
+`chauffeur navigate` reads one request on stdin and prints the JSON-RPC
+messages on stdout, exiting 0 with intents or a verdict, 1 when rejected and
+2 when no daemon answers. `@fdcn/chauffeur/client` sends `navigate` over the
+socket and closes on abort; `/judge` holds `ask`, `judge` and `noul`, with
+results typed from their questions.
+
+Files: `crates/cli/src/navigate.rs`, `packages/chauffeur/src/client/`,
+`packages/chauffeur/src/judge/`
+
+Verified by:
+
+- The client, `/judge` and `chauffeur navigate` accept and reject every
+  fixture identically and return the same verdicts.
+- Aborting any caller cancels the navigation; an unsupported protocol reports
+  as `unavailable`.
+- `ask`'s result types reject impossible outcomes at compile time.
+
+### sourcefed
+
+Its daemon navigates before queuing each event, its installer adds
+`sourcefed/triage`, and its OpenCode adapter's `chauffeur.gate` call goes.
+
+Files, in sourcefed: its daemon, its installer, `adapters/opencode/bridge.ts`
+
+Verified by the end-to-end checks below.
+
+## End to end
+
 - sourcefed, for real: v1's 12 labelled events give the same deliveries;
   events reaching OpenCode, Pi and the CLI are filtered alike; with Chauffeur
   stopped, sourcefed delivers.
