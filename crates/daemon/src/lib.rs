@@ -71,10 +71,12 @@ pub enum DaemonError {
 ///
 /// A [`DaemonError`] if the daemon cannot start.
 pub fn run(paths: &Paths) -> Result<(), DaemonError> {
-    let router = Arc::new(Router::new(state::load(paths)?));
-    let listener = socket::bind(&paths.socket)?;
+    // Watch before the first load, so a change made while it loads, or just
+    // after the socket opens, still reloads.
     let (send, receive) = mpsc::channel();
     let watcher = watch(&[&paths.distribution, &paths.config], &send)?;
+    let router = Arc::new(Router::new(state::load(paths)?));
+    let listener = socket::bind(&paths.socket)?;
     let (reloader, reload_paths) = (Arc::clone(&router), paths.clone());
     thread::Builder::new()
         .name("reload".into())
