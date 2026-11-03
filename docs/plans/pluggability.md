@@ -79,14 +79,14 @@ flowchart LR
     RC --> Cut["Cutover<br/>v2 merged into main"]
 ```
 
-| Concern        | Decision                                                                                                                                      |
-| -------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| Porting        | Each `main` feature is re-expressed in v2's architecture, not merged: v2's tree replaces v1's, so merges would conflict on every removed file |
-| Tracking       | The parity table lists every `main` commit after the branch point; the watermark names the last one reviewed                                  |
-| Evidence       | A ported feature passes `main`'s cases for it, replayed against v2                                                                            |
-| Version mixing | The version handshake between the daemon, its SDK, plugins and the harness package keeps v1 and v2 from running together                      |
-| User state     | `~/.config/chauffeur` is migrated, or read compatibly, at cutover                                                                             |
-| After cutover  | `v1` is a branch for hotfixes only                                                                                                            |
+| Concern        | Decision                                                                                                                                                                                  |
+| -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Porting        | Each `main` feature is re-expressed in v2's architecture, not merged: v2's tree replaces v1's, so merges would conflict on every removed file                                             |
+| Tracking       | The parity table lists every `main` commit after the branch point; the watermark names the last one reviewed                                                                              |
+| Evidence       | A ported feature passes `main`'s cases for it, replayed against v2                                                                                                                        |
+| Version mixing | The version handshake between the daemon, its SDK, plugins and the harness package keeps v1 and v2 from running together                                                                  |
+| User state     | v2 reads no v1 file. At cutover an agent rewrites the user's configuration into v2's files, from the prompt in the [migration guide](../migration/README.md#rewriting-your-configuration) |
+| After cutover  | `v1` is a branch for hotfixes only                                                                                                                                                        |
 
 ### Parity table
 
@@ -296,8 +296,7 @@ passages the `attach` intent names.
 
 A program needs no harness to ask Chauffeur. neo navigates
 `neo.screen-check` with an iPhone screenshot before each irreversible tap,
-Proclaimify's chord sheets ask `proclaimify.key` while the question is
-developed, and jev-distill's students answer as System One models. Each has
+and jev-distill's students answer as System One models. Each has
 a page in [Programs that ask Chauffeur](../callers/README.md).
 
 ### One protocol, many bindings
@@ -1016,17 +1015,17 @@ plugin, and [Writing a plugin](../plugins/writing.md) covers the SDK, hooks,
 actions, questions, options, storage and lifecycle. The decisions they rest
 on:
 
-| Concern      | Decision                                                                                                                                                                                                          |
-| ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Hooks        | `ctx.on` never holds the harness; `ctx.before` holds it until its handler returns or its budget passes, then applies its `onTimeout`                                                                              |
-| Questions    | `ask` and `strategy` send inline strategies through `navigate`, so confidence, fallback, redaction and keys stay in the engine; a plugin never holds a model key                                                  |
-| Actions      | Named by resource and verb, carried out by the harness package, retried by kind, and checked against the session's `revision` so a stale one never lands                                                          |
-| Process      | A child of the daemon, speaking JSON-RPC 2.0 over stdio; lazy, stopped after 10 idle minutes unless eager; a crash restarts it with backoff and affects nothing else                                              |
-| Discovery    | `setup` runs once to record the hooks, cached against the plugin's file hash, and again when its files change                                                                                                     |
-| Registration | `~/.config/chauffeur/plugins.json`, keyed by ID; a project can never add a plugin                                                                                                                                 |
-| Commands     | `ctx.command` adds `chauffeur <plugin> <command>`, recorded at discovery and run in the plugin; a plugin cannot take a built-in command's name                                                                    |
-| Tools        | `tool.add` gives the agent a tool through the harness's registry; with `mcp: true` the `chauffeur mcp` server also serves it, beside its own `judge` tool. [Tools](../tools/README.md) shows how agents call them |
-| State        | `ctx.storage`, the plugin's own folder under `~/.local/state/chauffeur/plugins/`                                                                                                                                  |
+| Concern      | Decision                                                                                                                                                             |
+| ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Hooks        | `ctx.on` never holds the harness; `ctx.before` holds it until its handler returns or its budget passes, then applies its `onTimeout`                                 |
+| Questions    | `ask` and `strategy` send inline strategies through `navigate`, so confidence, fallback, redaction and keys stay in the engine; a plugin never holds a model key     |
+| Actions      | Named by resource and verb, carried out by the harness package, retried by kind, and checked against the session's `revision` so a stale one never lands             |
+| Process      | A child of the daemon, speaking JSON-RPC 2.0 over stdio; lazy, stopped after 10 idle minutes unless eager; a crash restarts it with backoff and affects nothing else |
+| Discovery    | `setup` runs once to record the hooks, cached against the plugin's file hash, and again when its files change                                                        |
+| Registration | `~/.config/chauffeur/plugins.json`, keyed by ID; a project can never add a plugin                                                                                    |
+| Commands     | `ctx.command` adds `chauffeur <plugin> <command>`, recorded at discovery and run in the plugin; a plugin cannot take a built-in command's name                       |
+| Tools        | `tool.add` gives the agent a tool through the harness's registry. [Tools](../tools/README.md) shows how agents call them                                             |
+| State        | `ctx.storage`, the plugin's own folder under `~/.local/state/chauffeur/plugins/`                                                                                     |
 
 ### Events
 
@@ -1318,7 +1317,7 @@ crates/
   facts/         # QuickJS sandbox: runs a fact with caps and host modules. Ships no facts
   runtime/       # Admission, deadlines, workers, redaction
   daemon/        # Socket; loads models, facts and rules; event bus; plugin supervisor
-  cli/           # chauffeur binary: daemon, emit, audit, navigate, strategy, migrate,
+  cli/           # chauffeur binary: daemon, emit, audit, navigate, strategy,
                  #   and each plugin's own commands
   o11y/          # Event consumers, on tracing
 packages/
@@ -1674,15 +1673,13 @@ screen new third-party skills before they are offered.
 The tools plugin hides the tools a task will not use, and the agent asks for
 what it lacks with `ask_chauffeur`, as in [Skills](../migration/skills.md),
 [Tools](../migration/tools.md) and [`ask_chauffeur`](../migration/ask-chauffeur.md).
-Any MCP client can ask Chauffeur's judges with the `judge` tool, through
-`chauffeur mcp`; [Tools](../tools/README.md) shows how agents call both.
+[Tools](../tools/README.md) shows how the agent calls it.
 
 | File                                                                                       | Contents                                                                                                                                           |
 | ------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `plugins/skills/`                                                                          | Exposure, drift hand-over and the screen-then-review strategy over the harness's skill catalog, using `prompt.sent` edits and the `skill` registry |
 | `plugins/tools/`                                                                           | Hiding and revealing tool groups, Code Mode notes, shorter built-in descriptions, missing-tool recovery                                            |
 | `plugins/ask-chauffeur/`                                                                   | The `ask_chauffeur` tool, through the tool registry                                                                                                |
-| `crates/cli/src/mcp.rs`                                                                    | `chauffeur mcp`: an MCP stdio server with `judge`, one inline step through `navigate`, and the plugin tools registered with `mcp: true`            |
 | `distribution/rules/{jira,slack,twitter}-via-browser.json`, `distribution/skills/handoff/` | The steers that hand over a skill, and the skills they hand over, added to the harness's skill sources when Chauffeur is installed                 |
 
 The review step runs on System Two from slice 11. Until then, a skill the
@@ -1764,15 +1761,17 @@ it, since v1 users rely on `/goal`.
 
 ### Slice 13: cutover
 
-v2 replaces v1. `chauffeur migrate` writes v2's files from a v1
-configuration, without losing personal rules, and lists anything it could
-not carry over; every v1 rule converts and validates, as in the
-[migration guide](../migration/README.md). When
+v2 replaces v1, with no layer that reads v1's files. The
+[migration guide's prompt](../migration/README.md#rewriting-your-configuration)
+has an agent rewrite a v1 configuration into v2's files, keep the v1 copy,
+and list anything with no v2 home; every shipped v1 rule is already ported.
+When
 every parity row is done, `v1` becomes a hotfix branch, v2 merges into `main`,
 and `1.0.0` is tagged and published to Homebrew.
 
 Verification: upgrade from the current v1 release on a machine with personal
-rules; the bench `verify` fixtures and release-gate runs pass; a day of real
+rules, rewritten by an agent from the prompt until `chauffeur daemon status`
+refuses none; the bench `verify` fixtures and release-gate runs pass; a day of real
 use.
 
 ## Quality gates

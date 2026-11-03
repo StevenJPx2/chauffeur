@@ -240,14 +240,12 @@ tool.add({
   name: "notes_find",
   description: "Find the decisions noted about a topic.",
   input: { topic: "string" },
-  mcp: true, // also served by chauffeur mcp, which has no session
-  run: async (input, e) => findNotes(ctx.storage, input.topic) // e.session is absent over MCP
+  run: async (input, e) => findNotes(ctx.storage, input.topic)
 })
 ```
 
-The reply is what `run` returns, as text or JSON. A tool that needs the
-harness session, such as one that reveals the session's tools, leaves out
-`mcp`. [Tools](../tools/README.md) shows how agents call them.
+The reply is what `run` returns, as text or JSON. [Tools](../tools/README.md)
+shows how agents call them.
 
 ## Options and storage
 

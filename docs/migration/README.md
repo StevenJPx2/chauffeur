@@ -39,5 +39,33 @@ row has landed and passes v1's cases.
 | `CHAUFFEUR_JUDGE`, `CHAUFFEUR_JUDGE_FALLBACK`       | `~/.config/chauffeur/models.json`                                                             |
 | `CHAUFFEUR_IDLE_STEERING=true`                      | `"wake": true` in `~/.config/chauffeur/settings.json`                                         |
 
-At cutover, `chauffeur migrate` writes the v2 files from a v1 configuration
-and lists anything it could not carry over.
+## Rewriting your configuration
+
+v2 reads no v1 file, so nothing is converted behind your back. To move your
+own rules and settings, give an agent this prompt:
+
+```text
+Rewrite my Chauffeur v1 configuration as Chauffeur v2 files.
+
+First read https://chauffeur-docs.stevenjpx2.workers.dev/docs/migration/ and
+every page it links, especially "Rule files: v1 to v2".
+
+1. Copy ~/.config/chauffeur/ to ~/.config/chauffeur.v1/ and work from the copy.
+   Change nothing in the copy.
+2. Find the v1 files: the copy's rules/, permission/, backstop.json,
+   redaction.json and config files, every .chauffeur/rules/ and
+   .chauffeur/rulebooks/ in my projects under ~/Documents/Projects, and the
+   CHAUFFEUR_* variables in my shell profile and Homebrew service file.
+3. Skip what v2 already ships: the rules in Chauffeur's own skills/ folder are
+   ported. Rewrite only mine, and settings I changed from v1's defaults.
+4. Write each v1 rule as a v2 rule file in the matching v2 folder under
+   ~/.config/chauffeur/ or the project's .chauffeur/, keeping
+   every instruction and message word for word. Put settings where "Where
+   configuration goes" says: models.json, plugins.json options, settings.json.
+5. Run `chauffeur daemon status` and fix every refused rule until it lists
+   none.
+6. Do not guess. For anything with no v2 home, leave it out and list it.
+
+Finish with a table: each v1 file, the v2 file it became, and what was left
+out and why.
+```
