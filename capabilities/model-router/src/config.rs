@@ -129,7 +129,8 @@ pub struct SwitchBack {
 #[serde(deny_unknown_fields)]
 pub struct Renewal {
     /// Seconds each provider keeps an unread prompt cache, by provider ID;
-    /// `*` for every other provider.
+    /// `*` for every other provider. A lifetime the user set for the model
+    /// in the host comes first.
     pub cache_seconds: BTreeMap<String, u64>,
     /// How long a context grows before renewing it pays.
     pub budget: Budget,
@@ -268,6 +269,14 @@ impl Renewal {
             .or_else(|| self.cache_seconds.get("*"))
             .copied()
             .unwrap_or_default()
+    }
+
+    /// How long a model on `provider` keeps an unread prompt cache: the
+    /// lifetime the user `set` for it in the host, else the provider's.
+    #[must_use]
+    pub fn lifetime(&self, provider: &str, set: Option<u64>) -> u64 {
+        set.filter(|seconds| *seconds > 0)
+            .unwrap_or_else(|| self.cache_seconds(provider))
     }
 
     fn checked(mut self) -> Result<Self, String> {

@@ -3,7 +3,7 @@ import { Daemon } from "./daemon.js"
 import { Host, type SessionID } from "./host.js"
 import { ref } from "./model-router.js"
 import { type CachePrices, type HostEffect, type Signal, signal } from "./protocol.js"
-import { contextFacts } from "./renewal.js"
+import { cacheSeconds, contextFacts } from "./renewal.js"
 import { Texts } from "./texts.js"
 
 const MAX_SESSIONS = 256
@@ -138,6 +138,7 @@ function idleSignal(sessionID: SessionID): Effect.Effect<Signal | undefined, unk
       model: ref(model),
       context_tokens: facts.tokens,
       prices: pricesAt(listed?.cost ?? [], facts.tokens),
+      cache_seconds: cacheSeconds(listed, model.variant),
     })
   })
 }

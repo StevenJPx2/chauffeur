@@ -37,7 +37,8 @@ names another judge for its ID (`capability/question`):
 The model router computes `context_budget` from `renewal.budget` in
 `model-router.json`: `share` of the model's window, clamped between
 `min_tokens` and `max_tokens` (the ceiling when the window is unknown).
-`cache_seconds` comes from `renewal.cache_seconds`, by provider.
+`cache_seconds` is the model's `cache.ttl` as the user set it in the host,
+else `renewal.cache_seconds` for its provider.
 
 - A `facts` rule holds when `all` (or `any`) of its conditions hold. A
   condition compares one fact `at_least` or `at_most` a number, or another

@@ -700,9 +700,12 @@ fast-tier model on the agent's own provider, then on another provider used
 directly (recommended first), else a last-resort free model; never a
 blacklisted one, nor one on a provider the agent hit a limit on. With none,
 nothing is asked. Otherwise it asks `renew_context`, carrying the facts
-`idle_seconds`, `cache_seconds` (`renewal.cache_seconds` per provider:
-Anthropic 300, as OpenCode writes 5-minute caches; OpenAI 1800, its shortest
-default lifetime; DeepSeek 3600, whose disk cache lasts hours; others 300),
+`idle_seconds`, `cache_seconds` (the model's `cache.ttl` as the user set it in
+OpenCode, a variant's first, which the adapter reads from the host's models
+and sends as `cache_seconds`; without one, `renewal.cache_seconds` per
+provider: Anthropic 300, as OpenCode writes 5-minute caches by default;
+OpenAI 1800, its shortest default lifetime; DeepSeek 3600, whose disk cache
+lasts hours; others 300),
 `context_tokens`, `context_budget`, and `context_window` when the host knows
 it. The budget (`renewal.budget`) is a share of the window (0.215) kept
 between a floor (50,000 tokens) and a ceiling (100,000): a 1M-token window
@@ -718,7 +721,9 @@ idle at least the cache lifetime and the context at least the budget. A yes
 is a `compact` effect. The adapter queues
 OpenCode's compaction ahead of the prompt (`session.compact`, which runs
 before waiting prompts), treats the prompt as the first of a new context, and
-in OpenCode's `compaction` hook has the summary model write the summary in a
+in OpenCode's `compaction` hook (if it starts within 2 minutes; a later
+compaction is OpenCode's own, on the session's model) has the summary model
+write the summary in a
 temporary child session (`session.create` on that model, `session.generate`,
 then `session.remove`), so the request carries the provider's session sign-in,
 such as a subscription plugin's, which a bare `generate.text` does not. The
@@ -738,10 +743,11 @@ elsewhere. A summary that skips the template passes over nothing.
 **Session warming.** When a session the user drives finishes a turn, the
 adapter sends `context_idle`: the session's model, its context size, and the
 model's prices at that size (the host's price tier the context reaches, in
-millionths of a dollar per million tokens). The router answers with no
+millionths of a dollar per million tokens), and the model's `cache.ttl` when
+the user set one. The router answers with no
 question: a `warm` effect asking for a transient request every
 `cache_seconds - renewal.warming.lead_seconds` (60), so Anthropic every 4
-minutes and OpenAI every 29, for as many times as fit within
+minutes (once, at 59, with a 1-hour `cache.ttl`) and OpenAI every 29, for as many times as fit within
 `renewal.warming.max_seconds` (3600) of the turn's end and as pay for
 themselves. A warming request reads the context at the cache-read price, and a
 prompt after the cache expired pays the cache-write price instead, so warming

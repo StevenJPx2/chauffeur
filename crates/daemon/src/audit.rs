@@ -106,6 +106,11 @@ fn kind_name(kind: &SignalKind) -> String {
         .unwrap_or_default()
 }
 
+/// The cache lifetime the host reported, as the detail's suffix.
+fn cached_for(seconds: Option<u64>) -> String {
+    seconds.map_or_else(String::new, |seconds| format!(", cache {seconds}s"))
+}
+
 /// A short, redacted summary of what the signal was about.
 fn detail(kind: &SignalKind) -> String {
     match kind {
@@ -136,16 +141,23 @@ fn detail(kind: &SignalKind) -> String {
             model,
             context_tokens,
             idle_seconds,
+            cache_seconds,
             ..
         } => format!(
-            "{} {context_tokens} tokens, idle {idle_seconds}s",
-            model.key()
+            "{} {context_tokens} tokens, idle {idle_seconds}s{}",
+            model.key(),
+            cached_for(*cache_seconds)
         ),
         SignalKind::ContextIdle {
             model,
             context_tokens,
+            cache_seconds,
             ..
-        } => format!("{} {context_tokens} tokens", model.key()),
+        } => format!(
+            "{} {context_tokens} tokens{}",
+            model.key(),
+            cached_for(*cache_seconds)
+        ),
         SignalKind::TurnEnd { summary, .. } => summary.clone(),
         SignalKind::Rulebook {
             command,

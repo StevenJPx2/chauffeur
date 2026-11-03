@@ -15,8 +15,12 @@ const DECISION_TIMEOUT: Duration.Input = "2 seconds"
 /** How long the cheap model may take to write the summary before OpenCode compacts on the session's model. */
 const SUMMARY_TIMEOUT: Duration.Input = "3 minutes"
 
-/** A queued compaction OpenCode has not started within this is forgotten. */
-const PENDING_MS = 10 * 60 * 1_000
+/**
+ * A queued compaction OpenCode has not started within this is forgotten, so
+ * a later compaction of OpenCode's own, on a cache still warm, keeps the
+ * session's model. A queued one starts within seconds.
+ */
+const PENDING_MS = 2 * 60 * 1_000
 
 /** The window assumed for a summary model whose window the host does not report, as OpenCode assumes. */
 const UNKNOWN_WINDOW = 200_000
@@ -53,7 +57,10 @@ type HookMessage = SessionCompaction["messages"][number]
 
 type HostModel = { readonly providerID: string; readonly id: string; readonly variant?: string | undefined }
 
-type ListedModel = HostModel & { readonly enabled: boolean; readonly status: string; readonly limit: { readonly context: number; readonly input?: number | undefined } }
+type ListedModel = HostModel & CacheSettings & { readonly enabled: boolean; readonly status: string; readonly limit: { readonly context: number; readonly input?: number | undefined } }
+
+/** Where a listed model carries the user's prompt-cache settings. */
+export type CacheSettings = { readonly settings?: unknown; readonly variants?: ReadonlyArray<{ readonly id: string; readonly settings?: unknown }> }
 
 /** A compaction Chauffeur queued, and the model that writes its summary. */
 type Pending = { readonly model: ModelRef; readonly window: number; readonly at: number }
@@ -148,6 +155,7 @@ export const installRenewal = (warming: WarmingControl = { lastWarmed: () => und
         context_tokens: facts.tokens,
         context_window: windowOf(models, ref(model)) ?? 0,
         idle_seconds: facts.idleSeconds,
+        cache_seconds: cacheSeconds(models.find((entry) => entry.providerID === model.providerID && entry.id === model.id), model.variant),
         available: available(models).map((entry) => (reachable(entry.model.provider) ? entry : { ...entry, usable: false })),
       }), DECISION_TIMEOUT)
 
@@ -191,6 +199,30 @@ export function contextFacts(messages: ReadonlyArray<HistoryMessage>, now: numbe
     tokens: tokens.input + tokens.cache.read + tokens.cache.write + tokens.output + tokens.reasoning,
     idleSeconds: Math.max(0, Math.floor((now - Math.max(ended, warmed)) / 1_000)),
   }
+}
+
+/** A prompt-cache lifetime as OpenCode's `cache.ttl` writes it, such as "5m" or "1h". */
+const TTL = /^(\d+)(ms|s|m|h|d)$/
+
+const UNIT_SECONDS = new Map([["ms", 0.001], ["s", 1], ["m", 60], ["h", 3_600], ["d", 86_400]])
+
+/** Settings that set a prompt-cache lifetime. */
+const CacheTTL = Schema.Struct({ cache: Schema.Struct({ ttl: Schema.String }) })
+
+const setsTTL = Schema.is(CacheTTL)
+
+/**
+ * The prompt-cache lifetime the user set for a listed model, in whole
+ * seconds: its `variant`'s `cache.ttl`, else the model's, which OpenCode
+ * resolves from the provider's. Undefined when neither is set.
+ */
+export function cacheSeconds(listed: CacheSettings | undefined, variant?: string | undefined): number | undefined {
+  const own = listed?.variants?.find((entry) => entry.id === variant)?.settings
+  const settings = [own, listed?.settings].find(setsTTL)
+  const match = settings ? TTL.exec(settings.cache.ttl) : null
+  const seconds = match ? Math.floor(Number(match[1]) * (UNIT_SECONDS.get(match[2] ?? "") ?? 0)) : 0
+
+  return seconds > 0 ? seconds : undefined
 }
 
 /** The input window the host reports for `model`, if it does. */

@@ -976,6 +976,7 @@ fn resumed(available: &[&str], window: u64) -> Signal {
             context_tokens: 600_000,
             context_window: window,
             idle_seconds: 1_200,
+            cache_seconds: None,
             available: available
                 .iter()
                 .map(|key| AvailableModel {
@@ -1033,6 +1034,35 @@ fn a_resumed_context_asks_with_its_facts_and_a_yes_compacts_with_the_fast_model(
     assert!(router.decide(&signal, Some(&[renew(0.0)])).is_empty());
     router.plan(&Situation::default(), &signal);
     assert!(router.decide(&signal, None).is_empty());
+}
+
+#[test]
+fn the_cache_lifetime_the_user_set_decides_when_a_context_is_cold() {
+    let mut signal = resumed(&["anthropic/opus", "anthropic/haiku"], 1_000_000);
+
+    if let SignalKind::ContextResumed { cache_seconds, .. } = &mut signal.kind {
+        *cache_seconds = Some(3_600);
+    }
+
+    let Plan::Ask(questions) = router(&[]).plan(&Situation::default(), &signal) else {
+        panic!("expected the renewal question")
+    };
+
+    // Idle 20 minutes of a 1-hour cache: still warm.
+    assert_eq!(questions[0].facts["cache_seconds"], 3_600);
+    assert!(questions[0].instructions.contains("(60 minutes)"));
+
+    let mut idle = idle("anthropic/opus", prices(4_000_000, 200_000, 5_000_000));
+
+    if let SignalKind::ContextIdle { cache_seconds, .. } = &mut idle.kind {
+        *cache_seconds = Some(3_600);
+    }
+
+    // Warmed once, a minute before the hour is up.
+    assert_eq!(
+        router(&[]).plan(&Situation::default(), &idle),
+        warm(3_540, 1)
+    );
 }
 
 #[test]
@@ -1142,6 +1172,7 @@ fn idle(key: &str, prices: CachePrices) -> Signal {
             model: model(key),
             context_tokens: 120_000,
             prices,
+            cache_seconds: None,
         },
     }
 }

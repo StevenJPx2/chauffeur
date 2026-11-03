@@ -302,6 +302,10 @@ pub enum SignalKind {
         /// Seconds since the provider last read or wrote the context's prompt
         /// cache: since its latest reply ended, or a later warming request.
         idle_seconds: u64,
+        /// The prompt-cache lifetime the user set for this model in the
+        /// host, in seconds; without one, the provider's configured default.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        cache_seconds: Option<u64>,
         available: Vec<AvailableModel>,
     },
     /// A session the user drives finished its turn, leaving its context in
@@ -314,6 +318,10 @@ pub enum SignalKind {
         /// The model's prices at that size.
         #[serde(default)]
         prices: CachePrices,
+        /// The prompt-cache lifetime the user set for this model in the
+        /// host, in seconds; without one, the provider's configured default.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        cache_seconds: Option<u64>,
     },
     /// An event from an integration watching the agent's work, such as a
     /// sourcefed monitor on its pull request or Jira issue.

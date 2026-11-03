@@ -383,6 +383,7 @@ impl ModelRouter {
             context_tokens,
             context_window,
             idle_seconds,
+            cache_seconds,
             available,
         } = &signal.kind
         else {
@@ -396,7 +397,10 @@ impl ModelRouter {
         }
 
         let summarizer = self.summarizer(&signal.agent_id, model, available)?;
-        let cache_seconds = self.config.renewal.cache_seconds(&model.provider);
+        let cache_seconds = self
+            .config
+            .renewal
+            .lifetime(&model.provider, *cache_seconds);
         let budget = self.config.renewal.budget.tokens(*context_window);
         let fact = |value: u64| i64::try_from(value).unwrap_or(i64::MAX);
         let mut facts = Facts::from([
@@ -441,7 +445,7 @@ impl ModelRouter {
     }
 
     /// When a session goes idle, whether to keep its prompt cache warm, and
-    /// how. Decided from the provider's cache lifetime and the model's
+    /// how. Decided from the model's cache lifetime and its
     /// prices, with no question; a provider the agent hit a usage limit on is
     /// not warmed.
     fn warming(&self, signal: &Signal) -> Option<Judgment<Verdict>> {
@@ -449,6 +453,7 @@ impl ModelRouter {
             model,
             context_tokens,
             prices,
+            cache_seconds,
         } = &signal.kind
         else {
             return None;
@@ -464,7 +469,7 @@ impl ModelRouter {
 
         let renewal = &self.config.renewal;
         let (every_seconds, times) = renewal.warming.plan(
-            renewal.cache_seconds(&model.provider),
+            renewal.lifetime(&model.provider, *cache_seconds),
             *context_tokens,
             *prices,
         )?;

@@ -87,9 +87,11 @@ export type SignalKind =
     context_tokens: number
     context_window: number
     idle_seconds: number
+    /** The prompt-cache lifetime the user set for the model, in seconds. */
+    cache_seconds?: number | undefined
     available: Array<{ model: ModelRef; usable: boolean }>
   }
-  | { type: "context_idle"; model: ModelRef; context_tokens: number; prices: CachePrices }
+  | { type: "context_idle"; model: ModelRef; context_tokens: number; prices: CachePrices; cache_seconds?: number | undefined }
   | { type: "integration_event"; source: string; kind: string; summary: string; body: string; actionable: boolean; monitor: string }
 
 export type Signal = { agent_id: string; at: number; kind: SignalKind }

@@ -133,6 +133,7 @@ mod tests {
                 context_tokens,
                 context_window: 1_000_000,
                 idle_seconds,
+                cache_seconds: None,
                 available: ["claude-opus-5-5", "claude-haiku-5"]
                     .map(|id| AvailableModel {
                         model: model(id),
@@ -145,7 +146,7 @@ mod tests {
 
     #[test]
     fn a_cold_long_context_is_compacted_by_the_fast_model_without_any_model_judging_it() {
-        use chauffeur_core::Effect;
+        use chauffeur_core::{Effect, SignalKind};
 
         let mut engine = engine();
         let effects = engine.ingest(&resumed(1_800, 600_000)).unwrap();
@@ -158,6 +159,12 @@ mod tests {
         assert!(!engine.ingest(&resumed(1_800, 105_000)).unwrap().is_empty());
         // Warm cache, or a context under the budget: left as it is.
         assert!(engine.ingest(&resumed(60, 600_000)).unwrap().is_empty());
+        // Half an hour idle is still warm when the user set a 1-hour cache.
+        let mut hour = resumed(1_800, 600_000);
+        if let SignalKind::ContextResumed { cache_seconds, .. } = &mut hour.kind {
+            *cache_seconds = Some(3_600);
+        }
+        assert!(engine.ingest(&hour).unwrap().is_empty());
         assert!(engine.ingest(&resumed(1_800, 90_000)).unwrap().is_empty());
     }
 

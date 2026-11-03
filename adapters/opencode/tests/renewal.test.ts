@@ -3,14 +3,14 @@ import { Data, DateTime, Effect } from "effect"
 import type { DaemonClient } from "../src/daemon.js"
 import type { HistoryMessage } from "../src/host.js"
 import type { Signal } from "../src/protocol.js"
-import { contextFacts, installRenewal, summaryRequest } from "../src/renewal.js"
+import { cacheSeconds, contextFacts, installRenewal, summaryRequest } from "../src/renewal.js"
 import { SHIPPED_TEXTS } from "../src/texts.js"
 import { fakeHost, type FakeHost, Hooks, install, noRulebooks, noSkills, sessionID as session, shippedTexts } from "./support.js"
 
 const opus = { providerID: "anthropic", id: "claude-opus-5-5", variant: "high" }
 
 const models = { data: [
-  { ...opus, enabled: true, status: "active", limit: { context: 1_000_000 } },
+  { ...opus, enabled: true, status: "active", limit: { context: 1_000_000 }, settings: { cache: { ttl: "1h" } } },
   { providerID: "anthropic", id: "claude-haiku-5", enabled: true, status: "active", limit: { context: 200_000 } },
 ] }
 
@@ -91,6 +91,7 @@ test("a cold context reports its size and idle time; the engine's compaction is 
       model: { provider: "anthropic", model: "claude-opus-5-5", variant: "high" },
       context_tokens: 640_000,
       context_window: 1_000_000,
+      cache_seconds: 3_600,
     })
     expect(signals[0]?.kind.type === "context_resumed" && signals[0].kind.idle_seconds).toBeGreaterThanOrEqual(30 * 60)
     expect(compactions).toEqual(["ses_cold"])
@@ -192,6 +193,21 @@ function history(...entries: ReadonlyArray<unknown>): ReadonlyArray<HistoryMessa
   // SAFETY: contextFacts reads only type, error, tokens, time and model, which each entry carries.
   return entries as ReadonlyArray<HistoryMessage>
 }
+
+test("the cache lifetime is the variant's cache.ttl, else the model's, in whole seconds", () => {
+  const model = { settings: { cache: { ttl: "1h" } }, variants: [{ id: "fast", settings: { cache: { ttl: "5m" } } }, { id: "high", settings: {} }] }
+
+  expect(cacheSeconds(model, "high")).toBe(3_600)
+  expect(cacheSeconds(model, "fast")).toBe(300)
+  expect(cacheSeconds(model)).toBe(3_600)
+  expect(cacheSeconds({ settings: { cache: { ttl: "24h" } } })).toBe(86_400)
+  expect(cacheSeconds({ settings: { cache: { ttl: "1500ms" } } })).toBe(1)
+  // Unset, malformed, or under a second: the daemon's provider default applies.
+  expect(cacheSeconds({ settings: { baseURL: "https://api.anthropic.com/v1" } })).toBeUndefined()
+  expect(cacheSeconds({ settings: { cache: { ttl: "an hour" } } })).toBeUndefined()
+  expect(cacheSeconds({ settings: { cache: { ttl: "500ms" } } })).toBeUndefined()
+  expect(cacheSeconds(undefined)).toBeUndefined()
+})
 
 test("facts come from the latest measured reply since the last compaction", () => {
   const now = Date.now()
