@@ -95,6 +95,11 @@ fn a_bad_commit_gets_the_nudge_once_per_cooldown_and_the_log_shows_why() {
         "message.append",
         "another session"
     );
+    assert_eq!(
+        emit(&paths.socket, "s1", "git commit -m 'still more'"),
+        json!([]),
+        "the first session still cools down after the second fired"
+    );
 
     let runs = call(&paths.socket, "chauffeur.events", &Value::Null)["runs"].clone();
     let first = &runs[0]["steps"][0];
@@ -103,7 +108,7 @@ fn a_bad_commit_gets_the_nudge_once_per_cooldown_and_the_log_shows_why() {
     assert_eq!(first["answer"]["model"], "stand-in");
     assert_eq!(first["answer"]["placeholder"], true);
     assert_eq!(runs[1]["cooldown"], true);
-    assert_eq!(runs.as_array().unwrap().len(), 3, "ls ran no rule");
+    assert_eq!(runs.as_array().unwrap().len(), 4, "ls ran no rule");
 }
 
 #[test]
@@ -159,6 +164,34 @@ fn an_edited_rule_applies_to_the_next_event_and_a_bad_one_is_refused_with_its_pa
 }
 
 #[test]
+fn files_beside_the_shipped_models_that_are_not_json_are_not_read() {
+    let mut paths = paths("notes", NUDGING);
+    let shipped = paths.distribution.clone();
+    let distribution = paths.config.with_file_name("distribution");
+    for file in [
+        "models/jev.json",
+        "rules/conventional-commits.json",
+        "safety/redaction.json",
+    ] {
+        fs::create_dir_all(distribution.join(file).parent().unwrap()).unwrap();
+        fs::copy(shipped.join(file), distribution.join(file)).unwrap();
+    }
+    fs::write(
+        distribution.join("models/README.md"),
+        "# Shipped models
+",
+    )
+    .unwrap();
+    paths.distribution = distribution;
+    start(&paths);
+
+    assert_eq!(
+        emit(&paths.socket, "s1", "git commit -m 'fixed stuff'")[0]["action"],
+        "message.append"
+    );
+}
+
+#[test]
 fn malformed_and_oversized_requests_fail_safely() {
     let paths = paths("malformed", NUDGING);
     start(&paths);
@@ -181,6 +214,15 @@ fn malformed_and_oversized_requests_fail_safely() {
         r#"{ "jsonrpc": "2.0", "id": 1, "method": "chauffeur.emit", "params": {} }"#,
     );
     assert_eq!(no_event["error"]["code"], -32_602);
+
+    let request = r#"{ "jsonrpc": "2.0", "id": 7, "method": "chauffeur.status" }"#;
+    let newline = 1;
+    let padding = " ".repeat(chauffeur_daemon::MAX_LINE - newline - request.len());
+    assert_eq!(
+        send(&paths.socket, &format!("{request}{padding}"))["result"]["protocol"],
+        1,
+        "a line of exactly the limit, with its newline, is read"
+    );
 
     let oversized = "x".repeat(chauffeur_daemon::MAX_LINE.saturating_add(10));
     assert!(

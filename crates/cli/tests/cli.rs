@@ -6,7 +6,8 @@
 )]
 
 use std::fs;
-use std::io::Write;
+use std::io::{BufRead, BufReader, Read, Write};
+use std::net::TcpListener;
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Output, Stdio};
@@ -106,6 +107,41 @@ impl Install {
     }
 }
 
+/// Answers one `/v1/systemone` call on loopback as Jev does, and returns
+/// its endpoint and, once called, the authorization header it was sent.
+fn jev_once() -> (String, thread::JoinHandle<String>) {
+    const YES: &str = r#"{"model":"jev-1.13.0","answers":{"q0":{"type":"noul","noul":0.97}}}"#;
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let endpoint = format!("http://{}", listener.local_addr().unwrap());
+    let server = thread::spawn(move || {
+        let (stream, _) = listener.accept().unwrap();
+        let mut reader = BufReader::new(stream);
+        let (mut authorization, mut length) = (String::new(), 0);
+        loop {
+            let mut line = String::new();
+            reader.read_line(&mut line).unwrap();
+            let lower = line.trim().to_ascii_lowercase();
+            if lower.is_empty() {
+                break;
+            }
+            if let Some(value) = lower.strip_prefix("content-length:") {
+                length = value.trim().parse().unwrap();
+            }
+            if lower.starts_with("authorization:") {
+                line.trim().clone_into(&mut authorization);
+            }
+        }
+        reader.read_exact(&mut vec![0; length]).unwrap();
+        let _ = write!(
+            reader.get_mut(),
+            "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{YES}",
+            YES.len()
+        );
+        authorization
+    });
+    (endpoint, server)
+}
+
 fn distribution() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../distribution")
 }
@@ -203,6 +239,30 @@ fn version_prints_the_installation_name_and_version() {
         String::from_utf8_lossy(&output.stdout).trim(),
         format!("chauffeur {}", env!("CARGO_PKG_VERSION"))
     );
+}
+
+#[test]
+fn a_model_whose_key_is_set_answers_with_it() {
+    let mut install = Install::new("keyed");
+    let (endpoint, server) = jev_once();
+    let models = format!(
+        r#"{{ "models": {{ "jev": {{ "format": "systemone", "endpoint": "{endpoint}", "model": "jev-latest",
+                                      "key": {{ "env": "CHAUFFEUR_TEST_KEY" }} }} }},
+             "tiers": {{ "system-one": ["jev"] }} }}"#
+    );
+    fs::write(install.root.join("config/chauffeur/models.json"), models).unwrap();
+    let mut daemon = install.command();
+    daemon.arg("daemon").env("CHAUFFEUR_TEST_KEY", "test-key");
+    install.serve(daemon);
+
+    let event = r#"{ "event": "tool.after", "session": "s1", "tool": "shell",
+                     "input": { "command": "git commit -m 'fixed stuff'" } }"#;
+    let emitted = install.json(&["emit", "--deadline-ms", "5000"], event);
+    assert_eq!(emitted["actions"][0]["action"], "message.append");
+    assert_eq!(server.join().unwrap(), "authorization: Bearer test-key");
+    let step = &install.json(&["events"], "")["runs"][0]["steps"][0];
+    assert_eq!(step["answer"]["model"], "jev");
+    assert_eq!(step["answer"]["placeholder"], false);
 }
 
 /// macOS's sandbox, as `brew test` runs a formula's test, refuses `FSEvents`.

@@ -10,9 +10,10 @@ use std::net::TcpListener;
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
-use chauffeur_core::Failure;
+use chauffeur_core::{Failure, Outcome, Panel, Plan, Step};
 use chauffeur_judges::{
-    Evidence, Format, KeySource, Outcomes, Question, SystemOne, SystemOneEntry,
+    AnsweredBy, Confidence, Evidence, Fallback, Format, KeySource, Models, NamedJudge, Outcomes,
+    Question, Settled, SystemOne, SystemOneEntry, Tier,
 };
 
 const LIVE_RESPONSE: &str = r#"{"model":"jev-1.13.0","answers":{"q0":{"type":"noul","noul":0.97}},"usage":{"input_tokens":397,"output_tokens":73}}"#;
@@ -111,13 +112,50 @@ fn sends_one_noul_request_and_reads_the_live_answer() {
     assert_eq!(received.body["questions"]["q0"]["type"], "noul");
     assert_eq!(
         received.body["questions"]["q0"]["instructions"],
-        question.instructions()
+        "Does this commit message break Conventional Commits?"
     );
     assert_eq!(received.body["state"], "commit:\nfixed stuff\n\n");
     let p = replies.into_iter().next().unwrap().unwrap();
     assert_eq!(
         p.as_slice().iter().map(|p| p.get()).collect::<Vec<_>>(),
         [970, 30]
+    );
+}
+
+#[test]
+fn jev_in_models_json_answers_its_tier_with_its_key_as_a_real_model() {
+    let (endpoint, server) = serve("200 OK", LIVE_RESPONSE, Duration::ZERO);
+    let folder = std::env::temp_dir().join(format!("chauffeur-systemone-{}", std::process::id()));
+    std::fs::create_dir_all(&folder).unwrap();
+    let file = folder.join("jev.json");
+    let models = format!(
+        r#"{{ "models": {{ "jev": {{ "format": "systemone", "endpoint": "{endpoint}", "model": "jev-latest",
+                                      "key": {{ "env": "TYPESAFE_API_KEY" }} }} }},
+             "tiers": {{ "system-one": ["jev"] }} }}"#
+    );
+    std::fs::write(&file, models).unwrap();
+    let models = Models::load(&[file]).unwrap();
+    let key = |env: &str| (env == "TYPESAFE_API_KEY").then(|| "test-key".to_owned());
+
+    let fallback = Fallback::build(&models, Tier::SystemOne, None, key).unwrap();
+    let evidence = evidence();
+    let judge = NamedJudge::new(&fallback, &Confidence::Likeliest, &evidence);
+    let plan = Plan::new([Step::new("nudge", "quick", commit_question())]).unwrap();
+    let run = plan.run(&Panel::new().with("quick", &judge)).unwrap();
+    let received = server.join().unwrap();
+    let _ = std::fs::remove_dir_all(&folder);
+
+    assert_eq!(received.authorization, "authorization: Bearer test-key");
+    let Some(Outcome::Value(answer)) = run.verdict.get("nudge") else {
+        panic!("no answer: {:?}", run.verdict)
+    };
+    assert_eq!(answer.outcome(), &Settled::Outcome("yes".into()));
+    assert_eq!(
+        answer.by(),
+        &AnsweredBy {
+            model: "jev".into(),
+            placeholder: false
+        }
     );
 }
 

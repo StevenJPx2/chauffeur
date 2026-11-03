@@ -111,6 +111,7 @@ fn with_no_bar_the_likeliest_settles_and_a_tie_is_unsure() {
 #[test]
 fn level_is_the_weighted_position_on_the_scale() {
     let outcomes = Outcomes::new(["low", "medium", "high"]).unwrap();
+    assert_eq!((outcomes.len(), outcomes.is_empty()), (3, false));
     let question = Question::new("How hard is the user's request?", outcomes, ["prompt"]).unwrap();
     let p = Probabilities::read(
         question.outcomes(),

@@ -4,3 +4,14 @@
 test_workspace = true
 test_tool = "nextest"
 exclude_globs = ["**/proofs.rs"]
+# Equivalent: a cooldown that has elapsed exactly, to the nanosecond, is not
+# something a test can arrange or a person can notice.
+#
+# Not built: the `format` that leaves systemone models out exists only
+# without the `systemone` feature, which the workspace's tests always turn on.
+# Clippy with `--no-default-features` and the wasm build compile it. If the
+# line moves, the mutant shows as missed again.
+exclude_re = [
+  'route/cooldown\.rs:\d+:\d+: replace < with <= in Cooldowns::cooling',
+  'tiers/system_one/mod\.rs:43:\d+: replace format ',
+]

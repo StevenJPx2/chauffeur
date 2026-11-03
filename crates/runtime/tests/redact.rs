@@ -30,6 +30,8 @@ fn known_tokens_are_redacted_and_the_text_around_them_kept() {
 fn paths_links_and_hashes_stay_readable_while_tokens_in_them_are_caught() {
     let readable = [
         "cd /Users/stevenjohn/Documents/Adeptmind/Projects/hpdp-overlay/ADEPT-45130 && ls ~/Projects/ADEPT-45130/src",
+        // Absolute, with neither `-` nor `_`: mixed case and a digit make the whole word look like base64.
+        "ls /Users/Steven/Documents2/Projects",
         "git show 3f786850e387550fdab836ed7e6dc881de23001b",
         "https://adeptmind.slack.com/archives/C08ABCDEF12/p1790340000123456 Can you fix this?",
         "https://github.com/StevenJPx2/chauffeur/pull/42",
