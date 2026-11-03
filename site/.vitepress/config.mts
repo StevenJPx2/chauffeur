@@ -41,17 +41,28 @@ function moduleName(page: string): string {
 function sidebar(all: string[]): DefaultTheme.SidebarItem[] {
   const under = (prefix: string) => all.filter((page) => page.startsWith(prefix))
   const item = (page: string, text = title(page)) => ({ text, link: link(page) })
-  const crates = under("crates/").filter((page) => page !== "crates/README.md")
+  /** A folder's pages under its title; a README is the title's own page, not an item. */
+  const section = (text: string, folder: string, label = (page: string) => title(page)) => {
+    const index = `${folder}README.md`
+    // In the order the README links them; pages it does not link come last.
+    const readme = all.includes(index) ? readFileSync(join(ROOT, index), "utf8") : ""
+    const at = (page: string) => {
+      const found = readme.indexOf(`](${page.slice(folder.length)}`)
+      return found === -1 ? Number.MAX_SAFE_INTEGER : found
+    }
+    const pages = under(folder)
+      .filter((page) => page !== index)
+      .toSorted((a, b) => at(a) - at(b))
+    const items = pages.map((page) => item(page, label(page)))
+    return all.includes(index) ? { text, link: link(index), items } : { text, items }
+  }
   return [
-    { text: "Overview", items: [item("README.md", "Chauffeur")] },
-    { text: "Plans", items: under("docs/plans/").map((page) => item(page)) },
-    { text: "Programs that ask Chauffeur", items: under("docs/callers/").map((page) => item(page)) },
-    { text: "Moving from v1", items: under("docs/migration/").map((page) => item(page)) },
-    { text: "Audits", items: under("docs/audits/").map((page) => item(page)) },
-    {
-      text: "Crates",
-      items: [item("crates/README.md", "All crates"), ...crates.map((page) => item(page, moduleName(page)))],
-    },
+    { text: "Chauffeur", link: "/" },
+    section("Plans", "docs/plans/"),
+    section("Programs that ask Chauffeur", "docs/callers/"),
+    section("Moving from v1", "docs/migration/"),
+    section("Audits", "docs/audits/"),
+    section("Crates", "crates/", moduleName),
     { text: "Tools", items: [...under("playground/"), ...under("scripts/"), ...under("site/")].map((page) => item(page)) },
   ]
 }
