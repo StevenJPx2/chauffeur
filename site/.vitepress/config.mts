@@ -45,6 +45,8 @@ function sidebar(all: string[]): DefaultTheme.SidebarItem[] {
   return [
     { text: "Overview", items: [item("README.md", "Chauffeur")] },
     { text: "Plans", items: under("docs/plans/").map((page) => item(page)) },
+    { text: "Programs that ask Chauffeur", items: under("docs/callers/").map((page) => item(page)) },
+    { text: "Moving from v1", items: under("docs/migration/").map((page) => item(page)) },
     { text: "Audits", items: under("docs/audits/").map((page) => item(page)) },
     {
       text: "Crates",
@@ -60,6 +62,8 @@ function sidebar(all: string[]): DefaultTheme.SidebarItem[] {
  */
 function sourceLink(href: string, from: string): string {
   if (/^([a-z]+:|#|\/)/i.test(href)) return href
+  // A folder's README is its index page.
+  if (/(^|\/)README\.md(#|$)/.test(href)) return href.replace(/README\.md/, "")
   const [path, hash] = href.split("#")
   const target = resolve(dirname(from), decodeURI(path))
   const rendered = target.endsWith(".md") || existsSync(join(target, "README.md"))
@@ -89,6 +93,8 @@ export default defineConfig({
     nav: [
       { text: "Roadmap", link: "/docs/plans/pluggability#goal" },
       { text: "Slices", link: "/docs/plans/pluggability#sequence-and-verification" },
+      { text: "Callers", link: "/docs/callers/" },
+      { text: "Migration", link: "/docs/migration/" },
       { text: "Crates", link: "/crates/" },
     ],
     sidebar: sidebar(all),

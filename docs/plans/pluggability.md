@@ -19,7 +19,9 @@ Chauffeur is a judgment engine with plugins around it.
   events and carry out actions. They come from the shared harness package,
   which any program can use; Chauffeur is one of the deciders it asks.
 - **Callers**, any program, send a question with its context through
-  `chauffeur.navigate`. Rule files, which are data, decide how to answer.
+  `chauffeur.navigate`, with or without a harness. Rule files, which are
+  data, decide how to answer. [Programs that ask Chauffeur](../callers/README.md)
+  has one page per program.
 
 Shipped content (models, facts, rules) lives apart from the engine, in
 `distribution/`, and loads through the same path as the user's own.
@@ -36,9 +38,9 @@ slice's feature brings the next pieces. See
 | 2 | sourcefed triage | `navigate` for programs, intents, the TypeScript client |
 | 3 | Escalation from Jev to GLiDE | Multi-step strategies with `after`, SubQ and GLiDE, `choice` and `score`, `strategy show` |
 | 4 | opencode-history recall | Facts, `for_each`, `select` |
-| 5 | Harm guard | Plugins, `ctx.before`, asking the user |
-| 6 | Skills | The skills plugin, prompt edits |
-| 7 | Context renewal and warming | Session actions |
+| 5 | Harm guard, permissions and v1's rules | Plugins, `ctx.before`, asking the user, the rule-file fields v1's rules need |
+| 6 | Skills and tools | The skills, tools and `ask-chauffeur` plugins, prompt edits |
+| 7 | Context renewal, warming and model failover | Session actions |
 | 8 | Pi | Every feature so far, through the harness package's Pi adapter |
 | 9 | Claude Code | The same, through its Claude Code adapter |
 | 10 | Codex | The same, through its Codex hook command |
@@ -55,8 +57,8 @@ flowchart LR
     S2 --> S3["3 Escalation<br/>after, GLiDE"]
     S3 --> S4["4 Recall<br/>facts, select"]
     S4 --> S5["5 Guard<br/>plugins"]
-    S5 --> S6["6 Skills"]
-    S6 --> S7["7 Renewal, warming"]
+    S5 --> S6["6 Skills, tools"]
+    S6 --> S7["7 Renewal, warming,<br/>failover"]
     S7 --> S8["8–10 Pi, Claude Code, Codex"]
     S8 --> S11["11 System Two"]
     S11 -.-> S12["12 Rulebooks<br/>held"]
@@ -88,6 +90,9 @@ flowchart LR
 
 ### Parity table
 
+The [migration guide](../migration/README.md) shows every v1 feature's file
+beside the v2 rule file or plugin that replaces it.
+
 Branch point `73bc29e`. Watermark: `c3b4e1b`.
 
 | `main` commit | v2 home | Slice | Evidence from `main` |
@@ -102,8 +107,8 @@ Branch point `73bc29e`. Watermark: `c3b4e1b`.
 | `73bc29e` Homebrew release, CI | Release scripts, `check.yml` and `release.yml` in v2: rc releases as `chauffeur-next` from slice 1, `1.0.0` at cutover | 1, 13 | `release.test.mjs`, `smoke.mjs` |
 | `f54db24`, `d66a385`, `e7fbabf` docs | Documentation only | — | — |
 | `5330c3b` GLiDE, `fab9ae1` no escalation for permission requests, who answered | `glide.json` over the `systemone` format; escalation is a strategy: System One with `model: "jev"`, then `model: "glide"`, then System Two. The guard's strategy asks one judge and never escalates, since the agent's call waits on it; each round's event names the model that answered and keeps the answers a later step replaced | 3, 5, 11 | `judges/glide/tests/wire.rs`, `docs/judges.md` escalation cases |
-| `0adc459` a failed permission check keeps the host's decision | The guard's `before` hooks: a failed or late answer keeps what the harness decided, since Chauffeur only vetoes what the host allows; a 5 s `before` budget; the harness package retries an unreachable daemon twice, 500 ms apart | 5 | `permission.test.ts` |
-| `16c1433`, `1949263`, `413eb65` tools that stay exposed | The skills plugin's always-exposed list in `distribution/`: `history_search`, the agent conversation tools and the `agents` Code Mode namespace | 6 | `tool-exposure/tests/exposure.rs`, `skills/config/tool-exposure.json` |
+| `0adc459` a failed permission check keeps the host's decision | Rules on `permission.asked`: a failed or late answer keeps what the harness decided, since Chauffeur only vetoes what the host allows; a 5 s `before` budget; the harness package retries an unreachable daemon twice, 500 ms apart | 5 | `permission.test.ts` |
+| `16c1433`, `1949263`, `413eb65` tools that stay exposed | The `tools` plugin's `base` list: `history_search`, the agent conversation tools and the `agents` Code Mode namespace | 6 | `tool-exposure/tests/exposure.rs`, `skills/config/tool-exposure.json` |
 | `94e3b4e` 32 remote skill sources | The skills plugin's limit on remote sources is 32 | 6 | `sources/discovery_tests.rs` |
 | `02aee18`, `60d4c26` renewal fixes | The context-renewal plugin writes a summary in a temporary child session on the summary model, passes over a provider that failed for an hour, and leaves a session already on a cheap model to the harness's own compaction | 7 | `renewal.test.ts`, `model-router/tests/routing.rs` |
 | `c3b4e1b` reworded questions | The wording ships in each rule's `instructions`: the shell file guards (5), `cat-to-read` and `hand-rolled-patch` (the first slice with their pieces) and the Code Mode namespace question (6), each replayed against `main`'s recorded requests | 1–6 | `skills/permission/shell-file-*-guard.json`, `skills/rules/{cat-to-read,hand-rolled-patch}.json` |
@@ -269,6 +274,14 @@ navigates `recall` with the message and the passages as candidates. Its rule,
 `opencode-history/recall`, ranks them, and opencode-history attaches the
 passages the `attach` intent names.
 
+### Programs without a harness
+
+A program needs no harness to ask Chauffeur. neo navigates
+`neo/screen-check` with an iPhone screenshot before each irreversible tap,
+Proclaimify's chord sheets ask `proclaimify/key` while the question is
+developed, and jev-distill's students answer as System One models. Each has
+a page in [Programs that ask Chauffeur](../callers/README.md).
+
 ### One protocol, many bindings
 
 `navigate` is a Chauffeur operation, not any host's. Its request and result
@@ -353,7 +366,10 @@ reaches a judge:
 - The list's order is meaningful: it is the order of a scale, when the
   outcomes are one.
 - `unsure` and `failed` are reserved and cannot be outcomes.
-- `evidence` names the request's evidence blocks the judge sees.
+- `evidence` names the request's evidence blocks the judge sees. A block is
+  text, or an image (bytes and a media type, at most 4 MiB). Only formats that
+  accept images receive one, such as Jev with its opt-in; an image is never
+  redacted, so only a step that names it sends it.
 
 The SDK's question functions build this shape, using Jev's names:
 
@@ -391,7 +407,7 @@ judge's `confidence` is how likely its top outcome must be, from 0 to 1:
 | `confidence` | Outcome |
 |---|---|
 | `0.7` | The likeliest outcome when its probability is 0.7 or more; otherwise `unsure` |
-| `{ "yes": 0.6, "no": 0.95 }` | Per outcome: here `yes` needs 0.6 and `no` needs 0.95. The map must cover every outcome of every question the judge is used for, checked when the rule loads |
+| `{ "yes": 0.9, "no": 0.95 }` | Per outcome: here `yes` needs 0.9 and `no` needs 0.95. The map must cover every outcome of every question the judge is used for, checked when the rule loads |
 | none | The likeliest outcome; a tie is `unsure` |
 
 ```text
@@ -403,10 +419,10 @@ confidence 0.7 on noul "Does this commit message break Conventional Commits?"
 ```
 
 ```text
-confidence { yes: 0.6, no: 0.95 } on noul "Could this command cause irreversible harm?"
-  "rm -rf build/"   yes 0.71, no 0.29 → yes
-  "ls -la"          yes 0.02, no 0.98 → no
-  "git clean -fd"   yes 0.12, no 0.88 → unsure, so the user is asked
+confidence { yes: 0.9, no: 0.95 } on noul "Could this command cause irreversible harm?"
+  "rm -rf ~/Projects"  yes 0.96, no 0.04 → yes
+  "ls -la"             yes 0.02, no 0.98 → no
+  "git clean -fd"      yes 0.12, no 0.88 → unsure, so the user is asked
 ```
 
 A failure stays a failure whatever the confidence, so it never reads as `no`.
@@ -465,6 +481,7 @@ let replies = jev.answer_all(&round_questions, &evidence);
 | `anthropic` | Anthropic Messages with the same schema |
 | `facts` | Runs a fact in `crates/facts` |
 | `person` | A question to the user through the adapter |
+| `student` | A jev-distill student over its loopback server: the task's labels are the outcomes, and evidence blocks fill its `state` |
 | `placeholder` | Recorded or fixed answers, standing in until the real model is configured |
 
 An outcome outside the question's list fails the step as `invalid`.
@@ -751,6 +768,14 @@ install.
 | `asks` | Named questions, so steps that ask the same question share it |
 | `strategy` | The steps, in order: each with an `id`, a `judge` (a named judge or a tier), an `ask` (a named question, one written inline, or a fact), and `after` |
 | `then` | Intents by outcome, first match wins; no match returns no intent |
+| `priority`, `once`, `cooldown_seconds` | Which rule's message wins when one event triggers more than two; firing once until the next request or for the whole session; the pause per session after it fires |
+
+`when` filters on the event's fields before any judge: `tools`, `input`
+(`contains`, `excludes`), `result`, `agent` (`top-level` or `subagent`),
+`reason`, a permission's `actions`, `host` and `resources`, and `history`:
+the tools called, the integration events seen and the session's status, as
+far back as the latest request or the whole session. [Rule files: v1 to
+v2](../migration/rule-format.md) maps each v1 field.
 
 Names in `judges` and `asks` are referred to only by a step's `judge` and
 `ask`. Step IDs are referred to only by `after`, `select` and `then`.
@@ -1046,7 +1071,7 @@ Guard against irreversible harm:
 import { Plugin } from "@fdcn/chauffeur/plugin"
 import { ask, judge, noul } from "@fdcn/chauffeur/judge"
 
-const guard = judge({ tier: "system-one", model: "jev", confidence: { yes: 0.6, no: 0.95 } })
+const guard = judge({ tier: "system-one", model: "jev", confidence: { yes: 0.9, no: 0.95 } })
 
 export default Plugin.define({
   id: "guard",
@@ -1570,11 +1595,14 @@ directory: `$XDG_RUNTIME_DIR`, or `$TMPDIR` on macOS.
 **You can:** have the commit nudge and `sourcefed/triage` ask GLiDE only when
 Jev is unsure or fails, see each strategy as a tree with
 `chauffeur strategy show`, and step through it in the playground's Strategy
-tab.
+tab. neo checks an iPhone screen through Chauffeur with its screenshot, and a
+jev-distill student answers before Jev.
 
 This slice adds strategies with more than one step: a step's `after` names
 the earlier steps it waits for and the outcomes it needs, as in the
-[core plan model](#core-plan-model).
+[core plan model](#core-plan-model). It also adds image evidence, the
+`student` format, and a tier that rests a failed model for 60 seconds before
+asking it again.
 
 | File | Contents |
 |---|---|
@@ -1583,6 +1611,9 @@ the earlier steps it waits for and the outcomes it needs, as in the
 | `crates/protocol/src/lower.rs` | Lowering named judges, asks and `after` to `chauffeur_core::Plan` |
 | `crates/judges/src/tiers/system_one/` | `choice` with every outcome's probability, and GLiDE's level-valued `score` |
 | `distribution/models/{subq,glide}.json` | SubQ and GLiDE beside Jev |
+| `crates/judges/src/evidence/` | Text and image blocks; an image goes only to a format that accepts images, and only when a step names it |
+| `crates/judges/src/tiers/system_one/student.rs` | The `student` format for jev-distill's loopback server |
+| `crates/judges/src/tiers/fallback.rs` | A model that fails rests for 60 seconds, then is tried again |
 | `crates/cli/src/strategy.rs` | `chauffeur strategy show <rule>` and `--file`: the tree, rounds, resolved models, `after`, confidence, and the maximum rounds and model calls |
 | `playground/src/features/strategy.ts` | The Strategy tab |
 
@@ -1654,13 +1685,21 @@ Verification:
   time within the replay's 278 ms p50 and 318 ms p95 plus local overhead. No
   agent session or history is sent.
 
-### Slice 5: harm guard
+### Slice 5: harm guard, permissions and v1's rules
 
 **You can:** have the guard ask System One, before a shell command runs,
 whether it could cause irreversible harm. `yes` blocks the call; `unsure`,
-`failed` or a slow answer hands it to you.
+`failed` or a slow answer hands it to you. Chauffeur also approves the
+permission prompts that serve your task, blocks shell rewrites of project
+files, and steers with every v1 rule that needs no skill, as in
+[Permissions](../migration/permission.md),
+[Steering after a tool call](../migration/steering-rules.md) and
+[Steering at the end of a turn](../migration/turn-end-rules.md).
 
-This slice adds [plugins](#plugins) and the person tier.
+This slice adds [plugins](#plugins), the person tier, and the rule-file
+fields v1's rules need: `when`'s `input.excludes`, `result`, `agent`,
+`reason`, permission and `history` filters, the evidence blocks each event
+gives, `priority` and `once`.
 
 | File | Contents |
 |---|---|
@@ -1668,7 +1707,12 @@ This slice adds [plugins](#plugins) and the person tier.
 | `crates/daemon/src/bus.rs` | `ctx.on` and `ctx.before` routing, `before` budgets and `onTimeout`, retries by kind, the stale-action check |
 | `crates/judges/src/tiers/person/` | The `person` format: a question shown to the user through the harness |
 | `packages/chauffeur/src/{plugin,harness}/` | `@fdcn/chauffeur/plugin` and `/harness` |
-| `plugins/guard/` | The guard, with the read guard's `before` hooks |
+| `plugins/guard/` | The backstop and `confirm` patterns, the irreversible-harm question and its learned list |
+| `plugins/monitors/` | sourcefed monitors for the session's own PRs, Jira issues and Slack threads |
+| `crates/protocol/src/{when,then}.rs` | The `when` filters, `priority`, `once`, and `permission.reply` with the most restrictive reply winning |
+| `distribution/rules/`, `distribution/rules/permission/` | v1's steering, turn-end and permission rules, ported |
+| `crates/runtime/src/redact/learned.rs` | Learned credential shapes, kept in Chauffeur's state |
+| `crates/cli/src/{events,status}.rs` | `chauffeur events --follow`; `chauffeur status --project` |
 
 A spike decides whether first-party plugins ship compiled with scriptc. It
 compiles `guard`, and reports which SDK and Node APIs scriptc rejects, start
@@ -1678,18 +1722,25 @@ plugins in development, run from source on Bun.
 Verification: a plugin crash, a missed `before` budget and a stale action each
 behave as specified; `onTimeout: "ask"` hands a tool call to the user;
 discovery records the same hooks a full start registers; `main`'s
-`read-guard-probes.json` and `rpc-starvation.test.ts` pass; in a real
-OpenCode, a destructive command is blocked or asked about and `ls` runs
-within the budget.
+`read-guard-probes.json` and `rpc-starvation.test.ts` pass; `main`'s rule
+tests, labelled tool calls and recorded permission requests give the same
+nudges and replies; in a real OpenCode, a destructive command is blocked or
+asked about and `ls` runs within the budget.
 
-### Slice 6: skills
+### Slice 6: skills and tools
 
 **You can:** have the skills plugin attach the skills each prompt needs, find
 skills from remote sources, and screen new skills before they are offered.
+The tools plugin hides the tools a task will not use, and the agent asks for
+what it lacks with `ask_chauffeur`, as in [Skills](../migration/skills.md),
+[Tools](../migration/tools.md) and [`ask_chauffeur`](../migration/ask-chauffeur.md).
 
 | File | Contents |
 |---|---|
-| `plugins/skills/` | Exposure, remote sources with fetches inside the plugin (audit A4), and the screen-then-review strategy, using `prompt.sent` edits and the `skill` registry |
+| `plugins/skills/` | Exposure, drift hand-over, remote sources with fetches inside the plugin (audit A4), and the screen-then-review strategy, using `prompt.sent` edits and the `skill` registry |
+| `plugins/tools/` | Hiding and revealing tool groups, Code Mode notes, shorter built-in descriptions, missing-tool recovery |
+| `plugins/ask-chauffeur/` | The `ask_chauffeur` tool, through the tool registry |
+| `distribution/rules/{jira,slack,twitter}-via-browser.json`, `distribution/skills/handoff/` | The steers that hand over a skill, and the skills they hand over |
 
 The review step runs on System Two from slice 11. Until then, a skill the
 screen leaves `unsure` is withheld.
@@ -1698,17 +1749,22 @@ Verification: `main`'s `sources/tests.rs` vetting cases and
 `cli/tests/skills.rs` pass; in a real OpenCode, a request to review a pull
 request attaches the review skill.
 
-### Slice 7: context renewal and warming
+### Slice 7: context renewal, warming and model failover
 
 **You can:** have a long, cold session compacted with a cheap model before
-your next prompt runs, and an idle session's prompt cache kept warm.
+your next prompt runs, an idle session's prompt cache kept warm, and the
+agent moved to another provider's model when it hits a usage limit, then
+back once the limit clears, as in
+[Context renewal and warming](../migration/renewal-and-warming.md) and
+[Model router](../migration/model-router.md).
 
 | File | Contents |
 |---|---|
 | `plugins/{context-renewal,warming}/` | The two plugins, using the session events and the `session.compact`, `session.warm` and `session.update` actions the fidelity table marks as supported |
+| `plugins/model-router/`, `distribution/providers/` | Failover and switch-back, and each provider's tier table |
 
-Verification: `main`'s `routing.rs`, `renewal.test.ts` and `warming.test.ts`
-pass; in a real OpenCode, a session resumed after the cache expires is
+Verification: `main`'s `routing.rs`, `renewal.test.ts`, `warming.test.ts`
+and model-router tests pass; in a real OpenCode, a session resumed after the cache expires is
 compacted before the prompt runs.
 
 ### Slice 8: Pi
@@ -1764,8 +1820,10 @@ it, since v1 users rely on `/goal`.
 
 ### Slice 13: cutover
 
-v2 replaces v1. `~/.config/chauffeur` is migrated, or v1's layout is read,
-without losing personal rules, and every v1 rule converts and validates. When
+v2 replaces v1. `chauffeur migrate` writes v2's files from a v1
+configuration, without losing personal rules, and lists anything it could
+not carry over; every v1 rule converts and validates, as in the
+[migration guide](../migration/README.md). When
 every parity row is done, `v1` becomes a hotfix branch, v2 merges into `main`,
 and `1.0.0` is tagged and published to Homebrew.
 
@@ -1802,7 +1860,7 @@ use.
 | Wire protocol | JSON-RPC 2.0 over the Unix socket and stdio |
 | First-party plugins | `plugins/` in this repository, each its own package on the SDK |
 | Adapters | Adopted from the shared harness package, designed separately; Chauffeur registers as a decider and reads the package's event, action and fidelity data. Slice 1's OpenCode part and its rc wait for the package |
-| Chauffeur for other services | sourcefed and Workhorse ask Chauffeur as a judgment layer through `navigate`, and pass through when it is unavailable |
+| Chauffeur for other services | Any program asks through `navigate`, with no harness: sourcefed, Workhorse, neo, opencode-history and scripts. Each passes through when Chauffeur is unavailable |
 | Slices | Each slice is one feature a person uses, built end to end and released as an rc; the pieces arrive with the first feature that needs them. Cutover waits for rulebooks |
 | rc beside v1 | The `chauffeur-next` Homebrew formula installs `chauffeur-next`, with its own socket and `~/.config/chauffeur-next/`, so v1 keeps running untouched until cutover |
 | `bm25` and `embedding` facts | Ship with the first feature that uses them |
@@ -1818,3 +1876,5 @@ use.
 |---|---|
 | The rulebooks design | Discuss before slice 12; the [sketch](#rulebooks) is the starting point |
 | How the daemon starts when no service runs and only the harness package connects | Settle with the harness package's decider registration |
+| The harness package carries `request`, `activity` and `history` with each event, and `session.update` with a session's hidden tools | Ask for both in the package's contract before slice 5; v1's rules and the tools plugin need them |
+| Whether jev-distill students may be trained on Jev's labels, given TypeSafe's agreement §2.3(b) | Settle in jev-distill before Chauffeur ships a student in a rule |

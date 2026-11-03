@@ -305,6 +305,11 @@ To run the daemon at login instead, put `TYPESAFE_API_KEY=…` in
 architecture: judges, facts, strategies, rule files, plugins, adapters and the
 `navigate` protocol. Its slice table is the roadmap.
 
+- [Programs that ask Chauffeur](docs/callers/README.md): any program, with or
+  without a harness, such as sourcefed, neo and opencode-history.
+- [Moving from v1](docs/migration/README.md): each v1 feature beside the v2
+  rule file or plugin that replaces it.
+
 Every Markdown file here, with its diagrams drawn, is also at
 [chauffeur-docs.stevenjpx2.workers.dev](https://chauffeur-docs.stevenjpx2.workers.dev),
 rebuilt on each push to `v2`.
