@@ -12,6 +12,7 @@ socket, configuration and audit log beside an installed `chauffeur`.
 | [`version`](version.md)                         | Prints the installation's name and version                                | 1     |
 | [`navigate`](navigate.md)                       | Sends one request as a caller does and prints the messages back           | 2     |
 | [`strategy list`, `strategy show`](strategy.md) | Lists the loaded rules' strategies; draws one as a tree                   | 3     |
+| [`mcp`](mcp.md)                                 | Serves Chauffeur's tools to an MCP client over stdio                      | 6     |
 | [`migrate`](migrate.md)                         | Writes v2's files from a v1 configuration                                 | 13    |
 
 ## Commands from plugins

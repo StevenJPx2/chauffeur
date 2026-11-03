@@ -1,7 +1,8 @@
 # `ask-chauffeur`
 
 Registers the `ask_chauffeur` tool: the agent asks in plain words for a tool
-or skill it lacks, and gets the best match back. Slice 6.
+or skill it lacks, and gets the best match back. Slice 6. How the agent calls
+it, with example replies, is on the [tool's page](../tools/ask-chauffeur.md).
 
 ```ts
 import { Plugin } from "@fdcn/chauffeur/plugin"

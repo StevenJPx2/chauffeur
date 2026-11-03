@@ -229,6 +229,26 @@ chauffeur notes list --since 2026-11-01
 These are commands for the person at a terminal. A slash command inside the
 harness, such as `/goal`, is the harness's `command` registry.
 
+## Tools
+
+`tool.add` gives the agent a tool, through the harness's tool registry:
+
+```ts
+import { tool } from "@fdcn/chauffeur/harness"
+
+tool.add({
+  name: "notes_find",
+  description: "Find the decisions noted about a topic.",
+  input: { topic: "string" },
+  mcp: true, // also served by chauffeur mcp, which has no session
+  run: async (input, e) => findNotes(ctx.storage, input.topic) // e.session is absent over MCP
+})
+```
+
+The reply is what `run` returns, as text or JSON. A tool that needs the
+harness session, such as one that reveals the session's tools, leaves out
+`mcp`. [Tools](../tools/README.md) shows how agents call them.
+
 ## Options and storage
 
 - **`ctx.options`** is the plugin's `options` from `plugins.json`, merged over

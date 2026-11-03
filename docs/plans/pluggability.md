@@ -1016,16 +1016,17 @@ plugin, and [Writing a plugin](../plugins/writing.md) covers the SDK, hooks,
 actions, questions, options, storage and lifecycle. The decisions they rest
 on:
 
-| Concern      | Decision                                                                                                                                                             |
-| ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Hooks        | `ctx.on` never holds the harness; `ctx.before` holds it until its handler returns or its budget passes, then applies its `onTimeout`                                 |
-| Questions    | `ask` and `strategy` send inline strategies through `navigate`, so confidence, fallback, redaction and keys stay in the engine; a plugin never holds a model key     |
-| Actions      | Named by resource and verb, carried out by the harness package, retried by kind, and checked against the session's `revision` so a stale one never lands             |
-| Process      | A child of the daemon, speaking JSON-RPC 2.0 over stdio; lazy, stopped after 10 idle minutes unless eager; a crash restarts it with backoff and affects nothing else |
-| Discovery    | `setup` runs once to record the hooks, cached against the plugin's file hash, and again when its files change                                                        |
-| Registration | `~/.config/chauffeur/plugins.json`, keyed by ID; a project can never add a plugin                                                                                    |
-| Commands     | `ctx.command` adds `chauffeur <plugin> <command>`, recorded at discovery and run in the plugin; a plugin cannot take a built-in command's name                       |
-| State        | `ctx.storage`, the plugin's own folder under `~/.local/state/chauffeur/plugins/`                                                                                     |
+| Concern      | Decision                                                                                                                                                                                                          |
+| ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Hooks        | `ctx.on` never holds the harness; `ctx.before` holds it until its handler returns or its budget passes, then applies its `onTimeout`                                                                              |
+| Questions    | `ask` and `strategy` send inline strategies through `navigate`, so confidence, fallback, redaction and keys stay in the engine; a plugin never holds a model key                                                  |
+| Actions      | Named by resource and verb, carried out by the harness package, retried by kind, and checked against the session's `revision` so a stale one never lands                                                          |
+| Process      | A child of the daemon, speaking JSON-RPC 2.0 over stdio; lazy, stopped after 10 idle minutes unless eager; a crash restarts it with backoff and affects nothing else                                              |
+| Discovery    | `setup` runs once to record the hooks, cached against the plugin's file hash, and again when its files change                                                                                                     |
+| Registration | `~/.config/chauffeur/plugins.json`, keyed by ID; a project can never add a plugin                                                                                                                                 |
+| Commands     | `ctx.command` adds `chauffeur <plugin> <command>`, recorded at discovery and run in the plugin; a plugin cannot take a built-in command's name                                                                    |
+| Tools        | `tool.add` gives the agent a tool through the harness's registry; with `mcp: true` the `chauffeur mcp` server also serves it, beside its own `judge` tool. [Tools](../tools/README.md) shows how agents call them |
+| State        | `ctx.storage`, the plugin's own folder under `~/.local/state/chauffeur/plugins/`                                                                                                                                  |
 
 ### Events
 
@@ -1673,12 +1674,15 @@ screen new third-party skills before they are offered.
 The tools plugin hides the tools a task will not use, and the agent asks for
 what it lacks with `ask_chauffeur`, as in [Skills](../migration/skills.md),
 [Tools](../migration/tools.md) and [`ask_chauffeur`](../migration/ask-chauffeur.md).
+Any MCP client can ask Chauffeur's judges with the `judge` tool, through
+`chauffeur mcp`; [Tools](../tools/README.md) shows how agents call both.
 
 | File                                                                                       | Contents                                                                                                                                           |
 | ------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `plugins/skills/`                                                                          | Exposure, drift hand-over and the screen-then-review strategy over the harness's skill catalog, using `prompt.sent` edits and the `skill` registry |
 | `plugins/tools/`                                                                           | Hiding and revealing tool groups, Code Mode notes, shorter built-in descriptions, missing-tool recovery                                            |
 | `plugins/ask-chauffeur/`                                                                   | The `ask_chauffeur` tool, through the tool registry                                                                                                |
+| `crates/cli/src/mcp.rs`                                                                    | `chauffeur mcp`: an MCP stdio server with `judge`, one inline step through `navigate`, and the plugin tools registered with `mcp: true`            |
 | `distribution/rules/{jira,slack,twitter}-via-browser.json`, `distribution/skills/handoff/` | The steers that hand over a skill, and the skills they hand over, added to the harness's skill sources when Chauffeur is installed                 |
 
 The review step runs on System Two from slice 11. Until then, a skill the
