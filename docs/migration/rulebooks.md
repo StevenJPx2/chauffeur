@@ -17,5 +17,5 @@ is met, `/ticket` does the same for a ticket, and a project adds its own in
 The [`rulebooks` plugin](../plugins/rulebooks.md) runs them. The design is
 held until it is discussed: see the plan's
 [Rulebooks](../plans/pluggability.md#rulebooks) and
-[Slice 12](../plans/pluggability.md#slice-12-rulebooks). Cutover waits for it,
+[Slice 12](../plans/slices/slice-12.md). Cutover waits for it,
 since v1 users rely on `/goal`.

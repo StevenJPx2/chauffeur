@@ -17,4 +17,4 @@ EOF
 | 1    | The request was rejected, such as `limit_exceeded` or `deadline` |
 | 2    | No daemon answers                                                |
 
-The wire contract is in the plan's [Slice 2](../plans/pluggability.md#wire-contract).
+The wire contract is in the plan's [Slice 2](../plans/slices/slice-2.md#wire-contract).
