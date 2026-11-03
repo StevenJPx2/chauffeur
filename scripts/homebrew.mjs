@@ -100,7 +100,7 @@ ${platforms("linux", release, sums, downloads)}
   end
 
   service do
-    run [opt_bin/"chauffeur-next", "daemon"]
+    run [opt_bin/"chauffeur-next", "daemon", "run"]
     keep_alive true
     log_path var/"log/chauffeur-next.log"
     error_log_path var/"log/chauffeur-next.log"
@@ -117,7 +117,7 @@ ${platforms("linux", release, sums, downloads)}
     socket = testpath/"run/daemon.sock"
     ENV["XDG_CONFIG_HOME"] = (testpath/"config").to_s
     ENV["CHAUFFEUR_SOCKET"] = socket.to_s
-    daemon = spawn bin/"chauffeur-next", "daemon"
+    daemon = spawn bin/"chauffeur-next", "daemon", "run"
     begin
       50.times do
         break if socket.exist?

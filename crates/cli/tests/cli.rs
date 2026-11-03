@@ -1,5 +1,5 @@
 //! The `chauffeur` binary as a person runs it: a daemon in the background,
-//! then `emit`, `status` and `version` over its real socket, and `audit`
+//! then `emit`, `daemon status` and `version` over its real socket, and `audit`
 //! from the files the daemon writes.
 #![expect(
     clippy::unwrap_used,
@@ -57,14 +57,14 @@ impl Install {
             .env("CHAUFFEUR_DISTRIBUTION", distribution());
     }
 
-    /// Starts `chauffeur daemon` and waits for its socket.
+    /// Starts `chauffeur daemon run` and waits for its socket.
     fn start(&mut self) {
         let mut daemon = self.command();
-        daemon.arg("daemon");
+        daemon.args(["daemon", "run"]);
         self.serve(daemon);
     }
 
-    /// Spawns `daemon`, which runs `chauffeur daemon`, and waits for its socket.
+    /// Spawns `daemon`, which runs `chauffeur daemon run`, and waits for its socket.
     fn serve(&mut self, mut daemon: Command) {
         let log = self.root.join("daemon.log");
         let socket = self.socket();
@@ -197,7 +197,7 @@ fn a_bad_commit_sent_with_emit_gets_the_nudge_and_audit_and_status_show_it() {
     assert_eq!(run["steps"][0]["answer"]["outcome"], "yes");
     assert_eq!(run["steps"][0]["answer"]["model"], "stand-in");
 
-    let status = install.json(&["status"], "");
+    let status = install.json(&["daemon", "status"], "");
     assert_eq!(status["version"], env!("CARGO_PKG_VERSION"));
     assert!(
         status["rules"]
@@ -212,7 +212,7 @@ fn a_second_daemon_finds_the_socket_taken_and_exits() {
     let mut install = Install::new("second");
     install.start();
 
-    let second = install.run(&["daemon"], "");
+    let second = install.run(&["daemon", "run"], "");
     assert!(second.status.success());
     assert!(
         String::from_utf8_lossy(&second.stderr).contains("a daemon is already running"),
@@ -224,7 +224,7 @@ fn a_second_daemon_finds_the_socket_taken_and_exits() {
 fn without_a_daemon_a_call_fails_and_names_the_socket() {
     let install = Install::new("none");
 
-    let output = install.run(&["status"], "");
+    let output = install.run(&["daemon", "status"], "");
     assert!(!output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("no daemon answers on"), "{stderr}");
@@ -341,7 +341,9 @@ fn a_model_whose_key_is_set_answers_with_it() {
     );
     fs::write(install.root.join("config/chauffeur/models.json"), models).unwrap();
     let mut daemon = install.command();
-    daemon.arg("daemon").env("CHAUFFEUR_TEST_KEY", "test-key");
+    daemon
+        .args(["daemon", "run"])
+        .env("CHAUFFEUR_TEST_KEY", "test-key");
     install.serve(daemon);
 
     let emitted = install.json(&["emit", "--deadline-ms", "5000"], BAD_COMMIT);
@@ -361,7 +363,7 @@ fn without_fsevents_the_daemon_still_reloads_an_added_rule() {
         r#"(version 1)(allow default)(deny mach-lookup (global-name "com.apple.FSEvents"))"#;
     let mut install = Install::new("sandboxed");
     let mut daemon = Command::new("sandbox-exec");
-    daemon.args(["-p", NO_FSEVENTS, CHAUFFEUR, "daemon"]);
+    daemon.args(["-p", NO_FSEVENTS, CHAUFFEUR, "daemon", "run"]);
     install.environment(&mut daemon);
     install.serve(daemon);
 
@@ -369,7 +371,7 @@ fn without_fsevents_the_daemon_still_reloads_an_added_rule() {
     fs::write(install.root.join("config/chauffeur/rules/added.json"), rule).unwrap();
     let added = Value::from("added");
     let started = Instant::now();
-    while !install.json(&["status"], "")["rules"]
+    while !install.json(&["daemon", "status"], "")["rules"]
         .as_array()
         .unwrap()
         .contains(&added)

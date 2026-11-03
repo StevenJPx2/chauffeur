@@ -64,14 +64,14 @@ async function run(binary, name, root, expected) {
   delete env.TYPESAFE_API_KEY
 
   let output = ""
-  const daemon = spawn(binary, ["daemon"], { env, stdio: ["ignore", "pipe", "pipe"] })
+  const daemon = spawn(binary, ["daemon", "run"], { env, stdio: ["ignore", "pipe", "pipe"] })
   const exited = new Promise((done) => daemon.once("exit", done))
   for (const stream of [daemon.stdout, daemon.stderr]) stream.on("data", (data) => { output = (output + data).slice(-8192) })
 
   try {
     await waitFor(socket, daemon, () => output)
     const call = (args, input = "") => JSON.parse(execFileSync(binary, args, { env, input, encoding: "utf8" }))
-    const status = call(["status"])
+    const status = call(["daemon", "status"])
     assert.ok(status.rules.includes("conventional-commits"), JSON.stringify(status))
     const emitted = call(["emit"], JSON.stringify(COMMIT))
     assert.equal(emitted.actions[0]?.rule, "conventional-commits", JSON.stringify(emitted))

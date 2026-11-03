@@ -4,7 +4,7 @@ The Rust engine. Each crate depends only on the ones below it in this table.
 
 | Crate      | Holds                                                                                                                               |
 | ---------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| `cli`      | The `chauffeur` binary: `daemon`, `version`, `emit`, `audit`, `status`                                                              |
+| `cli`      | The `chauffeur` binary: `daemon run`, `daemon status`, `version`, `emit`, `audit`                                                   |
 | `daemon`   | The private Unix socket, JSON-RPC 2.0 lines, loading and reloading configuration, routing events to rules, cooldowns, the audit log |
 | `runtime`  | Running one rule for one event: redaction, a worker thread with a deadline                                                          |
 | `protocol` | Rule files and their checks, the `when` filter, `then` entries, harness events and their evidence                                   |

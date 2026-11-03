@@ -84,7 +84,7 @@ test("the formula names every target's tarball and checksum, and installs chauff
   assert.match(ruby, /on_linux do\n {4}on_arm do/)
   assert.match(ruby, /bin\.install "bin\/chauffeur" => "chauffeur-next"/)
   assert.match(ruby, /pkgshare\.install Dir\["share\/chauffeur\/\*"\]/)
-  assert.match(ruby, /run \[opt_bin\/"chauffeur-next", "daemon"\]/)
+  assert.match(ruby, /run \[opt_bin\/"chauffeur-next", "daemon", "run"\]/)
 })
 
 test("downloads can come from elsewhere, such as a local folder", () => {

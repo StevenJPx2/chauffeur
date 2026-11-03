@@ -22,11 +22,10 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Run the daemon in the foreground. Exits at once if one already runs.
+    /// Run the daemon, or ask the running one about itself.
     Daemon {
-        /// Shipped models, rules and safety patterns.
-        #[arg(long)]
-        distribution: Option<PathBuf>,
+        #[command(subcommand)]
+        command: Daemon,
     },
     /// Print the version.
     Version,
@@ -48,7 +47,17 @@ enum Command {
         #[arg(long)]
         brief: bool,
     },
-    /// Print the daemon's version, loaded rules and refused rule files.
+}
+
+#[derive(Subcommand)]
+enum Daemon {
+    /// Run the daemon in the foreground. Exits at once if one already runs.
+    Run {
+        /// Shipped models, rules and safety patterns.
+        #[arg(long)]
+        distribution: Option<PathBuf>,
+    },
+    /// Print the running daemon's version, loaded rules and refused rule files.
     Status,
 }
 
@@ -62,19 +71,22 @@ fn main() -> Result<ExitCode> {
         })
         .unwrap_or_else(|| "chauffeur".to_owned());
     match Cli::parse().command {
-        Command::Daemon { distribution } => {
-            match chauffeur_daemon::run(&Paths::from_env(&name, distribution)) {
-                Ok(()) => Ok(ExitCode::SUCCESS),
-                Err(DaemonError::Running(socket)) => {
-                    eprintln!(
-                        "{name}: a daemon is already running on {}",
-                        socket.display()
-                    );
-                    Ok(ExitCode::SUCCESS)
-                }
-                Err(error) => Err(error.into()),
+        Command::Daemon {
+            command: Daemon::Run { distribution },
+        } => match chauffeur_daemon::run(&Paths::from_env(&name, distribution)) {
+            Ok(()) => Ok(ExitCode::SUCCESS),
+            Err(DaemonError::Running(socket)) => {
+                eprintln!(
+                    "{name}: a daemon is already running on {}",
+                    socket.display()
+                );
+                Ok(ExitCode::SUCCESS)
             }
-        }
+            Err(error) => Err(error.into()),
+        },
+        Command::Daemon {
+            command: Daemon::Status,
+        } => print(&call(&name, "chauffeur.status", &Value::Null)?),
         Command::Version => {
             println!("{name} {}", env!("CARGO_PKG_VERSION"));
             Ok(ExitCode::SUCCESS)
@@ -98,7 +110,6 @@ fn main() -> Result<ExitCode> {
             audit::print(&Paths::from_env(&name, None).state, count, follow, brief)?;
             Ok(ExitCode::SUCCESS)
         }
-        Command::Status => print(&call(&name, "chauffeur.status", &Value::Null)?),
     }
 }
 

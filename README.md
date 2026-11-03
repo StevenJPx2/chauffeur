@@ -346,7 +346,7 @@ with their own socket and `~/.config/chauffeur-next/`:
 
 ```sh
 brew install stevenjpx2/taps/chauffeur-next
-chauffeur-next daemon                    # Jev answers with TYPESAFE_API_KEY
+chauffeur-next daemon run                # Jev answers with TYPESAFE_API_KEY
 ```
 
 To run the daemon at login instead, put `TYPESAFE_API_KEY=…` in
