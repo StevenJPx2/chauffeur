@@ -1,5 +1,5 @@
 use chauffeur_core::Outcome;
-use chauffeur_judges::{Answer, Settled};
+use chauffeur_judges::Answer;
 use serde_json::{Map, Value, json};
 
 /// Each step's answer or failure, for the log.
@@ -19,12 +19,8 @@ fn answer_json(answer: &Answer) -> Value {
         .p()
         .map(|(value, p)| (value.to_owned(), json!(p.to_f64())))
         .collect();
-    let settled = match answer.outcome() {
-        Settled::Outcome(value) => value.clone(),
-        Settled::Unsure => "unsure".to_owned(),
-    };
     json!({
-        "outcome": settled,
+        "outcome": answer.outcome().to_string(),
         "p": p,
         "level": answer.level(),
         "model": answer.by().model,

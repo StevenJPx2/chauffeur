@@ -1,8 +1,6 @@
 use std::collections::BTreeMap;
 
-use chauffeur_judges::{
-    Answer, AnsweredBy, Confidence, Milli, Outcomes, Probabilities, Question, Settled,
-};
+use chauffeur_judges::{Answer, AnsweredBy, Confidence, Milli, Outcomes, Probabilities, Question};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use wasm_bindgen::prelude::wasm_bindgen;
@@ -57,10 +55,7 @@ fn settle_json(input: &str) -> Result<Value, String> {
         placeholder: true,
     };
     let answer = Answer::settle(&question, p, &confidence, by);
-    let outcome = match answer.outcome() {
-        Settled::Outcome(value) => value.clone(),
-        Settled::Unsure => "unsure".to_owned(),
-    };
+    let outcome = answer.outcome().to_string();
     let p: Vec<Value> = answer
         .p()
         .map(|(value, p)| json!({ "outcome": value, "p": p.to_f64() }))

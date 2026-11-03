@@ -50,7 +50,7 @@ impl Outcomes {
     /// Always false: a question has at least two outcomes.
     #[must_use]
     pub const fn is_empty(&self) -> bool {
-        self.0.is_empty()
+        false
     }
 
     /// The outcomes, in order.
