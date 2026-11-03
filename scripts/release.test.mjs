@@ -1,4 +1,4 @@
-// node --test scripts/
+// node --test scripts/*.test.mjs
 
 import assert from "node:assert/strict"
 import { execFileSync } from "node:child_process"

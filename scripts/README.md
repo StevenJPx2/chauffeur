@@ -7,7 +7,7 @@ Packaging and the Homebrew formula, with no dependencies beyond Node.
 | `package.mjs` | The workspace's version; one tarball per target with `bin/chauffeur` and `share/chauffeur/` (`distribution/` and the license); `SHA256SUMS` |
 | `homebrew.mjs` | Renders `Formula/chauffeur-next.rb` from a release candidate's `SHA256SUMS` |
 | `smoke.mjs` | Installs a tarball as `chauffeur` and as `chauffeur-next`, then runs each: `version`, the daemon, the shipped rule, a nudge through `emit` |
-| `release.test.mjs` | `node --test scripts/`: tarball layout, checksums, the formula's URLs, checksums and names |
+| `release.test.mjs` | `node --test scripts/*.test.mjs`: tarball layout, checksums, the formula's URLs, checksums and names |
 
 ## Cutting a release candidate
 

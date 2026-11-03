@@ -341,8 +341,8 @@ Release scripts need Node; see [`scripts/`](scripts/) for how a release
 candidate is cut:
 
 ```sh
-node --test scripts/                     # packaging and formula
-node scripts/smoke.mjs dist/chauffeur-*.tar.gz
+node --test scripts/*.test.mjs                  # packaging and formula
+node scripts/smoke.mjs dist/chauffeur-*.tar.gz  # a built tarball, installed and run
 ```
 
 The documentation site needs Bun, and Node for deploying:
