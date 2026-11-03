@@ -14,13 +14,13 @@ mod rpc;
 mod socket;
 mod state;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
 
-use notify::{RecursiveMode, Watcher};
+use notify::{PollWatcher, RecursiveMode, Watcher};
 
 pub use paths::{Paths, private_folder};
 pub use route::Router;
@@ -28,6 +28,10 @@ pub use socket::MAX_LINE;
 
 /// How long file changes settle before a reload.
 const SETTLE: Duration = Duration::from_millis(200);
+
+/// How often configuration is checked when the platform cannot report
+/// changes, such as in a sandbox that refuses `FSEvents`.
+const POLL: Duration = Duration::from_secs(2);
 
 /// Why the daemon stopped or would not start.
 #[derive(Debug, thiserror::Error)]
@@ -70,16 +74,7 @@ pub fn run(paths: &Paths) -> Result<(), DaemonError> {
     let router = Arc::new(Router::new(state::load(paths)?));
     let listener = socket::bind(&paths.socket)?;
     let (send, receive) = mpsc::channel();
-    let mut watcher = notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
-        if event.is_ok() {
-            let _ = send.send(());
-        }
-    })?;
-    for folder in [&paths.distribution, &paths.config] {
-        if folder.is_dir() {
-            watcher.watch(folder, RecursiveMode::Recursive)?;
-        }
-    }
+    let watcher = watch(&[&paths.distribution, &paths.config], &send)?;
     let (reloader, reload_paths) = (Arc::clone(&router), paths.clone());
     thread::Builder::new()
         .name("reload".into())
@@ -91,6 +86,43 @@ pub fn run(paths: &Paths) -> Result<(), DaemonError> {
     socket::serve(&listener, &router);
     drop(watcher);
     Ok(())
+}
+
+/// Watches `folders` with the platform's watcher, or by polling when that
+/// watcher cannot start. Each change sends one message.
+fn watch(folders: &[&Path], send: &mpsc::Sender<()>) -> Result<Box<dyn Watcher>, DaemonError> {
+    let changed = |send: mpsc::Sender<()>| {
+        move |event: notify::Result<notify::Event>| {
+            if event.is_ok() {
+                let _ = send.send(());
+            }
+        }
+    };
+    match start(notify::recommended_watcher(changed(send.clone())), folders) {
+        Ok(watcher) => Ok(watcher),
+        Err(error) => {
+            eprintln!(
+                "chauffeur: checking configuration for changes every {} s: {error}",
+                POLL.as_secs()
+            );
+            let config = notify::Config::default().with_poll_interval(POLL);
+            Ok(start(
+                PollWatcher::new(changed(send.clone()), config),
+                folders,
+            )?)
+        }
+    }
+}
+
+fn start<W: Watcher + 'static>(
+    watcher: notify::Result<W>,
+    folders: &[&Path],
+) -> notify::Result<Box<dyn Watcher>> {
+    let mut watcher = watcher?;
+    for folder in folders.iter().filter(|folder| folder.is_dir()) {
+        watcher.watch(folder, RecursiveMode::Recursive)?;
+    }
+    Ok(Box::new(watcher))
 }
 
 fn reload(router: &Router, paths: &Paths, changes: &mpsc::Receiver<()>) {

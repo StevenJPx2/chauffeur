@@ -43,21 +43,27 @@ impl Install {
 
     fn command(&self) -> Command {
         let mut command = Command::new(CHAUFFEUR);
+        self.environment(&mut command);
+        command
+    }
+
+    fn environment(&self, command: &mut Command) {
         command
             .env("CHAUFFEUR_SOCKET", self.socket())
             .env("XDG_CONFIG_HOME", self.root.join("config"))
-            .env(
-                "CHAUFFEUR_DISTRIBUTION",
-                Path::new(env!("CARGO_MANIFEST_DIR")).join("../../distribution"),
-            );
-        command
+            .env("CHAUFFEUR_DISTRIBUTION", distribution());
     }
 
     /// Starts `chauffeur daemon` and waits for its socket.
     fn start(&mut self) {
-        let child = self
-            .command()
-            .arg("daemon")
+        let mut daemon = self.command();
+        daemon.arg("daemon");
+        self.serve(daemon);
+    }
+
+    /// Spawns `daemon`, which runs `chauffeur daemon`, and waits for its socket.
+    fn serve(&mut self, mut daemon: Command) {
+        let child = daemon
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .spawn()
@@ -98,6 +104,10 @@ impl Install {
         assert!(output.status.success(), "{args:?} failed: {output:?}");
         serde_json::from_slice(&output.stdout).unwrap()
     }
+}
+
+fn distribution() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../distribution")
 }
 
 impl Drop for Install {
@@ -193,4 +203,34 @@ fn version_prints_the_installation_name_and_version() {
         String::from_utf8_lossy(&output.stdout).trim(),
         format!("chauffeur {}", env!("CARGO_PKG_VERSION"))
     );
+}
+
+/// macOS's sandbox, as `brew test` runs a formula's test, refuses `FSEvents`.
+/// The daemon still starts, and a rule added afterwards still loads.
+#[cfg(target_os = "macos")]
+#[test]
+fn without_fsevents_the_daemon_still_reloads_an_added_rule() {
+    const NO_FSEVENTS: &str =
+        r#"(version 1)(allow default)(deny mach-lookup (global-name "com.apple.FSEvents"))"#;
+    let mut install = Install::new("sandboxed");
+    let mut daemon = Command::new("sandbox-exec");
+    daemon.args(["-p", NO_FSEVENTS, CHAUFFEUR, "daemon"]);
+    install.environment(&mut daemon);
+    install.serve(daemon);
+
+    let rule = fs::read_to_string(distribution().join("rules/conventional-commits.json")).unwrap();
+    fs::write(install.root.join("config/chauffeur/rules/added.json"), rule).unwrap();
+    let added = Value::from("added");
+    let started = Instant::now();
+    while !install.json(&["status"], "")["rules"]
+        .as_array()
+        .unwrap()
+        .contains(&added)
+    {
+        assert!(
+            started.elapsed() < Duration::from_secs(10),
+            "the added rule never loaded"
+        );
+        thread::sleep(Duration::from_millis(100));
+    }
 }
