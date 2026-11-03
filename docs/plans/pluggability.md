@@ -1433,7 +1433,7 @@ sequenceDiagram
 | `crates/daemon/src/{paths,state,rpc,socket}.rs`, `crates/daemon/src/route/` | Socket folder `0700`, JSON-RPC 2.0 lines up to 1 MiB, 64 connections; loads shipped and user models, redaction and rules and reloads them on change; routes an event to the rules that hook it, concurrently, with each rule's cooldown per session. Methods `chauffeur.emit`, `chauffeur.events` and `chauffeur.status`; the decider methods follow the harness package's contract |
 | `crates/cli/src/main.rs` | `chauffeur daemon`, `version`, `emit`, `events` and `status`; the installation's name is the executable's, so `chauffeur-next` keeps its own socket and configuration; a second daemon that finds the socket taken exits |
 | `distribution/models/jev.json`, `distribution/rules/conventional-commits.json`, `distribution/safety/redaction.json` | Jev as the default System One; the nudge; the known credential prefixes |
-| `scripts/{package,homebrew,smoke}.mjs`, `.github/workflows/check.yml` | rc packaging and the `chauffeur@next` formula, with its Homebrew service |
+| `scripts/{package,homebrew,smoke}.mjs`, `.github/workflows/{check,release}.yml` | rc packaging and the `chauffeur-next` formula, with its Homebrew service; `release.yml` publishes a prerelease and the formula on each rc tag |
 | `playground/src/features/question.ts` | The Question tab |
 
 Verification:
@@ -1798,7 +1798,7 @@ use.
 | Adapters | Adopted from the shared harness package, designed separately; Chauffeur registers as a decider and reads the package's event, action and fidelity data. Slice 1's OpenCode part and its rc wait for the package |
 | Chauffeur for other services | sourcefed and Workhorse ask Chauffeur as a judgment layer through `navigate`, and pass through when it is unavailable |
 | Slices | Each slice is one feature a person uses, built end to end and released as an rc; the pieces arrive with the first feature that needs them. Cutover waits for rulebooks |
-| rc beside v1 | The `chauffeur@next` Homebrew formula installs `chauffeur-next`, with its own socket and `~/.config/chauffeur-next/`, so v1 keeps running untouched until cutover |
+| rc beside v1 | The `chauffeur-next` Homebrew formula installs `chauffeur-next`, with its own socket and `~/.config/chauffeur-next/`, so v1 keeps running untouched until cutover |
 | `bm25` and `embedding` facts | Ship with the first feature that uses them |
 | Jev's `score` type | `choice` for every question that is not yes/no; slice 3 measures `score` on labelled scale cases, and a question gains a hint only if `score` is clearly better |
 | Production dependencies | Core stays dependency-free. Approved: `serde` and `serde_json` (protocol and every config file), `thiserror` (typed errors outside core), `rquickjs` and bundled `rusqlite` (facts and the `chauffeur:sqlite` host module), `notify` (reloading rules, facts and models), `ureq` with rustls (model formats, from slice 1), `tracing` and `jiff` (o11y events and audit timestamps), `clap` and `color-eyre` (the CLI binary only) |

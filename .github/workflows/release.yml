@@ -1,0 +1,119 @@
+name: Release
+
+# A release candidate: push a tag such as v1.0.0-rc.1 whose version is the
+# workspace's. Each target is built and smoke-tested on its own machine, the
+# tarballs go to a GitHub prerelease, and chauffeur-next is regenerated in the
+# tap from that release's SHA256SUMS.
+
+on:
+  push:
+    tags: ['v*-rc.*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+
+jobs:
+  build:
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - { target: darwin-arm64, os: macos-latest, rust: aarch64-apple-darwin }
+          - { target: darwin-x64, os: macos-15-intel, rust: x86_64-apple-darwin }
+          - { target: linux-arm64, os: ubuntu-24.04-arm, rust: aarch64-unknown-linux-musl }
+          - { target: linux-x64, os: ubuntu-latest, rust: x86_64-unknown-linux-musl }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+      - name: The tag names the workspace's version
+        run: test "v$(node scripts/package.mjs version)" = "$GITHUB_REF_NAME"
+      - name: musl, for a static Linux binary
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+      - run: rustup target add ${{ matrix.rust }}
+      - run: cargo build --release --locked -p chauffeur-cli --target ${{ matrix.rust }}
+      - run: node scripts/package.mjs tarball --target ${{ matrix.target }} --binary target/${{ matrix.rust }}/release/chauffeur --out dist
+      - run: node scripts/smoke.mjs dist/chauffeur-*-${{ matrix.target }}.tar.gz
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ${{ matrix.target }}
+          path: dist/*.tar.gz
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          path: dist
+          merge-multiple: true
+      - run: node scripts/package.mjs sums dist
+      - name: GitHub prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" dist/* --prerelease --verify-tag --generate-notes --title "$GITHUB_REF_NAME"
+
+  tap:
+    needs: publish
+    runs-on: macos-latest
+    environment: release
+    env:
+      HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Skip without a tap token
+        if: env.HOMEBREW_TAP_TOKEN == ''
+        run: echo "::notice::HOMEBREW_TAP_TOKEN is not set; the release is published and the tap is unchanged"
+      - if: env.HOMEBREW_TAP_TOKEN != ''
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - if: env.HOMEBREW_TAP_TOKEN != ''
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: StevenJPx2/homebrew-taps
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: tap
+      - name: Render chauffeur-next from the release's checksums
+        if: env.HOMEBREW_TAP_TOKEN != ''
+        run: |
+          set -euo pipefail
+          gh release download "$GITHUB_REF_NAME" --pattern SHA256SUMS --dir release
+          node scripts/homebrew.mjs "${GITHUB_REF_NAME#v}" release/SHA256SUMS > "tap/Formula/chauffeur-next.rb"
+      - name: Audit, install and test it from the tap
+        if: env.HOMEBREW_TAP_TOKEN != ''
+        run: |
+          set -euo pipefail
+          taps="$(brew --repository)/Library/Taps/stevenjpx2"
+          mkdir -p "$taps"
+          ln -s "$PWD/tap" "$taps/homebrew-taps"
+          # Homebrew loads a formula from a third-party tap only once it is trusted.
+          brew trust --formula stevenjpx2/taps/chauffeur-next
+          brew style stevenjpx2/taps/chauffeur-next
+          brew audit --strict --online --formula stevenjpx2/taps/chauffeur-next
+          brew install --formula stevenjpx2/taps/chauffeur-next
+          brew test stevenjpx2/taps/chauffeur-next
+      - name: Push to the tap
+        if: env.HOMEBREW_TAP_TOKEN != ''
+        working-directory: tap
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "Formula/chauffeur-next.rb"
+          git commit -m "chauffeur-next ${GITHUB_REF_NAME#v}"
+          git push

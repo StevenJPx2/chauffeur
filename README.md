@@ -285,6 +285,20 @@ export default ({ evidence }) =>
   evidence.diff.includes("migrations/") ? { p: { yes: 1, no: 0 } } : { p: { yes: 0, no: 1 } }
 ```
 
+## Install
+
+Release candidates install beside a running `chauffeur` as `chauffeur-next`,
+with their own socket and `~/.config/chauffeur-next/`:
+
+```sh
+brew install stevenjpx2/taps/chauffeur-next
+chauffeur-next daemon                    # Jev answers with TYPESAFE_API_KEY
+```
+
+To run the daemon at login instead, put `TYPESAFE_API_KEY=…` in
+`~/.homebrew/services/chauffeur-next.env` and run
+`brew services start chauffeur-next`.
+
 ## Documentation
 
 [`docs/plans/pluggability.md`](docs/plans/pluggability.md) describes the
@@ -321,6 +335,14 @@ cd playground
 bun install
 bun run dev     # rebuilds Rust on change and reloads the page
 bun run check   # release build and type check
+```
+
+Release scripts need Node; see [`scripts/`](scripts/) for how a release
+candidate is cut:
+
+```sh
+node --test scripts/                     # packaging and formula
+node scripts/smoke.mjs dist/chauffeur-*.tar.gz
 ```
 
 The documentation site needs Bun, and Node for deploying:

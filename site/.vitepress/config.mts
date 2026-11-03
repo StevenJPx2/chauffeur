@@ -50,7 +50,7 @@ function sidebar(all: string[]): DefaultTheme.SidebarItem[] {
       text: "Crates",
       items: [item("crates/README.md", "All crates"), ...crates.map((page) => item(page, moduleName(page)))],
     },
-    { text: "Tools", items: [...under("playground/"), ...under("site/")].map((page) => item(page)) },
+    { text: "Tools", items: [...under("playground/"), ...under("scripts/"), ...under("site/")].map((page) => item(page)) },
   ]
 }
 
