@@ -35,10 +35,13 @@ Files: `crates/core/src/after.rs`, `state.rs`, `proofs.rs`,
 
 ```rust
 let mut state = plan.start();
-while let Some(round) = state.questions() { // the steps whose needs are met
+
+// Each round holds the steps whose needs are met.
+while let Some(round) = state.questions() {
     // Or state.fail(step, Failure::Timeout).
     state = state.answer(ask_judges(&round))?;
 }
+
 let verdict = state.finish(); // "sure" is skipped when "fast" said yes or no
 ```
 

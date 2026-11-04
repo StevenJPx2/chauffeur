@@ -109,8 +109,10 @@ Files: `crates/runtime/src/admission.rs`, `run.rs`
 ```rust
 // Err(Busy) while the source's share is in use.
 let permit = admission.admit(Source::Integration)?;
+
 // The deadline and cancellation are checked before each round.
 let ran = pool.run(navigation, deadline, &cancel);
+
 deliver(ran); // a result after the deadline is discarded
 drop(permit); // released once, after delivery
 ```
@@ -177,6 +179,7 @@ const done = await ask(noul("Is the migration finished?"), {
   judge: quick,
   evidence: { log }
 })
+
 if (done.ok && done.outcome === "yes") {
   /* "yes" | "no" | "unsure" */
 }
@@ -199,6 +202,7 @@ Files, in sourcefed: its daemon, its installer, `adapters/opencode/bridge.ts`
 
 ```ts
 const chauffeur = connect() // kept for the daemon's lifetime
+
 const { intents } = await chauffeur.navigate({
   on: "sourcefed.event",
   evidence: { event, thread, monitor }

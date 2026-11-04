@@ -24,11 +24,10 @@ Commands: `chauffeur context-renewal status` and `chauffeur warming status`.
 
 ```ts
 ctx.on("session.resumed", (e) => {
-  if (
-    e.idle_seconds >= cacheSeconds(e.provider) &&
-    e.tokens.used >= budget(e.tokens.window)
-  )
-    session.compact(e.session, { model: summaryModel(e) })
+  const cold = e.idle_seconds >= cacheSeconds(e.provider)
+  const long = e.tokens.used >= budget(e.tokens.window)
+
+  if (cold && long) session.compact(e.session, { model: summaryModel(e) })
 })
 
 ctx.on("session.idle", (e) => schedule(e, () => session.warm(e.session)))
@@ -49,13 +48,14 @@ Commands: `chauffeur model-router status` and `forget`.
 ```ts
 ctx.on("response.finished", async (e) => {
   if (e.reason !== "error" || !isLimit(e.error)) return
+
   const pick = await ask(
     choice(candidates(e), "Which model should the agent continue on?"),
     { judge: quick, evidence: { error: e.error.message } }
   )
-  session.update(e.session, {
-    model: pick.ok && pick.outcome !== "unsure" ? pick.outcome : candidates(e)[0]
-  })
+  const sure = pick.ok && pick.outcome !== "unsure"
+
+  session.update(e.session, { model: sure ? pick.outcome : candidates(e)[0] })
   message.append(e.session, [{ text: "Switched model after a usage limit." }], {
     delivery: "wake"
   })

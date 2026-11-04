@@ -28,6 +28,7 @@ export default ({ evidence, args }) => {
     "SELECT id FROM notes WHERE notes MATCH ? LIMIT ?",
     [evidence.message, args.top ?? 10]
   )
+
   return { ranked: rows.map((row) => row.id) }
 }
 ```

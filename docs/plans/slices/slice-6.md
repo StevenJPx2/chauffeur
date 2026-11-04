@@ -32,6 +32,7 @@ ctx.before(
       e.text,
       ctx.options.ranking
     )
+
     // A yes/no per skill, then select keeps the best four.
     const best = await pick.run({ evidence: { message: e.text }, candidates })
     if (best.ok) e.append(best.outcome.map((id) => ({ skill: id })))
@@ -60,8 +61,10 @@ ctx.before(
   "prompt.sent",
   async (e) => {
     if (!e.first) return
+
     // A yes/no per group outside base; hidden when no reaches 0.7.
     const hidden = await unneededGroups(e)
+
     session.update(e.session, { tools: { hidden } })
   },
   { budget: 400, onTimeout: "allow" }

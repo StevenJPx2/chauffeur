@@ -126,12 +126,13 @@ Commands: `chauffeur sourcefed monitors`.
 
 ```ts
 ctx.on("tool.after", async (e) => {
+  // A PR from gh pr create, a Jira key or a Slack thread.
   for (const work of candidates(e)) {
-    // a PR from gh pr create, a Jira key, a Slack thread
     const own = await ask(
       noul("Is this the session's own work, which it should keep following?"),
       { judge: quick, evidence: { call: e.input, work } }
     )
+
     if (own.ok && own.outcome === "yes") await sourcefed.follow(e.session, work)
   }
 })
