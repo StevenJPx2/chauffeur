@@ -7,7 +7,7 @@ const REPOSITORY = "https://github.com/StevenJPx2/chauffeur"
 const BRANCH = "v2"
 const SITE = resolve(dirname(fileURLToPath(import.meta.url)), "..")
 const ROOT = resolve(SITE, "..")
-const SKIPPED = new Set([".git", ".github", ".vitepress", "node_modules", "target", "dist", "wasm"])
+const SKIPPED = new Set([".agents", ".git", ".github", ".vitepress", "node_modules", "target", "dist", "wasm"])
 
 /** Every Markdown file in the repository, relative to its root. */
 function pages(folder = ROOT): string[] {
