@@ -6,7 +6,8 @@ built; the OpenCode adapter waits for the harness package.
 **You can:** install the rc beside v1 and the harness package's OpenCode
 adapter, with Chauffeur registered as a decider. When the agent commits with
 a message such as `fixed stuff`, its next tool result carries "Use
-Conventional Commits, such as `feat(scope): …`". An `unsure` or `failed` answer sends nothing.
+Conventional Commits, such as `feat(scope): …`". An `unsure` or `failed`
+answer sends nothing.
 
 ```mermaid
 sequenceDiagram
@@ -45,29 +46,34 @@ assert_eq!(run.verdict.get("commit"), Some(&Outcome::Value("yes")));
 
 Structure:
 
+A plan is its steps in order. `new` refuses an empty plan and a repeated step
+ID. `run` refuses a step whose judge the panel lacks before asking any judge;
+then it asks each judge once, with all its steps, in the order the judges first
+appear. A judge that returns the wrong number of answers has each of its steps
+settle as `Invalid`.
+
 ```rust
 pub struct Plan<Q> {
     steps: Vec<Step<Q>>,
 }
 
 impl<Q> Plan<Q> {
-    // Empty with no steps, DuplicateStep for a repeated ID.
     pub fn new(steps: impl IntoIterator<Item = Step<Q>>) -> Result<Self, PlanError>;
-
     pub fn steps(&self) -> &[Step<Q>];
 
-    // UnknownJudge before any judge is asked. Each judge answers all its steps
-    // in one judge_all, in the order the judges first appear; a batch of the
-    // wrong length settles its steps as Invalid.
     pub fn run<O: Clone>(
         &self,
         panel: &Panel<'_, Q, O>,
     ) -> Result<Run<O>, PlanError>;
 }
+```
 
+A step asks one judge, by its name in the panel, one request.
+
+```rust
 pub struct Step<Q> {
     id: String,
-    judge: String, // the judge's name in the panel
+    judge: String,
     request: Q,
 }
 
@@ -76,29 +82,37 @@ impl<Q> Step<Q> {
     pub fn id(&self) -> &str;
     pub const fn request(&self) -> &Q;
 }
+```
 
+A judge answers one request, and several at once when it batches; by default
+`judge_all` calls `judge` for each. Any closure from a request to an outcome is
+a judge. A panel holds the judges a plan may name, looked up in order; `with`
+replaces a judge of the same name.
+
+```rust
 pub trait Judge<Q, O> {
     fn judge(&self, request: &Q) -> Outcome<O>;
-
-    // Calls judge for each request, unless the judge batches.
     fn judge_all(&self, requests: &[&Q]) -> Vec<Outcome<O>>;
 }
 
 impl<Q, O, F: Fn(&Q) -> Outcome<O>> Judge<Q, O> for F {}
 
 pub struct Panel<'a, Q, O> {
-    judges: Vec<(String, &'a dyn Judge<Q, O>)>, // looked up in order
+    judges: Vec<(String, &'a dyn Judge<Q, O>)>,
 }
 
 impl<'a, Q, O> Panel<'a, Q, O> {
-    pub const fn new() -> Self; // and Default
-
-    // Replaces a judge of the same name.
+    pub const fn new() -> Self;
     pub fn with<J: Judge<Q, O>>(self, name: impl Into<String>, judge: &'a J) -> Self;
-
     pub fn get(&self, name: &str) -> Option<&'a dyn Judge<Q, O>>;
 }
+
+impl<Q, O> Default for Panel<'_, Q, O> {}
 ```
+
+Each step settles as the judge's value or a failure. The first three failures
+fall back: the tier's next model answers instead. A failure's name is its wire
+name, such as `rate_limited`, which `Display` prints.
 
 ```rust
 pub enum Outcome<O> {
@@ -115,16 +129,19 @@ pub enum Failure {
 }
 
 impl Failure {
-    pub const fn name(self) -> &'static str; // "rate_limited"
+    pub const fn name(self) -> &'static str;
     pub fn from_name(name: &str) -> Option<Self>;
-
-    // True for the first three: the tier's next model answers instead.
     pub const fn falls_back(self) -> bool;
 }
 
-impl Display for Failure {} // its name
+impl Display for Failure {}
 impl Error for Failure {}
+```
 
+A run returns the events it emitted, in order, and the verdict: each step's
+outcome, in plan order.
+
+```rust
 pub enum Event<O> {
     Started { steps: Vec<String> },
     RoundReady { round: u32, steps: Vec<String> },
@@ -133,7 +150,7 @@ pub enum Event<O> {
 }
 
 pub struct Verdict<O> {
-    settled: Vec<(String, Outcome<O>)>, // in plan order
+    settled: Vec<(String, Outcome<O>)>,
 }
 
 impl<O> Verdict<O> {
@@ -185,24 +202,25 @@ assert!(rule.hooks(&event));
 
 Structure:
 
+A rule is its file, checked. `parse` refuses unknown fields, then checks each
+judge's confidence, each step's judge and question (inline or named in `asks`),
+the plan, and each `then` entry. A step may name a tier directly, as a judge
+that settles on the likeliest outcome. `hooks` is true when `on` names the event
+and `when` matches.
+
 ```rust
 pub struct Rule {
     id: String,
     on: String,
     when: When,
-    judges: BTreeMap<String, JudgeSpec>, // with tiers named directly
+    judges: BTreeMap<String, JudgeSpec>,
     plan: Plan<Question>,
     then: Vec<Then>,
     cooldown: Option<Duration>,
 }
 
 impl Rule {
-    // Refuses unknown fields, then checks each judge's confidence, each step's
-    // judge and question (inline or from asks), the plan and each then entry.
-    // A tier named directly as a judge settles on the likeliest outcome.
     pub fn parse(id: &str, text: &str) -> Result<Self, RuleError>;
-
-    // on names the event and when matches.
     pub fn hooks(&self, event: &Event) -> bool;
 
     pub fn id(&self) -> &str;
@@ -211,27 +229,46 @@ impl Rule {
     pub fn then(&self) -> &[Then];
     pub const fn cooldown(&self) -> Option<Duration>;
 }
+```
 
+A named judge is a tier, a model asked before the tier's order, and the
+confidence its answers need.
+
+```rust
 pub struct JudgeSpec {
     pub tier: Tier,
-    pub model: Option<String>, // asked before the tier's order
+    pub model: Option<String>,
     pub confidence: Confidence,
 }
+```
 
+`when` is checked before any judge is asked: the event's tool is one of `tools`,
+if any are listed, and some string in its input contains the text. An empty
+filter matches every event.
+
+```rust
 pub struct When {
     tools: Vec<String>,
-    input: Option<InputFilter>, // { contains: String }
+    input: Option<InputFilter>,
+}
+
+struct InputFilter {
+    contains: String,
 }
 
 impl When {
-    // The event's tool is listed, if any are, and some string in its input
-    // contains the text. An empty filter matches every event.
     pub fn matches(&self, event: &Event) -> bool;
 }
+```
 
+A `then` entry needs a result from some steps, an outcome, `unsure` or `failed`,
+and returns an action such as `message.append` with its payload. `first_met`
+picks the first entry whose needs all hold.
+
+```rust
 pub struct Then {
-    needs: Vec<(String, Expect)>, // step ID and what it must be
-    name: String,                 // "message.append"
+    needs: Vec<(String, Expect)>,
+    name: String,
     payload: Value,
 }
 
@@ -240,7 +277,6 @@ impl Then {
     pub fn name(&self) -> &str;
     pub const fn payload(&self) -> &Value;
 
-    // The first entry whose needs all hold.
     pub fn first_met<'a>(
         entries: &'a [Self],
         verdict: &Verdict<Answer>,
@@ -254,6 +290,10 @@ pub enum Expect {
 }
 ```
 
+An event is a JSON object named by its `event` field. Its evidence is
+`tool_call` (the tool and its input) and `tool_output` for tool events, and
+every other string field under its own name.
+
 ```rust
 pub struct Event {
     name: String,
@@ -261,19 +301,24 @@ pub struct Event {
 }
 
 impl Event {
-    // A JSON object with a string "event".
     pub fn parse(text: &str) -> Result<Self, EventError>;
 
     pub fn name(&self) -> &str;
     pub fn field(&self, field: &str) -> Option<&Value>;
     pub fn session(&self) -> Option<&str>;
-
-    // tool_call (the tool and its input) and tool_output for tool events, and
-    // every other string field under its own name.
     pub fn evidence(&self) -> Vec<(String, String)>;
 }
 
-// Each names the rule, and the step or entry where there is one.
+pub enum EventError {
+    Json(serde_json::Error),
+    Unnamed,
+}
+```
+
+Each error names the rule, and the step or entry where there is one. The file as
+written, `RuleFile` and its parts, stays private to `rule/`.
+
+```rust
 pub enum RuleError {
     Parse { rule, source: serde_json::Error },
     UnknownJudge { rule, step, judge },
@@ -283,15 +328,7 @@ pub enum RuleError {
     Plan { rule, source: PlanError },
     Then { rule, index, reason },
 }
-
-pub enum EventError {
-    Json(serde_json::Error),
-    Unnamed,
-}
 ```
-
-`RuleFile` and its parts, private to `rule/`, are the file as written;
-`parse` turns them into these types.
 
 Verified by:
 
@@ -321,13 +358,14 @@ let models = Models::load(&[shipped, user])?; // the user's entries win
 
 Structure:
 
-Questions:
+A question is all a judge sees: its instructions, the outcomes to choose from,
+and the names of the evidence blocks. `noul` asks yes or no.
 
 ```rust
 pub struct Question {
     instructions: String,
     outcomes: Outcomes,
-    evidence: Vec<String>, // the block names the judge sees
+    evidence: Vec<String>,
 }
 
 impl Question {
@@ -337,7 +375,6 @@ impl Question {
         evidence: impl IntoIterator<Item = impl Into<String>>,
     ) -> Result<Self, QuestionError>;
 
-    // Outcomes yes and no.
     pub fn noul(
         instructions: impl Into<String>,
         evidence: impl IntoIterator<Item = impl Into<String>>,
@@ -347,9 +384,13 @@ impl Question {
     pub const fn outcomes(&self) -> &Outcomes;
     pub fn evidence(&self) -> &[String];
 }
+```
 
-// 2 to 64, unique, none blank, neither "unsure" nor "failed". For a scale,
-// the order is the scale's.
+Outcomes are 2 to 64 labels, unique, none blank, and neither `unsure` nor
+`failed`; for a scale, their order is the scale's. A label may carry a
+description the model sees.
+
+```rust
 pub struct Outcomes(Vec<Label>);
 
 impl Outcomes {
@@ -365,11 +406,11 @@ impl Outcomes {
 
 pub struct Label {
     value: String,
-    description: Option<String>, // shown to the model
+    description: Option<String>,
 }
 
 impl Label {
-    pub fn new(value: impl Into<String>) -> Self; // and From<&str>
+    pub fn new(value: impl Into<String>) -> Self;
     pub fn described(
         value: impl Into<String>,
         description: impl Into<String>,
@@ -378,6 +419,8 @@ impl Label {
     pub fn value(&self) -> &str;
     pub fn description(&self) -> Option<&str>;
 }
+
+impl From<&str> for Label {}
 
 pub enum QuestionError {
     NoInstructions,
@@ -388,48 +431,64 @@ pub enum QuestionError {
 }
 ```
 
-Confidence:
+Probabilities are kept in thousandths, from 0 to 1000, so comparisons are exact.
+`read` takes exactly one probability from 0 to 1 for each outcome, not all zero,
+and fails as `Invalid` otherwise. `level` is the probability-weighted position
+in the outcomes, from 0 to n − 1.
 
 ```rust
-pub struct Milli(u16); // 0 to 1000, so comparisons are exact; ordered
+pub struct Milli(u16);
 
 impl Milli {
     pub const ONE: Self = Self(1000);
     pub const fn new(thousandths: u16) -> Option<Self>;
-    pub fn from_f64(p: f64) -> Option<Self>; // rounded
+    pub fn from_f64(p: f64) -> Option<Self>;
     pub const fn get(self) -> u16;
     pub fn to_f64(self) -> f64;
 }
 
-pub struct Probabilities(Vec<Milli>); // one per outcome, in their order
+pub struct Probabilities(Vec<Milli>);
 
 impl Probabilities {
-    // Exactly one probability from 0 to 1 per outcome, not all zero;
-    // Failure::Invalid otherwise.
     pub fn read<'a>(
         outcomes: &Outcomes,
         reply: impl IntoIterator<Item = (&'a str, f64)>,
     ) -> Result<Self, Failure>;
 
     pub fn as_slice(&self) -> &[Milli];
-    pub fn level(&self) -> f64; // probability-weighted position, 0 to n − 1
+    pub fn level(&self) -> f64;
 }
+```
 
+A confidence says when the likeliest outcome settles: whenever no other is as
+likely, at one bar, or at a bar per outcome, which `check` makes cover exactly
+the question's outcomes. `pick` is the rule the proof below checks: the
+likeliest outcome settles when no other is as likely and it meets its bar, edges
+included; otherwise the answer is `unsure`.
+
+```rust
 pub enum Confidence {
-    Likeliest, // a tie is unsure
+    Likeliest,
     Bar(Milli),
     PerOutcome(BTreeMap<String, Milli>),
 }
 
 impl Confidence {
-    // A per-outcome confidence must name exactly the outcomes.
     pub fn check(&self, outcomes: &Outcomes) -> Result<(), ConfidenceError>;
 }
 
-// The likeliest outcome, when no other is as likely and it meets its bar,
-// edges included; None is unsure.
 pub fn pick(p: &[Milli], bar: impl Fn(usize) -> Option<Milli>) -> Option<usize>;
 
+pub enum ConfidenceError {
+    Missing(String),
+    Unknown(String),
+}
+```
+
+`settle` turns a judge's probabilities into an answer under a confidence, and
+keeps the model that gave them. `Settled` prints as its value or as `unsure`.
+
+```rust
 pub struct Answer {
     outcome: Settled,
     p: Vec<(String, Milli)>,
@@ -456,20 +515,18 @@ pub enum Settled {
     Unsure,
 }
 
-impl Display for Settled {} // the value, or "unsure"
+impl Display for Settled {}
 
 pub struct AnsweredBy {
     pub model: String,
     pub placeholder: bool,
 }
-
-pub enum ConfidenceError {
-    Missing(String),
-    Unknown(String),
-}
 ```
 
-Models:
+`load` reads the shipped `models.json` files first and the user's last; a later
+model or tier list of the same name wins, and a placeholder's `answers` path is
+relative to its file. It refuses a tier that names an unregistered model. Each
+model is one of the API formats, by its `format`.
 
 ```rust
 pub struct Models {
@@ -478,68 +535,19 @@ pub struct Models {
 }
 
 impl Models {
-    // Shipped files first, the user's last; a later model or tier list of the
-    // same name wins. A placeholder's answers path is relative to its file.
-    // Refuses a tier naming an unregistered model.
     pub fn load(files: &[PathBuf]) -> Result<Self, ConfigError>;
-
     pub fn model(&self, name: &str) -> Option<&ModelEntry>;
     pub fn tier(&self, tier: Tier) -> &[String];
 }
 
 pub enum ModelEntry {
-    Systemone(SystemOneEntry), // "format": "systemone"
+    Systemone(SystemOneEntry),
     Placeholder(PlaceholderEntry),
 }
 
 pub struct KeySource {
     pub env: String,
 }
-
-pub trait Format: Send + Sync {
-    // A round's questions in one call, one result each.
-    fn answer_all(
-        &self,
-        questions: &[&Question],
-        evidence: &Evidence,
-    ) -> Vec<Result<Probabilities, Failure>>;
-
-    fn is_placeholder(&self) -> bool; // false unless overridden
-}
-
-pub struct Evidence(BTreeMap<String, String>); // redacted blocks by name
-
-impl Evidence {
-    pub fn new(
-        blocks: impl IntoIterator<Item = (impl Into<String>, impl Into<String>)>,
-    ) -> Self;
-
-    pub fn get(&self, name: &str) -> Option<&str>;
-
-    // The blocks the questions name, each once.
-    pub fn named_by<'a>(
-        &'a self,
-        questions: &[&Question],
-    ) -> impl Iterator<Item = (&'a str, &'a str)>;
-}
-
-pub struct PlaceholderEntry {
-    pub answers: Option<PathBuf>,
-    pub otherwise: Option<BTreeMap<String, f64>>,
-}
-
-pub struct Placeholder {
-    answers: Vec<Recorded>, // evidence, and probabilities or a failure
-    otherwise: Option<BTreeMap<String, f64>>,
-}
-
-impl Placeholder {
-    pub fn load(entry: &PlaceholderEntry) -> Result<Self, ConfigError>;
-}
-
-// The first recorded answer whose evidence the question sees with the same
-// content, then otherwise, else Unavailable. is_placeholder() is true.
-impl Format for Placeholder {}
 
 pub enum ConfigError {
     Read { path, source: io::Error },
@@ -549,10 +557,79 @@ pub enum ConfigError {
 }
 ```
 
+A format speaks one model API: it asks a round's questions in one call, with the
+redacted evidence blocks they name, and gives probabilities or a failure for
+each.
+
+```rust
+pub trait Format: Send + Sync {
+    fn answer_all(
+        &self,
+        questions: &[&Question],
+        evidence: &Evidence,
+    ) -> Vec<Result<Probabilities, Failure>>;
+
+    fn is_placeholder(&self) -> bool;
+}
+
+pub struct Evidence(BTreeMap<String, String>);
+
+impl Evidence {
+    pub fn new(
+        blocks: impl IntoIterator<Item = (impl Into<String>, impl Into<String>)>,
+    ) -> Self;
+
+    pub fn get(&self, name: &str) -> Option<&str>;
+
+    pub fn named_by<'a>(
+        &'a self,
+        questions: &[&Question],
+    ) -> impl Iterator<Item = (&'a str, &'a str)>;
+}
+```
+
+A placeholder stands in for a model. It gives the first recorded answer whose
+evidence the question sees with the same content, then `otherwise`, and fails as
+`Unavailable` with neither, so a gap in the recording shows.
+
+```rust
+pub struct PlaceholderEntry {
+    pub answers: Option<PathBuf>,
+    pub otherwise: Option<BTreeMap<String, f64>>,
+}
+
+pub struct Placeholder {
+    answers: Vec<Recorded>,
+    otherwise: Option<BTreeMap<String, f64>>,
+}
+
+impl Placeholder {
+    pub fn load(entry: &PlaceholderEntry) -> Result<Self, ConfigError>;
+}
+
+impl Format for Placeholder {}
+```
+
 Verified by:
 
-- Kani: for every probability in thousandths and every valid confidence, an
-  answer settles to exactly one outcome, edges inclusive.
+- Kani proves `pick` for every two or three outcomes, every probability in
+  thousandths and every bar, including none: an outcome settles exactly when
+  it is the only likeliest one and meets its bar, edges included, so an
+  answer is one outcome or `unsure`.
+
+  ```text
+  for all p   = 2 or 3 probabilities, each 0 to 1000 thousandths
+  for all bar = for each outcome, a bar from 0 to 1000, or none
+
+  picked = pick(p, bar)
+
+  for each outcome i:
+      only_likeliest = every other p[j] < p[i]
+      meets          = bar[i] is some b and p[i] >= b
+
+      assert (picked == i) == (only_likeliest and meets)
+  ```
+
 - An outcome outside the question's list fails as `invalid`.
 - Placeholders: recorded answers match by evidence, first match wins;
   `otherwise` answers the rest, and without it the step fails as
@@ -580,6 +657,9 @@ let run = plan.run(&Panel::new().with("quick", &judge))?;
 
 Structure:
 
+A step's judge names one of four tiers, written as `system-one` in rule files
+and `models.json`.
+
 ```rust
 pub enum Tier {
     Facts,
@@ -589,10 +669,17 @@ pub enum Tier {
 }
 
 impl Tier {
-    pub const fn name(self) -> &'static str; // "system-one"
+    pub const fn name(self) -> &'static str;
     pub fn from_name(name: &str) -> Option<Self>;
 }
+```
 
+A fallback is a tier's models in order: `preferred` first, then the tier's
+order, each once, leaving out a model whose key is missing. Each model answers
+only the questions still open after a failure that falls back, and a question no
+model answered fails as `Unavailable`.
+
+```rust
 pub struct Model {
     name: String,
     format: Box<dyn Format>,
@@ -603,8 +690,6 @@ pub struct Fallback {
 }
 
 impl Fallback {
-    // preferred first, then the tier's order, each once. Leaves out a model
-    // whose key is missing; loads placeholders.
     pub fn build(
         models: &Models,
         tier: Tier,
@@ -612,54 +697,69 @@ impl Fallback {
         key: impl Fn(&str) -> Option<String>,
     ) -> Result<Self, ConfigError>;
 
-    // Each model answers only the questions still open after a failure that
-    // falls_back(); with no model left, a question is Unavailable.
     pub fn answer_all(
         &self,
         questions: &[&Question],
         evidence: &Evidence,
     ) -> Vec<Result<(Probabilities, AnsweredBy), Failure>>;
 }
+```
 
+A named judge is what core sees. It asks the fallback once per round and settles
+each reply with `Answer::settle`.
+
+```rust
 pub struct NamedJudge<'a> {
     models: &'a Fallback,
     confidence: &'a Confidence,
     evidence: &'a Evidence,
 }
 
-// judge_all asks the fallback once per round and settles each reply with
-// Answer::settle.
+impl<'a> NamedJudge<'a> {
+    pub const fn new(
+        models: &'a Fallback,
+        confidence: &'a Confidence,
+        evidence: &'a Evidence,
+    ) -> Self;
+}
+
 impl Judge<Question, Answer> for NamedJudge<'_> {}
 ```
+
+Jev speaks `/v1/systemone`. `system_one::format` gives its client, or none when
+built without the `systemone` feature.
 
 ```rust
 pub struct SystemOneEntry {
     pub endpoint: String,
     pub model: String,
     pub key: KeySource,
-    pub timeout_ms: Option<u64>, // 3,000 by default
+    pub timeout_ms: Option<u64>,
 }
 
-// system_one::format: None when built without the systemone feature.
 pub fn format(entry: &SystemOneEntry, key: String) -> Option<Box<dyn Format>>;
+```
 
+The client posts to `{endpoint}/v1/systemone` with the key as a bearer token,
+waits 3 seconds by default and reads at most 256 KiB. A 429 or 529 fails as
+`RateLimited`, a 408 or a transport timeout as `Timeout`, and anything else as
+`Unavailable`, its text dropped. It sends a round's yes and no questions as
+`noul` in one request, with the evidence they name as `state`, and reads each
+`noul` as the chance of `yes`; any other question fails as `Invalid`.
+
+```rust
 pub struct SystemOne {
-    agent: ureq::Agent, // with the timeout
-    url: String,        // {endpoint}/v1/systemone
+    agent: ureq::Agent,
+    url: String,
     model: String,
-    key: String, // sent as a bearer token
+    key: String,
 }
 
 impl SystemOne {
     pub fn new(entry: &SystemOneEntry, key: String) -> Self;
-
-    // Reads at most 256 KiB. 429 and 529 are RateLimited, 408 and a transport
-    // timeout Timeout, anything else Unavailable, its text dropped.
     fn call(&self, body: &Value) -> Result<Response, Failure>;
 }
 
-// A round's yes and no questions as noul in one request, with the evidence
-// they name as state; noul is the chance of yes. Other questions are Invalid.
 impl Format for SystemOne {}
 ```
 
@@ -689,15 +789,23 @@ match run(&context, &rule, &event, Duration::from_secs(2)) {
 
 Structure:
 
+A context holds what any rule needs to run; `keys` finds a model's key from its
+variable's name.
+
 ```rust
 pub struct Context {
     pub models: Models,
     pub redactor: Redactor,
-    pub keys: Box<Keys>, // Fn(&str) -> Option<String>: a variable's key
+    pub keys: Box<dyn Fn(&str) -> Option<String> + Send + Sync>,
 }
+```
 
-// Redacts the event's evidence, then on a worker thread builds a Fallback and
-// a NamedJudge per judge, runs the plan, and finds the first then entry met.
+`run` redacts the event's evidence, then on a worker thread builds a fallback
+and a named judge for each of the rule's judges, runs the plan and finds the
+first `then` entry met. It waits at most `deadline`, and drops a late result. A
+fallback or plan that cannot be built is `Refused`.
+
+```rust
 pub fn run(
     context: &Arc<Context>,
     rule: &Arc<Rule>,
@@ -707,10 +815,17 @@ pub fn run(
 
 pub enum Ran {
     Settled { run: Run<Answer>, then: Option<Then> },
-    Refused(String), // a fallback or the plan could not be built
-    Deadline,        // a late result is dropped
+    Refused(String),
+    Deadline,
 }
 ```
+
+Redaction reads the shipped files first; a file with `replace` drops the earlier
+prefixes, and more than 256 prefixes, or an empty one, is refused. `redact`
+replaces private-key blocks and words with a known prefix with `[REDACTED]`, and
+describes other credential-like words by their shape, such as `[string 1: 40
+characters of hex, after "api_key="]`. Paths, links and hashes stay readable.
+`Masking` gives a described value the same number in every block of one run.
 
 ```rust
 pub struct Redactor {
@@ -718,22 +833,14 @@ pub struct Redactor {
 }
 
 impl Redactor {
-    // Shipped first; replace drops the earlier prefixes. At most 256, none
-    // empty.
     pub fn new(
         configs: impl IntoIterator<Item = RedactionConfig>,
     ) -> Result<Self, RedactError>;
 
     pub fn load(paths: &[PathBuf]) -> Result<Self, RedactError>;
-
-    // Private keys and known prefixes become [REDACTED]; other credential-like
-    // words a description of their shape, such as
-    // [string 1: 40 characters of hex, after "api_key="].
-    // Paths, links and hashes stay readable.
     pub fn redact(&self, text: &str, masking: &mut Masking) -> String;
 }
 
-// Numbers each described value, the same in every block of one run.
 pub struct Masking {
     numbers: BTreeMap<String, usize>,
 }
@@ -744,7 +851,7 @@ pub struct RedactionConfig {
 }
 
 pub struct Prefix {
-    pub prefix: String, // "ghp_"
+    pub prefix: String,
     pub min_body: usize,
 }
 
@@ -786,31 +893,40 @@ let last = audit::recent(&paths.state, 20)?; // one JSON line per run, oldest fi
 
 Structure:
 
+An installation's places come from its name, the executable's: the socket from
+`$CHAUFFEUR_SOCKET` or the runtime folder, configuration in `~/.config/<name>/`,
+state in `~/.local/state/<name>/`, and the distribution in `share/<name>/`
+beside the executable. `private_folder` creates the socket's folder with mode
+`0700`, or refuses one that is open to others or owned by someone else.
+
 ```rust
 pub struct Paths {
-    pub name: String,          // the executable's: chauffeur, chauffeur-next
-    pub socket: PathBuf,       // $CHAUFFEUR_SOCKET, or the runtime folder
-    pub config: PathBuf,       // ~/.config/<name>/
-    pub distribution: PathBuf, // share/<name>/ beside the executable
-    pub state: PathBuf,        // ~/.local/state/<name>/
+    pub name: String,
+    pub socket: PathBuf,
+    pub config: PathBuf,
+    pub distribution: PathBuf,
+    pub state: PathBuf,
 }
 
 impl Paths {
     pub fn from_env(name: &str, distribution: Option<PathBuf>) -> Self;
 }
 
-// Creates the socket's folder with mode 0700, or refuses one that is open to
-// others or owned by someone else.
 pub fn private_folder(socket: &Path) -> Result<(), DaemonError>;
+```
 
-// Loads, watches (polling every 2 s when the platform refuses), binds and
-// serves. A change reloads after 200 ms; one that fails keeps the old state.
+`run` loads everything, watches the configuration (polling every 2 seconds when
+the platform refuses), binds the socket and serves. A change reloads after 200
+ms; one that does not load keeps what was loaded. A user rule replaces a shipped
+one of the same ID, and a rule file that does not load is refused alone, with
+why.
+
+```rust
 pub fn run(paths: &Paths) -> Result<(), DaemonError>;
 
-// state::load(&paths)
 pub struct Loaded {
-    pub rules: Vec<Arc<Rule>>, // a user rule replaces a shipped one
-    pub refused: Vec<String>,  // each rule file that did not load, and why
+    pub rules: Vec<Arc<Rule>>,
+    pub refused: Vec<String>,
     pub context: Arc<Context>,
 }
 
@@ -823,6 +939,12 @@ pub enum DaemonError {
 }
 ```
 
+The router runs every rule that hooks an event at once, each on its own thread,
+and skips a rule still cooling down in that session. It writes each run to the
+audit log and returns what the rules returned, even when the log cannot be
+written. Cooldowns keep at most 4,096 rule and session pairs, forgetting the
+oldest.
+
 ```rust
 pub struct Router {
     loaded: RwLock<Arc<Loaded>>,
@@ -834,53 +956,47 @@ impl Router {
     pub fn new(loaded: Loaded, audit: Audit) -> Self;
     pub fn replace(&self, loaded: Loaded);
     pub fn loaded(&self) -> Option<Arc<Loaded>>;
-
-    // Runs every rule that hooks the event at once, each on its own thread,
-    // skipping one cooling down in that session. Logs each run and returns
-    // what the rules returned, even when the log cannot be written.
     pub fn emit(&self, event: &Event, deadline: Duration) -> Vec<Value>;
 }
 
-type Key = (String, String); // rule ID, session
-
-// 4,096 pairs at most, forgetting the oldest.
 struct Cooldowns {
-    fired: Mutex<BTreeMap<Key, Instant>>,
+    fired: Mutex<BTreeMap<(String, String), Instant>>,
 }
 
 impl Cooldowns {
-    fn cooling(&self, key: &Key, cooldown: Option<Duration>) -> bool;
-    fn fire(&self, key: Key);
+    fn cooling(&self, key: &(String, String), cooldown: Option<Duration>) -> bool;
+    fn fire(&self, key: (String, String));
 }
 ```
+
+The audit log adds the time as `at` to each run and moves to `audit.1.jsonl`
+past 8 MiB. `recent` reads the last runs across both files, oldest first, and
+`follow` calls back with each new line.
 
 ```rust
 pub struct Audit {
     folder: PathBuf,
-    max_bytes: u64, // MAX_BYTES, 8 MiB
+    max_bytes: u64,
     writing: Mutex<()>,
 }
 
 impl Audit {
     pub fn new(folder: &Path, max_bytes: u64) -> Self;
-
-    // Adds the time as at; past max_bytes the log moves to audit.1.jsonl.
     pub fn append(&self, entry: Value) -> io::Result<()>;
 }
 
-// The last lines across both files, oldest first.
 pub fn recent(folder: &Path, count: usize) -> io::Result<Vec<String>>;
-
 pub fn follow(folder: &Path, each: impl FnMut(&str)) -> io::Result<()>;
+```
 
-// socket.rs: leaves a socket another daemon answers on; replaces a stale one.
+`bind` leaves a socket another daemon answers on and replaces a stale one.
+`serve` gives each connection its own thread, 64 at most, with lines up to 1
+MiB. `handle` answers one JSON-RPC line, and nothing for a notification;
+deadlines default to 3 seconds and stop at 30.
+
+```rust
 pub fn bind(socket: &Path) -> Result<UnixListener, DaemonError>;
-
-// A thread per connection, 64 at most, lines up to MAX_LINE (1 MiB).
 pub fn serve(listener: &UnixListener, router: &Arc<Router>);
-
-// rpc.rs: one JSON-RPC line, and nothing for a notification. Deadlines
-// default to 3 s and stop at 30.
 pub fn handle(router: &Router, line: &str) -> Option<Value>;
 ```
 
@@ -915,25 +1031,31 @@ chauffeur daemon status   # version, loaded rules, refused rule files
 
 Structure:
 
+The commands, as `clap` reads them. `audit` shows 20 runs by default, and `emit`
+gives the rules 3,000 ms.
+
 ```rust
 enum Command {
     Daemon { command: Daemon },
     Version,
-    Emit { deadline_ms: u64 }, // 3,000 by default
-    Audit { count: usize, follow: bool, brief: bool }, // count 20 by default
+    Emit { deadline_ms: u64 },
+    Audit { count: usize, follow: bool, brief: bool },
 }
 
 enum Daemon {
-    Run { distribution: Option<PathBuf> }, // exits if one already runs
+    Run { distribution: Option<PathBuf> },
     Status,
 }
+```
 
-// The installation's name is the executable's file name. Runs the daemon, or
-// sends one call over the socket and prints the result.
+`main` takes the installation's name from the executable's file name, then runs
+the daemon, or sends one call over the socket and prints the result. `--brief`
+prints one line per run: the local time, the rule, the session, each step's
+result and model, the time it took and what it returned.
+
+```rust
 fn main() -> Result<ExitCode>;
 
-// audit.rs. --brief prints one line per run: local time, rule, session, each
-// step's result and model, the time taken and what it returned.
 pub fn print(state: &Path, count: usize, follow: bool, brief: bool) -> Result<()>;
 ```
 
@@ -990,23 +1112,29 @@ node scripts/homebrew.mjs 1.0.0-rc.1 dist/SHA256SUMS  # Formula/chauffeur-next.r
 
 Structure:
 
-```js
-// package.mjs
-export const TARGETS = ["darwin-arm64", "darwin-x64", "linux-arm64", "linux-x64"]
-export function version(root) {} // the workspace's version
-export function tarballName(release, target) {}
-export function tarball({ target, binary, out, root }) {} // bin/, share/chauffeur/
-export function sums(folder) {} // writes SHA256SUMS
+`package.mjs` packs `bin/chauffeur` and `share/chauffeur/` for each target,
+named by the workspace's version, and writes `SHA256SUMS`.
 
-// homebrew.mjs
+```js
+export const TARGETS = ["darwin-arm64", "darwin-x64", "linux-arm64", "linux-x64"]
+
+export function version(root) {}
+export function tarballName(release, target) {}
+export function tarball({ target, binary, out, root }) {}
+export function sums(folder) {}
+```
+
+`homebrew.mjs` renders `chauffeur-next.rb` from those sums, with each platform's
+URL and checksum.
+
+```js
 export function parseSums(text) {}
-// chauffeur-next.rb, with each platform's URL and checksum
 export function formula(release, sums, downloads) {}
 ```
 
-`smoke.mjs` installs a tarball under both names and runs each: `version`,
-the daemon, the shipped rule with a stand-in model, a nudge through `emit`,
-and the run in `audit`.
+`smoke.mjs` installs a tarball under both names and runs each: `version`, the
+daemon, the shipped rule with a stand-in model, a nudge through `emit`, and the
+run in `audit`.
 
 Verified by:
 
@@ -1037,22 +1165,26 @@ const result = JSON.parse(
 
 Structure:
 
+`settle` runs in the browser through WebAssembly and calls the same
+`Answer::settle` as the daemon. It takes `{ outcomes, p, confidence }` as JSON
+and returns `{ answer }`, `{ failed }` for a reply that is not an answer, or `{
+error }` for a question or confidence a rule would refuse.
+
 ```rust
-// playground/wasm. Takes { outcomes, p, confidence } as JSON; returns
-// { answer }, { failed } for a reply that is not an answer, or { error } for a
-// question or confidence a rule would refuse. Calls the daemon's Answer::settle.
 #[wasm_bindgen]
 pub fn settle(input: &str) -> String;
 ```
 
+Each tab is a feature; `question` is the Question tab, with the plan's
+confidence examples.
+
 ```ts
 type Feature = {
-  readonly id: string // #id in the URL
+  readonly id: string
   readonly title: string
   readonly view: () => { readonly $template: string }
 }
 
-// The Question tab, with the plan's confidence examples.
 export const question: Feature
 ```
 
