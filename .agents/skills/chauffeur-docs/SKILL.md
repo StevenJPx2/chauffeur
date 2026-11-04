@@ -20,8 +20,11 @@ cd site
 bun run format         # Prettier over every Markdown file, 85 columns
 bun run format:check
 bun run build          # fails on a dead link
-bun run preview        # look at the changed pages
+bun run preview        # look at the changed pages and their diagrams
 ```
+
+The site renders Mermaid, so a diagram that does not parse shows as an error
+on its page.
 
 Push to `v2`; the `docs.yml` workflow checks the format, builds and deploys.
 Watch it to the end.
