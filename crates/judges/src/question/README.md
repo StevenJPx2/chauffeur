@@ -17,6 +17,7 @@ let outcomes = Outcomes::new([
     Label::new("low"),
     Label::described("high", "Could lose data or money"),
 ])?;
+
 let question = Question::new("How risky is this command?", outcomes, ["tool_call"])?;
 assert_eq!(question.outcomes().position("high"), Some(1));
 ```

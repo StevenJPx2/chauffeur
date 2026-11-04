@@ -30,7 +30,9 @@ flowchart LR
 use chauffeur_core::Panel;
 use chauffeur_judges::{Fallback, NamedJudge, Tier};
 
-let models = Fallback::build(&loaded, Tier::SystemOne, None, |env| std::env::var(env).ok())?;
+let keys = |env: &str| std::env::var(env).ok();
+let models = Fallback::build(&loaded, Tier::SystemOne, None, keys)?;
+
 let judge = NamedJudge::new(&models, &confidence, &evidence);
 let run = plan.run(&Panel::new().with("quick", &judge))?;
 ```

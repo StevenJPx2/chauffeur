@@ -28,6 +28,7 @@ flowchart LR
 use chauffeur_protocol::Rule;
 
 let rule = Rule::parse("conventional-commits", &std::fs::read_to_string(path)?)?;
+
 for (name, spec) in rule.judges() {
     println!("{name}: {:?}", spec.tier);
 }

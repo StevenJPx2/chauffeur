@@ -7,7 +7,8 @@ verdict. For hook scripts, Git hooks and CI on the same machine.
 
 ```sh
 chauffeur navigate <<'EOF'
-{ "protocol": 1, "deadline_ms": 3000, "on": "sourcefed.event", "evidence": { "event": "…", "thread": "…" } }
+{ "protocol": 1, "deadline_ms": 3000, "on": "sourcefed.event",
+  "evidence": { "event": "…", "thread": "…" } }
 EOF
 ```
 

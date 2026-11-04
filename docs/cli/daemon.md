@@ -8,7 +8,8 @@ Runs the daemon in the foreground until it is stopped.
 
 ```sh
 chauffeur daemon run
-chauffeur daemon run --distribution ./distribution   # shipped content from a checkout
+# Shipped content from a checkout.
+chauffeur daemon run --distribution ./distribution
 ```
 
 | Option                | Default                                                                  |
@@ -48,7 +49,7 @@ chauffeur daemon status
   "protocol": 1,
   "rules": ["conventional-commits", "team/release"],
   "refused": [
-    "/Users/you/.config/chauffeur/rules/team/broken.json: rule `team/broken`: step `s` names judge `nobody`, which is neither in `judges` nor a tier"
+    "~/.config/chauffeur/rules/team/broken.json: … names judge `nobody`, …"
   ]
 }
 ```

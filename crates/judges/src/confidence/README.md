@@ -22,13 +22,19 @@ flowchart LR
 ```
 
 ```rust
-use chauffeur_judges::{Answer, AnsweredBy, Confidence, Milli, Probabilities, Question, Settled};
+use chauffeur_judges::{
+    Answer, AnsweredBy, Confidence, Milli, Probabilities, Question, Settled,
+};
 
-let question = Question::noul("Does this commit message break Conventional Commits?", ["commit"])?;
+let instructions = "Does this commit message break Conventional Commits?";
+let question = Question::noul(instructions, ["commit"])?;
+
 let p = Probabilities::read(question.outcomes(), [("yes", 0.94), ("no", 0.06)])?;
 let bar = Confidence::Bar(Milli::new(700).ok_or("bar")?);
 let by = AnsweredBy { model: "jev".into(), placeholder: false };
-assert_eq!(Answer::settle(&question, p, &bar, by).outcome(), &Settled::Outcome("yes".into()));
+
+let answer = Answer::settle(&question, p, &bar, by);
+assert_eq!(answer.outcome(), &Settled::Outcome("yes".into()));
 ```
 
 - A tie between the likeliest outcomes is always `unsure`.

@@ -46,6 +46,7 @@ export default Plugin.define({
           e.text,
           ctx.options.ranking
         )
+
         const best = await pick.run({ evidence: { message: e.text }, candidates })
         if (best.ok) e.append(best.outcome.map((id) => ({ skill: id })))
       },
@@ -89,8 +90,10 @@ At most four skills and 64 KiB attach per message, likeliest first.
 ```sh
 # Every skill the harness offers, its source and screen.
 chauffeur skills list
+
 # Its description, base directory, source and screen.
 chauffeur skills show jira-cli
+
 # Offer a third-party skill its screen withheld.
 chauffeur skills approve some-skill
 ```

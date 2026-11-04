@@ -30,6 +30,7 @@ flowchart LR
 use chauffeur_runtime::{Masking, Redactor};
 
 let redactor = Redactor::load(&[shipped, user])?;
+
 let mut masking = Masking::default();
 let sent = redactor.redact("export TOKEN=ghp_…", &mut masking);
 // "export TOKEN=[REDACTED]"

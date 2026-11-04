@@ -6,7 +6,8 @@ themselves; `emit` is for trying rules and plugins by hand.
 
 ```sh
 echo '{ "event": "tool.after", "session": "s1", "tool": "shell",
-        "input": { "command": "git commit -m '"'"'fixed stuff'"'"'" } }' | chauffeur emit
+        "input": { "command": "git commit -m '"'"'fixed stuff'"'"'" } }' \
+  | chauffeur emit
 ```
 
 ```json

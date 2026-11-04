@@ -96,14 +96,18 @@ const next = await ask(
   ),
   { judge: quick, evidence }
 )
-if (next.ok)
+
+if (next.ok) {
   next.outcome // "act" | "ignore" | "ask-user" | "unsure"
-else next.failed // "timeout" | "unavailable" | …
+} else {
+  next.failed // "timeout" | "unavailable" | …
+}
 
 const effort = await ask(
   score(["low", "medium", "high"], "How hard is this request?"),
   { judge: quick, evidence }
 )
+
 if (effort.ok && effort.level >= 1) {
   /* medium or higher */
 }
@@ -156,6 +160,7 @@ export function bm25({ evidence, args }) {
     "SELECT id FROM notes WHERE notes MATCH ? ORDER BY bm25(notes) LIMIT ?",
     [evidence.message, args.top ?? 10]
   )
+
   return { ranked: rows.map((row) => row.id) }
 }
 ```
@@ -179,8 +184,10 @@ Escalate from Jev to GLiDE to a reasoning model, only as far as needed:
 ```jsonc
 "strategy": [
   { "id": "fast",   "judge": "quick",    "ask": "needs-agent" },
-  { "id": "slow",   "judge": "careful",  "ask": "needs-agent", "after": [{ "step": "fast", "when": ["unsure", "failed"] }] },
-  { "id": "review", "judge": "reasoner", "ask": "needs-agent", "after": [{ "step": "slow", "when": ["unsure", "failed"] }] }
+  { "id": "slow",   "judge": "careful",  "ask": "needs-agent",
+    "after": [{ "step": "fast", "when": ["unsure", "failed"] }] },
+  { "id": "review", "judge": "reasoner", "ask": "needs-agent",
+    "after": [{ "step": "slow", "when": ["unsure", "failed"] }] }
 ]
 ```
 
@@ -294,8 +301,12 @@ export default Plugin.define({
   id: "context-renewal",
   setup(ctx) {
     ctx.on("session.resumed", (e) => {
-      if (e.idle_seconds >= e.cache_seconds && e.tokens.used >= e.tokens.window / 2)
+      const cold = e.idle_seconds >= e.cache_seconds
+      const long = e.tokens.used >= e.tokens.window / 2
+
+      if (cold && long) {
         session.compact(e.session, { model: ctx.options.summaryModel })
+      }
     })
   }
 })
@@ -311,12 +322,15 @@ ctx.before(
   "tool.before",
   async (e) => {
     if (e.tool !== "shell") return
+
     const harmful = await ask(noul("Could this command cause irreversible harm?"), {
       judge: guard,
       evidence: { command: e.input.command }
     })
-    if (!harmful.ok || harmful.outcome !== "no")
+
+    if (!harmful.ok || harmful.outcome !== "no") {
       e.askUser("Chauffeur isn't sure this is safe.")
+    }
   },
   { budget: 2_000, onTimeout: "ask" }
 )
@@ -380,16 +394,23 @@ WebAssembly target. Local builds use [blaze](https://github.com/indexable-inc/bl
 and [bacon](https://dystroy.org/bacon/).
 
 ```sh
-bacon                                           # tests on every save, through blaze; also clippy, doc
-cargo blaze test                                # fast local rebuilds; cargo stays the final word
+# Tests on every save, through blaze; also clippy and doc.
+bacon
+# Fast local rebuilds; cargo stays the final word.
+cargo blaze test
+
 cargo nextest run --workspace
 cargo test --doc --workspace
 cargo clippy --workspace --all-targets --locked
+
 cargo miri test -p chauffeur-core
-cargo kani -p chauffeur-judges                  # harnesses in each crate's src/proofs.rs
-cargo mutants -p chauffeur-core                 # the workspace's tests must catch every changed line
-cargo shear                                     # no unused dependencies
-cargo bench                                     # criterion benchmarks
+# Harnesses in each crate's src/proofs.rs.
+cargo kani -p chauffeur-judges
+# The workspace's tests must catch every changed line.
+cargo mutants -p chauffeur-core
+
+cargo shear   # no unused dependencies
+cargo bench   # criterion benchmarks
 ```
 
 The playground needs Bun and `wasm-pack`:
@@ -397,6 +418,7 @@ The playground needs Bun and `wasm-pack`:
 ```sh
 cd playground
 bun install
+
 bun run dev     # rebuilds Rust on change and reloads the page
 bun run check   # release build and type check
 ```
@@ -414,6 +436,7 @@ The documentation site needs Bun, and Node for deploying:
 ```sh
 cd site
 bun install
+
 bun run dev      # every Markdown file in the repository, live
 bun run deploy   # build, then cf deploy to Cloudflare
 ```

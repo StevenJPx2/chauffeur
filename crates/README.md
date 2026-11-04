@@ -45,10 +45,12 @@ sequenceDiagram
 ```
 
 ```sh
-echo '{"event":"tool.after","session":"s1","tool":"shell","input":{"command":"git commit -m wip"}}' | chauffeur emit
-# → { "actions": [{ "rule": "conventional-commits", "action": "message.append", "payload": { … } }] }
+echo '{ "event": "tool.after", "session": "s1", "tool": "shell",
+        "input": { "command": "git commit -m wip" } }' | chauffeur emit
+# → { "actions": [{ "rule": "conventional-commits", "action": "message.append" }] }
+
 chauffeur audit --brief
-# → 13:54:43  conventional-commits  s1  nonconventional yes 0.93 jev  312 ms  → message.append
+# → 13:54:43  conventional-commits  s1  nonconventional yes 0.93 jev  312 ms  → …
 ```
 
 ## Rules for every crate

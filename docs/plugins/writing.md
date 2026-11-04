@@ -39,10 +39,12 @@ export default Plugin.define({
           evidence: { summary: e.summary, request: e.request }
         }
       )
-      if (decided.ok && decided.outcome === "yes")
+
+      if (decided.ok && decided.outcome === "yes") {
         message.append(e.session, [{ text: "Add the decision to NOTES.md." }], {
           delivery: "next"
         })
+      }
     })
   }
 })
@@ -73,8 +75,10 @@ ctx.on("response.finished", async (e) => {
       evidence: { summary: e.summary, request: e.request }
     }
   )
-  if (decided.ok && decided.outcome === "yes")
+
+  if (decided.ok && decided.outcome === "yes") {
     await appendFile(join(e.workspace, "NOTES.md"), "- " + e.summary + "\n")
+  }
 })
 ```
 
@@ -170,6 +174,7 @@ const commit = await ask(
   noul("Does this commit message break Conventional Commits?"),
   { judge: quick, evidence }
 )
+
 if (commit.ok && commit.outcome === "yes") {
   /* "yes" | "no" | "unsure" */
 }
@@ -181,10 +186,12 @@ const next = await ask(
   ),
   { judge: quick, evidence }
 )
+
 const effort = await ask(
   score(["low", "medium", "high"], "How hard is the user's request?"),
   { judge: quick, evidence }
 )
+
 if (effort.ok && effort.level >= 1) {
   /* medium or higher */
 }

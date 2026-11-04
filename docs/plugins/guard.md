@@ -35,13 +35,16 @@ export default Plugin.define({
   setup(ctx) {
     // Patterns, confirm, learned.
     const backstop = loadBackstop(ctx.options, ctx.storage)
+
     ctx.before(
       "tool.before",
       async (e) => {
         if (e.tool !== "shell") return
+
         const matched = backstop.match(e.input.command)
         if (matched?.kind === "block") return e.block(matched.text)
         if (matched?.kind === "confirm") return e.askUser(matched.text)
+
         const harmful = await ask(
           noul("Could this command cause irreversible harm?"),
           {
@@ -49,11 +52,13 @@ export default Plugin.define({
             evidence: { command: e.input.command }
           }
         )
+
         if (harmful.ok && harmful.outcome === "yes") {
           backstop.learn(e.input.command)
           e.block("This command may cause irreversible harm.")
-        } else if (!harmful.ok || harmful.outcome === "unsure")
+        } else if (!harmful.ok || harmful.outcome === "unsure") {
           e.askUser("Chauffeur isn't sure this is safe.")
+        }
       },
       { budget: 2_000, onTimeout: "ask" }
     )
@@ -66,8 +71,10 @@ export default Plugin.define({
 ```sh
 # What the guard would do, without running it.
 chauffeur guard check 'git push --force origin main'
+
 # The commands it learned to block.
 chauffeur guard learned
+
 # Take one off the learned list.
 chauffeur guard forget 'rm -rf ./build'
 ```

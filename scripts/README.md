@@ -47,7 +47,8 @@ flowchart LR
 can install from local tarballs:
 
 ```sh
-node scripts/homebrew.mjs 1.0.0-rc.1 dist/SHA256SUMS file://$PWD/dist > Formula/chauffeur-next.rb
+node scripts/homebrew.mjs 1.0.0-rc.1 dist/SHA256SUMS file://$PWD/dist \
+  > Formula/chauffeur-next.rb
 ```
 
 Put it in a local tap, then `brew trust`, `style`, `audit --strict`,

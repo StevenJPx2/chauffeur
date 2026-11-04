@@ -44,6 +44,7 @@ providers that hit limits are kept in the plugin's storage.
 ```sh
 # Sessions moved off a model, and providers at a limit.
 chauffeur model-router status
+
 # Treat a provider's limit as cleared.
 chauffeur model-router forget anthropic
 ```

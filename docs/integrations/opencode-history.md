@@ -22,6 +22,7 @@ const { intents } = await navigate(
   },
   { signal: AbortSignal.timeout(1_500) }
 )
+
 const attach = intents.flatMap((intent) => intent.attach ?? [])
 ```
 

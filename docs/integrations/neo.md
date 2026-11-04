@@ -54,6 +54,7 @@ const { intents } = await navigate(
   },
   { signal: AbortSignal.timeout(30_000) }
 )
+
 const confirmed = intents.some((intent) => intent.confirm === "screen")
 ```
 

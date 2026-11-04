@@ -132,7 +132,6 @@ ctx.on("tool.after", async (e) => {
       noul("Is this the session's own work, which it should keep following?"),
       { judge: quick, evidence: { call: e.input, work } }
     )
-
     if (own.ok && own.outcome === "yes") await sourcefed.follow(e.session, work)
   }
 })

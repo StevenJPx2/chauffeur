@@ -21,11 +21,12 @@ export default Plugin.define({
     ctx.on("session.resumed", (e) => {
       const cached =
         ctx.options.cache_seconds[e.provider] ?? ctx.options.cache_seconds["*"]
-      if (
-        e.idle_seconds >= cached &&
-        e.tokens.used >= budget(e.tokens.window, ctx.options.budget)
-      )
+      const cold = e.idle_seconds >= cached
+      const long = e.tokens.used >= budget(e.tokens.window, ctx.options.budget)
+
+      if (cold && long) {
         session.compact(e.session, { model: summaryModel(e, ctx) })
+      }
     })
   }
 })

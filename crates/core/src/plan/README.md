@@ -25,9 +25,12 @@ flowchart LR
 ```rust
 use chauffeur_core::{Outcome, Panel, Plan, Step};
 
-let plan = Plan::new([Step::new("commit", "system-one", "Is this message conventional?")])?;
+let step = Step::new("commit", "system-one", "Is this message conventional?");
+let plan = Plan::new([step])?;
+
 let yes = |_: &&str| Outcome::Value("yes");
 let run = plan.run(&Panel::new().with("system-one", &yes))?;
+
 assert_eq!(run.verdict.get("commit"), Some(&Outcome::Value("yes")));
 ```
 
