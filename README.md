@@ -423,7 +423,14 @@ cargo kani -p chauffeur-judges
 cargo mutants -p chauffeur-core
 
 cargo shear   # no unused dependencies
-cargo bench   # criterion benchmarks
+```
+
+Benchmarks print Go's benchmark format; [`crates/`](crates/README.md#benchmarks)
+says what each measures:
+
+```sh
+cargo bench --workspace --bench '*'   # every crate's benches/, once each second
+node scripts/bench.mjs v2~1           # v2~1 against this tree, through benchstat
 ```
 
 The playground needs Bun and `wasm-pack`:
