@@ -1,8 +1,6 @@
 # Slice 1: Conventional Commits nudge in OpenCode
 
-**Status:** In progress: everything is built and checked end to end in
-OpenCode, and `v1.0.0-rc.1` is a GitHub prerelease; its Homebrew formula
-waits for approval.
+**Status:** Implemented, released as `chauffeur-next` `1.0.0-rc.1`.
 
 **You can:** install the rc beside v1 and add its OpenCode adapter to
 `plugins` in `opencode.jsonc`. When the agent commits with a message such as

@@ -10,7 +10,7 @@ covers every `main` commit to date, an rc ships, and work stops for review.
 | #   | Slice                                                     | Status      |
 | --- | --------------------------------------------------------- | ----------- |
 | 0   | [Setup](slice-0.md)                                       | Implemented |
-| 1   | [Conventional Commits nudge in OpenCode](slice-1.md)      | In progress |
+| 1   | [Conventional Commits nudge in OpenCode](slice-1.md)      | Implemented |
 | 2   | [sourcefed triage](slice-2.md)                            | Planned     |
 | 3   | [Escalation from Jev to GLiDE](slice-3.md)                | Planned     |
 | 4   | [opencode-history recall](slice-4.md)                     | Planned     |
