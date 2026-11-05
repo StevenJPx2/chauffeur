@@ -4,6 +4,7 @@ node_modules/
 .DS_Store
 /playground/src/wasm/
 /playground/dist/
+/adapters/opencode/dist/
 /site/.vitepress/cache/
 /site/.vitepress/dist/
 /site/.wrangler/

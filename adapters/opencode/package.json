@@ -1,0 +1,16 @@
+{
+  "name": "@fdcn/chauffeur-opencode",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "bun build src/index.ts --target node --format esm --outfile dist/server.js",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test",
+    "check": "bun run typecheck && bun test && bun run build"
+  },
+  "devDependencies": {
+    "@opencode/plugin": "2.2.5",
+    "@types/bun": "1.4.2",
+    "typescript": "7.0.2"
+  }
+}
