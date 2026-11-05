@@ -1,8 +1,8 @@
 # Tools
 
 Tools are what Chauffeur gives the agent to call. A plugin registers each one
-with `tool.add`, and the harness package's adapter puts it in the harness's
-tool list, beside the harness's own tools.
+with `tool.add`, and the harness's adapter puts it in the harness's tool
+list, beside the harness's own tools.
 
 | Tool                                | Does                                                         | From                                                      | Slice |
 | ----------------------------------- | ------------------------------------------------------------ | --------------------------------------------------------- | ----- |

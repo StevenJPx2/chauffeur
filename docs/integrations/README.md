@@ -11,8 +11,8 @@ four things, each kept and installed by that project:
 | A model format      | `models.json` entries pointing at the project's server             | jev-distill's `student`                       |
 
 Chauffeur answers questions for any program on the machine. A coding-agent
-harness is one caller among many: it reaches the daemon through the harness
-package's adapter. Any other program calls `chauffeur.navigate` itself, with
+harness is one caller among many: it reaches the daemon through Chauffeur's
+adapter for that harness. Any other program calls `chauffeur.navigate` itself, with
 its own event name and evidence, and acts on the intents that come back.
 
 ```mermaid

@@ -129,8 +129,8 @@ function to import, and `/judge` works the same from any program.
 `ask` hands the decision to the user, so a slow or failed judge never lets an
 action through silently. A harness denial always wins over a plugin.
 
-Events are the harness package's, such as `tool.after` and `session.idle`,
-and callers' own, such as `sourcefed.event`. A plugin's own events carry its
+Events are the adapters', such as `tool.after` and `session.idle`, and
+callers' own, such as `sourcefed.event`. A plugin's own events carry its
 ID before a dot, `notes.saved` here; the daemon refuses any other name from
 it. See [Events](../plans/pluggability.md#events).
 
@@ -138,7 +138,7 @@ it. See [Events](../plans/pluggability.md#events).
 
 Actions are named by resource and verb, such as `message.append` with a
 delivery of `now`, `next` or `wake`, or `session.compact`. A plugin can check
-the harness package's fidelity table before relying on one; an action a
+tack's fidelity table before relying on one; an action a
 harness cannot carry out returns `unsupported`.
 
 | Kind of action | Examples                                                | If it fails or arrives stale                                                                    |

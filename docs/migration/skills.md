@@ -5,7 +5,7 @@ skill list, handed over a better skill when the agent drifted, served skills
 from remote sources, and reviewed third-party skills before agents followed
 them. In v2 it is the `skills` plugin, in slice 6, over the skills the
 harness already knows: its own folders and configured sources, which the
-plugin reads through the harness package's `skill` registry. Its hooks,
+plugin reads through its adapter's `skill` registry. Its hooks,
 options and sources are on the [`skills` plugin's page](../plugins/skills.md).
 
 | v1                                                                                                                              | v2                                                                                                                                                                        |

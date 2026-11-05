@@ -1,27 +1,26 @@
 # Slice 1: Conventional Commits nudge in OpenCode
 
 **Status:** In progress: the engine, the release pipeline and the audit log are
-built; the OpenCode adapter waits for the harness package.
+built; the OpenCode adapter is next.
 
-**You can:** install the rc beside v1 and the harness package's OpenCode
-adapter, with Chauffeur registered as a decider. When the agent commits with
-a message such as `fixed stuff`, its next tool result carries "Use
-Conventional Commits, such as `feat(scope): …`". An `unsure` or `failed`
-answer sends nothing.
+**You can:** install the rc beside v1 and add its OpenCode adapter to
+`plugins` in `opencode.jsonc`. When the agent commits with a message such as
+`fixed stuff`, the commit's tool result ends with "Use Conventional Commits,
+such as `feat(scope): …`". An `unsure` or `failed` answer sends nothing.
 
 ```mermaid
 sequenceDiagram
     participant O as OpenCode
-    participant A as Harness package adapter
+    participant A as OpenCode adapter
     participant D as Chauffeur daemon
     participant J as Jev
-    O->>A: shell tool finished
-    A->>D: event tool.after
+    O->>A: tool execute.after, shell
+    A->>D: chauffeur.emit tool.after
     D->>D: match conventional-commits
     D->>J: noul, redacted tool call
     J-->>D: yes 0.94
-    D->>A: message.append, delivery now
-    A->>O: text on the next tool result
+    D-->>A: message.append, delivery now
+    A->>O: text added to the tool result
 ```
 
 ## What it builds
@@ -874,8 +873,7 @@ connections. It loads shipped and user models, redaction and rules, and
 reloads them when they change. It routes an event to the rules that hook it,
 concurrently, with each rule's cooldown per session, and appends every run
 to `audit.jsonl` in `~/.local/state/<name>/`, moved aside once past 8 MiB.
-Its methods are `chauffeur.emit` and `chauffeur.status`; the decider methods
-follow the harness package's contract.
+Its methods are `chauffeur.emit` and `chauffeur.status`.
 
 Files: `crates/daemon/src/paths.rs`, `state.rs`, `rpc.rs`, `socket.rs`,
 `audit.rs`, `route/`
@@ -1064,6 +1062,76 @@ Verified by:
 - The binary against a real daemon: the nudge through `emit`, `daemon status`,
   a second daemon, no daemon, refusals, and `audit` after the daemon stops.
 
+### The OpenCode adapter
+
+An OpenCode plugin that sends each completed tool call to the daemon as
+`tool.after` and carries out what the rules return. It decides nothing: the
+rules decide, and the adapter translates. It is written against OpenCode's
+plugin API, `@opencode/plugin` 2, and imports only its types, so it ships as
+one file with no dependencies.
+
+Files: `adapters/opencode/src/index.ts`, `event.ts`, `daemon.ts`, `act.ts`,
+`adapters/opencode/test/`
+
+The rc ships it in `share/chauffeur-next/opencode/`, and OpenCode loads it
+from there:
+
+```jsonc
+{
+  "$schema": "https://opencode.ai/config.json",
+  "plugins": ["/opt/homebrew/share/chauffeur-next/opencode"]
+}
+```
+
+After the agent's `git commit -m 'fixed stuff'`, the adapter sends:
+
+```json
+{
+  "event": "tool.after",
+  "session": "ses_…",
+  "tool": "shell",
+  "input": { "command": "git commit -m 'fixed stuff'" },
+  "output": "[v2 3f2c1a0] fixed stuff\n 1 file changed, 2 insertions(+)"
+}
+```
+
+The daemon returns `message.append` with `delivery: "now"`, and the agent
+reads the tool result with the text after it:
+
+```text
+[v2 3f2c1a0] fixed stuff
+ 1 file changed, 2 insertions(+)
+
+Use Conventional Commits, such as `feat(scope): short description`.
+```
+
+- **Which daemon.** The folder it ships in names the installation, so
+  `share/chauffeur-next/opencode/` reaches `chauffeur-next`'s socket, found
+  as the daemon finds it. `$CHAUFFEUR_SOCKET` or the plugin's `socket`
+  option names another.
+- **Every completed call** is sent, with its output's text up to 64 KiB. A
+  call that fails has no result to add to, and is not sent.
+- **Fails open.** The adapter waits for the rules' deadline, 3 seconds by
+  default (option `deadline_ms`), and half a second more. With no daemon, an
+  error or no answer, the result stays as it was, and OpenCode's log says why,
+  once a minute at most.
+- **Actions.** `message.append` with `delivery: "now"` adds its text parts to
+  the result: after a blank line when the result is text, or as text items
+  when it is a list. The adapter logs and skips any other action or
+  delivery; each arrives with the slice that needs it.
+- **One connection per call** over the socket, so two OpenCode windows share
+  one daemon and a restarted daemon needs nothing.
+
+Verified by:
+
+- `bun test` against a stand-in daemon on a real socket: the event a shell
+  call sends; the text added to a text result and to a list result; nothing
+  added for no actions, no daemon, a late answer, an error reply or an
+  unknown action; a failed call not sent; the socket named by the folder,
+  `$CHAUFFEUR_SOCKET` and the option.
+- The smoke test loads the tarball's `share/<name>/opencode/` in Bun and
+  checks that its `setup` hooks `execute.after`.
+
 ### Shipped content
 
 Jev as the default System One, the nudge, and the known credential prefixes.
@@ -1093,7 +1161,9 @@ Verified by the end-to-end checks below.
 
 ### Release
 
-rc packaging and the `chauffeur-next` formula with its Homebrew service.
+rc packaging, with the OpenCode adapter in `share/<name>/opencode/`, and the
+`chauffeur-next` formula with its Homebrew service, whose caveats print the
+`plugins` line.
 `release.yml` publishes a prerelease and the formula on each rc tag.
 
 Files: `scripts/package.mjs`, `homebrew.mjs`, `smoke.mjs`,

@@ -1,8 +1,7 @@
 # `chauffeur emit`
 
 Sends one harness event, read as JSON on stdin, to the daemon, and prints
-what the rules returned. The harness package's adapters send these events
-themselves; `emit` is for trying rules and plugins by hand.
+what the rules returned. Chauffeur's adapters send these events themselves; `emit` is for trying rules and plugins by hand.
 
 ```sh
 echo '{ "event": "tool.after", "session": "s1", "tool": "shell",

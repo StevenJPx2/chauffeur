@@ -16,8 +16,10 @@ Chauffeur is a judgment engine with plugins around it.
 - **Plugins**, in TypeScript, are the behaviors: they hook into harness events,
   ask the engine questions, and act on the harness through generic actions.
 - **Adapters**, one per harness, translate that harness's hooks into standard
-  events and carry out actions. They come from the shared harness package,
-  which any program can use; Chauffeur is one of the deciders it asks.
+  events and carry out actions. Chauffeur ships them, built with
+  `@workhorse/tack`, which turns one plugin into each harness's native form.
+  The OpenCode adapter is written against OpenCode's plugin API directly and
+  moves onto tack in slice 8.
 - **Callers**, any program, send a question with its context through
   `chauffeur.navigate`, with or without a harness. Rule files, which are
   data, decide how to answer. [Integrations](../integrations/README.md)
@@ -34,14 +36,14 @@ slice's feature brings the next pieces. See
 | #   | Feature                                                          | New pieces                                                                                |
 | --- | ---------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
 | 0   | [Setup](slices/slice-0.md)                                       | Toolchain, lints, the playground shell                                                    |
-| 1   | [Conventional Commits nudge in OpenCode](slices/slice-1.md)      | Core, rule files, the Jev format, the daemon as a decider, rc release                     |
+| 1   | [Conventional Commits nudge in OpenCode](slices/slice-1.md)      | Core, rule files, the Jev format, the OpenCode adapter, rc release                        |
 | 2   | [sourcefed triage](slices/slice-2.md)                            | `navigate` for programs, intents, the TypeScript client                                   |
 | 3   | [Escalation from Jev to GLiDE](slices/slice-3.md)                | Multi-step strategies with `after`, SubQ and GLiDE, `choice` and `score`, `strategy show` |
 | 4   | [opencode-history recall](slices/slice-4.md)                     | Facts, `for_each`, `select`                                                               |
 | 5   | [Harm guard, permissions and v1's rules](slices/slice-5.md)      | Plugins, `ctx.before`, asking the user, the rule-file fields v1's rules need              |
 | 6   | [Skills and tools](slices/slice-6.md)                            | The skills, tools and `ask-chauffeur` plugins, prompt edits                               |
 | 7   | [Context renewal, warming and model failover](slices/slice-7.md) | Session actions                                                                           |
-| 8   | [Pi](slices/slice-8.md)                                          | Every feature so far, through the harness package's Pi adapter                            |
+| 8   | [Pi](slices/slice-8.md)                                          | Every feature so far, through its Pi adapter, built with tack                             |
 | 9   | [Claude Code](slices/slice-9.md)                                 | The same, through its Claude Code adapter                                                 |
 | 10  | [Codex](slices/slice-10.md)                                      | The same, through its Codex hook command                                                  |
 | 11  | [Review by a reasoning model](slices/slice-11.md)                | The System Two formats                                                                    |
@@ -84,7 +86,7 @@ flowchart LR
 | Porting        | Each `main` feature is re-expressed in v2's architecture, not merged: v2's tree replaces v1's, so merges would conflict on every removed file                                             |
 | Tracking       | The parity table lists every `main` commit after the branch point; the watermark names the last one reviewed                                                                              |
 | Evidence       | A ported feature passes `main`'s cases for it, replayed against v2                                                                                                                        |
-| Version mixing | The version handshake between the daemon, its SDK, plugins and the harness package keeps v1 and v2 from running together                                                                  |
+| Version mixing | The version handshake between the daemon, its SDK, plugins and adapters keeps v1 and v2 from running together                                                                             |
 | User state     | v2 reads no v1 file. At cutover an agent rewrites the user's configuration into v2's files, from the prompt in the [migration guide](../migration/README.md#rewriting-your-configuration) |
 | After cutover  | `v1` is a branch for hotfixes only                                                                                                                                                        |
 
@@ -107,7 +109,7 @@ Branch point `73bc29e`. Watermark: `c3b4e1b`.
 | `73bc29e` Homebrew release, CI                                                 | Release scripts, `check.yml` and `release.yml` in v2: rc releases as `chauffeur-next` from slice 1, `1.0.0` at cutover                                                                                                                                                                                                                | 1, 13    | `release.test.mjs`, `smoke.mjs`                                                                  |
 | `f54db24`, `d66a385`, `e7fbabf` docs                                           | Documentation only                                                                                                                                                                                                                                                                                                                    | —        | —                                                                                                |
 | `5330c3b` GLiDE, `fab9ae1` no escalation for permission requests, who answered | `glide.json` over the `systemone` format; escalation is a strategy: System One with `model: "jev"`, then `model: "glide"`, then System Two. The guard's strategy asks one judge and never escalates, since the agent's call waits on it; each round's event names the model that answered and keeps the answers a later step replaced | 3, 5, 11 | `judges/glide/tests/wire.rs`, `docs/judges.md` escalation cases                                  |
-| `0adc459` a failed permission check keeps the host's decision                  | Rules on `permission.asked`: a failed or late answer keeps what the harness decided, since Chauffeur only vetoes what the host allows; a 5 s `before` budget; the harness package retries an unreachable daemon twice, 500 ms apart                                                                                                   | 5        | `permission.test.ts`                                                                             |
+| `0adc459` a failed permission check keeps the host's decision                  | Rules on `permission.asked`: a failed or late answer keeps what the harness decided, since Chauffeur only vetoes what the host allows; a 5 s `before` budget; the adapter retries an unreachable daemon twice, 500 ms apart                                                                                                           | 5        | `permission.test.ts`                                                                             |
 | `16c1433`, `1949263`, `413eb65` tools that stay exposed                        | The `tools` plugin's `base` list: `history_search`, the agent conversation tools and the `agents` Code Mode namespace                                                                                                                                                                                                                 | 6        | `tool-exposure/tests/exposure.rs`, `skills/config/tool-exposure.json`                            |
 | `94e3b4e` 32 remote skill sources                                              | The harness's config sets the sources; Chauffeur keeps no list or limit of its own                                                                                                                                                                                                                                                    | 6        | —                                                                                                |
 | `02aee18`, `60d4c26` renewal fixes                                             | The context-renewal plugin writes a summary in a temporary child session on the summary model, passes over a provider that failed for an hour, and leaves a session already on a cheap model to the harness's own compaction                                                                                                          | 7        | `renewal.test.ts`, `model-router/tests/routing.rs`                                               |
@@ -141,7 +143,7 @@ flowchart TB
         PluginSDK["/plugin"]
         Harness["/harness"]
     end
-    Adapters["Harness package<br/>one adapter per harness"]
+    Adapters["Adapters<br/>one per harness, built with tack"]
     subgraph Engine["Rust engine"]
         Daemon["daemon<br/>socket, event bus, plugin supervisor"]
         Run["protocol, runtime, judges, facts"]
@@ -149,7 +151,7 @@ flowchart TB
     end
     Dist[("distribution/<br/>models, facts, rules")]
     TS -- "Unix socket or stdio" --> Daemon
-    Adapters -- "events and before, as a decider" --> Daemon
+    Adapters -- "events and before" --> Daemon
     Daemon -- "actions" --> Adapters
     Daemon --> Run
     Run --> Core
@@ -162,7 +164,7 @@ flowchart TB
 | Fact      | A JavaScript module that answers a question without a model     | Chauffeur, the user, or a project (pure only)    | `match`, `select`, `bm25`, a user's `notes`                               |
 | Plugin    | A TypeScript program that hooks events, asks questions and acts | Chauffeur, the user, anyone                      | `skills`, `context-renewal`, `warming`, `guard`                           |
 | Caller    | Any program that sends a question and its context               | Anyone                                           | sourcefed's daemon, opencode-history, hook scripts                        |
-| Adapter   | Per-harness glue: standard events out, actions in               | The shared harness package, one per harness      | Its OpenCode plugin, Pi extension, Claude Code mod and Codex hook command |
+| Adapter   | Per-harness glue: standard events out, actions in               | Chauffeur, one per harness, with tack            | Its OpenCode plugin, Pi extension, Claude Code mod and Codex hook command |
 
 Policy lives in rule files, facts and plugins. Adapters and callers hold no
 judging logic: an adapter translates, and a caller sends its question and acts
@@ -288,8 +290,8 @@ delivers, as v1's gate does.
 ### opencode-history: recall
 
 opencode-history searches its own index when the user sends a message, then
-navigates `opencode-history.recall` with the message and the passages as candidates. Its rule,
-`opencode-history/recall`, ranks them, and opencode-history attaches the
+navigates `opencode-history.recall` with the message and the passages as
+candidates. Its rule, `opencode-history/recall`, ranks them, and opencode-history attaches the
 passages the `attach` intent names.
 
 ### Programs without a harness

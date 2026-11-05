@@ -29,7 +29,7 @@ export default Plugin.define({
   14 on Claude Opus 5.5.
 - **Never warmed:** a context under `min_tokens`, an unknown cache-read
   price, a provider that hit a limit, or a subagent's session.
-- **In OpenCode,** the harness package carries `session.warm` out as one
+- **In OpenCode,** the adapter carries `session.warm` out as one
   transient generate request with the keep-alive prompt, as v1 did. Where a
   harness can neither, the plugin does nothing. Leave the harness's own
   warming setting off, or the session is warmed twice.

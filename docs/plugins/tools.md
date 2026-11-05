@@ -77,5 +77,5 @@ grant does.
 With `code_mode.trim`, the same answers also withhold the namespaces
 confidently not needed, except those in `always`.
 
-The harness package needs `session.update` to carry a session's hidden
-tools, in every adapter that can remove tools from a request.
+`session.update` carries a session's hidden tools, in every adapter that can
+remove tools from a request.
