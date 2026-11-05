@@ -1071,7 +1071,7 @@ plugin API, `@opencode/plugin` 2, and imports only its types, so it ships as
 one file with no dependencies.
 
 Files: `adapters/opencode/src/index.ts`, `event.ts`, `daemon.ts`, `act.ts`,
-`carry.ts`, `adapters/opencode/test/`
+`carry.ts`, `log.ts`, `adapters/opencode/test/`
 
 The rc ships it in `share/chauffeur-next/opencode/`, and OpenCode loads it
 from there:
@@ -1117,8 +1117,9 @@ Use Conventional Commits, such as `feat(scope): short description`.
   so text added to an inner call is added to `execute`'s result as well.
 - **Fails open.** The adapter waits for the rules' deadline, 3 seconds by
   default (option `deadline_ms`), and half a second more. With no daemon, an
-  error or no answer, the result stays as it was, and the adapter prints why
-  on the server's standard error, once a minute at most.
+  error or no answer, the result stays as it was, and the adapter writes why
+  to `opencode.log` in `~/.local/state/<name>/`, beside the audit log, once a
+  minute at most.
 - **Actions.** `message.append` with `delivery: "now"` adds its text parts
   after a blank line: to the text when the result is text, or as text items
   when it is a list. The adapter skips any other action or delivery; each
@@ -1207,6 +1208,19 @@ export function apply(result: Result, actions: readonly Action[]): Applied
 export function append(result: Result, texts: readonly string[]): Result
 ```
 
+`logPath` is `<name>/opencode.log` in `$XDG_STATE_HOME`, or in
+`~/.local/state`. `fileLog` appends a line with the time, making the folder,
+and lets go of a log it cannot write.
+
+```ts
+export function logPath(
+  name: string,
+  env: Readonly<Record<string, string | undefined>>
+): string
+
+export function fileLog(path: string, now?: () => Date): (message: string) => void
+```
+
 `carrier` keeps the text added to a call for the `execute` call that made it,
 which shares its call ID and finishes after it. `take` gives a call's text
 once. It holds the latest 256 calls.
@@ -1225,7 +1239,8 @@ Verified by:
   `execute` result whose inner call was nudged; nothing added for no
   actions, no daemon, a late answer, an error reply or an unknown action; a
   failed call not sent; no options; the plugin and socket named by the
-  folder, `$CHAUFFEUR_SOCKET` and the option.
+  folder, `$CHAUFFEUR_SOCKET` and the option; the log's place, its lines,
+  and a log that cannot be written.
 - The smoke test loads each installed `share/<name>/opencode/server.js` as
   OpenCode does and runs its hook on a commit against the real daemon: the
   nudge ends the result, and `audit` shows the run.

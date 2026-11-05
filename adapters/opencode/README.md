@@ -10,6 +10,8 @@ nothing. See [slice 1](../../docs/plans/slices/slice-1.md#the-opencode-adapter).
 | `src/event.ts`  | A completed call as a `tool.after` event                      |
 | `src/daemon.ts` | The installation, its socket, and one `chauffeur.emit` call   |
 | `src/act.ts`    | `message.append` with `delivery: "now"` onto the result       |
+| `src/carry.ts`  | Text from a call inside Code Mode, kept for `execute`         |
+| `src/log.ts`    | `opencode.log` in the installation's state folder             |
 | `test/`         | `bun test` against a stand-in daemon on a real socket         |
 
 ```sh

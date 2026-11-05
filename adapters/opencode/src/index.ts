@@ -3,6 +3,7 @@ import { append, apply } from "./act.ts"
 import { carrier } from "./carry.ts"
 import { emit, installation, socketPath, type Action } from "./daemon.ts"
 import { toolAfter } from "./event.ts"
+import { fileLog, logPath } from "./log.ts"
 
 type Options = { socket?: unknown; deadline_ms?: unknown }
 
@@ -23,8 +24,14 @@ function warner(log: (message: string) => void, now = Date.now) {
   }
 }
 
-/** The plugin, named after its installation so beside v1's they both load. */
-export function adapter(module: string, log = console.warn): Plugin.Plugin {
+/**
+ * The plugin, named after its installation so beside v1's they both load.
+ * Trouble goes to `opencode.log` in the installation's state folder.
+ */
+export function adapter(
+  module: string,
+  log?: (message: string) => void
+): Plugin.Plugin {
   const name = installation(module)
 
   return {
@@ -41,7 +48,7 @@ export function adapter(module: string, log = console.warn): Plugin.Plugin {
         typeof options.deadline_ms === "number"
           ? options.deadline_ms
           : DEFAULT_DEADLINE_MS
-      const warn = warner(log)
+      const warn = warner(log ?? fileLog(logPath(name, process.env)))
       const carried = carrier()
 
       const ask = async (event: Record<string, unknown>, tool: string) => {
