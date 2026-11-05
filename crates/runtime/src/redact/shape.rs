@@ -37,13 +37,23 @@ pub(super) fn describe(number: usize, shape: &Shape, key: &str) -> String {
     label
 }
 
-/// The shape of a credential-like word, or none.
+/// The shape of a credential-like word, or none. Words are ASCII, since the
+/// walk takes only ASCII bytes into them, so a word's length in bytes is its
+/// length in characters.
 pub(super) fn shape(word: &str) -> Option<Shape> {
-    let length = word.chars().count();
-    let hex = word.chars().all(|character| character.is_ascii_hexdigit());
-    let mixed = word.chars().any(|character| character.is_ascii_uppercase())
-        && word.chars().any(|character| character.is_ascii_lowercase())
-        && word.chars().any(|character| character.is_ascii_digit());
+    let length = word.len();
+    if length < MIN_MIXED_LEN.min(MIN_HEX_LEN) {
+        return None;
+    }
+    let mut hex = true;
+    let (mut upper, mut lower, mut digit) = (false, false, false);
+    for byte in word.bytes() {
+        hex &= byte.is_ascii_hexdigit();
+        upper |= byte.is_ascii_uppercase();
+        lower |= byte.is_ascii_lowercase();
+        digit |= byte.is_ascii_digit();
+    }
+    let mixed = upper && lower && digit;
     if !((hex && length >= MIN_HEX_LEN) || (mixed && length >= MIN_MIXED_LEN)) {
         return None;
     }

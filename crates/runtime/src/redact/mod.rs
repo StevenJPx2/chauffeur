@@ -8,6 +8,7 @@ mod key;
 mod shape;
 mod walk;
 
+use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
@@ -16,7 +17,7 @@ pub use config::{Prefix, RedactError, RedactionConfig};
 use config::MAX_PREFIXES;
 use key::{key_before, path_like};
 use shape::{describe, shape};
-use walk::{is_token_char, walk};
+use walk::{is_token_byte, walk};
 
 /// What a known secret is replaced with.
 pub const REDACTED: &str = "[REDACTED]";
@@ -39,6 +40,10 @@ impl Masking {
 #[derive(Clone, Debug)]
 pub struct Redactor {
     prefixes: Vec<Prefix>,
+    /// The fewest bytes a known token can have: its prefix and least body.
+    shortest: usize,
+    /// The bytes known tokens start with, so other words skip the prefixes.
+    starts: Vec<u8>,
 }
 
 impl Redactor {
@@ -60,7 +65,22 @@ impl Redactor {
         }
         // Longer prefixes first, so `sk-ant-` wins over `sk-`.
         prefixes.sort_by_key(|prefix| std::cmp::Reverse(prefix.prefix.len()));
-        Ok(Self { prefixes })
+        let shortest = prefixes
+            .iter()
+            .map(|prefix| prefix.prefix.len().saturating_add(prefix.min_body))
+            .min()
+            .unwrap_or(usize::MAX);
+        let mut starts: Vec<u8> = prefixes
+            .iter()
+            .filter_map(|prefix| prefix.prefix.as_bytes().first().copied())
+            .collect();
+        starts.sort_unstable();
+        starts.dedup();
+        Ok(Self {
+            prefixes,
+            shortest,
+            starts,
+        })
     }
 
     /// A redactor from the files at `paths`, shipped first.
@@ -90,37 +110,61 @@ impl Redactor {
     pub fn redact(&self, text: &str, masking: &mut Masking) -> String {
         walk(text, |word, before| {
             if path_like(word, before) {
-                return word
-                    .split('/')
-                    .map(|segment| self.replace_word(segment, before, masking))
-                    .collect::<Vec<_>>()
-                    .join("/");
+                return self.replace_segments(word, before, masking);
             }
             self.replace_word(word, before, masking)
         })
     }
 
-    /// A word as sent: redacted, described, or unchanged.
-    fn replace_word(&self, word: &str, before: &str, masking: &mut Masking) -> String {
+    /// A path as sent, each segment judged alone; borrowed when none changed.
+    fn replace_segments<'a>(
+        &self,
+        path: &'a str,
+        before: &str,
+        masking: &mut Masking,
+    ) -> Cow<'a, str> {
+        let segments: Vec<Cow<'a, str>> = path
+            .split('/')
+            .map(|segment| self.replace_word(segment, before, masking))
+            .collect();
+        if segments
+            .iter()
+            .all(|segment| matches!(segment, Cow::Borrowed(_)))
+        {
+            return Cow::Borrowed(path);
+        }
+        Cow::Owned(segments.join("/"))
+    }
+
+    /// A word as sent: redacted, described, or unchanged. Only an unchanged
+    /// word comes back borrowed.
+    fn replace_word<'a>(&self, word: &'a str, before: &str, masking: &mut Masking) -> Cow<'a, str> {
         if self.known(word) {
-            return REDACTED.to_owned();
+            return Cow::Owned(REDACTED.to_owned());
         }
         let Some(shape) = shape(word) else {
-            return word.to_owned();
+            return Cow::Borrowed(word);
         };
         let key = key_before(before);
         // A bare hex string is a commit or content hash; after a key it may be a credential.
         if shape.is_hex() && key.is_empty() {
-            return word.to_owned();
+            return Cow::Borrowed(word);
         }
-        describe(masking.number(word), &shape, key)
+        Cow::Owned(describe(masking.number(word), &shape, key))
     }
 
     fn known(&self, word: &str) -> bool {
+        let starts_known = word
+            .as_bytes()
+            .first()
+            .is_some_and(|first| self.starts.contains(first));
+        if word.len() < self.shortest || !starts_known {
+            return false;
+        }
         self.prefixes.iter().any(|prefix| {
             word.strip_prefix(prefix.prefix.as_str())
                 .is_some_and(|body| {
-                    body.len() >= prefix.min_body && body.chars().all(is_token_char)
+                    body.len() >= prefix.min_body && body.bytes().all(is_token_byte)
                 })
         })
     }

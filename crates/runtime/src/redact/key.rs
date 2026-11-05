@@ -7,13 +7,21 @@ const SCHEMES: [&str; 2] = ["bearer", "basic"];
 /// those but never `/`). A value after `key=` or `key:` stays whole, as
 /// base64 with `/` would.
 pub(super) fn path_like(word: &str, before: &str) -> bool {
-    let in_url = before
-        .rsplit(char::is_whitespace)
-        .next()
-        .is_some_and(|token| token.contains("://"));
+    if !word.contains('/') || !key_before(before).is_empty() {
+        return false;
+    }
     let absolute = word.starts_with('/') || before.ends_with('~');
     let not_base64 = word.contains(['-', '_']) && !word.contains('+');
-    word.contains('/') && key_before(before).is_empty() && (in_url || absolute || not_base64)
+    absolute || not_base64 || in_url(before)
+}
+
+/// Whether the text before a word ends inside a URL. It looks back to the
+/// last whitespace, so it runs only for words with a `/`.
+fn in_url(before: &str) -> bool {
+    before
+        .rsplit(char::is_whitespace)
+        .next()
+        .is_some_and(|token| token.contains("://"))
 }
 
 /// The key a value follows, such as `api_key=` in `api_key=abc…`, or an
