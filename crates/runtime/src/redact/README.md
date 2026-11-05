@@ -46,6 +46,7 @@ let sent = redactor.redact("export TOKEN=ghp_…", &mut masking);
 - Later configuration files add prefixes, or replace them with `replace`.
 - Longer prefixes are tried first, so `sk-ant-` wins over `sk-`.
 - Words are ASCII and found byte by byte. A word left unchanged is not
-  copied; only words too long for nothing but text are checked against the
-  prefixes (15 bytes for the shipped ones) and the shapes (24). `Redact/*`
-  in `crates/runtime/benches/run.rs` measures it.
+  copied. Only a word long enough for a known token (15 bytes with the
+  shipped prefixes) is checked against the prefixes, and only one of 24 or
+  more for a credential shape. `Redact/*` in
+  `crates/runtime/benches/run.rs` measures it.
