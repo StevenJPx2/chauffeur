@@ -376,8 +376,9 @@ For OpenCode, add the adapter to `plugins` in `opencode.jsonc`:
 }
 ```
 
-It writes any trouble, such as no daemon, to
-`~/.local/state/chauffeur-next/opencode.log`.
+Use your Homebrew prefix in place of `/opt/homebrew`; `brew info
+chauffeur-next` prints the line. The adapter writes any trouble, such as no
+daemon, to `~/.local/state/chauffeur-next/opencode.log`.
 
 ## Documentation
 
