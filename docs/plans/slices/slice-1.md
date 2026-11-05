@@ -1,7 +1,7 @@
 # Slice 1: Conventional Commits nudge in OpenCode
 
-**Status:** In progress: the engine, the release pipeline and the audit log are
-built; the OpenCode adapter is next.
+**Status:** In progress: everything is built and checked end to end in
+OpenCode; the first rc tag, `v1.0.0-rc.1`, is left.
 
 **You can:** install the rc beside v1 and add its OpenCode adapter to
 `plugins` in `opencode.jsonc`. When the agent commits with a message such as
@@ -1071,7 +1071,7 @@ plugin API, `@opencode/plugin` 2, and imports only its types, so it ships as
 one file with no dependencies.
 
 Files: `adapters/opencode/src/index.ts`, `event.ts`, `daemon.ts`, `act.ts`,
-`adapters/opencode/test/`
+`carry.ts`, `adapters/opencode/test/`
 
 The rc ships it in `share/chauffeur-next/opencode/`, and OpenCode loads it
 from there:
@@ -1105,32 +1105,130 @@ reads the tool result with the text after it:
 Use Conventional Commits, such as `feat(scope): short description`.
 ```
 
-- **Which daemon.** The folder it ships in names the installation, so
-  `share/chauffeur-next/opencode/` reaches `chauffeur-next`'s socket, found
-  as the daemon finds it. `$CHAUFFEUR_SOCKET` or the plugin's `socket`
-  option names another.
+- **Which installation.** The folder it ships in names the installation, so
+  `share/chauffeur-next/opencode/` is the plugin `chauffeur-next`, which loads
+  beside v1's `chauffeur`, and reaches `chauffeur-next`'s socket, found as the
+  daemon finds it. The plugin's `socket` option or `$CHAUFFEUR_SOCKET` names
+  another.
 - **Every completed call** is sent, with its output's text up to 64 KiB. A
   call that fails has no result to add to, and is not sent.
+- **Code Mode.** A call made inside Code Mode's `execute` is sent as itself,
+  such as `shell`, and so is `execute`. The agent reads `execute`'s result,
+  so text added to an inner call is added to `execute`'s result as well.
 - **Fails open.** The adapter waits for the rules' deadline, 3 seconds by
   default (option `deadline_ms`), and half a second more. With no daemon, an
-  error or no answer, the result stays as it was, and OpenCode's log says why,
-  once a minute at most.
-- **Actions.** `message.append` with `delivery: "now"` adds its text parts to
-  the result: after a blank line when the result is text, or as text items
-  when it is a list. The adapter logs and skips any other action or
-  delivery; each arrives with the slice that needs it.
-- **One connection per call** over the socket, so two OpenCode windows share
-  one daemon and a restarted daemon needs nothing.
+  error or no answer, the result stays as it was, and the adapter prints why
+  on the server's standard error, once a minute at most.
+- **Actions.** `message.append` with `delivery: "now"` adds its text parts
+  after a blank line: to the text when the result is text, or as text items
+  when it is a list. The adapter skips any other action or delivery; each
+  arrives with the slice that needs it.
+- **One connection per call** over the socket, so every OpenCode server on
+  the machine shares one daemon, and a restarted daemon needs nothing.
+
+Structure:
+
+`adapter` builds the plugin for the module it is loaded from. `setup` reads
+the options, which may be absent, and hooks `execute.after`; the shipped
+`server.js` exports `adapter(import.meta.url)` as its default.
+
+```ts
+type Options = { socket?: unknown; deadline_ms?: unknown }
+
+export function adapter(
+  module: string,
+  log?: (message: string) => void
+): Plugin.Plugin
+
+export default adapter(import.meta.url)
+```
+
+`toolAfter` reads what the adapter needs of OpenCode's hook, and gives no event
+for a failed call. `text` is the result as the agent reads it: its text
+content, else its output. `clip` cuts at a byte count without splitting a
+character.
+
+```ts
+export type ToolAfter = {
+  readonly id: string
+  readonly tool: string
+  readonly sessionID: string
+  readonly input: unknown
+} & ({ readonly status: "completed"; result: Result } | { readonly status: "error" })
+
+export const MAX_OUTPUT_BYTES = 64 * 1024
+
+export function toolAfter(call: ToolAfter): Record<string, unknown> | undefined
+export function text(result: Result): string
+export function clip(value: string, bytes: number): string
+```
+
+`installation` names the installation from the module's folder: `<name>` under
+`share/<name>/opencode/`, `chauffeur` anywhere else. `socketPath` takes the
+option, then `$CHAUFFEUR_SOCKET`, then `<name>/daemon.sock` in
+`$XDG_RUNTIME_DIR` or the temporary folder. `emit` makes one `chauffeur.emit`
+call and rejects with no daemon, an error reply, a reply without actions, or
+no answer half a second after the deadline.
+
+```ts
+export type Action = {
+  readonly rule?: string
+  readonly action: string
+  readonly payload?: unknown
+}
+
+export function installation(module: string): string
+
+export function socketPath(
+  name: string,
+  env: Readonly<Record<string, string | undefined>>,
+  option?: string
+): string
+
+export function emit(
+  socket: string,
+  event: Record<string, unknown>,
+  deadlineMs: number
+): Promise<Action[]>
+```
+
+`apply` carries the actions out on a result and returns what it added and
+what it skipped. `append` adds texts to a result, and returns it unchanged
+when there are none.
+
+```ts
+export type Applied = {
+  readonly result: Result
+  readonly appended: readonly string[]
+  readonly skipped: readonly Action[]
+}
+
+export function apply(result: Result, actions: readonly Action[]): Applied
+export function append(result: Result, texts: readonly string[]): Result
+```
+
+`carrier` keeps the text added to a call for the `execute` call that made it,
+which shares its call ID and finishes after it. `take` gives a call's text
+once. It holds the latest 256 calls.
+
+```ts
+export function carrier(limit?: number): {
+  put(id: string, appended: readonly string[]): void
+  take(id: string): readonly string[]
+}
+```
 
 Verified by:
 
 - `bun test` against a stand-in daemon on a real socket: the event a shell
-  call sends; the text added to a text result and to a list result; nothing
-  added for no actions, no daemon, a late answer, an error reply or an
-  unknown action; a failed call not sent; the socket named by the folder,
-  `$CHAUFFEUR_SOCKET` and the option.
-- The smoke test loads the tarball's `share/<name>/opencode/` in Bun and
-  checks that its `setup` hooks `execute.after`.
+  call sends; the text added to a text result, a list result and an
+  `execute` result whose inner call was nudged; nothing added for no
+  actions, no daemon, a late answer, an error reply or an unknown action; a
+  failed call not sent; no options; the plugin and socket named by the
+  folder, `$CHAUFFEUR_SOCKET` and the option.
+- The smoke test loads each installed `share/<name>/opencode/server.js` as
+  OpenCode does and runs its hook on a commit against the real daemon: the
+  nudge ends the result, and `audit` shows the run.
 
 ### Shipped content
 
@@ -1182,8 +1280,10 @@ node scripts/homebrew.mjs 1.0.0-rc.1 dist/SHA256SUMS  # Formula/chauffeur-next.r
 
 Structure:
 
-`package.mjs` packs `bin/chauffeur` and `share/chauffeur/` for each target,
-named by the workspace's version, and writes `SHA256SUMS`.
+`package.mjs` packs `bin/chauffeur` and `share/chauffeur/`, with the built
+OpenCode adapter in `share/chauffeur/opencode/server.js`, for each target,
+named by the workspace's version, and writes `SHA256SUMS`. It refuses to pack
+without the adapter.
 
 ```js
 export const TARGETS = ["darwin-arm64", "darwin-x64", "linux-arm64", "linux-x64"]
@@ -1203,8 +1303,8 @@ export function formula(release, sums, downloads) {}
 ```
 
 `smoke.mjs` installs a tarball under both names and runs each: `version`, the
-daemon, the shipped rule with a stand-in model, a nudge through `emit`, and the
-run in `audit`.
+daemon, the shipped rule with a stand-in model, a nudge through `emit` and
+through the installed OpenCode adapter, and both runs in `audit`.
 
 Verified by:
 
@@ -1268,7 +1368,8 @@ Verified by:
   nonconventional commit and not for a conventional one, with Jev's answer,
   model and time in `chauffeur audit`, which still shows them after the
   daemon restarts.
-- OpenCode, for real: `fixed stuff` gets the nudge, `feat(parser): handle
-empty input` gets nothing, and with Jev unreachable nothing is sent and the
-  audit log shows `failed: unavailable`; `ls` and `cargo test` make no Jev
-  call; two OpenCode windows share one daemon.
+- OpenCode, for real, in Code Mode: `fixed stuff` gets the nudge,
+  `feat(parser): handle empty input` gets nothing, and with Jev unreachable
+  nothing is sent and the audit log shows `failed: unavailable`; calls that
+  are not commits make no Jev call; OpenCode's service and a standalone
+  server share one daemon.
