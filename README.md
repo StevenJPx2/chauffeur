@@ -367,6 +367,18 @@ To run the daemon at login instead, put `TYPESAFE_API_KEY=…` in
 `~/.homebrew/services/chauffeur-next.env` and run
 `brew services start chauffeur-next`.
 
+For OpenCode, add the adapter to `plugins` in `opencode.jsonc`:
+
+```jsonc
+{
+  "$schema": "https://opencode.ai/config.json",
+  "plugins": ["/opt/homebrew/share/chauffeur-next/opencode"]
+}
+```
+
+It writes any trouble, such as no daemon, to
+`~/.local/state/chauffeur-next/opencode.log`.
+
 ## Documentation
 
 [`docs/plans/pluggability.md`](docs/plans/pluggability.md) describes the
