@@ -25,5 +25,12 @@ systemone = ["dep:ureq"]
 name = "systemone"
 required-features = ["systemone"]
 
+[dev-dependencies]
+benchfmt = { workspace = true }
+
+[[bench]]
+name = "settle"
+harness = false
+
 [lints]
 workspace = true

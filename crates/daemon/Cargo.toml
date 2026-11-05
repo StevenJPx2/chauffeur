@@ -19,7 +19,12 @@ serde_json = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]
+benchfmt = { workspace = true }
 jiff = { workspace = true }
+
+[[bench]]
+name = "emit"
+harness = false
 
 [lints]
 workspace = true

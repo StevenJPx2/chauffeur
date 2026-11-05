@@ -19,6 +19,8 @@ publish = false
 repository = "https://github.com/StevenJPx2/chauffeur"
 
 [workspace.dependencies]
+# Benchmarks only: a Go benchfmt harness, pinned since it ships from Git.
+benchfmt = { git = "https://github.com/bwplotka/benchfmt.rs", rev = "f9c07f05c28a5c7c0fc5068fd83374525fd601c4" }
 chauffeur-core = { path = "crates/core" }
 chauffeur-judges = { path = "crates/judges" }
 chauffeur-protocol = { path = "crates/protocol" }

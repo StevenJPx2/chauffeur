@@ -22,3 +22,5 @@ allow-wildcard-paths = true
 [sources]
 unknown-registry = "deny"
 unknown-git = "deny"
+# The benchmark harness, a dev-dependency pinned to one commit.
+allow-git = ["https://github.com/bwplotka/benchfmt.rs"]

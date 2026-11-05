@@ -95,6 +95,11 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ac07cdecf99051d9a5238b80f35af32cdeba5b336e55d957b318b50137e18da5"
 
 [[package]]
+name = "benchfmt"
+version = "0.1.0"
+source = "git+https://github.com/bwplotka/benchfmt.rs?rev=f9c07f05c28a5c7c0fc5068fd83374525fd601c4#f9c07f05c28a5c7c0fc5068fd83374525fd601c4"
+
+[[package]]
 name = "bitflags"
 version = "1.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -153,6 +158,7 @@ version = "1.0.0-rc.1"
 name = "chauffeur-daemon"
 version = "1.0.0-rc.1"
 dependencies = [
+ "benchfmt",
  "chauffeur-core",
  "chauffeur-judges",
  "chauffeur-protocol",
@@ -167,6 +173,7 @@ dependencies = [
 name = "chauffeur-judges"
 version = "1.0.0-rc.1"
 dependencies = [
+ "benchfmt",
  "chauffeur-core",
  "serde",
  "serde_json",
@@ -188,6 +195,7 @@ dependencies = [
 name = "chauffeur-protocol"
 version = "1.0.0-rc.1"
 dependencies = [
+ "benchfmt",
  "chauffeur-core",
  "chauffeur-judges",
  "serde",
@@ -199,6 +207,7 @@ dependencies = [
 name = "chauffeur-runtime"
 version = "1.0.0-rc.1"
 dependencies = [
+ "benchfmt",
  "chauffeur-core",
  "chauffeur-judges",
  "chauffeur-protocol",
