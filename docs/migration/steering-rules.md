@@ -8,7 +8,7 @@ carry over word for word and are abbreviated here as `…`.
 | ----------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ | ----------------------------- |
 | [`conventional-commits`](rule-format.md#worked-example-conventional-commits)                          | A commit message outside Conventional Commits                | 1, with `input.excludes` in 5 |
 | [`cat-to-read`](#cat-to-read)                                                                         | Printing project files through the shell                     | 5                             |
-| [`grep-recursive`](#grep-recursive)                                                                   | `grep -r` instead of `rg`                                    | 5                             |
+| [`grep-recursive`](#grep-recursive)                                                                   | A shell search of files, which the grep tool does            | 5                             |
 | [`hand-rolled-patch`](#hand-rolled-patch)                                                             | Changing project files by script                             | 5                             |
 | [`docs-before-source`](#docs-before-source)                                                           | Reading a dependency's source before its docs                | 5                             |
 | [`prefer-cf-over-wrangler`](#prefer-cf-over-wrangler)                                                 | Wrangler where cf or the Cloudflare MCP does it              | 5                             |
@@ -18,7 +18,8 @@ carry over word for word and are abbreviated here as `…`.
 
 ## `cat-to-read`
 
-The read guard in [permissions](permission.md) blocks these calls before they run; this rule is the reminder after one that got through.
+The read guard in [permissions](permission.md) blocks these calls before they
+run; this rule is the reminder after one that got through.
 
 v1:
 
@@ -101,14 +102,14 @@ v1:
   "steps": [
     {
       "id": "misuse",
-      "question": "Does this call search file contents with grep -r or grep -R instead of rg?",
+      "question": "Does this call search the contents of local files from the shell, which the grep tool does? YES: grep -r or grep -R anywhere in the command, or rg, grep or git grep given file or folder paths to search (source, config, docs, or a dependency's files), even when head or tail trims the matches. NO when rg or grep only filter another command's output (after a pipe, such as cargo test | rg FAILED or ps | grep node); when it searches a log file; when the result only drives the script (rg -q, or a match count a loop tests); for rg --files and other listings; and for commands that search nothing.",
       "yes_at_or_above": 0.7,
       "minimum_confidence": 0.4
     }
   ],
   "then": {
     "delivery": "steer",
-    "text": "Chauffeur: Search file contents with rg, …"
+    "text": "Chauffeur: Search file contents with the grep tool, …"
   },
   "cooldown_seconds": 120
 }
@@ -135,7 +136,7 @@ v2, `distribution/rules/grep-recursive.json`:
       "ask": {
         "outcomes": ["yes", "no"],
         "evidence": ["tool_call", "request"],
-        "instructions": "Does this call search file contents with grep -r or grep -R instead of rg? A call the user explicitly asked for, exactly as asked, does not count."
+        "instructions": "Does this call search the contents of local files from the shell, which the grep tool does? YES: grep -r or grep -R anywhere in the command, or rg, grep or git grep given file or folder paths to search (source, config, docs, or a dependency's files), even when head or tail trims the matches. NO when rg or grep only filter another command's output (after a pipe, such as cargo test | rg FAILED or ps | grep node); when it searches a log file; when the result only drives the script (rg -q, or a match count a loop tests); for rg --files and other listings; and for commands that search nothing. A call the user explicitly asked for, exactly as asked, does not count."
       }
     }
   ],
@@ -147,7 +148,7 @@ v2, `distribution/rules/grep-recursive.json`:
       "message.append": {
         "parts": [
           {
-            "text": "Chauffeur: Search file contents with rg, …"
+            "text": "Chauffeur: Search file contents with the grep tool, …"
           }
         ],
         "delivery": "now"
@@ -230,7 +231,8 @@ v2, `distribution/rules/hand-rolled-patch.json`:
 
 ## `docs-before-source`
 
-The second question runs only after the first says yes, so most calls cost one judgment. It reads `activity`, not the call.
+The second question runs only after the first says yes, so most calls cost
+one judgment. It reads `activity`, not the call.
 
 v1:
 

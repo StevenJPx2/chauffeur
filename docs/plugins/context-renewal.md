@@ -20,7 +20,9 @@ export default Plugin.define({
   setup(ctx) {
     ctx.on("session.resumed", (e) => {
       const cached =
-        ctx.options.cache_seconds[e.provider] ?? ctx.options.cache_seconds["*"]
+        e.cache_seconds ??
+        ctx.options.cache_seconds[e.provider] ??
+        ctx.options.cache_seconds["*"]
       const cold = e.idle_seconds >= cached
       const long = e.tokens.used >= budget(e.tokens.window, ctx.options.budget)
 
@@ -32,6 +34,9 @@ export default Plugin.define({
 })
 ```
 
+- **The cache lifetime** is the one the user set for the model in the
+  harness, such as OpenCode's `cache.ttl`, which the adapter sends as
+  `cache_seconds`; else the option for its provider.
 - **The budget** is a share of the window, kept between a floor and a
   ceiling: a 1M-token window renews at 100k, a 200k one at 50k.
 - **The summary model** is a `pins` entry, else a fast-tier model on the
@@ -41,7 +46,9 @@ export default Plugin.define({
 - **Left alone:** a session already on a fast-tier or free model, which the
   harness compacts as usual.
 - **The summary** is written with `session.create`, `session.generate` and
-  `session.remove`, so it carries the provider's sign-in. A summary that
+  `session.remove`, so it carries the provider's sign-in. A compaction that
+  starts more than 2 minutes after the plugin asked for it is the harness's
+  own, on the session's model. A summary that
   fails passes over its provider for an hour, kept in the plugin's storage.
 
 ## Commands

@@ -23,6 +23,9 @@ export default Plugin.define({
 })
 ```
 
+- **The lifetime** is the event's `cache_seconds` when the user set one for
+  the model, such as a 1-hour `cache.ttl`, which is warmed once, at 59
+  minutes; else the provider's, from the `context-renewal` options.
 - **How many:** as many as fit within `max_seconds` of the turn's end and
   cost less than one re-send: a keep-alive reads the context at the
   cache-read price, a cold prompt writes it at the cache-write price. That is

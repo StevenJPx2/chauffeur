@@ -10,5 +10,6 @@ in slice 6.
 | A grant needs P ≥ 0.7 from Jev alone, with no escalation                                   | `confidence: 0.7`, and no `after` step                                                                            |
 | At most two groups or namespaces and one skill; one more `choice` when several skills pass | `select` with `top: 2` for tools; `top: 1` for skills, after a `choice` step that runs only when two or more pass |
 | Nothing granted: the closest candidates at P ≥ 0.3, suggested                              | A second `select` with `min: 0.3`, shown in the reply                                                             |
+| A skill already in the context is not sent again; each comes with its base directory       | The same: the plugin skips skills the session holds                                                               |
 | The call is not reported as a tool result                                                  | The adapter leaves `ask_chauffeur` out of `tool.after`                                                            |
 | Never hidden, never in Code Mode                                                           | `base` in the `tools` plugin's options                                                                            |

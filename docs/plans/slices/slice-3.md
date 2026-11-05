@@ -3,9 +3,9 @@
 **Status:** Planned.
 
 **You can:** have the commit nudge and `sourcefed/triage` ask GLiDE only when
-Jev is unsure or fails, see each strategy as a tree with
-`chauffeur strategy show`, and step through it in the playground's Strategy
-tab. neo checks an iPhone screen through Chauffeur with its screenshot, and a
+Jev's answer is near the bar the rule acts on, or Jev fails, see each
+strategy as a tree with `chauffeur strategy show`, and step through it in the
+playground's Strategy tab. neo checks an iPhone screen through Chauffeur with its screenshot, and a
 jev-distill student answers before Jev.
 
 This slice adds strategies with more than one step: a step's `after` names
@@ -29,9 +29,19 @@ Files: `crates/core/src/after.rs`, `state.rs`, `proofs.rs`,
 "strategy": [
   { "id": "fast", "judge": "jev", "ask": "nonconventional" },
   { "id": "sure", "judge": "glide", "ask": "nonconventional",
-    "after": [{ "step": "fast", "when": ["unsure", "failed"] }] }
+    "after": [{ "step": "fast", "near": 0.15, "when": ["failed"] }] }
 ]
 ```
+
+A need with `near` matches when the step's P for an outcome the rule acts on,
+in its `then` or a later need, lies within that margin of the outcome's bar.
+The commit nudge acts on `yes` at 0.7, so Jev's `yes` at 0.8 goes to GLiDE,
+and its `no` at 0.75, a P(yes) of 0.25, does not. `when` adds the outcomes
+that also match, here a failure.
+
+The steps share the caller's deadline and end 1 s before it, so the answers
+in hand return in time; a step that escalates starts only with 500 ms left
+before that.
 
 ```rust
 let mut state = plan.start();
@@ -47,7 +57,11 @@ let verdict = state.finish(); // "sure" is skipped when "fast" said yes or no
 
 Verified by scenario tests:
 
-- Escalation, with recorded answers at every tier.
+- Escalation, with recorded answers at every tier: `near` asks GLiDE for
+  Jev's P(yes) of 0.55 to 0.85 on a 0.7 bar and not for 0.25, and a failure
+  listed in `when` asks it too.
+- The deadline: the steps end 1 s before it, and an escalation with less
+  than 500 ms left before that is not started.
 - `after` alone: a string need waits for a skipped step and then runs; an
   object need never matches a skipped step; `Failed` matches only when listed;
   a step with both `all` and `any` runs only when both hold.
@@ -72,6 +86,9 @@ seconds; the names and events around them stay in the code that calls them:
 - `a_pass_only_moves_pending_steps_forward`: each step is asked at most once.
 - `a_pass_with_no_open_round_asks_or_finishes`: a run never stalls, so it
   finishes within one round per step.
+- `a_near_need_matches_only_within_its_margin`: a `near` need matches exactly
+  when a P the rule acts on lies within the margin of its bar, or the outcome
+  is in `when`.
 
 ### Lowering rules to plans
 
@@ -220,5 +237,5 @@ Verified by:
 - `"model": "glide"` without GLiDE configured runs on the tier's fallback
   order and reports it.
 - The escalation runs live against Jev and GLiDE and agrees with `main`'s
-  `CHAUFFEUR_JUDGE_ESCALATE=glide` on the same cases, reporting answers,
-  rounds, elapsed time and model calls.
+  escalation near the bar, `CHAUFFEUR_JUDGE_ESCALATE=glide`, on the same
+  cases, reporting answers, rounds, elapsed time and model calls.
