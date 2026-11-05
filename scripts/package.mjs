@@ -6,7 +6,8 @@
 //   node scripts/package.mjs sums dist
 //
 // A tarball holds bin/chauffeur and share/chauffeur/: the shipped models,
-// rules and safety patterns from distribution/, and the license. The binary
+// rules and safety patterns from distribution/, the OpenCode adapter built in
+// adapters/opencode/dist/, and the license. The binary
 // finds share/<its name>/ beside its own folder, so the same tarball installs
 // as chauffeur or, renamed, as chauffeur-next.
 
@@ -39,6 +40,12 @@ export function tarball({ target, binary, out, root = ROOT }) {
   if (!TARGETS.includes(target)) throw new Error(`unknown target ${target}; expected one of ${TARGETS.join(", ")}`)
   if (!existsSync(binary)) throw new Error(`missing ${binary}`)
 
+  const adapter = join(root, "adapters/opencode/dist/server.js")
+
+  if (!existsSync(adapter)) {
+    throw new Error(`missing ${adapter}; run bun run build in adapters/opencode`)
+  }
+
   const release = version(root)
   const stage = mkdtempSync(join(tmpdir(), "chauffeur-package-"))
   const share = join(stage, "share/chauffeur")
@@ -49,6 +56,8 @@ export function tarball({ target, binary, out, root = ROOT }) {
     cpSync(binary, join(stage, "bin/chauffeur"))
     cpSync(join(root, "distribution"), share, { recursive: true, filter: skip })
     cpSync(join(root, "LICENSE"), join(share, "LICENSE"))
+    mkdirSync(join(share, "opencode"))
+    cpSync(adapter, join(share, "opencode/server.js"))
 
     mkdirSync(out, { recursive: true })
     const path = resolve(out, tarballName(release, target))

@@ -20,6 +20,8 @@ function checkout(release = "1.0.0-rc.1") {
   writeFileSync(join(root, "distribution/safety/redaction.json"), "{}\n")
   writeFileSync(join(root, "distribution/.DS_Store"), "")
   writeFileSync(join(root, "LICENSE"), "MIT\n")
+  mkdirSync(join(root, "adapters/opencode/dist"), { recursive: true })
+  writeFileSync(join(root, "adapters/opencode/dist/server.js"), "export default {}\n")
   writeFileSync(join(root, "chauffeur"), "#!/bin/sh\n")
 
   return root
@@ -52,12 +54,18 @@ test("a tarball holds the binary, the shipped content and the license, and SHA25
       "share/chauffeur/rules/conventional-commits.json",
       "share/chauffeur/safety/redaction.json",
       "share/chauffeur/LICENSE",
+      "share/chauffeur/opencode/server.js",
     ]) {
       assert.ok(listed.includes(entry), `${entry} in ${listed.join(", ")}`)
     }
     assert.ok(!listed.some((entry) => entry.endsWith(".DS_Store")), listed.join(", "))
     assert.throws(() => tarball({ target: "win32-x64", binary: join(root, "chauffeur"), out, root }), /unknown target/)
     assert.throws(() => tarball({ target: "linux-x64", binary: join(root, "missing"), out, root }), /missing/)
+    rmSync(join(root, "adapters"), { recursive: true })
+    assert.throws(
+      () => tarball({ target: "linux-x64", binary: join(root, "chauffeur"), out, root }),
+      /run bun run build in adapters\/opencode/
+    )
 
     const text = sums(out)
 
@@ -85,6 +93,7 @@ test("the formula names every target's tarball and checksum, and installs chauff
   assert.match(ruby, /bin\.install "bin\/chauffeur" => "chauffeur-next"/)
   assert.match(ruby, /pkgshare\.install Dir\["share\/chauffeur\/\*"\]/)
   assert.match(ruby, /run \[opt_bin\/"chauffeur-next", "daemon", "run"\]/)
+  assert.match(ruby, /"plugins": \["#\{opt_pkgshare\}\/opencode"\]/)
 })
 
 test("downloads can come from elsewhere, such as a local folder", () => {

@@ -96,6 +96,9 @@ ${platforms("linux", release, sums, downloads)}
         TYPESAFE_API_KEY=...
       then start the service:
         brew services start chauffeur-next
+
+      For OpenCode, add the adapter to "plugins" in opencode.jsonc:
+        "plugins": ["#{opt_pkgshare}/opencode"]
     EOS
   end
 

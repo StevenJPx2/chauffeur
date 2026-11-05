@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 // Unpack a release tarball, install it the two ways it ships, and run each
 // for real: version, then a daemon that loads the shipped rule and nudges a
-// nonconventional commit through `emit`, which `audit` then shows. No key and no network: a placeholder
-// in the user's models.json stands in for Jev.
+// nonconventional commit through `emit` and through the shipped OpenCode
+// adapter, which `audit` then shows. No key and no network: a placeholder in
+// the user's models.json stands in for Jev.
 //
 //   node scripts/smoke.mjs dist/chauffeur-<version>-<target>.tar.gz
 
@@ -12,6 +13,7 @@ import { cpSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } fro
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import { setTimeout } from "node:timers/promises"
+import { pathToFileURL } from "node:url"
 import { version } from "./package.mjs"
 
 const STAND_IN = {
@@ -42,6 +44,34 @@ async function waitFor(path, daemon, log) {
     await setTimeout(50)
   }
   throw new Error(`no socket at ${path} after 5 s: ${log()}`)
+}
+
+/**
+ * Loads the installed OpenCode adapter as OpenCode does, with a stand-in for
+ * OpenCode's tool hooks, and runs its execute.after hook on a commit.
+ */
+async function throughAdapter(prefix, name, socket) {
+  const server = join(prefix, "share", name, "opencode/server.js")
+  const { default: adapter } = await import(pathToFileURL(server).href)
+  let hook
+
+  await adapter.setup({
+    options: { socket },
+    tool: { hook: async (_, callback) => { hook = callback } }
+  })
+  assert.equal(adapter.id, name)
+
+  const call = {
+    tool: "shell",
+    sessionID: "smoke-opencode",
+    input: COMMIT.input,
+    status: "completed",
+    result: { content: "[main 3f2c1a0] fixed stuff" }
+  }
+
+  await hook(call)
+
+  return call.result.content
 }
 
 async function run(binary, name, root, expected) {
@@ -76,8 +106,10 @@ async function run(binary, name, root, expected) {
     const emitted = call(["emit"], JSON.stringify(COMMIT))
     assert.equal(emitted.actions[0]?.rule, "conventional-commits", JSON.stringify(emitted))
     assert.equal(emitted.actions[0]?.action, "message.append", JSON.stringify(emitted))
+    const adapted = await throughAdapter(join(root, "prefix"), name, socket)
+    assert.match(adapted, /^\[main 3f2c1a0\] fixed stuff\n\nUse Conventional Commits/, adapted)
     const audit = execFileSync(binary, ["audit"], { env, encoding: "utf8" }).trim().split("\n")
-    assert.equal(audit.length, 1, audit.join("\n"))
+    assert.equal(audit.length, 2, audit.join("\n"))
     assert.equal(JSON.parse(audit[0]).returned, "message.append", audit[0])
   } finally {
     daemon.kill("SIGTERM")
@@ -100,7 +132,7 @@ try {
     const home = join(root, name)
     await run(install(unpacked, join(home, "prefix"), name), name, home, expected)
   }
-  console.log(`${archive}: version, shipped rule, nudge and audit passed as chauffeur and chauffeur-next`)
+  console.log(`${archive}: version, shipped rule, nudge, OpenCode adapter and audit passed as chauffeur and chauffeur-next`)
 } finally {
   rmSync(root, { recursive: true, force: true })
 }
