@@ -27,6 +27,8 @@ jobs:
       - run: cargo clippy -p chauffeur-judges --no-default-features --all-targets --locked -- -D warnings
       - run: cargo clippy -p chauffeur-playground --target wasm32-unknown-unknown --locked -- -D warnings
       - run: cargo test --workspace --locked
+      # Each benchmark once, so they keep building and running; timings are compared locally.
+      - run: cargo bench --workspace --bench '*' --locked -- -benchtime 1x -count 1
 
   opencode:
     runs-on: ubuntu-latest
