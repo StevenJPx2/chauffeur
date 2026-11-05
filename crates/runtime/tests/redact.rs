@@ -83,6 +83,36 @@ fn short_or_embedded_lookalikes_are_left() {
 }
 
 #[test]
+fn a_known_prefix_needs_its_own_full_token_body() {
+    // Long enough for any known token, but `ghp_` needs 20 body characters,
+    // and `+` is not a token character.
+    for text in ["ghp_abcdefghijklmnop", "ghp_abcdefghij+klmnopqrstu"] {
+        assert_eq!(redact(text), text);
+    }
+}
+
+#[test]
+fn a_credential_shape_starts_at_24_characters() {
+    assert_eq!(
+        redact("Zz9Zz9Zz9Zz9Zz9Zz9Zz9Zz9"),
+        "[string 1: 24 characters of mixed letters and digits]"
+    );
+    assert_eq!(redact("Zz9Zz9Zz9Zz9Zz9Zz9Zz9Zz"), "Zz9Zz9Zz9Zz9Zz9Zz9Zz9Zz");
+}
+
+#[test]
+fn base64_with_a_slash_stays_whole_outside_paths() {
+    // No `-` or `_`, not absolute and not in a URL: base64, not a path, so
+    // its halves are not judged one by one.
+    let value = "aB3dE5fG7hJ9kL1mN3pQ5rS7tV9wX1yZ/aB3dE5fG7hJ9kL1mN3pQ5";
+
+    assert_eq!(
+        redact(&format!("echo {value}")),
+        format!("echo [string 1: {} characters of base64]", value.len())
+    );
+}
+
+#[test]
 fn unknown_credentials_are_described_never_sent() {
     let secret = "Zx9kQ2mP7vL4nR8sT1wY6uB3cD5fG0hJ";
     let sha = "3f786850e387550fdab836ed7e6dc881de23001b";
