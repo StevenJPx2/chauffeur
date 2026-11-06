@@ -6,7 +6,8 @@
     reason = "the helpers fail the test on a broken fixture or a line missing a field"
 )]
 
-use std::fs;
+use std::fs::{self, OpenOptions};
+use std::io::Write;
 use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 
@@ -161,7 +162,7 @@ fn a_log_that_cannot_be_read_is_an_error() {
 fn followed(folder: &std::path::Path) -> mpsc::Receiver<String> {
     let (send, received) = mpsc::channel();
     let watched = folder.to_owned();
-    thread::spawn(move || follow(&watched, |line| drop(send.send(line.to_owned()))));
+    thread::spawn(move || follow(&watched, 0, |line| drop(send.send(line.to_owned()))));
     thread::sleep(Duration::from_millis(400));
     received
 }
@@ -225,7 +226,7 @@ fn following_a_log_that_cannot_be_read_is_an_error() {
     let (send, ended) = mpsc::channel();
 
     thread::spawn(move || {
-        let _ = send.send(follow(&folder, |_| {}).is_err());
+        let _ = send.send(follow(&folder, 0, |_| {}).is_err());
     });
 
     assert_eq!(ended.recv_timeout(Duration::from_secs(2)), Ok(true));
@@ -239,7 +240,7 @@ fn following_reads_each_new_line_once_across_a_move_aside() {
     let audit = Audit::new(&folder, line * 2);
     let (send, received) = mpsc::channel();
     let watched = folder;
-    thread::spawn(move || follow(&watched, |line| drop(send.send(line.to_owned()))));
+    thread::spawn(move || follow(&watched, 0, |line| drop(send.send(line.to_owned()))));
     thread::sleep(Duration::from_millis(400));
 
     let mut seen = Vec::new();
@@ -256,5 +257,63 @@ fn following_reads_each_new_line_once_across_a_move_aside() {
         numbers(&seen),
         [1, 2, 3, 4],
         "run 0 was written before it followed"
+    );
+}
+
+/// Each line `follow` calls back with, from the start, until `quiet` passes
+/// with none.
+fn collected(received: &mpsc::Receiver<String>, quiet: Duration) -> Vec<String> {
+    let mut seen = Vec::new();
+    while let Ok(line) = received.recv_timeout(quiet) {
+        seen.push(line);
+    }
+    seen
+}
+
+#[test]
+fn following_starts_with_the_recent_runs_and_misses_none_written_meanwhile() {
+    let folder = folder("follow-recent");
+    let audit = Audit::new(&folder, u64::MAX);
+    for index in 1..=3 {
+        audit.append(run(index)).unwrap();
+    }
+    let (send, received) = mpsc::channel();
+    let watched = folder;
+
+    thread::spawn(move || follow(&watched, 2, |line| drop(send.send(line.to_owned()))));
+    // Written while it starts: before it reads the log, or after.
+    for index in 4..=40 {
+        audit.append(run(index)).unwrap();
+    }
+
+    let seen = whole(&collected(&received, Duration::from_millis(600)));
+    let first = *seen.first().unwrap();
+    assert!((2..=39).contains(&first), "{seen:?}");
+    assert_eq!(
+        seen,
+        (first..=40).collect::<Vec<_>>(),
+        "each once, in order"
+    );
+}
+
+#[test]
+fn a_line_still_being_written_when_following_starts_comes_once_whole() {
+    let folder = folder("follow-partial");
+    Audit::new(&folder, u64::MAX).append(run(1)).unwrap();
+    let mut file = OpenOptions::new()
+        .append(true)
+        .open(folder.join("audit.jsonl"))
+        .unwrap();
+    write!(file, r#"{{ "elapsed_ms": 2"#).unwrap();
+    let (send, received) = mpsc::channel();
+    let watched = folder;
+
+    thread::spawn(move || follow(&watched, 5, |line| drop(send.send(line.to_owned()))));
+    thread::sleep(Duration::from_millis(400));
+    writeln!(file, " }}").unwrap();
+
+    assert_eq!(
+        whole(&collected(&received, Duration::from_millis(600))),
+        [1, 2]
     );
 }

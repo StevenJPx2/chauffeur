@@ -9,11 +9,11 @@ chauffeur audit 100
 chauffeur audit --follow --brief   # new runs as they happen, one short line each
 ```
 
-| Argument or option | Does                                                                     |
-| ------------------ | ------------------------------------------------------------------------ |
-| `N`                | How many of the most recent runs to print; `20` by default, `0` for none |
-| `--follow`         | Then keeps printing each run as it is written, until stopped             |
-| `--brief`          | One short line per run in place of its JSON                              |
+| Argument or option | Does                                                                       |
+| ------------------ | -------------------------------------------------------------------------- |
+| `N`                | How many of the most recent runs to print; `20` by default, `0` for none   |
+| `--follow`         | Then keeps printing each run as it is written, missing none, until stopped |
+| `--brief`          | One short line per run in place of its JSON                                |
 
 A run's JSON line:
 

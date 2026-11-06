@@ -17,14 +17,15 @@ pub fn print(state: &Path, count: usize, follow: bool, brief: bool) -> Result<()
             println!("{line}");
         }
     };
+    if follow {
+        // One read for both, so no run falls between the recent and the new.
+        return log::follow(state, count, &show)
+            .wrap_err_with(|| format!("cannot follow the audit log in {}", state.display()));
+    }
     let lines = log::recent(state, count)
         .wrap_err_with(|| format!("cannot read the audit log in {}", state.display()))?;
     for line in &lines {
         show(line);
-    }
-    if follow {
-        log::follow(state, &show)
-            .wrap_err_with(|| format!("cannot follow the audit log in {}", state.display()))?;
     }
     Ok(())
 }

@@ -2,7 +2,7 @@
 
 use std::collections::VecDeque;
 use std::fs::{self, DirBuilder, File, OpenOptions};
-use std::io::{self, BufRead, BufReader, Read, Seek, SeekFrom, Write};
+use std::io::{self, BufRead, BufReader, Read, Write};
 use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -101,23 +101,24 @@ pub fn recent(folder: &Path, count: usize) -> io::Result<Vec<String>> {
     Ok(lines.into())
 }
 
-/// Calls `each` with every line written to the log in `folder` from now on,
-/// until reading fails.
+/// Calls `each` with the last `count` lines of the log in `folder`, oldest
+/// first, then with every line written from then on, until reading fails.
 ///
-/// The file being read stays open, so when the log moves to
-/// `audit.1.jsonl` its last lines are read before the new file is read
-/// from its beginning.
+/// The recent lines are read through the file that is then followed, so no
+/// line is written between them unseen. That file stays open, so when the
+/// log moves to `audit.1.jsonl` its last lines are read before the new file
+/// is read from its beginning.
 ///
 /// # Errors
 ///
 /// The log exists but cannot be read.
-pub fn follow(folder: &Path, mut each: impl FnMut(&str)) -> io::Result<()> {
+pub fn follow(folder: &Path, count: usize, mut each: impl FnMut(&str)) -> io::Result<()> {
     let path = folder.join(FILE);
     let mut following = open(&path)?;
-    if let Some(file) = following.as_mut() {
-        file.seek(SeekFrom::End(0))?;
-    }
     let mut partial = String::new();
+    for line in start(folder, following.as_mut(), &mut partial, count)? {
+        each(&line);
+    }
     loop {
         thread::sleep(FOLLOW_EVERY);
         // Looked at first: every line of the old file was written before
@@ -135,6 +136,51 @@ pub fn follow(folder: &Path, mut each: impl FnMut(&str)) -> io::Result<()> {
             }
         }
     }
+}
+
+/// The last `count` whole lines of the moved-aside log and of `following`,
+/// read to its end; a last line not yet ended waits in `partial`.
+fn start(
+    folder: &Path,
+    following: Option<&mut File>,
+    partial: &mut String,
+    count: usize,
+) -> io::Result<VecDeque<String>> {
+    let mut lines = VecDeque::with_capacity(count.min(1024));
+    let mut keep = |line: &str| {
+        lines.push_back(line.to_owned());
+        if lines.len() > count {
+            lines.pop_front();
+        }
+    };
+    let rotated = open(&folder.join(ROTATED))?;
+    // Moved aside since it was opened: its lines are the followed file's.
+    if let Some(rotated) = rotated.filter(|rotated| !same(rotated, following.as_deref())) {
+        for line in BufReader::new(rotated).lines() {
+            keep(&line?);
+        }
+    }
+    if let Some(file) = following {
+        let mut reader = BufReader::new(file);
+        loop {
+            let mut line = String::new();
+            if reader.read_line(&mut line)? == 0 {
+                break;
+            }
+            match line.strip_suffix('\n') {
+                Some(whole) => keep(whole.trim_end()),
+                None => *partial = line,
+            }
+        }
+    }
+    Ok(lines)
+}
+
+/// Whether `file` is the one being followed.
+fn same(file: &File, following: Option<&File>) -> bool {
+    let identity = |file: &File| file.metadata().ok().map(|data| (data.dev(), data.ino()));
+    following
+        .is_some_and(|following| identity(file).is_some() && identity(file) == identity(following))
 }
 
 /// The log at `path`, or none while it does not exist.
