@@ -1,6 +1,6 @@
 # Slice 1: Conventional Commits nudge in OpenCode
 
-**Status:** Implemented, released as `chauffeur-next` `1.0.0-rc.1`.
+**Status:** Implemented, released as `chauffeur-next` `1.0.0-rc.3`.
 
 **You can:** install the rc beside v1 and add its OpenCode adapter to
 `plugins` in `opencode.jsonc`. When the agent commits with a message such as
@@ -1397,10 +1397,11 @@ Verified by:
 
 ## End to end
 
-OpenCode with `chauffeur-next` `1.0.0-rc.2` and Jev, above
-`chauffeur-next audit --follow --brief`. The agent commits `fixed stuff`, Jev
-answers yes at 0.96 in 468 ms, and the nudge reaches the agent, which offers to
-reword the commit.
+OpenCode with `chauffeur-next` `1.0.0-rc.3` and Jev, above
+`chauffeur-next audit --follow --brief`. Asked to add a line and commit it, the
+agent commits as `Add …`. Jev answers yes at 0.89 in 367 ms, Chauffeur's
+message arrives in the conversation, and the agent amends the commit to
+`docs(readme): add hello line`.
 
 <video src="../../media/slice-1.mp4" controls muted playsinline width="100%"></video>
 
@@ -1409,7 +1410,9 @@ reword the commit.
   model and time in `chauffeur audit`, which still shows them after the
   daemon restarts.
 - OpenCode, for real, in Code Mode: `fixed stuff` gets the nudge,
-  `feat(parser): handle empty input` gets nothing, and with Jev unreachable
+  `feat(parser): handle empty input` gets nothing; a message the agent chose
+  is amended after the nudge, in each of four runs, and one the user dictated
+  is kept; with Jev unreachable
   nothing is sent and the audit log shows `failed: unavailable`; calls that
   are not commits make no Jev call; OpenCode's service and a standalone
   server share one daemon.
