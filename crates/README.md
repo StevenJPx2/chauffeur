@@ -6,7 +6,7 @@ The Rust engine. Each crate depends only on the ones below it in this table.
 | ---------- | ----------------------------------------------------------------------------------------------------------------------------------- |
 | `cli`      | The `chauffeur` binary: `daemon run`, `daemon status`, `version`, `emit`, `audit`                                                   |
 | `daemon`   | The private Unix socket, JSON-RPC 2.0 lines, loading and reloading configuration, routing events to rules, cooldowns, the audit log |
-| `runtime`  | Running one rule for one event: redaction, a worker thread with a deadline                                                          |
+| `runtime`  | Running one rule for one event: redaction, pooled worker threads with a deadline                                                    |
 | `protocol` | Rule files and their checks, the `when` filter, `then` entries, harness events and their evidence                                   |
 | `judges`   | Questions, confidence, `models.json`, tiers in fallback order, and the `systemone` and `placeholder` formats                        |
 | `core`     | Plans of named steps, judges by name, events and the verdict. No dependencies                                                       |
@@ -24,6 +24,7 @@ concept, with a `README.md`:
 | [`judges/src/tiers/`](judges/src/tiers/)             | `system_one/`, `system_two/`, `facts/`, `person/`, and fallback across a tier's models |
 | [`protocol/src/rule/`](protocol/src/rule/)           | Loading and checking a rule file                                                       |
 | [`runtime/src/redact/`](runtime/src/redact/)         | Redacting evidence                                                                     |
+| [`runtime/src/run/`](runtime/src/run/)               | Running a rule within a deadline, and the worker pool                                  |
 | [`daemon/src/route/`](daemon/src/route/)             | Routing events to rules, cooldowns, the log                                            |
 
 ## One event
@@ -71,7 +72,7 @@ real. Model calls are left out: a stand-in model answers.
 | `runtime`  | `Redact/text=command`                 | Redacting a commit command                                        |
 |            | `Redact/text=output-64KiB`            | Redacting 64 KiB of build output with paths and hashes            |
 |            | `Redact/text=credentials`             | Redacting an environment dump full of tokens                      |
-|            | `Run/rule=conventional-commits`       | One rule's run, redaction to verdict, on its worker thread        |
+|            | `Run/rule=conventional-commits`       | One rule's run, redaction to verdict, on a pooled worker thread   |
 | `daemon`   | `Emit/rule=none`, `nudge`             | `chauffeur.emit` over the socket: no rule, or the nudge and audit |
 
 `Run` and `Emit` work on other threads, so their bytes and allocations are

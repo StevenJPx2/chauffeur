@@ -1,6 +1,7 @@
-use std::sync::Arc;
+mod pool;
+
 use std::sync::mpsc;
-use std::thread;
+use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 
 use chauffeur_core::{Panel, Run};
@@ -8,6 +9,15 @@ use chauffeur_judges::{Answer, Evidence, Fallback, Models, NamedJudge};
 use chauffeur_protocol::{Event, Rule, Then};
 
 use crate::redact::{Masking, Redactor};
+
+pub use pool::{Job, Pool};
+
+/// The most workers kept waiting between runs: enough for every rule hooked
+/// by one event to start at once.
+const KEEP: usize = 8;
+
+/// The workers every run in this process shares.
+static WORKERS: LazyLock<Pool> = LazyLock::new(|| Pool::new(KEEP));
 
 /// Finds a model's key by its environment variable's name.
 pub type Keys = dyn Fn(&str) -> Option<String> + Send + Sync;
@@ -38,8 +48,8 @@ pub enum Ran {
     Deadline,
 }
 
-/// Runs `rule` for `event` on a worker thread, waiting at most `deadline`.
-/// The worker ends by itself within its models' timeouts.
+/// Runs `rule` for `event` on a pooled worker thread, waiting at most
+/// `deadline`. The worker is free again within its models' timeouts.
 #[must_use]
 pub fn run(context: &Arc<Context>, rule: &Arc<Rule>, event: &Event, deadline: Duration) -> Ran {
     let mut masking = Masking::default();
@@ -50,12 +60,10 @@ pub fn run(context: &Arc<Context>, rule: &Arc<Rule>, event: &Event, deadline: Du
     let evidence = Evidence::new(blocks);
     let (send, receive) = mpsc::sync_channel(1);
     let (context, rule) = (Arc::clone(context), Arc::clone(rule));
-    let spawned = thread::Builder::new()
-        .name(format!("rule {}", rule.id()))
-        .spawn(move || {
-            let _ = send.send(run_now(&context, &rule, &evidence));
-        });
-    if let Err(error) = spawned {
+    let started = WORKERS.execute(Box::new(move || {
+        let _ = send.send(run_now(&context, &rule, &evidence));
+    }));
+    if let Err(error) = started {
         return Ran::Refused(format!("cannot start a worker: {error}"));
     }
     receive.recv_timeout(deadline).unwrap_or(Ran::Deadline)
