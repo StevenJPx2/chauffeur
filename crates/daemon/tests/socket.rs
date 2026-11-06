@@ -127,6 +127,31 @@ fn a_bad_commit_gets_the_nudge_once_per_cooldown_and_the_log_shows_why() {
 }
 
 #[test]
+fn every_rule_an_event_hooks_runs_and_returns_in_the_order_rules_load() {
+    let paths = paths("several", NUDGING);
+    let shipped =
+        fs::read_to_string(paths.distribution.join("rules/conventional-commits.json")).unwrap();
+    for id in ["also-commits", "zz-commits"] {
+        fs::write(paths.config.join(format!("rules/{id}.json")), &shipped).unwrap();
+    }
+    start(&paths);
+
+    let actions = emit(&paths.socket, "s1", "git commit -m 'fixed stuff'");
+
+    let rules = call(&paths.socket, "chauffeur.status", &Value::Null)["rules"].clone();
+    assert_eq!(rules.as_array().unwrap().len(), 3, "{rules}");
+    let returned: Vec<Value> = actions
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|action| action["rule"].clone())
+        .collect();
+    assert_eq!(Value::Array(returned), rules);
+    let logged: Vec<Value> = runs(&paths).iter().map(|run| run["rule"].clone()).collect();
+    assert_eq!(Value::Array(logged), rules);
+}
+
+#[test]
 fn with_no_model_to_ask_nothing_is_sent_and_the_log_says_unavailable() {
     let paths = paths("unavailable", r#"{ "tiers": { "system-one": [] } }"#);
     start(&paths);
