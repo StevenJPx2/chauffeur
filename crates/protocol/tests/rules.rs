@@ -211,15 +211,19 @@ fn a_message_append_with_a_label_and_each_delivery_loads() {
                  "delivery": "{delivery}" }}"#
         );
 
-        assert!(Rule::parse("good", &appending(&payload)).is_ok(), "{delivery}");
+        assert!(
+            Rule::parse("good", &appending(&payload)).is_ok(),
+            "{delivery}"
+        );
     }
 
     let unlabelled = r#"{ "parts": [{ "text": "Amend it." }], "delivery": "now" }"#;
     assert!(Rule::parse("good", &appending(unlabelled)).is_ok());
 
     let longest = "x".repeat(100);
-    let payload =
-        format!(r#"{{ "label": "{longest}", "parts": [{{ "text": "Amend it." }}], "delivery": "now" }}"#);
+    let payload = format!(
+        r#"{{ "label": "{longest}", "parts": [{{ "text": "Amend it." }}], "delivery": "now" }}"#
+    );
     assert!(Rule::parse("good", &appending(&payload)).is_ok());
 }
 
@@ -230,7 +234,9 @@ fn a_message_append_that_a_harness_could_not_show_is_refused() {
 
     assert_refused(&appending(r#""now""#), "needs an object");
     assert_refused(
-        &with(&format!(r#""parts": {text}, "delivery": "now", "lable": "x""#)),
+        &with(&format!(
+            r#""parts": {text}, "delivery": "now", "lable": "x""#
+        )),
         "has `lable`",
     );
     assert_refused(&with(r#""parts": [], "delivery": "now""#), "needs `parts`");
@@ -250,9 +256,17 @@ fn a_message_append_that_a_harness_could_not_show_is_refused() {
     );
 
     let too_long = "x".repeat(101);
-    for label in ["\"\"", "\"  \"", "\"two\\nlines\"", "3", &format!("\"{too_long}\"")] {
+    for label in [
+        "\"\"",
+        "\"  \"",
+        "\"two\\nlines\"",
+        "3",
+        &format!("\"{too_long}\""),
+    ] {
         assert_refused(
-            &with(&format!(r#""label": {label}, "parts": {text}, "delivery": "now""#)),
+            &with(&format!(
+                r#""label": {label}, "parts": {text}, "delivery": "now""#
+            )),
             "one line of 1 to 100 characters",
         );
     }

@@ -66,6 +66,8 @@ fn check_label(label: &Value) -> Result<(), String> {
     if fits {
         Ok(())
     } else {
-        Err(format!("`label` must be one line of 1 to {MAX_LABEL} characters"))
+        Err(format!(
+            "`label` must be one line of 1 to {MAX_LABEL} characters"
+        ))
     }
 }
