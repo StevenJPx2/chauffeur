@@ -1,6 +1,7 @@
 mod cooldown;
 mod log_entry;
 
+use std::panic::{self, AssertUnwindSafe};
 use std::sync::{Arc, RwLock};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -57,13 +58,23 @@ impl Router {
             .filter(|rule| rule.hooks(event))
             .collect();
         let results: Vec<(Value, Option<Value>)> = thread::scope(|scope| {
+            let mut hooked = hooked.into_iter();
+            // The last rule runs on this thread, so one hooked rule starts none.
+            let here = hooked.next_back();
             let workers: Vec<_> = hooked
-                .into_iter()
                 .map(|rule| scope.spawn(|| self.run_one(&loaded, rule, event, deadline)))
                 .collect();
+            // As a worker's panic is dropped at its join, so is this one's.
+            let last = here.and_then(|rule| {
+                panic::catch_unwind(AssertUnwindSafe(|| {
+                    self.run_one(&loaded, rule, event, deadline)
+                }))
+                .ok()
+            });
             workers
                 .into_iter()
                 .filter_map(|worker| worker.join().ok())
+                .chain(last)
                 .collect()
         });
         let mut returned = Vec::new();
