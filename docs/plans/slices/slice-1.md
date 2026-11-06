@@ -28,6 +28,16 @@ sequenceDiagram
     A->>O: session.synthetic, steer
 ```
 
+## Recording
+
+OpenCode with `chauffeur-next` `1.0.0-rc.3` and Jev, above
+`chauffeur-next audit --follow --brief`. Asked to add a line and commit it, the
+agent commits as `Add …`. Jev answers yes at 0.89 in 367 ms, Chauffeur's
+message arrives in the conversation, and the agent amends the commit to
+`docs(readme): add hello line`.
+
+<video src="../../media/slice-1.mp4" controls muted playsinline width="100%"></video>
+
 ## What it builds
 
 ### Core: one round of steps
@@ -1396,14 +1406,6 @@ Verified by:
 - The tab settles the plan's confidence examples in a real browser.
 
 ## End to end
-
-OpenCode with `chauffeur-next` `1.0.0-rc.3` and Jev, above
-`chauffeur-next audit --follow --brief`. Asked to add a line and commit it, the
-agent commits as `Add …`. Jev answers yes at 0.89 in 367 ms, Chauffeur's
-message arrives in the conversation, and the agent amends the commit to
-`docs(readme): add hello line`.
-
-<video src="../../media/slice-1.mp4" controls muted playsinline width="100%"></video>
 
 - Through `chauffeur emit` and the daemon, live: the nudge goes out for a
   nonconventional commit and not for a conventional one, with Jev's answer,

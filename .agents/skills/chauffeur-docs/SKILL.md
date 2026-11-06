@@ -44,9 +44,12 @@ Watch it to the end.
 ## Pages
 
 - **Slices**: `docs/plans/slices/slice-N.md`, listed in its `README.md`.
-  Each part has `Files:`, a code example, `Structure:` when the slice is
-  In progress or Implemented, `Commands:` when a plugin adds any, and
-  `Verified by:`.
+  The page opens with its status, what you can do, and the diagram; a
+  complete slice's Recording follows, a few sentences on what the video shows
+  and then the video, so a reader sees the feature work before any detail.
+  What it builds and End to end come after. Each part has `Files:`, a code
+  example, `Structure:` when the slice is In progress or Implemented,
+  `Commands:` when a plugin adds any, and `Verified by:`.
 - **Plugins**: one page per plugin in `docs/plugins/`, with its hooks as
   code, its Commands and its Options. Integrations are in
   `docs/integrations/`.
@@ -61,7 +64,8 @@ Watch it to the end.
 ## Recordings
 
 Once a slice is complete and its rc is installed, record the feature working
-end to end and embed the video in the slice page's End to end section. The
+end to end and embed the video in the slice page's Recording section, right
+after the diagram, below a few sentences that say what it shows. The
 recording is the reader's proof that the released rc works, so it uses the
 real path: the installed `chauffeur-next`, its daemon with the real models, and
 the slice's real harness or caller, never a stand-in model. Record again when
