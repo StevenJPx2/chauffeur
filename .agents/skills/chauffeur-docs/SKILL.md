@@ -76,8 +76,10 @@ Drive the terminal with `termctrl` and follow the `terminal-control` skill.
   Mark both sessions at the same moments and export each with the same clips,
   so the audit line appears just as the harness reacts.
 - **Only the rc acts.** Work in a scratch git repo in the temp folder whose
-  `opencode.jsonc` lists `"-chauffeur"` and the rc's adapter, so v1's plugin
-  stays out of the session.
+  `opencode.jsonc` lists `"-chauffeur"`, `"-opencode-history"` and the rc's
+  adapter, so v1's plugin stays out of the session and no run remembers the
+  one before it. A run where the agent gives the rule nothing to do shows
+  nothing; record again until a take shows the feature.
 - **Nothing private on screen.** Hide OpenCode's tabs, which show the titles
   of the user's other sessions, with
   `OPENCODE_CLI_CONFIG_CONTENT='{"tabs":{"mode":"off"}}'`, and use

@@ -1,12 +1,16 @@
 # Recording a slice
 
 Slice 1's recording, as commands to adapt for the next slice. It ends with
-`docs/media/slice-1.mp4`: OpenCode above the audit log, 17 seconds.
+`docs/media/slice-1.mp4`: OpenCode above the audit log, 17 seconds, in which
+the agent commits, Chauffeur's message arrives and the agent amends.
 
 ## Set up
 
 A scratch repo whose OpenCode configuration loads only the rc's adapter, and
-the rc's daemon. Use `brew --prefix` in place of `/opt/homebrew`.
+the rc's daemon. It leaves out v1's plugin and `opencode-history`, whose recall
+carries what earlier runs learned into the next one. Its first commit is not
+conventional, so the agent has no history to copy. Use `brew --prefix` in place
+of `/opt/homebrew`.
 
 ```sh
 T=$TMPDIR/opencode/rec-slice-1
@@ -16,10 +20,14 @@ printf '# Greeter\n\nA tiny project for trying Chauffeur.\n' > README.md
 cat > opencode.jsonc <<'EOF'
 {
   "$schema": "https://opencode.ai/config.json",
-  "plugins": ["-chauffeur", "/opt/homebrew/share/chauffeur-next/opencode"]
+  "plugins": [
+    "-chauffeur",
+    "-opencode-history",
+    "/opt/homebrew/share/chauffeur-next/opencode"
+  ]
 }
 EOF
-git add -A && git commit -qm "chore: start the greeter"
+git add -A && git commit -qm "Initial commit"
 
 pgrep -f 'chauffeur-next daemon' \
   || (chauffeur-next daemon run > $T/daemon.log 2>&1 &)
@@ -43,8 +51,7 @@ termctrl wait oc "Build ·" --timeout 30000
 mark() { termctrl mark oc $1; termctrl mark audit $1; }
 
 mark ready
-termctrl send oc --pace-ms 30 \
-  'text:Add a line saying hello to README.md, then commit it with the message "fixed stuff".'
+termctrl send oc --pace-ms 30 'text:Add a line saying hello to README.md and commit it.'
 mark typed
 
 termctrl send oc enter
@@ -61,6 +68,11 @@ termctrl stop audit
 `termctrl wait` reads the screen, so the text must fit on one row: at fewer
 than 120 columns the audit line wraps and the wait misses `message.append`.
 
+The agent writes its own message, so a run may commit conventionally and get
+no nudge: the audit line then ends without `→ message.append`. Reset the repo
+to its first commit and record again, until a take shows the nudge and the
+agent's answer to it.
+
 ## Export
 
 One clip list for both panes, so they stay in step. `oc.json`:
@@ -72,19 +84,19 @@ One clip list for both panes, so they stay in step. `oc.json`:
       "from": "ready",
       "to": "typed",
       "speed": 1,
-      "caption": "OpenCode is asked for a commit whose message is not conventional"
+      "caption": "OpenCode is asked to add a line to the README and commit it"
     },
     {
       "from": "typed",
       "to": "nudged",
       "speed": 1.5,
-      "caption": "The agent commits; the adapter sends tool.after to Chauffeur"
+      "caption": "The agent commits as \"Add …\"; the adapter sends tool.after to Chauffeur"
     },
     {
       "from": "nudged",
       "to": "answered",
       "speed": 1,
-      "caption": "Jev says the message breaks Conventional Commits; the nudge reaches the agent",
+      "caption": "Jev says it breaks Conventional Commits; Chauffeur's message arrives and the agent amends",
       "hold_ms": 6000
     }
   ]
@@ -102,9 +114,13 @@ termctrl video audit.termctrl --edit audit.json --tail-ms 0 --hide-cursor \
 
 ffmpeg -y -i oc.mp4 -i audit.mp4 -filter_complex \
   "[0:v][1:v]vstack=inputs=2:shortest=1,scale=1600:-2:flags=lanczos,format=yuv420p" \
-  -c:v libx264 -preset slow -crf 26 -movflags +faststart -an \
-  ~/path/to/chauffeur/docs/media/slice-1.mp4
+  -c:v libx264 -preset slow -crf 26 -movflags +faststart -an slice-1.mp4
+
+cp slice-1.mp4 ~/path/to/chauffeur/docs/media/slice-1.mp4
 ```
+
+Render in the scratch folder and copy only the finished video into the
+repository.
 
 ## Check and clean up
 
