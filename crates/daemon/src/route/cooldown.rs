@@ -10,6 +10,10 @@ pub(super) type Key = (String, String);
 
 /// When each rule last returned something in each session. Past its bound,
 /// the oldest pair is forgotten.
+///
+/// [`Cooldowns::cooling`] spares a run its judges while a pair cools down,
+/// and [`Cooldowns::try_fire`] decides, under one lock, which of the runs
+/// that settle at once returns its action.
 pub(super) struct Cooldowns {
     fired: Mutex<BTreeMap<Key, Instant>>,
 }
@@ -29,11 +33,18 @@ impl Cooldowns {
         fired.get(key).is_some_and(|at| at.elapsed() < cooldown)
     }
 
-    /// Records that `key` returned something now.
-    pub(super) fn fire(&self, key: Key) {
-        let Ok(mut fired) = self.fired.lock() else {
-            return;
+    /// Records that `key` returns something now, unless another run did
+    /// within `cooldown`. A rule with no cooldown always returns.
+    pub(super) fn try_fire(&self, key: Key, cooldown: Option<Duration>) -> bool {
+        let Some(cooldown) = cooldown else {
+            return true;
         };
+        let Ok(mut fired) = self.fired.lock() else {
+            return true;
+        };
+        if fired.get(&key).is_some_and(|at| at.elapsed() < cooldown) {
+            return false;
+        }
         if fired.len() >= BOUND
             && let Some(oldest) = fired
                 .iter()
@@ -43,5 +54,6 @@ impl Cooldowns {
             fired.remove(&oldest);
         }
         fired.insert(key, Instant::now());
+        true
     }
 }

@@ -958,7 +958,9 @@ pub enum DaemonError {
 ```
 
 The router runs every rule that hooks an event at once, each on its own thread,
-and skips a rule still cooling down in that session. It writes each run to the
+and skips a rule still cooling down in that session. Runs that settle at once
+in one session are all judged, and `try_fire` lets only the first return its
+action; the others are logged as cooling down. It writes each run to the
 audit log and returns what the rules returned, even when the log cannot be
 written. Cooldowns keep at most 4,096 rule and session pairs, forgetting the
 oldest.
@@ -983,7 +985,7 @@ struct Cooldowns {
 
 impl Cooldowns {
     fn cooling(&self, key: &(String, String), cooldown: Option<Duration>) -> bool;
-    fn fire(&self, key: (String, String));
+    fn try_fire(&self, key: (String, String), cooldown: Option<Duration>) -> bool;
 }
 ```
 

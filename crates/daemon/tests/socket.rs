@@ -7,7 +7,8 @@
 )]
 
 use std::fs;
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Write};
+use std::net::TcpListener;
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
@@ -74,6 +75,46 @@ fn runs(paths: &Paths) -> Vec<Value> {
         .iter()
         .map(|line| serde_json::from_str(line).unwrap())
         .collect()
+}
+
+/// A stand-in for Jev on loopback that answers every question yes, each
+/// request after `delay`, as many requests as come. Its models file names the
+/// key `HOME`, which every test process has.
+fn slow_jev(delay: Duration) -> String {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let endpoint = format!("http://{}", listener.local_addr().unwrap());
+    thread::spawn(move || {
+        for stream in listener.incoming().filter_map(Result::ok) {
+            thread::spawn(move || {
+                let mut reader = BufReader::new(stream);
+                let mut length = 0;
+                loop {
+                    let mut line = String::new();
+                    reader.read_line(&mut line).unwrap();
+                    if line.trim().is_empty() {
+                        break;
+                    }
+                    if let Some(value) = line.to_ascii_lowercase().strip_prefix("content-length:") {
+                        length = value.trim().parse().unwrap();
+                    }
+                }
+                reader.read_exact(&mut vec![0; length]).unwrap();
+                thread::sleep(delay);
+                let body = r#"{"answers":{"q0":{"type":"noul","noul":0.97}}}"#;
+                let _ = write!(
+                    reader.get_mut(),
+                    "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+            });
+        }
+    });
+    json!({
+        "models": { "slow": { "format": "systemone", "endpoint": endpoint, "model": "jev-latest",
+                              "key": { "env": "HOME" }, "timeout_ms": 5000 } },
+        "tiers": { "system-one": ["slow"] }
+    })
+    .to_string()
 }
 
 /// Waits until `chauffeur.status` meets `ready`, at most 5 seconds.
@@ -419,4 +460,33 @@ fn a_rule_folder_that_links_back_to_itself_loads_each_rule_once() {
     let status = call(&paths.socket, "chauffeur.status", &Value::Null);
 
     assert_eq!(status["rules"], json!(["conventional-commits", "mine"]));
+}
+
+#[test]
+fn events_at_once_in_one_session_return_the_action_once_per_cooldown() {
+    let paths = paths("race", &slow_jev(Duration::from_millis(300)));
+    start(&paths);
+
+    // All four start before any is joined, so they reach the daemon at once.
+    let mut commits = Vec::new();
+    for _ in 0..4 {
+        let socket = paths.socket.clone();
+        commits.push(thread::spawn(move || {
+            emit(&socket, "s1", "git commit -m 'fixed stuff'")
+        }));
+    }
+    let actions: usize = commits
+        .into_iter()
+        .map(|commit| commit.join().unwrap().as_array().unwrap().len())
+        .sum();
+
+    assert_eq!(actions, 1, "one nudge, however the events interleave");
+    let runs = runs(&paths);
+    assert_eq!(runs.len(), 4);
+    let returned = runs
+        .iter()
+        .filter(|run| run.get("returned").is_some())
+        .count();
+    let cooling = runs.iter().filter(|run| run["cooldown"] == true).count();
+    assert_eq!((returned, cooling), (1, 3), "{runs:?}");
 }

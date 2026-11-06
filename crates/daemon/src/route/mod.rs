@@ -127,10 +127,15 @@ impl Router {
                 None
             }
         };
-        let action = returned.map(|then| {
+        // Runs that settle at once in one session may all have passed
+        // `cooling`; only the first to fire returns its action.
+        let action = returned.and_then(|then| {
+            if !self.cooldowns.try_fire(key, rule.cooldown()) {
+                entry.insert("cooldown".into(), json!(true));
+                return None;
+            }
             entry.insert("returned".into(), json!(then.name()));
-            self.cooldowns.fire(key);
-            json!({ "rule": rule.id(), "action": then.name(), "payload": then.payload() })
+            Some(json!({ "rule": rule.id(), "action": then.name(), "payload": then.payload() }))
         });
         (Value::Object(entry), action)
     }
