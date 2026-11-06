@@ -5,7 +5,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::thread;
 
-use serde_json::json;
+use serde_json::{Value, json};
 
 use crate::DaemonError;
 use crate::paths::private_folder;
@@ -80,7 +80,7 @@ fn connection(router: &Router, stream: UnixStream) {
             Ok(_) if line.len() > MAX_LINE => {
                 let reply = json!({ "jsonrpc": "2.0", "id": null,
                                     "error": { "code": -32_600, "message": "the request line is over 1 MiB" } });
-                let _ = writeln!(writer, "{reply}");
+                let _ = send(&mut writer, &reply);
                 return;
             }
             Ok(_) => {}
@@ -90,9 +90,18 @@ fn connection(router: &Router, stream: UnixStream) {
             continue;
         }
         if let Some(reply) = rpc::handle(router, text.trim())
-            && writeln!(writer, "{reply}").is_err()
+            && send(&mut writer, &reply).is_err()
         {
             return;
         }
     }
+}
+
+/// Writes `reply` and its newline in one write. Formatted straight to the
+/// socket, a reply would go out in many small writes, each waking the
+/// caller.
+fn send(writer: &mut impl Write, reply: &Value) -> std::io::Result<()> {
+    let mut line = reply.to_string();
+    line.push('\n');
+    writer.write_all(line.as_bytes())
 }
