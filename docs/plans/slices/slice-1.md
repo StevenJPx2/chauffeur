@@ -1378,6 +1378,13 @@ Verified by:
 
 ## End to end
 
+OpenCode with `chauffeur-next` `1.0.0-rc.2` and Jev, above
+`chauffeur-next audit --follow --brief`. The agent commits `fixed stuff`, Jev
+answers yes at 0.96 in 468 ms, and the nudge reaches the agent, which offers to
+reword the commit.
+
+<video src="../../media/slice-1.mp4" controls muted playsinline width="100%"></video>
+
 - Through `chauffeur emit` and the daemon, live: the nudge goes out for a
   nonconventional commit and not for a conventional one, with Jev's answer,
   model and time in `chauffeur audit`, which still shows them after the

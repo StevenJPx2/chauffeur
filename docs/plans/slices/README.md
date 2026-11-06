@@ -5,7 +5,8 @@ harness or caller to the judge and back. It builds only what that feature
 needs, with the tests and proofs for that code. Every slice ends the same way:
 the [quality gates](../pluggability.md#quality-gates) pass, its playground tab works in a real
 browser, the feature works in its real harness or caller, the parity table
-covers every `main` commit to date, an rc ships, and work stops for review.
+covers every `main` commit to date, an rc ships, a recording of the rc
+working end to end goes on the slice's page, and work stops for review.
 
 | #   | Slice                                                     | Status      |
 | --- | --------------------------------------------------------- | ----------- |
