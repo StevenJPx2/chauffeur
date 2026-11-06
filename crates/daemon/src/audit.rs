@@ -39,14 +39,18 @@ impl Audit {
         }
     }
 
-    /// Appends `entry`, with the time it was written as `at`.
+    /// Appends `entry`, with the time it was written as `at`: always to the
+    /// microsecond, so every `at` has one width and they sort as text.
     ///
     /// # Errors
     ///
     /// The folder or the file cannot be created, moved or written.
     pub fn append(&self, mut entry: Value) -> io::Result<()> {
         if let Value::Object(fields) = &mut entry {
-            fields.insert("at".into(), Value::from(jiff::Timestamp::now().to_string()));
+            fields.insert(
+                "at".into(),
+                Value::from(format!("{:.6}", jiff::Timestamp::now())),
+            );
         }
         let mut line = entry.to_string();
         line.push('\n');

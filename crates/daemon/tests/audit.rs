@@ -51,13 +51,12 @@ fn runs_are_appended_with_their_time_in_a_folder_only_the_user_can_open() {
     let lines = recent(&folder, 10).unwrap();
     assert_eq!(numbers(&lines), [1, 2]);
     let first: Value = serde_json::from_str(&lines[0]).unwrap();
-    assert!(
-        first["at"]
-            .as_str()
-            .unwrap()
-            .parse::<jiff::Timestamp>()
-            .is_ok(),
-        "{first}"
+    let at = first["at"].as_str().unwrap();
+    assert!(at.parse::<jiff::Timestamp>().is_ok(), "{first}");
+    assert_eq!(
+        at.len(),
+        "2026-11-06T12:58:46.036546Z".len(),
+        "to the microsecond, whatever the time: {at}"
     );
     assert_eq!(
         fs::metadata(&folder).unwrap().permissions().mode() & 0o777,

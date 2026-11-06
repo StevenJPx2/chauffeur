@@ -19,7 +19,7 @@ A run's JSON line:
 
 ```json
 {
-  "at": "2026-11-03T13:54:43.412Z",
+  "at": "2026-11-03T13:54:43.412075Z",
   "elapsed_ms": 312,
   "event": "tool.after",
   "returned": "message.append",

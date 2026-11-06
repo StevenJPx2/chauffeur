@@ -989,7 +989,8 @@ impl Cooldowns {
 }
 ```
 
-The audit log adds the time as `at` to each run and moves to `audit.1.jsonl`
+The audit log adds the time as `at`, to the microsecond, to each run and moves
+to `audit.1.jsonl`
 past 8 MiB. `recent` reads the last runs across both files, oldest first, and
 `follow` calls back with each new line.
 
