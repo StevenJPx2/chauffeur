@@ -16,7 +16,7 @@ exclude_globs = ["**/proofs.rs"]
 # not starting like one. Weakening that fast path to rule out fewer words
 # leaves the prefix check after it to give the same answer.
 exclude_re = [
-  'route/cooldown\.rs:\d+:\d+: replace < with <= in Cooldowns::cooling',
+  'route/cooldown\.rs:\d+:\d+: replace < with <= in Cooldowns::(cooling|try_fire)',
   'redact/mod\.rs:\d+:\d+: replace \|\| with && in Redactor::known',
   'tiers/system_one/mod\.rs:43:\d+: replace format ',
 ]

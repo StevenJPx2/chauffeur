@@ -317,3 +317,43 @@ fn a_line_still_being_written_when_following_starts_comes_once_whole() {
         [1, 2]
     );
 }
+
+#[test]
+fn following_starts_with_the_last_runs_across_both_files() {
+    let folder = folder("follow-both");
+    Audit::new(&folder, u64::MAX).append(run(0)).unwrap();
+    let line = fs::metadata(folder.join("audit.jsonl")).unwrap().len();
+    fs::remove_file(folder.join("audit.jsonl")).unwrap();
+    // As in the move-aside test: 3 and 4 in audit.1.jsonl, 5 in audit.jsonl.
+    let audit = Audit::new(&folder, line * 5 / 2);
+    for index in 1..=5 {
+        audit.append(run(index)).unwrap();
+    }
+    let (send, received) = mpsc::channel();
+
+    thread::spawn(move || follow(&folder, 3, |line| drop(send.send(line.to_owned()))));
+
+    assert_eq!(
+        whole(&collected(&received, Duration::from_millis(400))),
+        [3, 4, 5]
+    );
+}
+
+#[test]
+fn a_log_moved_aside_as_following_starts_is_read_once() {
+    let folder = folder("follow-moving");
+    let audit = Audit::new(&folder, u64::MAX);
+    audit.append(run(1)).unwrap();
+    audit.append(run(2)).unwrap();
+    // The same file under both names: what following sees when the log moves
+    // aside between opening it and looking for audit.1.jsonl.
+    fs::hard_link(folder.join("audit.jsonl"), folder.join("audit.1.jsonl")).unwrap();
+    let (send, received) = mpsc::channel();
+
+    thread::spawn(move || follow(&folder, 10, |line| drop(send.send(line.to_owned()))));
+
+    assert_eq!(
+        whole(&collected(&received, Duration::from_millis(400))),
+        [1, 2]
+    );
+}

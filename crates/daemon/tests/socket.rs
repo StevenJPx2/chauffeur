@@ -175,6 +175,11 @@ fn a_bad_commit_gets_the_nudge_once_per_cooldown_and_the_log_shows_why() {
     assert_eq!(first["answer"]["model"], "stand-in");
     assert_eq!(first["answer"]["placeholder"], true);
     assert_eq!(runs[1]["cooldown"], true);
+    assert!(
+        runs[1].get("steps").is_none(),
+        "a rule cooling down asks no judge: {}",
+        runs[1]
+    );
     assert_eq!(runs.len(), 4, "ls ran no rule");
     assert!(
         runs[0]["at"].as_str().unwrap().ends_with('Z'),
@@ -358,6 +363,28 @@ fn a_second_daemon_finds_the_first_and_an_open_folder_is_refused() {
     assert!(
         error.to_string().ends_with("must have mode 0700"),
         "{error}"
+    );
+}
+
+#[test]
+fn rules_are_read_from_at_most_256_folders() {
+    let paths = paths("folders", NUDGING);
+    let shipped =
+        fs::read_to_string(paths.distribution.join("rules/conventional-commits.json")).unwrap();
+    for index in 0..300 {
+        let folder = paths.config.join(format!("rules/f{index:03}"));
+        fs::create_dir_all(&folder).unwrap();
+        fs::write(folder.join("r.json"), &shipped).unwrap();
+    }
+    start(&paths);
+
+    let status = call(&paths.socket, "chauffeur.status", &Value::Null);
+
+    // rules/ itself and 255 below it, besides the shipped rule.
+    assert_eq!(
+        status["rules"].as_array().unwrap().len(),
+        1 + 255,
+        "{status}"
     );
 }
 
