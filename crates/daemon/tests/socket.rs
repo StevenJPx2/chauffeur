@@ -403,3 +403,20 @@ fn a_rule_edited_into_one_that_does_not_load_keeps_running_as_it_was() {
         "a removed file takes its rule with it, and the shipped one is back"
     );
 }
+
+#[test]
+fn a_rule_folder_that_links_back_to_itself_loads_each_rule_once() {
+    let paths = paths("loop", NUDGING);
+    let rules = paths.config.join("rules");
+    let shipped =
+        fs::read_to_string(paths.distribution.join("rules/conventional-commits.json")).unwrap();
+    fs::write(rules.join("mine.json"), shipped).unwrap();
+    for name in ["a", "b"] {
+        std::os::unix::fs::symlink(&rules, rules.join(name)).unwrap();
+    }
+    start(&paths);
+
+    let status = call(&paths.socket, "chauffeur.status", &Value::Null);
+
+    assert_eq!(status["rules"], json!(["conventional-commits", "mine"]));
+}

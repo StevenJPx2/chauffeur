@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -11,6 +11,9 @@ use crate::paths::Paths;
 
 /// The most rule files loaded from one source.
 const MAX_RULES: usize = 512;
+
+/// The most folders read for rules in one source.
+const MAX_FOLDERS: usize = 256;
 
 /// Everything loaded from the distribution and the user's configuration.
 pub struct Loaded {
@@ -114,24 +117,35 @@ fn json_files(folder: &Path) -> Vec<PathBuf> {
     files
 }
 
-/// The `.json` files in `folder` and below, sorted, at most [`MAX_RULES`].
+/// The `.json` files in `folder` and below, sorted, at most [`MAX_RULES`]
+/// from at most [`MAX_FOLDERS`] folders. A folder reached again through a
+/// link is read once, by the path that reaches it first, so a link back to
+/// a folder above it neither repeats its rules nor walks forever.
 fn json_files_below(folder: &Path) -> Vec<PathBuf> {
     let mut found = Vec::new();
+    let mut visited = BTreeSet::new();
     let mut pending = vec![folder.to_owned()];
     while let Some(next) = pending.pop() {
-        if found.len() >= MAX_RULES {
+        if found.len() >= MAX_RULES || visited.len() >= MAX_FOLDERS {
             break;
         }
+        let Ok(real) = std::fs::canonicalize(&next) else {
+            continue;
+        };
+        if !visited.insert(real) {
+            continue;
+        }
         found.extend(json_files(&next));
-        let subfolders = std::fs::read_dir(&next)
+        let mut subfolders: Vec<PathBuf> = std::fs::read_dir(&next)
             .into_iter()
             .flatten()
-            .filter_map(Result::ok);
-        pending.extend(
-            subfolders
-                .map(|entry| entry.path())
-                .filter(|path| path.is_dir()),
-        );
+            .filter_map(Result::ok)
+            .map(|entry| entry.path())
+            .filter(|path| path.is_dir())
+            .collect();
+        // Popped in name order, so the same folders always load the same IDs.
+        subfolders.sort_by(|a, b| b.cmp(a));
+        pending.extend(subfolders);
     }
     found.sort();
     found.truncate(MAX_RULES);

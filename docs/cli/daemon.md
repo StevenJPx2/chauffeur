@@ -58,6 +58,11 @@ chauffeur daemon status
 A rule file is checked when it loads, so `refused` is where a mistake in a
 rule shows, with no separate validation step.
 
+A rule's ID is its path under `rules/` without `.json`, such as
+`team/release`. Folders below `rules/` may be links; a folder reached twice is
+read once, by the first path in name order, and at most 256 folders and 512
+rule files are read from each of the shipped and your own `rules/`.
+
 From slice 5, `chauffeur daemon status --project WORKTREE` lists the rules a
 session in that worktree would load, its project rules included, and the
 ones refused.
