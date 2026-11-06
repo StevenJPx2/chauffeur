@@ -4,6 +4,7 @@ use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::thread;
+use std::time::Duration;
 
 use serde_json::{Value, json};
 
@@ -15,7 +16,9 @@ use crate::rpc;
 /// The longest request line accepted.
 pub const MAX_LINE: usize = 1 << 20;
 /// The most connections served at once.
-const MAX_CONNECTIONS: usize = 64;
+pub const MAX_CONNECTIONS: usize = 64;
+/// How long telling a caller the daemon is busy may take.
+const BUSY_WRITE: Duration = Duration::from_millis(100);
 
 /// Binds the socket in its private folder. A socket another daemon answers
 /// on is left alone; a stale one is replaced.
@@ -41,12 +44,14 @@ pub fn bind(socket: &Path) -> Result<UnixListener, DaemonError> {
     })
 }
 
-/// Serves connections until the listener fails, each on its own thread.
+/// Serves connections until the listener fails, each on its own thread. A
+/// connection past [`MAX_CONNECTIONS`] is told the daemon is busy and closed.
 pub fn serve(listener: &UnixListener, router: &Arc<Router>) {
     let open = Arc::new(AtomicUsize::new(0));
     for stream in listener.incoming().filter_map(Result::ok) {
         if open.fetch_add(1, Ordering::SeqCst) >= MAX_CONNECTIONS {
             open.fetch_sub(1, Ordering::SeqCst);
+            busy(stream);
             continue;
         }
         let (router, served) = (Arc::clone(router), Arc::clone(&open));
@@ -59,6 +64,17 @@ pub fn serve(listener: &UnixListener, router: &Arc<Router>) {
         if spawned.is_err() {
             open.fetch_sub(1, Ordering::SeqCst);
         }
+    }
+}
+
+/// Tells a caller past the limit why it is closed, so it does not take the
+/// closed connection for a daemon that stopped. A caller that is not reading
+/// is not waited for.
+fn busy(mut stream: UnixStream) {
+    let reply = json!({ "jsonrpc": "2.0", "id": null, "error": { "code": -32_000,
+        "message": format!("the daemon is busy: it serves {MAX_CONNECTIONS} connections already") } });
+    if stream.set_write_timeout(Some(BUSY_WRITE)).is_ok() {
+        let _ = send(&mut stream, &reply);
     }
 }
 

@@ -24,7 +24,7 @@ use notify::{PollWatcher, RecursiveMode, Watcher};
 
 pub use paths::{Paths, private_folder};
 pub use route::Router;
-pub use socket::MAX_LINE;
+pub use socket::{MAX_CONNECTIONS, MAX_LINE};
 
 /// How long file changes settle before a reload.
 const SETTLE: Duration = Duration::from_millis(200);

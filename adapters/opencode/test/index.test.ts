@@ -3,7 +3,7 @@ import type { Plugin } from "@opencode/plugin"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { adapter } from "../src/index.ts"
-import { NUDGE, standIn } from "./stand-in.ts"
+import { HANG_UP, NUDGE, standIn } from "./stand-in.ts"
 
 type Hook = (call: Record<string, unknown>) => Promise<void>
 
@@ -215,4 +215,41 @@ test("the plugin is named after its installation", () => {
 
   expect(adapter(shipped).id).toBe("chauffeur-next")
   expect(adapter(import.meta.url).id).toBe("chauffeur")
+})
+
+test("a daemon that stops mid-request lets the call finish, and the log says so", async () => {
+  const daemon = await standIn(() => HANG_UP)
+  const logged: string[] = []
+
+  try {
+    const { hook, sent } = await load({ socket: daemon.socket }, (line) =>
+      logged.push(line)
+    )
+    const finished = hook(commit("completed")).then(() => "finished")
+    const waited = new Promise((done) => setTimeout(() => done("still waiting"), 2000))
+
+    expect(await Promise.race([finished, waited])).toBe("finished")
+    expect(sent).toEqual([])
+    expect(logged[0]).toContain("the daemon closed the connection without answering")
+  } finally {
+    await daemon.close()
+  }
+})
+
+test("the deadline option stays within what the daemon allows", async () => {
+  const daemon = await standIn(() => ({ result: { actions: [] } }))
+
+  try {
+    for (const deadline_ms of [120_000, -5, Number.NaN, "fast"]) {
+      const { hook } = await load({ socket: daemon.socket, deadline_ms }, () => {})
+
+      await hook(commit("completed"))
+    }
+
+    expect(daemon.requests.map((request) => request.params.deadline_ms)).toEqual([
+      30_000, 3000, 3000, 3000
+    ])
+  } finally {
+    await daemon.close()
+  }
 })

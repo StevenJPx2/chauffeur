@@ -1006,7 +1006,7 @@ pub fn follow(folder: &Path, each: impl FnMut(&str)) -> io::Result<()>;
 
 `bind` leaves a socket another daemon answers on and replaces a stale one.
 `serve` gives each connection its own thread, 64 at most, with lines up to 1
-MiB. `handle` answers one JSON-RPC line, and nothing for a notification;
+MiB; one more is told the daemon is busy, with error `-32000`, and closed. `handle` answers one JSON-RPC line, and nothing for a notification;
 deadlines default to 3 seconds and stop at 30.
 
 ```rust
@@ -1141,8 +1141,10 @@ command's output.
   such as `shell`, and so is `execute`. A message steered from an inner
   call reaches the agent at the turn's next step, after `execute`'s result.
 - **Fails open.** The adapter waits for the rules' deadline, 3 seconds by
-  default (option `deadline_ms`), and half a second more. With no daemon, an
-  error, no answer or a message OpenCode refuses, nothing reaches the agent,
+  default (option `deadline_ms`, at most the daemon's 30), and half a second
+  more. With no daemon, an error, no answer, a daemon that closes the
+  connection without answering or a message OpenCode refuses, the call goes
+  on and nothing reaches the agent,
   and the adapter writes why to `opencode.log` in `~/.local/state/<name>/`,
   beside the audit log, once a minute at most.
 - **Actions.** `message.append` becomes one message: its text parts after one

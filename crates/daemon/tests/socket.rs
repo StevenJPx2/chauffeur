@@ -303,3 +303,44 @@ fn a_second_daemon_finds_the_first_and_an_open_folder_is_refused() {
         "{error}"
     );
 }
+
+#[test]
+fn past_the_connection_limit_a_caller_is_told_so_and_served_once_one_closes() {
+    let paths = paths("busy", NUDGING);
+    start(&paths);
+    let open: Vec<UnixStream> = (0..chauffeur_daemon::MAX_CONNECTIONS)
+        .map(|_| UnixStream::connect(&paths.socket).unwrap())
+        .collect();
+    // Each is answered once it is served, so all are counted before the next.
+    for mut stream in &open {
+        writeln!(
+            stream,
+            r#"{{ "jsonrpc": "2.0", "id": 1, "method": "chauffeur.status" }}"#
+        )
+        .unwrap();
+        BufReader::new(stream)
+            .read_line(&mut String::new())
+            .unwrap();
+    }
+
+    let refused = send(
+        &paths.socket,
+        r#"{ "jsonrpc": "2.0", "id": 7, "method": "chauffeur.status" }"#,
+    );
+    assert_eq!(refused["error"]["code"], -32_000, "{refused}");
+    assert!(
+        refused["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("busy"),
+        "{refused}"
+    );
+
+    drop(open);
+    let started = Instant::now();
+    let status = r#"{ "jsonrpc": "2.0", "id": 7, "method": "chauffeur.status" }"#;
+    while send(&paths.socket, status).get("result").is_none() {
+        assert!(started.elapsed() < Duration::from_secs(5), "still busy");
+        thread::sleep(Duration::from_millis(50));
+    }
+}

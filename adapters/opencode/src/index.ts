@@ -7,7 +7,18 @@ import { fileLog, logPath } from "./log.ts"
 type Options = { socket?: unknown; deadline_ms?: unknown }
 
 const DEFAULT_DEADLINE_MS = 3000
+/** The daemon's own limit; it would wait no longer for a larger one. */
+const MAX_DEADLINE_MS = 30_000
 const QUIET_MS = 60_000
+
+/** The `deadline_ms` option, kept to what the daemon allows. */
+function deadline(option: unknown): number {
+  if (typeof option !== "number" || !Number.isFinite(option) || option < 0) {
+    return DEFAULT_DEADLINE_MS
+  }
+
+  return Math.min(Math.round(option), MAX_DEADLINE_MS)
+}
 
 /** Logs each kind of trouble at most once a minute. */
 function warner(log: (message: string) => void, now = Date.now) {
@@ -43,10 +54,7 @@ export function adapter(
         process.env,
         typeof options.socket === "string" ? options.socket : undefined
       )
-      const deadlineMs =
-        typeof options.deadline_ms === "number"
-          ? options.deadline_ms
-          : DEFAULT_DEADLINE_MS
+      const deadlineMs = deadline(options.deadline_ms)
       const warn = warner(log ?? fileLog(logPath(name, process.env)))
 
       const ask = async (event: Record<string, unknown>, tool: string) => {

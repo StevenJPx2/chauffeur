@@ -8,9 +8,13 @@ export type Request = {
   params: { event: unknown; deadline_ms: number }
 }
 
+/** What a stand-in's `reply` returns to hang up without answering. */
+export const HANG_UP = Symbol("hang up")
+
 /**
- * A daemon on a real socket that answers each request line with `reply`, or
- * not at all when `reply` returns undefined.
+ * A daemon on a real socket that answers each request line with `reply`,
+ * not at all when `reply` returns undefined, or closes the connection
+ * without answering, as a daemon that stops mid-request does, on `HANG_UP`.
  */
 export async function standIn(reply: (request: Request) => unknown) {
   const folder = mkdtempSync(join(tmpdir(), "cho-"))
@@ -30,7 +34,9 @@ export async function standIn(reply: (request: Request) => unknown) {
       requests.push(request)
       const answer = reply(request)
 
-      if (answer !== undefined) {
+      if (answer === HANG_UP) {
+        connection.end()
+      } else if (answer !== undefined) {
         connection.write(
           `${JSON.stringify({ jsonrpc: "2.0", id: request.id, ...answer })}\n`
         )

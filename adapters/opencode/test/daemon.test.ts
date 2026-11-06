@@ -3,7 +3,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { pathToFileURL } from "node:url"
 import { emit, installation, socketPath } from "../src/daemon.ts"
-import { NUDGE, standIn } from "./stand-in.ts"
+import { HANG_UP, NUDGE, standIn } from "./stand-in.ts"
 
 const EVENT = { event: "tool.after", session: "s1", tool: "shell" }
 
@@ -61,5 +61,20 @@ test("emit fails with no daemon, an error, a late answer or no actions", async (
     await expect(emit(empty.socket, EVENT, 100)).rejects.toThrow("no actions")
   } finally {
     await Promise.all([refusing.close(), silent.close(), empty.close()])
+  }
+})
+
+test("emit fails at once when the daemon hangs up without answering", async () => {
+  const stopped = await standIn(() => HANG_UP)
+
+  try {
+    const started = Date.now()
+
+    await expect(emit(stopped.socket, EVENT, 3000)).rejects.toThrow(
+      "the daemon closed the connection without answering"
+    )
+    expect(Date.now() - started).toBeLessThan(1000)
+  } finally {
+    await stopped.close()
   }
 })

@@ -32,7 +32,8 @@ export function socketPath(name: string, env: Env, option?: string): string {
 /**
  * Sends one event with `chauffeur.emit` and resolves with the actions the
  * rules returned. Rejects when the daemon cannot be reached, answers with an
- * error, or has not answered half a second after the rules' deadline.
+ * error, closes the connection without answering, or has not answered half a
+ * second after the rules' deadline.
  */
 export function emit(
   socket: string,
@@ -49,6 +50,7 @@ export function emit(
   return new Promise((resolve, reject) => {
     const connection = createConnection(socket)
     let received = ""
+    let answered = false
 
     const fail = (error: Error) => {
       connection.destroy()
@@ -62,12 +64,21 @@ export function emit(
     connection.on("error", fail)
     connection.on("connect", () => connection.write(`${JSON.stringify(request)}\n`))
 
+    // A daemon that stops mid-request closes cleanly, which also clears the
+    // timeout: without this the call would wait forever.
+    connection.on("close", () => {
+      if (!answered) {
+        reject(new Error("the daemon closed the connection without answering"))
+      }
+    })
+
     connection.on("data", (data) => {
       received += data.toString("utf8")
       const end = received.indexOf("\n")
 
       if (end === -1) return
 
+      answered = true
       connection.end()
 
       try {
