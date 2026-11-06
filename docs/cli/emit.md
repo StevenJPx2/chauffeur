@@ -16,7 +16,10 @@ echo '{ "event": "tool.after", "session": "s1", "tool": "shell",
       "rule": "conventional-commits",
       "action": "message.append",
       "payload": {
-        "parts": [{ "text": "Use Conventional Commits, …" }],
+        "label": "commit message isn't conventional; asking the agent to amend it",
+        "parts": [
+          { "text": "Chauffeur, which the user set up to check commits: …" }
+        ],
         "delivery": "now"
       }
     }

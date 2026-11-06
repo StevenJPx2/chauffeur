@@ -48,15 +48,18 @@ async function waitFor(path, daemon, log) {
 
 /**
  * Loads the installed OpenCode adapter as OpenCode does, with a stand-in for
- * OpenCode's tool hooks, and runs its execute.after hook on a commit.
+ * OpenCode's tool hooks and sessions, and runs its execute.after hook on a
+ * commit. Returns the commit's result and the messages the adapter sent.
  */
 async function throughAdapter(prefix, name, socket) {
   const server = join(prefix, "share", name, "opencode/server.js")
   const { default: adapter } = await import(pathToFileURL(server).href)
+  const sent = []
   let hook
 
   await adapter.setup({
     options: { socket },
+    session: { synthetic: async (input) => { sent.push(input) } },
     tool: { hook: async (_, callback) => { hook = callback } }
   })
   assert.equal(adapter.id, name)
@@ -71,7 +74,7 @@ async function throughAdapter(prefix, name, socket) {
 
   await hook(call)
 
-  return call.result.content
+  return { content: call.result.content, sent }
 }
 
 async function run(binary, name, root, expected) {
@@ -106,8 +109,12 @@ async function run(binary, name, root, expected) {
     const emitted = call(["emit"], JSON.stringify(COMMIT))
     assert.equal(emitted.actions[0]?.rule, "conventional-commits", JSON.stringify(emitted))
     assert.equal(emitted.actions[0]?.action, "message.append", JSON.stringify(emitted))
-    const adapted = await throughAdapter(join(root, "prefix"), name, socket)
-    assert.match(adapted, /^\[main 3f2c1a0\] fixed stuff\n\nUse Conventional Commits/, adapted)
+    const { content, sent } = await throughAdapter(join(root, "prefix"), name, socket)
+    assert.equal(content, "[main 3f2c1a0] fixed stuff")
+    assert.equal(sent.length, 1, JSON.stringify(sent))
+    assert.equal(sent[0].delivery, "steer", JSON.stringify(sent))
+    assert.match(sent[0].description, /^Chauffeur · conventional-commits: /, sent[0].description)
+    assert.match(sent[0].text, /Conventional Commits/, sent[0].text)
     const audit = execFileSync(binary, ["audit"], { env, encoding: "utf8" }).trim().split("\n")
     assert.equal(audit.length, 2, audit.join("\n"))
     assert.equal(JSON.parse(audit[0]).returned, "message.append", audit[0])

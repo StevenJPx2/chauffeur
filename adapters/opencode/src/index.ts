@@ -1,6 +1,5 @@
 import type { Plugin } from "@opencode/plugin"
-import { append, apply } from "./act.ts"
-import { carrier } from "./carry.ts"
+import { messages, type Message } from "./act.ts"
 import { emit, installation, socketPath, type Action } from "./daemon.ts"
 import { toolAfter } from "./event.ts"
 import { fileLog, logPath } from "./log.ts"
@@ -49,7 +48,6 @@ export function adapter(
           ? options.deadline_ms
           : DEFAULT_DEADLINE_MS
       const warn = warner(log ?? fileLog(logPath(name, process.env)))
-      const carried = carrier()
 
       const ask = async (event: Record<string, unknown>, tool: string) => {
         try {
@@ -63,20 +61,37 @@ export function adapter(
         }
       }
 
+      const send = async (sessionID: string, message: Message) => {
+        const { rule, text, description, delivery, resume } = message
+
+        try {
+          await ctx.session.synthetic({
+            sessionID,
+            text,
+            description,
+            metadata: { chauffeur: { rule } },
+            delivery,
+            ...(delivery === "queue" ? { resume } : {})
+          })
+        } catch (error) {
+          const reason = error instanceof Error ? error.message : String(error)
+
+          warn("synthetic", `nothing delivered for ${rule}: ${reason}`)
+        }
+      }
+
       await ctx.tool.hook("execute.after", async (call) => {
         const event = toolAfter(call)
 
         if (!event || call.status !== "completed") return
 
-        const { result, appended, skipped } = apply(
-          call.result,
-          await ask(event, call.tool)
-        )
+        const planned = messages(await ask(event, call.tool))
 
-        call.result = append(result, carried.take(call.id))
-        carried.put(call.id, appended)
+        for (const message of planned.messages) {
+          await send(call.sessionID, message)
+        }
 
-        for (const action of skipped) {
+        for (const action of planned.skipped) {
           warn(
             `skip:${action.action}`,
             `skipped ${action.action} from ${action.rule}`

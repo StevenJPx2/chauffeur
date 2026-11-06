@@ -4,8 +4,14 @@
 
 **You can:** install the rc beside v1 and add its OpenCode adapter to
 `plugins` in `opencode.jsonc`. When the agent commits with a message such as
-`fixed stuff`, the commit's tool result ends with "Use Conventional Commits,
-such as `feat(scope): …`". An `unsure` or `failed` answer sends nothing.
+`fixed stuff`, Chauffeur's message follows in the conversation, and the agent
+amends the commit unless you chose the message. OpenCode shows it as one row:
+
+```text
+◈ Chauffeur · conventional-commits: commit message isn't conventional; asking the agent to amend it
+```
+
+An `unsure` or `failed` answer sends nothing.
 
 ```mermaid
 sequenceDiagram
@@ -19,7 +25,7 @@ sequenceDiagram
     D->>J: noul, redacted tool call
     J-->>D: yes 0.94
     D-->>A: message.append, delivery now
-    A->>O: text added to the tool result
+    A->>O: session.synthetic, steer
 ```
 
 ## What it builds
@@ -261,7 +267,9 @@ impl When {
 
 A `then` entry needs a result from some steps, an outcome, `unsure` or `failed`,
 and returns an action such as `message.append` with its payload. `first_met`
-picks the first entry whose needs all hold.
+picks the first entry whose needs all hold. A `message.append` payload is
+checked when the rule loads: text `parts`, a `delivery` of `now`, `next` or
+`wake`, and an optional `label` of one line, at most 100 characters.
 
 ```rust
 pub struct Then {
@@ -1070,7 +1078,7 @@ plugin API, `@opencode/plugin` 2, and imports only its types, so it ships as
 one file with no dependencies.
 
 Files: `adapters/opencode/src/index.ts`, `event.ts`, `daemon.ts`, `act.ts`,
-`carry.ts`, `log.ts`, `adapters/opencode/test/`
+`log.ts`, `adapters/opencode/test/`
 
 The rc ships it in `share/chauffeur-next/opencode/`, and OpenCode loads it
 from there:
@@ -1094,15 +1102,23 @@ After the agent's `git commit -m 'fixed stuff'`, the adapter sends:
 }
 ```
 
-The daemon returns `message.append` with `delivery: "now"`, and the agent
-reads the tool result with the text after it:
+The daemon returns `message.append` with `delivery: "now"`, and the adapter
+sends it to the session as its own message, steered into the running turn:
 
-```text
-[v2 3f2c1a0] fixed stuff
- 1 file changed, 2 insertions(+)
-
-Use Conventional Commits, such as `feat(scope): short description`.
+```ts
+await ctx.session.synthetic({
+  sessionID: "ses_…",
+  text: "Chauffeur, which the user set up to check commits: …",
+  description:
+    "Chauffeur · conventional-commits: commit message isn't conventional; asking the agent to amend it",
+  metadata: { chauffeur: { rule: "conventional-commits" } },
+  delivery: "steer"
+})
 ```
+
+OpenCode shows the description as the message's row, and the agent reads the
+text after the commit's result, from the conversation rather than from the
+command's output.
 
 - **Which installation.** The folder it ships in names the installation, so
   `share/chauffeur-next/opencode/` is the plugin `chauffeur-next`, which loads
@@ -1110,26 +1126,29 @@ Use Conventional Commits, such as `feat(scope): short description`.
   daemon finds it. The plugin's `socket` option or `$CHAUFFEUR_SOCKET` names
   another.
 - **Every completed call** is sent, with its output's text up to 64 KiB. A
-  call that fails has no result to add to, and is not sent.
+  call that fails is not sent.
 - **Code Mode.** A call made inside Code Mode's `execute` is sent as itself,
-  such as `shell`, and so is `execute`. The agent reads `execute`'s result,
-  so text added to an inner call is added to `execute`'s result as well.
+  such as `shell`, and so is `execute`. A message steered from an inner
+  call reaches the agent at the turn's next step, after `execute`'s result.
 - **Fails open.** The adapter waits for the rules' deadline, 3 seconds by
   default (option `deadline_ms`), and half a second more. With no daemon, an
-  error or no answer, the result stays as it was, and the adapter writes why
-  to `opencode.log` in `~/.local/state/<name>/`, beside the audit log, once a
-  minute at most.
-- **Actions.** `message.append` with `delivery: "now"` adds its text parts
-  after a blank line: to the text when the result is text, or as text items
-  when it is a list. The adapter skips any other action or delivery; each
-  arrives with the slice that needs it.
+  error, no answer or a message OpenCode refuses, nothing reaches the agent,
+  and the adapter writes why to `opencode.log` in `~/.local/state/<name>/`,
+  beside the audit log, once a minute at most.
+- **Actions.** `message.append` becomes one message: its text parts after one
+  another, described as `Chauffeur · <rule>: <label>`, or `Chauffeur · <rule>`
+  with no label. `now` steers it into the running turn, `next` queues it for
+  the next turn, and `wake` queues it and starts a turn when the agent is
+  idle. The tool's result stays as it was. The adapter skips any other
+  action; each arrives with the slice that needs it.
 - **One connection per call** over the socket, so every OpenCode server on
   the machine shares one daemon, and a restarted daemon needs nothing.
 
 Structure:
 
 `adapter` builds the plugin for the module it is loaded from. `setup` reads
-the options, which may be absent, and hooks `execute.after`; the shipped
+the options, which may be absent, hooks `execute.after` and sends each message
+with `ctx.session.synthetic`, with `resume` only on a queued one; the shipped
 `server.js` exports `adapter(import.meta.url)` as its default.
 
 ```ts
@@ -1192,19 +1211,27 @@ export function emit(
 ): Promise<Action[]>
 ```
 
-`apply` carries the actions out on a result and returns what it added and
-what it skipped. `append` adds texts to a result, and returns it unchanged
-when there are none.
+`messages` turns the actions into messages for `session.synthetic` and
+returns the ones it skipped: any action but `message.append`, and one with no
+text or a delivery other than `now`, `next` or `wake`. `describe` is what
+OpenCode shows on a message's row.
 
 ```ts
-export type Applied = {
-  readonly result: Result
-  readonly appended: readonly string[]
+export type Message = {
+  readonly rule: string
+  readonly text: string
+  readonly description: string
+  readonly delivery: "steer" | "queue"
+  readonly resume: boolean
+}
+
+export type Planned = {
+  readonly messages: readonly Message[]
   readonly skipped: readonly Action[]
 }
 
-export function apply(result: Result, actions: readonly Action[]): Applied
-export function append(result: Result, texts: readonly string[]): Result
+export function messages(actions: readonly Action[]): Planned
+export function describe(rule: string, label: string): string
 ```
 
 `logPath` is `<name>/opencode.log` in `$XDG_STATE_HOME`, or in
@@ -1220,29 +1247,21 @@ export function logPath(
 export function fileLog(path: string, now?: () => Date): (message: string) => void
 ```
 
-`carrier` keeps the text added to a call for the `execute` call that made it,
-which shares its call ID and finishes after it. `take` gives a call's text
-once. It holds the latest 256 calls.
-
-```ts
-export function carrier(limit?: number): {
-  put(id: string, appended: readonly string[]): void
-  take(id: string): readonly string[]
-}
-```
-
 Verified by:
 
-- `bun test` against a stand-in daemon on a real socket: the event a shell
-  call sends; the text added to a text result, a list result and an
-  `execute` result whose inner call was nudged; nothing added for no
-  actions, no daemon, a late answer, an error reply or an unknown action; a
-  failed call not sent; no options; the plugin and socket named by the
-  folder, `$CHAUFFEUR_SOCKET` and the option; the log's place, its lines,
-  and a log that cannot be written.
+- `bun test` against a stand-in daemon on a real socket and a stand-in
+  OpenCode: the event a shell call sends; the message, description and
+  delivery for `now`, `next` and `wake`, with and without a label; one
+  message for a nudged call inside `execute`, with every result unchanged;
+  nothing sent for no actions, no daemon, a late answer, an error reply, an
+  unknown action or delivery; a message OpenCode refuses, logged; a failed
+  call not sent; no options; the plugin and socket named by the folder,
+  `$CHAUFFEUR_SOCKET` and the option; the log's place, its lines, and a log
+  that cannot be written.
 - The smoke test loads each installed `share/<name>/opencode/server.js` as
-  OpenCode does and runs its hook on a commit against the real daemon: the
-  nudge ends the result, and `audit` shows the run.
+  OpenCode does and runs its hook on a commit against the real daemon: one
+  steered message from `conventional-commits`, the result unchanged, and
+  `audit` shows the run.
 
 ### Shipped content
 

@@ -23,6 +23,7 @@ its confidence, and every question is a step in a strategy.
 | A second step, asked once the first holds                              | `"after": [{ "step": "<first>", "when": ["yes"] }]`                                                                                     |
 | `then.delivery`: `steer`, `resume`, `wait`                             | `message.append` with `"delivery"`: `"now"`, `"wake"`, `"next"`                                                                         |
 | `then.text`                                                            | `"parts": [{ "text": "…" }]`                                                                                                            |
+| None                                                                   | `"label"`: one line the harness shows as `Chauffeur · <rule>: <label>`, such as "commit message isn't conventional; …"                  |
 | `then.skill`                                                           | `"parts": [{ "text": "…" }, { "skill": "jira-cli" }]`                                                                                   |
 | `priority`                                                             | `priority`                                                                                                                              |
 | `once`                                                                 | `"once": "request"` (again after the next user message) or `"session"`                                                                  |
@@ -107,6 +108,7 @@ v2, `distribution/rules/conventional-commits.json`:
     {
       "if": { "nonconventional": "yes" },
       "message.append": {
+        "label": "commit message isn't conventional; asking the agent to amend it",
         "parts": [
           { "text": "Chauffeur: Use Conventional Commits for commit messages, …" }
         ],
@@ -118,5 +120,5 @@ v2, `distribution/rules/conventional-commits.json`:
 }
 ```
 
-Instructions and texts carry over word for word; the pages for each rule
-abbreviate them as `…`.
+Instructions and texts carry over word for word, with a `label` added; the
+pages for each rule abbreviate them as `…`.

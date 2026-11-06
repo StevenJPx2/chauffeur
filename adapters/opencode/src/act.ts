@@ -1,73 +1,78 @@
 import type { Action } from "./daemon.ts"
-import type { Result } from "./event.ts"
 
-type Content = Exclude<NonNullable<Result["content"]>, string>[number]
+/** One message for OpenCode's `session.synthetic`, from a `message.append`. */
+export type Message = {
+  readonly rule: string
+  readonly text: string
+  readonly description: string
+  readonly delivery: "steer" | "queue"
+  readonly resume: boolean
+}
 
-export type Applied = {
-  readonly result: Result
-  readonly appended: readonly string[]
+export type Planned = {
+  readonly messages: readonly Message[]
   readonly skipped: readonly Action[]
 }
 
+type Payload = { parts?: unknown; delivery?: unknown; label?: unknown }
+
+const DELIVERIES: Readonly<Record<string, Pick<Message, "delivery" | "resume">>> = {
+  now: { delivery: "steer", resume: false },
+  next: { delivery: "queue", resume: false },
+  wake: { delivery: "queue", resume: true }
+}
+
 /**
- * Carries out the actions on a completed tool call's result. `message.append`
- * with `delivery: "now"` adds its text parts; anything else is skipped.
+ * Each `message.append` as one message: its text parts after one another,
+ * described as `Chauffeur · <rule>: <label>`. `now` steers it into the
+ * running turn, `next` queues it for the next turn, and `wake` queues it
+ * and starts a turn when the agent is idle. Anything else is skipped.
  */
-export function apply(result: Result, actions: readonly Action[]): Applied {
-  const texts: string[] = []
+export function messages(actions: readonly Action[]): Planned {
+  const found: Message[] = []
   const skipped: Action[] = []
 
   for (const action of actions) {
-    const found = appendNow(action)
+    const message = toMessage(action)
 
-    if (found) {
-      texts.push(...found)
+    if (message) {
+      found.push(message)
     } else {
       skipped.push(action)
     }
   }
 
-  return { result: append(result, texts), appended: texts, skipped }
+  return { messages: found, skipped }
 }
 
-function appendNow(action: Action): string[] | undefined {
+function toMessage(action: Action): Message | undefined {
   if (action.action !== "message.append") return undefined
 
-  const payload = action.payload as
-    { parts?: readonly { text?: unknown }[]; delivery?: unknown } | undefined
+  const payload = (action.payload ?? {}) as Payload
+  const delivery = typeof payload.delivery === "string" ? payload.delivery : ""
+  const how = Object.hasOwn(DELIVERIES, delivery) ? DELIVERIES[delivery] : undefined
+  const texts = Array.isArray(payload.parts) ? payload.parts.flatMap(textOf) : []
 
-  if (payload?.delivery !== "now" || !Array.isArray(payload.parts)) return undefined
+  if (!how || texts.length === 0) return undefined
 
-  const texts = payload.parts.flatMap((part) =>
-    typeof part.text === "string" ? [part.text] : []
-  )
+  const rule = action.rule ?? "chauffeur"
+  const label = typeof payload.label === "string" ? payload.label : ""
 
-  return texts.length > 0 ? texts : undefined
-}
-
-/** Adds texts after a result's content, or after its output when it has none. */
-export function append(result: Result, texts: readonly string[]): Result {
-  const { content } = result
-
-  if (texts.length === 0) return result
-
-  if (Array.isArray(content)) {
-    const items: Content[] = texts.map((text) => ({
-      type: "text",
-      text: `\n\n${text}`
-    }))
-
-    return { ...result, content: [...content, ...items] }
+  return {
+    rule,
+    text: texts.join("\n\n"),
+    description: describe(rule, label),
+    ...how
   }
-
-  const before = typeof content === "string" ? content : textOfOutput(result)
-  const joined = [before, ...texts].filter((part) => part !== "").join("\n\n")
-
-  return { ...result, content: joined }
 }
 
-function textOfOutput({ output }: Result): string {
-  if (output === undefined) return ""
+function textOf(part: unknown): string[] {
+  const text = (part as { text?: unknown } | null)?.text
 
-  return typeof output === "string" ? output : JSON.stringify(output, null, 2)
+  return typeof text === "string" && text !== "" ? [text] : []
+}
+
+/** What OpenCode shows on the message's row. */
+export function describe(rule: string, label: string): string {
+  return label === "" ? `Chauffeur · ${rule}` : `Chauffeur · ${rule}: ${label}`
 }

@@ -52,7 +52,8 @@ export const NUDGE = {
   rule: "conventional-commits",
   action: "message.append",
   payload: {
-    parts: [{ text: "Use Conventional Commits, such as `feat(scope): …`." }],
+    label: "commit message isn't conventional",
+    parts: [{ text: "Amend it to `type(scope): description`." }],
     delivery: "now"
   }
 }

@@ -1,44 +1,54 @@
 import { expect, test } from "bun:test"
-import { apply } from "../src/act.ts"
+import { describe, messages } from "../src/act.ts"
 import { NUDGE } from "./stand-in.ts"
 
-const TEXT = "Use Conventional Commits, such as `feat(scope): …`."
+const with_ = (payload: Record<string, unknown>) => ({
+  ...NUDGE,
+  payload: { ...NUDGE.payload, ...payload }
+})
 
-test("a nudge follows a text result after a blank line", () => {
-  const { result, skipped } = apply({ content: "[v2 3f2c1a0] fixed stuff" }, [NUDGE])
+test("a nudge now is steered into the running turn, under its label", () => {
+  const { messages: found, skipped } = messages([NUDGE])
 
-  expect(result.content).toBe(`[v2 3f2c1a0] fixed stuff\n\n${TEXT}`)
+  expect(found).toEqual([
+    {
+      rule: "conventional-commits",
+      text: "Amend it to `type(scope): description`.",
+      description: "Chauffeur · conventional-commits: commit message isn't conventional",
+      delivery: "steer",
+      resume: false
+    }
+  ])
   expect(skipped).toEqual([])
 })
 
-test("a nudge is a text item after a list result's items", () => {
-  const image = { type: "file" as const, uri: "file:///a.png", mime: "image/png" }
-  const { result } = apply({ content: [image] }, [NUDGE])
+test("next waits for the next turn, and wake starts one", () => {
+  const [next] = messages([with_({ delivery: "next" })]).messages
+  const [wake] = messages([with_({ delivery: "wake" })]).messages
 
-  expect(result.content).toEqual([image, { type: "text", text: `\n\n${TEXT}` }])
+  expect([next?.delivery, next?.resume]).toEqual(["queue", false])
+  expect([wake?.delivery, wake?.resume]).toEqual(["queue", true])
 })
 
-test("a nudge follows the output when the result has no content", () => {
-  const { result } = apply({ output: "done", metadata: { exit: 0 } }, [NUDGE])
+test("text parts follow one another, and an unlabelled one shows its rule", () => {
+  const parts = [{ text: "One." }, { skill: "slack-cli" }, { text: "Two." }]
+  const [message] = messages([with_({ parts, label: undefined })]).messages
 
-  expect(result).toEqual({
-    output: "done",
-    metadata: { exit: 0 },
-    content: `done\n\n${TEXT}`
-  })
+  expect(message?.text).toBe("One.\n\nTwo.")
+  expect(message?.description).toBe("Chauffeur · conventional-commits")
+  expect(describe("r", "says why")).toBe("Chauffeur · r: says why")
 })
 
-test("no actions leave the result as it was", () => {
-  const before = { content: "ok" }
-
-  expect(apply(before, []).result).toBe(before)
-})
-
-test("other actions and deliveries are skipped", () => {
-  const next = { ...NUDGE, payload: { ...NUDGE.payload, delivery: "next" } }
+test("other actions and payloads with nothing to deliver are skipped", () => {
   const compact = { rule: "renewal", action: "session.compact" }
-  const { result, skipped } = apply({ content: "ok" }, [next, compact])
+  const later = with_({ delivery: "later" })
+  const inherited = with_({ delivery: "toString" })
+  const empty = with_({ parts: [{ text: "" }] })
+  const bare = { rule: "r", action: "message.append" }
+  const all = [compact, later, inherited, empty, bare]
 
-  expect(result.content).toBe("ok")
-  expect(skipped).toEqual([next, compact])
+  const { messages: found, skipped } = messages(all)
+
+  expect(found).toEqual([])
+  expect(skipped).toEqual(all)
 })

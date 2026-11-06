@@ -42,7 +42,8 @@ export default Plugin.define({
 
       if (decided.ok && decided.outcome === "yes") {
         message.append(e.session, [{ text: "Add the decision to NOTES.md." }], {
-          delivery: "next"
+          delivery: "next",
+          label: "a decision worth noting; asking for it in NOTES.md"
         })
       }
     })
@@ -137,7 +138,10 @@ it. See [Events](../plans/pluggability.md#events).
 ## Actions
 
 Actions are named by resource and verb, such as `message.append` with a
-delivery of `now`, `next` or `wake`, or `session.compact`. A plugin can check
+delivery of `now`, `next` or `wake`, or `session.compact`. A message's
+`label`, one line of at most 100 characters, says what it is for: the harness
+shows it as `Chauffeur · notes: a decision worth noting; …`, and the agent
+reads the text. A plugin can check
 tack's fidelity table before relying on one; an action a
 harness cannot carry out returns `unsupported`.
 

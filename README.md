@@ -218,7 +218,10 @@ Escalate from Jev to GLiDE to a reasoning model, only as far as needed:
     {
       "if": { "nonconventional": "yes" },
       "message.append": {
-        "parts": [{ "text": "Use Conventional Commits, such as `feat(scope): …`." }],
+        "label": "commit message isn't conventional; asking the agent to amend it",
+        "parts": [
+          { "text": "Chauffeur, which the user set up to check commits: …" }
+        ],
         "delivery": "now"
       }
     }
