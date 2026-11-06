@@ -76,6 +76,22 @@ fn runs(paths: &Paths) -> Vec<Value> {
         .collect()
 }
 
+/// Waits until `chauffeur.status` meets `ready`, at most 5 seconds.
+fn status_when(paths: &Paths, ready: impl Fn(&Value) -> bool) -> Value {
+    let started = Instant::now();
+    loop {
+        let status = call(&paths.socket, "chauffeur.status", &Value::Null);
+        if ready(&status) {
+            return status;
+        }
+        assert!(
+            started.elapsed() < Duration::from_secs(5),
+            "the daemon never reached it: {status}"
+        );
+        thread::sleep(Duration::from_millis(50));
+    }
+}
+
 fn emit(socket: &Path, session: &str, command: &str) -> Value {
     let event = json!({ "event": "tool.after", "session": session, "tool": "shell", "input": { "command": command } });
     call(socket, "chauffeur.emit", &json!({ "event": event }))["actions"].clone()
@@ -343,4 +359,47 @@ fn past_the_connection_limit_a_caller_is_told_so_and_served_once_one_closes() {
         assert!(started.elapsed() < Duration::from_secs(5), "still busy");
         thread::sleep(Duration::from_millis(50));
     }
+}
+
+#[test]
+fn a_rule_edited_into_one_that_does_not_load_keeps_running_as_it_was() {
+    let paths = paths("broken-edit", NUDGING);
+    let shipped =
+        fs::read_to_string(paths.distribution.join("rules/conventional-commits.json")).unwrap();
+    let user = paths.config.join("rules/conventional-commits.json");
+    fs::write(&user, shipped.replace("git commit", "jj describe")).unwrap();
+    start(&paths);
+    assert_eq!(
+        emit(&paths.socket, "s1", "jj describe -m 'fixed stuff'")[0]["action"],
+        "message.append"
+    );
+
+    // Saved halfway through an edit.
+    fs::write(&user, r#"{ "on": "tool.after", "#).unwrap();
+    let status = status_when(&paths, |status| status["refused"] != json!([]));
+
+    assert_eq!(
+        emit(&paths.socket, "s2", "jj describe -m 'fixed stuff'")[0]["action"],
+        "message.append",
+        "the version that loaded before still runs"
+    );
+    assert_eq!(
+        emit(&paths.socket, "s3", "git commit -m 'fixed stuff'"),
+        json!([]),
+        "the shipped rule does not take its place"
+    );
+    assert_eq!(status["rules"], json!(["conventional-commits"]));
+    let refused = status["refused"][0].as_str().unwrap();
+    assert!(
+        refused.contains("conventional-commits.json") && refused.contains("still runs"),
+        "{refused}"
+    );
+
+    fs::remove_file(&user).unwrap();
+    status_when(&paths, |status| status["refused"] == json!([]));
+    assert_eq!(
+        emit(&paths.socket, "s4", "git commit -m 'fixed stuff'")[0]["action"],
+        "message.append",
+        "a removed file takes its rule with it, and the shipped one is back"
+    );
 }

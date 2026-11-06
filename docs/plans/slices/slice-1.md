@@ -934,7 +934,7 @@ pub fn private_folder(socket: &Path) -> Result<(), DaemonError>;
 the platform refuses), binds the socket and serves. A change reloads after 200
 ms; one that does not load keeps what was loaded. A user rule replaces a shipped
 one of the same ID, and a rule file that does not load is refused alone, with
-why.
+why, while the rule it held before still runs.
 
 ```rust
 pub fn run(paths: &Paths) -> Result<(), DaemonError>;
@@ -943,7 +943,10 @@ pub struct Loaded {
     pub rules: Vec<Arc<Rule>>,
     pub refused: Vec<String>,
     pub context: Arc<Context>,
+    files: BTreeMap<PathBuf, Arc<Rule>>, // the rule each file holds
 }
+
+fn load(paths: &Paths, previous: Option<&Loaded>) -> Result<Loaded, DaemonError>;
 
 pub enum DaemonError {
     Running(PathBuf),

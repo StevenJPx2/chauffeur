@@ -21,9 +21,10 @@ chauffeur daemon run --distribution ./distribution
 - **A private socket.** The socket's folder is created with mode `0700`; one
   that is open to others, or owned by someone else, is refused.
 - **Reloads by itself.** Edits to models, rules or redaction apply to the
-  next event; a change that does not load keeps what was loaded, and a rule
-  that does not load is listed by `daemon status`. Where the platform cannot
-  report file changes, such as in a sandbox, it checks every 2 seconds.
+  next event; a change that does not load keeps what was loaded. A rule file
+  that does not load is listed by `daemon status`, and the rule it held
+  before, if any, still runs. Where the platform cannot report file changes,
+  such as in a sandbox, it checks every 2 seconds.
 - **Keys** come from its own environment, so start it where the keys are set,
   or put them in the service's environment file when Homebrew runs it.
 - **Every run** goes to the audit log; see [`audit`](audit.md).

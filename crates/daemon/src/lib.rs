@@ -76,7 +76,7 @@ pub fn run(paths: &Paths) -> Result<(), DaemonError> {
     let (send, receive) = mpsc::channel();
     let watcher = watch(&[&paths.distribution, &paths.config], &send)?;
     let audit = audit::Audit::new(&paths.state, audit::MAX_BYTES);
-    let router = Arc::new(Router::new(state::load(paths)?, audit));
+    let router = Arc::new(Router::new(state::load(paths, None)?, audit));
     let listener = socket::bind(&paths.socket)?;
     let (reloader, reload_paths) = (Arc::clone(&router), paths.clone());
     thread::Builder::new()
@@ -131,7 +131,7 @@ fn start<W: Watcher + 'static>(
 fn reload(router: &Router, paths: &Paths, changes: &mpsc::Receiver<()>) {
     while changes.recv().is_ok() {
         while changes.recv_timeout(SETTLE).is_ok() {}
-        match state::load(paths) {
+        match state::load(paths, router.loaded().as_deref()) {
             Ok(loaded) => router.replace(loaded),
             Err(error) => eprintln!("chauffeur: kept the loaded configuration: {error}"),
         }

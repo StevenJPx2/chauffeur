@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -19,15 +20,20 @@ pub struct Loaded {
     pub refused: Vec<String>,
     /// Models, redaction and keys.
     pub context: Arc<Context>,
+    /// The rule each file holds, so a file that stops loading keeps it.
+    files: BTreeMap<PathBuf, Arc<Rule>>,
 }
 
 /// Loads models, redaction and rules for `paths`.
 ///
+/// A rule file that cannot load is refused on its own, with its path, and
+/// the rest still load. When `previous` loaded it, that rule still runs, so
+/// a file saved halfway through an edit changes nothing.
+///
 /// # Errors
 ///
-/// Models or redaction that cannot load. A rule file that cannot load is
-/// refused on its own, with its path, and the rest still load.
-pub fn load(paths: &Paths) -> Result<Loaded, DaemonError> {
+/// Models or redaction that cannot load.
+pub fn load(paths: &Paths, previous: Option<&Loaded>) -> Result<Loaded, DaemonError> {
     let mut model_files = json_files(&paths.distribution.join("models"));
     model_files.extend(existing(paths.config.join("models.json")));
     let models =
@@ -38,29 +44,45 @@ pub fn load(paths: &Paths) -> Result<Loaded, DaemonError> {
     let redactor =
         Redactor::load(&redaction_files).map_err(|error| DaemonError::Config(error.to_string()))?;
 
-    let mut rules: Vec<Arc<Rule>> = Vec::new();
-    let mut refused = Vec::new();
-    for folder in [paths.distribution.join("rules"), paths.config.join("rules")] {
-        for path in json_files_below(&folder) {
-            match load_rule(&folder, &path) {
-                Ok(rule) => {
-                    rules.retain(|loaded| loaded.id() != rule.id());
-                    rules.push(Arc::new(rule));
-                }
-                Err(reason) => refused.push(format!("{}: {reason}", path.display())),
-            }
-        }
-    }
     let keys = Box::new(|name: &str| std::env::var(name).ok().filter(|key| !key.is_empty()));
-    Ok(Loaded {
-        rules,
-        refused,
+    let mut loaded = Loaded {
+        rules: Vec::new(),
+        refused: Vec::new(),
         context: Arc::new(Context {
             models,
             redactor,
             keys,
         }),
-    })
+        files: BTreeMap::new(),
+    };
+    for folder in [paths.distribution.join("rules"), paths.config.join("rules")] {
+        for path in json_files_below(&folder) {
+            let kept = previous.and_then(|previous| previous.files.get(&path));
+            match (load_rule(&folder, &path), kept) {
+                (Ok(rule), _) => loaded.add(path, Arc::new(rule)),
+                (Err(reason), Some(kept)) => {
+                    loaded.refused.push(format!(
+                        "{}: {reason}; the version loaded before still runs",
+                        path.display()
+                    ));
+                    loaded.add(path, Arc::clone(kept));
+                }
+                (Err(reason), None) => {
+                    loaded.refused.push(format!("{}: {reason}", path.display()));
+                }
+            }
+        }
+    }
+    Ok(loaded)
+}
+
+impl Loaded {
+    /// Adds the rule `path` holds, in place of any with its ID.
+    fn add(&mut self, path: PathBuf, rule: Arc<Rule>) {
+        self.rules.retain(|loaded| loaded.id() != rule.id());
+        self.rules.push(Arc::clone(&rule));
+        self.files.insert(path, rule);
+    }
 }
 
 fn load_rule(folder: &Path, path: &Path) -> Result<Rule, String> {
