@@ -158,6 +158,80 @@ fn a_log_that_cannot_be_read_is_an_error() {
     assert!(recent(&folder, 10).is_err());
 }
 
+/// Follows the log in `folder` on its own thread, once it has started.
+fn followed(folder: &std::path::Path) -> mpsc::Receiver<String> {
+    let (send, received) = mpsc::channel();
+    let watched = folder.to_owned();
+    thread::spawn(move || follow(&watched, |line| drop(send.send(line.to_owned()))));
+    thread::sleep(Duration::from_millis(400));
+    received
+}
+
+/// Each line's number, after checking every line is whole.
+fn whole(seen: &[String]) -> Vec<u64> {
+    for line in seen {
+        assert!(
+            serde_json::from_str::<Value>(line).is_ok(),
+            "not whole: {line}"
+        );
+    }
+    numbers(seen)
+}
+
+#[test]
+fn following_notices_a_move_aside_when_the_new_log_is_already_longer() {
+    let folder = folder("follow-longer");
+    Audit::new(&folder, u64::MAX).append(run(0)).unwrap();
+    let line = fs::metadata(folder.join("audit.jsonl")).unwrap().len();
+    // Room for one line, so the next moves the log aside.
+    let audit = Audit::new(&folder, line);
+    let received = followed(&folder);
+
+    let mut long = run(1);
+    long["padding"] = json!("x".repeat(256));
+    audit.append(long).unwrap();
+    thread::sleep(Duration::from_millis(400));
+
+    assert_eq!(whole(&received.try_iter().collect::<Vec<_>>()), [1]);
+}
+
+#[test]
+fn following_keeps_lines_written_just_before_a_move_aside() {
+    let folder = folder("follow-just-before");
+    Audit::new(&folder, u64::MAX).append(run(0)).unwrap();
+    let line = fs::metadata(folder.join("audit.jsonl")).unwrap().len();
+    // Room for two lines, whatever digits their times have: the third
+    // moves the log aside.
+    let audit = Audit::new(&folder, line * 2 + 10);
+    let received = followed(&folder);
+
+    // Both within one of the follower's looks.
+    audit.append(run(1)).unwrap();
+    audit.append(run(2)).unwrap();
+    thread::sleep(Duration::from_millis(400));
+
+    assert!(folder.join("audit.1.jsonl").exists());
+    assert_eq!(whole(&received.try_iter().collect::<Vec<_>>()), [1, 2]);
+}
+
+#[test]
+fn following_a_log_that_cannot_be_read_is_an_error() {
+    let folder = folder("follow-unreadable");
+    Audit::new(&folder, u64::MAX).append(run(1)).unwrap();
+    fs::set_permissions(
+        folder.join("audit.jsonl"),
+        fs::Permissions::from_mode(0o000),
+    )
+    .unwrap();
+    let (send, ended) = mpsc::channel();
+
+    thread::spawn(move || {
+        let _ = send.send(follow(&folder, |_| {}).is_err());
+    });
+
+    assert_eq!(ended.recv_timeout(Duration::from_secs(2)), Ok(true));
+}
+
 #[test]
 fn following_reads_each_new_line_once_across_a_move_aside() {
     let folder = folder("follow");

@@ -3,7 +3,7 @@
 use std::collections::VecDeque;
 use std::fs::{self, DirBuilder, File, OpenOptions};
 use std::io::{self, BufRead, BufReader, Read, Seek, SeekFrom, Write};
-use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
+use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::thread;
@@ -98,34 +98,71 @@ pub fn recent(folder: &Path, count: usize) -> io::Result<Vec<String>> {
 }
 
 /// Calls `each` with every line written to the log in `folder` from now on,
-/// until reading fails. A move to `audit.1.jsonl` starts the new file from
-/// its beginning.
+/// until reading fails.
+///
+/// The file being read stays open, so when the log moves to
+/// `audit.1.jsonl` its last lines are read before the new file is read
+/// from its beginning.
 ///
 /// # Errors
 ///
 /// The log exists but cannot be read.
 pub fn follow(folder: &Path, mut each: impl FnMut(&str)) -> io::Result<()> {
     let path = folder.join(FILE);
-    let mut read = fs::metadata(&path).map_or(0, |metadata| metadata.len());
+    let mut following = open(&path)?;
+    if let Some(file) = following.as_mut() {
+        file.seek(SeekFrom::End(0))?;
+    }
     let mut partial = String::new();
     loop {
         thread::sleep(FOLLOW_EVERY);
-        let size = fs::metadata(&path).map_or(0, |metadata| metadata.len());
-        if size < read {
-            read = 0;
+        // Looked at first: every line of the old file was written before
+        // the move, so reading it next finds them all.
+        let moved = moved(&path, following.as_ref());
+        if let Some(file) = following.as_mut() {
+            read_lines(file, &mut partial, &mut each)?;
+        }
+        if moved {
+            // Lines are written whole, so a part left over never ends.
             partial.clear();
-        }
-        if size == read {
-            continue;
-        }
-        let mut file = File::open(&path)?;
-        file.seek(SeekFrom::Start(read))?;
-        let mut added = String::new();
-        read = read.saturating_add(u64::try_from(file.read_to_string(&mut added)?).unwrap_or(0));
-        partial.push_str(&added);
-        while let Some(end) = partial.find('\n') {
-            let line: String = partial.drain(..=end).collect();
-            each(line.trim_end());
+            following = open(&path)?;
+            if let Some(file) = following.as_mut() {
+                read_lines(file, &mut partial, &mut each)?;
+            }
         }
     }
+}
+
+/// The log at `path`, or none while it does not exist.
+fn open(path: &Path) -> io::Result<Option<File>> {
+    match File::open(path) {
+        Ok(file) => Ok(Some(file)),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error),
+    }
+}
+
+/// Whether `path` now names a file other than the one being followed.
+fn moved(path: &Path, following: Option<&File>) -> bool {
+    let identity = |metadata: fs::Metadata| (metadata.dev(), metadata.ino());
+    let current = fs::metadata(path).ok().map(identity);
+    let followed = following
+        .and_then(|file| file.metadata().ok())
+        .map(identity);
+    current.is_some() && current != followed
+}
+
+/// Reads what was added to `file` and calls `each` with every line it
+/// ends; a part with no newline yet waits in `partial`.
+fn read_lines(
+    file: &mut File,
+    partial: &mut String,
+    each: &mut impl FnMut(&str),
+) -> io::Result<()> {
+    file.read_to_string(partial)?;
+    while let Some(end) = partial.find('\n') {
+        let line: String = partial.drain(..=end).collect();
+        each(line.trim_end());
+    }
+    Ok(())
 }
