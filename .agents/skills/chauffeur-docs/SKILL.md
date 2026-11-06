@@ -1,6 +1,6 @@
 ---
 name: chauffeur-docs
-description: MUST use when writing or editing any Markdown in the Chauffeur repository, including the slice pages in docs/plans/slices/, the plan, plugin, integration, CLI, tools and migration pages, and module READMEs. Adds Chauffeur's names, page layout and docs site checks to the spec-docs skill.
+description: MUST use when writing or editing any Markdown in the Chauffeur repository, including the slice pages in docs/plans/slices/, the plan, plugin, integration, CLI, tools and migration pages, and module READMEs, and when a slice is complete and its end-to-end recording is due. Adds Chauffeur's names, page layout, docs site checks and slice recordings to the spec-docs skill.
 ---
 
 # Chauffeur docs
@@ -57,3 +57,48 @@ Watch it to the end.
   its files hold, with one example of its use.
 - A rule's `instructions` and `text` are long JSON strings; they may run
   past 85 columns.
+
+## Recordings
+
+Once a slice is complete and its rc is installed, record the feature working
+end to end and embed the video in the slice page's End to end section. The
+recording is the reader's proof that the released rc works, so it uses the
+real path: the installed `chauffeur-next`, its daemon with the real models, and
+the slice's real harness or caller, never a stand-in model. Record again when
+what the slice shows changes.
+
+Drive the terminal with `termctrl` and follow the `terminal-control` skill.
+[`recording.md`](recording.md) has slice 1's recording as commands to adapt.
+
+- **Two panes, one story.** Record the harness and
+  `chauffeur-next audit 0 --follow --brief` as two sessions, both 120 columns
+  wide so an audit line fits on one row, then stack them with the harness on top.
+  Mark both sessions at the same moments and export each with the same clips,
+  so the audit line appears just as the harness reacts.
+- **Only the rc acts.** Work in a scratch git repo in the temp folder whose
+  `opencode.jsonc` lists `"-chauffeur"` and the rc's adapter, so v1's plugin
+  stays out of the session.
+- **Nothing private on screen.** Hide OpenCode's tabs, which show the titles
+  of the user's other sessions, with
+  `OPENCODE_CLI_CONFIG_CONTENT='{"tabs":{"mode":"off"}}'`, and use
+  `opencode --standalone`. Look at frames from the finished video for keys,
+  tokens and other projects before committing it.
+- **Captions tell the path.** The harness clips carry captions that name each
+  step, such as what the agent did and what Jev answered. The audit clips
+  carry its command as the caption, which labels the pane.
+- **Export the audit pane with `--include-startup`.** Without it, `termctrl`
+  drops the empty frames before the first audit line, and the line shows from
+  the first frame.
+- **Save it as `docs/media/slice-N.mp4`.** H.264 at 1600 pixels wide, under
+  1 MB, and embedded with a `<video>` tag, which the site bundles. Keep the
+  tag on one line: Markdown reads an HTML block only when its first line holds
+  the whole opening tag.
+
+  ```text
+  <video src="../../media/slice-1.mp4" controls muted playsinline width="100%"></video>
+  ```
+
+- **Leave nothing behind.** Stop the `termctrl` sessions and any daemon you
+  started, delete the OpenCode sessions in the scratch directory, and keep the
+  `.termctrl` files out of the repository: they hold every byte typed and
+  shown.
