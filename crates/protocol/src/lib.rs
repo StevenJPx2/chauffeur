@@ -10,7 +10,7 @@
 //!   "strategy": [{ "id": "nonconventional", "judge": "quick",
 //!                  "ask": { "outcomes": ["yes", "no"], "evidence": ["tool_call"],
 //!                           "instructions": "Does this commit message break Conventional Commits?" } }],
-//!   "then": [{ "if": { "nonconventional": "yes" }, "message.append": { "parts": [{ "text": "Use Conventional Commits." }] } }]
+//!   "then": [{ "if": { "nonconventional": "yes" }, "message.append": { "parts": [{ "text": "Use Conventional Commits." }], "delivery": "now" } }]
 //! }"#)?;
 //!
 //! let commit = Event::parse(r#"{ "event": "tool.after", "session": "s1", "tool": "shell",

@@ -1,3 +1,4 @@
+mod append;
 mod ask;
 mod error;
 mod file;

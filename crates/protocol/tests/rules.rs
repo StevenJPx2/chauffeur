@@ -196,6 +196,68 @@ fn a_then_entry_naming_what_the_strategy_lacks_is_refused() {
     assert_refused(&rule_text("", "system-one", ASK, nothing), "exactly one");
 }
 
+/// A rule whose `then` appends `payload` on a `yes`.
+fn appending(payload: &str) -> String {
+    let then = format!(r#"{{ "if": {{ "s": "yes" }}, "message.append": {payload} }}"#);
+
+    rule_text("", "system-one", ASK, &then)
+}
+
+#[test]
+fn a_message_append_with_a_label_and_each_delivery_loads() {
+    for delivery in ["now", "next", "wake"] {
+        let payload = format!(
+            r#"{{ "label": "commit message isn't conventional", "parts": [{{ "text": "Amend it." }}],
+                 "delivery": "{delivery}" }}"#
+        );
+
+        assert!(Rule::parse("good", &appending(&payload)).is_ok(), "{delivery}");
+    }
+
+    let unlabelled = r#"{ "parts": [{ "text": "Amend it." }], "delivery": "now" }"#;
+    assert!(Rule::parse("good", &appending(unlabelled)).is_ok());
+
+    let longest = "x".repeat(100);
+    let payload =
+        format!(r#"{{ "label": "{longest}", "parts": [{{ "text": "Amend it." }}], "delivery": "now" }}"#);
+    assert!(Rule::parse("good", &appending(&payload)).is_ok());
+}
+
+#[test]
+fn a_message_append_that_a_harness_could_not_show_is_refused() {
+    let text = r#"[{ "text": "Amend it." }]"#;
+    let with = |fields: &str| appending(&format!("{{ {fields} }}"));
+
+    assert_refused(&appending(r#""now""#), "needs an object");
+    assert_refused(
+        &with(&format!(r#""parts": {text}, "delivery": "now", "lable": "x""#)),
+        "has `lable`",
+    );
+    assert_refused(&with(r#""parts": [], "delivery": "now""#), "needs `parts`");
+    assert_refused(&with(r#""delivery": "now""#), "needs `parts`");
+    assert_refused(
+        &with(r#""parts": [{ "text": "" }], "delivery": "now""#),
+        "part 0 of",
+    );
+    assert_refused(
+        &with(r#""parts": [{ "text": "a", "skill": "b" }], "delivery": "now""#),
+        "part 0 of",
+    );
+    assert_refused(&with(&format!(r#""parts": {text}"#)), "needs a `delivery`");
+    assert_refused(
+        &with(&format!(r#""parts": {text}, "delivery": "later""#)),
+        "needs a `delivery`",
+    );
+
+    let too_long = "x".repeat(101);
+    for label in ["\"\"", "\"  \"", "\"two\\nlines\"", "3", &format!("\"{too_long}\"")] {
+        assert_refused(
+            &with(&format!(r#""label": {label}, "parts": {text}, "delivery": "now""#)),
+            "one line of 1 to 100 characters",
+        );
+    }
+}
+
 #[test]
 fn unsure_and_failed_can_be_expected_in_then() {
     let quick = r#""quick": { "tier": "system-one", "confidence": 0.7 }"#;

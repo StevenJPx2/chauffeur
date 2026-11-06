@@ -1,6 +1,7 @@
 use chauffeur_core::Plan;
 use chauffeur_judges::Question;
 
+use super::append::check_append;
 use super::error::RuleError;
 use super::file::ThenFile;
 use crate::then::{Expect, Then};
@@ -37,7 +38,12 @@ pub(super) fn resolve_then(
     }
     let mut does = entry.does.into_iter();
     match (does.next(), does.next()) {
-        (Some((name, payload)), None) => Ok(Then::new(needs, name, payload)),
+        (Some((name, payload)), None) => {
+            if name == "message.append" {
+                check_append(&payload).map_err(refuse)?;
+            }
+            Ok(Then::new(needs, name, payload))
+        }
         _ => Err(refuse(
             "needs exactly one action or intent beside `if`".to_owned(),
         )),
