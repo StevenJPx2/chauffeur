@@ -350,7 +350,7 @@ fn commands_answer_without_asking() {
     assert!(
         settled(&mut engine, &unknown)[0]
             .1
-            .contains("No rulebook named nope here. Rulebooks: /goal.")
+            .contains("No rulebook named nope here. Rulebooks: /goal, /slice.")
     );
 }
 

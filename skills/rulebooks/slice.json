@@ -1,0 +1,140 @@
+{
+  "schema_version": 1,
+  "id": "slice",
+  "name": "Slice",
+  "description": "Take one feature through the feature pipeline: an approved plan, a vertical build, every gate, a release candidate and a recording, then stop for review.",
+  "args": {
+    "required": true
+  },
+  "skills": [
+    "feature-pipeline",
+    "code-discipline",
+    "spec-docs"
+  ],
+  "input_skills": {
+    "jira": "jira-cli",
+    "slack": "slack-cli"
+  },
+  "budget": 60,
+  "on_start": "Slice: {input}\nFollow the feature-pipeline skill, one stage at a time: frame, plan, build, prove, release a candidate, record, close. First make a todo for each stage with todowrite, and keep them current. Write the plan as the slice page and stop for the user's approval before writing any code. Ask before a production dependency, a release tag or approving a publish step. Prove with every gate the project has, mutation testing on the changed files, and the feature in its real harness with real models. Say which stages the project has no place for, such as a release pipeline, and skip only those. When the slice is closed, report what a person can do now and the evidence, then stop for review. Chauffeur checks after each turn and keeps you going until then.",
+  "on_budget": "Slice budget reached: {input}\nStop substantive work. Summarise the stages done and the evidence for each, what remains, and what blocks it.",
+  "rules": [
+    {
+      "schema_version": 2,
+      "id": "slice-done",
+      "name": "Slice ready for review",
+      "on": "turn_end",
+      "priority": 30,
+      "when": {
+        "todos": [
+          "none",
+          "done"
+        ]
+      },
+      "steps": [
+        {
+          "id": "closed",
+          "question": "The slice is: {input}. Judging from the agent's report, did it finish every stage the project has and stop for the user's review? Count it finished when the plan was approved, the gates passed, the release candidate shipped and the recording is on the slice page (or the agent said why the project has no place for them), the page is marked Implemented, and the report gives the evidence. Also yes when the user said the slice is done or needs no more. Answer no when a stage remains, a gate failed or was not run, or the report claims it is done without the evidence.",
+          "yes_at_or_above": 0.7,
+          "minimum_confidence": 0.4
+        }
+      ],
+      "then": {
+        "delivery": "wait",
+        "text": "Slice ready for your review: {input}",
+        "end": "complete"
+      }
+    },
+    {
+      "schema_version": 2,
+      "id": "slice-plan",
+      "name": "Slice plan awaiting approval",
+      "on": "turn_end",
+      "priority": 25,
+      "steps": [
+        {
+          "id": "awaiting",
+          "question": "The slice is: {input}. Did the agent write or change the slice's plan and stop to ask the user to approve it, with no approval from the user since? Answer no when the user has approved the plan, or the agent is past planning.",
+          "yes_at_or_above": 0.7,
+          "minimum_confidence": 0.4
+        }
+      ],
+      "then": {
+        "delivery": "wait",
+        "text": "Slice plan ready for your approval: {input}\nApprove or change it, then continue with /slice resume.",
+        "end": "pause"
+      }
+    },
+    {
+      "schema_version": 2,
+      "id": "slice-waiting",
+      "name": "Slice waiting on the user",
+      "on": "turn_end",
+      "priority": 20,
+      "steps": [
+        {
+          "id": "waiting",
+          "question": "The slice is: {input}. Does the agent's next step wait on the user: a release tag, approving a publish step, a production dependency, access, or an answer to a question the agent asked? Answer no when the agent has a step it can take itself.",
+          "yes_at_or_above": 0.7,
+          "minimum_confidence": 0.4
+        }
+      ],
+      "then": {
+        "delivery": "wait",
+        "text": "Slice paused until you answer the agent: {input}\nContinue with /slice resume.",
+        "end": "pause"
+      }
+    },
+    {
+      "schema_version": 2,
+      "id": "slice-prove",
+      "name": "Slice gates not run",
+      "on": "turn_end",
+      "priority": 10,
+      "when": {
+        "tools_called_any": [
+          "edit",
+          "write",
+          "patch"
+        ]
+      },
+      "steps": [
+        {
+          "id": "unproven",
+          "question": "The slice is: {input}. The agent changed files this turn. Did it end the turn without running the project's checks on the result (format, lint, tests), or with a check still failing? Answer no when the checks ran and passed after the last change, or the change was only to docs that the docs build checked.",
+          "yes_at_or_above": 0.7,
+          "minimum_confidence": 0.4
+        }
+      ],
+      "then": {
+        "delivery": "resume",
+        "text": "Slice: {input}\nRun the project's gates on what changed: format, lint with warnings denied, and the tests. Fix the cause of any failure, then continue with the next stage."
+      }
+    },
+    {
+      "schema_version": 2,
+      "id": "slice-continue",
+      "name": "Slice continuation",
+      "on": "turn_end",
+      "priority": 1,
+      "when": {
+        "todos": [
+          "none",
+          "done"
+        ]
+      },
+      "steps": [
+        {
+          "id": "remaining",
+          "question": "The slice is: {input}. Does a stage of the feature pipeline remain that the agent can do without the user: frame, plan, build, prove, release, record or close? Answer no when every stage is done, or the next one waits on the user.",
+          "yes_at_or_above": 0.7,
+          "minimum_confidence": 0.4
+        }
+      ],
+      "then": {
+        "delivery": "resume",
+        "text": "Slice: {input}\nNot ready for review yet. Take the next stage of the feature pipeline and check its evidence before moving on. If only the user can unblock you, stop and say exactly what you need."
+      }
+    }
+  ]
+}

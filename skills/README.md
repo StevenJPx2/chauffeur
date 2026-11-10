@@ -173,6 +173,10 @@ A rulebook is offered where it applies: a shipped one everywhere, or only
 under its `scope` folders; a project's own, from `.chauffeur/rulebooks/` in
 the worktree (read from its Git root down, like project rules), only there.
 `/ticket` in `rulebooks/ticket.json` is scoped to the HPDP Overlay folders.
+`/slice` in `rulebooks/slice.json` is offered everywhere: it takes one feature
+through the `feature-pipeline` skill, pauses while its plan or a release waits
+on you, keeps the agent going while a stage or a failing check remains, and
+completes once the slice stops for review.
 
 ```json
 {
