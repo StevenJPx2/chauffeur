@@ -218,7 +218,8 @@ test("facts come from the latest measured reply since the last compaction", () =
 
 test("a warming request after the latest reply restarts the idle time", async () => {
   const { signals, host, daemon } = setup([reply(50, 640_000)], false)
-  const plugin = await install(installRenewal({ lastWarmed: () => Date.now() - 3 * 60_000 }), host, daemon)
+  const warmedAt = Date.now() - 3 * 60_000
+  const plugin = await install(installRenewal({ lastWarmed: () => warmedAt }), host, daemon)
 
   try {
     await Effect.runPromise(plugin.value.renew(session("ses_warmed")))
