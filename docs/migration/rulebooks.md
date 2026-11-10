@@ -2,12 +2,13 @@
 
 A v1 rulebook is a set of rules a slash command switches on for one session:
 `/goal <objective>` keeps the agent working until the evidence shows the goal
-is met, `/ticket` does the same for a ticket, and a project adds its own in
+is met, `/ticket` does the same for a ticket, `/slice <feature>` takes a feature
+through the feature pipeline to review, and a project adds its own in
 `.chauffeur/rulebooks/`.
 
 | v1                                                           | v2                                                         |
 | ------------------------------------------------------------ | ---------------------------------------------------------- |
-| `skills/rulebooks/goal.json`, `ticket.json`                  | `distribution/rulebooks/`, run by the `rulebooks` plugin   |
+| `skills/rulebooks/goal.json`, `ticket.json`, `slice.json`    | `distribution/rulebooks/`, run by the `rulebooks` plugin   |
 | `args`, `budget` (20 continuations), `on_start`, `on_budget` | The same fields                                            |
 | Rules inside the book, in the v1 rule format                 | Rules in the v2 format, as in [Rule files](rule-format.md) |
 | `"end": "complete"` or `"pause"` in a rule's `then`          | An `end` intent the plugin carries out                     |
