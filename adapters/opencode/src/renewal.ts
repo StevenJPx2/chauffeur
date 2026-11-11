@@ -1,5 +1,5 @@
 import type { SessionCompaction } from "@opencode/plugin/effect/session"
-import { Data, DateTime, type Duration, Effect, Predicate, Schema, type Scope } from "effect"
+import { Data, DateTime, Duration, Effect, Fiber, Predicate, Schema, type Scope, Stream } from "effect"
 import { Daemon } from "./daemon.js"
 import { currentContext, type HistoryMessage, Host, type SessionID } from "./host.js"
 import { available, hostModel, modelKey, ref } from "./model-router.js"
@@ -86,7 +86,7 @@ export type ContextFacts = { readonly model: HostModel; readonly tokens: number;
  * session's own model never changes, so the prompt runs on it as before.
  * If the cheaper model fails, OpenCode compacts on the session's model.
  */
-export const installRenewal = (warming: WarmingControl = { lastWarmed: () => undefined }): Effect.Effect<RenewalControl, never, Host | Daemon | Texts | Scope.Scope> => Effect.gen(function* () {
+export const installRenewal = (warming: WarmingControl = { lastWarmed: () => undefined, expiring: () => undefined }): Effect.Effect<RenewalControl, never, Host | Daemon | Texts | Scope.Scope> => Effect.gen(function* () {
   const host = yield* Host
   const daemon = yield* Daemon
   const texts = yield* Texts
@@ -140,43 +140,103 @@ export const installRenewal = (warming: WarmingControl = { lastWarmed: () => und
     (child) => host.session.remove({ sessionID: child.id }).pipe(Effect.ignore),
   )
 
-  return {
-    renew: (sessionID) => Effect.gen(function* () {
-      const facts = contextFacts(yield* host.session.context({ sessionID }), Date.now(), warming.lastWarmed(String(sessionID)))
+  /**
+   * Asks the engine whether a context resumed after `idleSeconds` should be
+   * renewed first; on a yes, queues OpenCode's compaction ahead of the new
+   * input, to be written by the engine's cheaper model. True when one was queued.
+   */
+  const judge = (sessionID: SessionID, model: HostModel, tokens: number, idleSeconds: number) => Effect.gen(function* () {
+    const models: ReadonlyArray<ListedModel> = (yield* host.model.list()).data
 
-      if (!facts) return false
+    const effects = yield* daemon.signal(signal(String(sessionID), {
+      type: "context_resumed",
+      model: ref(model),
+      context_tokens: tokens,
+      context_window: windowOf(models, ref(model)) ?? 0,
+      idle_seconds: idleSeconds,
+      cache_seconds: cacheSeconds(models.find((entry) => entry.providerID === model.providerID && entry.id === model.id), model.variant),
+      available: available(models).map((entry) => (reachable(entry.model.provider) ? entry : { ...entry, usable: false })),
+    }), DECISION_TIMEOUT)
 
-      const model = (yield* host.session.get({ sessionID })).model ?? facts.model
-      const models: ReadonlyArray<ListedModel> = (yield* host.model.list()).data
+    const compact = effects.find((effect) => effect.type === "compact" && effect.agent_id === String(sessionID))
 
-      const effects = yield* daemon.signal(signal(String(sessionID), {
-        type: "context_resumed",
-        model: ref(model),
-        context_tokens: facts.tokens,
-        context_window: windowOf(models, ref(model)) ?? 0,
-        idle_seconds: facts.idleSeconds,
-        cache_seconds: cacheSeconds(models.find((entry) => entry.providerID === model.providerID && entry.id === model.id), model.variant),
-        available: available(models).map((entry) => (reachable(entry.model.provider) ? entry : { ...entry, usable: false })),
-      }), DECISION_TIMEOUT)
+    if (compact?.type !== "compact") return false
 
-      const compact = effects.find((effect) => effect.type === "compact" && effect.agent_id === String(sessionID))
+    if (!pending.has(String(sessionID)) && pending.size >= MAX_SESSIONS) pending.clear()
 
-      if (compact?.type !== "compact") return false
+    pending.set(String(sessionID), { model: compact.model, window: windowOf(models, compact.model) ?? UNKNOWN_WINDOW, at: Date.now() })
 
-      if (!pending.has(String(sessionID)) && pending.size >= MAX_SESSIONS) pending.clear()
+    yield* host.session.compact({ sessionID }).pipe(Effect.tapError(() => Effect.sync(() => pending.delete(String(sessionID)))))
 
-      pending.set(String(sessionID), { model: compact.model, window: windowOf(models, compact.model) ?? UNKNOWN_WINDOW, at: Date.now() })
+    return true
+  }).pipe(
+    // Renewal fails open: the input runs on the context as it is.
+    Effect.catch((error) => Effect.logError("chauffeur: context renewal unavailable", error).pipe(Effect.as(false))),
+  )
 
-      yield* host.session.compact({ sessionID }).pipe(Effect.tapError(() => Effect.sync(() => pending.delete(String(sessionID)))))
+  /** Judges the context as it is now, from its latest measured reply. */
+  const renew = (sessionID: SessionID) => Effect.gen(function* () {
+    const facts = contextFacts(yield* host.session.context({ sessionID }), Date.now(), warming.lastWarmed(String(sessionID)))
 
-      return true
-    }).pipe(
-      // Renewal fails open: the prompt runs on the context as it is.
-      Effect.catch((error) => Effect.logError("chauffeur: context renewal unavailable", error).pipe(Effect.as(false))),
-    ),
-  }
+    if (!facts) return false
+
+    return yield* judge(sessionID, (yield* host.session.get({ sessionID })).model ?? facts.model, facts.tokens, facts.idleSeconds)
+  }).pipe(
+    // Renewal fails open: the input runs on the context as it is.
+    Effect.catch((error) => Effect.logError("chauffeur: context renewal unavailable", error).pipe(Effect.as(false))),
+  )
+
+  yield* watchExpiry(renew, warming)
+
+  return { renew }
 })
 
+
+/**
+ * Renews an idle session once its prompt cache has expired, when the engine
+ * said at its turn's end that it would be worth it. Input other than a
+ * prompt, such as an integration's synthetic message or a finished shell's
+ * notice, reaches the model before any hook could compact the context, so
+ * the context is renewed while nothing runs: whatever comes next finds it
+ * renewed instead of re-reading it cold. The session's next execution
+ * cancels its timer; `renew` asks the engine again with the idle time then.
+ */
+function watchExpiry(renew: (sessionID: SessionID) => Effect.Effect<boolean>, warming: WarmingControl): Effect.Effect<void, never, Host | Scope.Scope> {
+  return Effect.gen(function* () {
+    const host = yield* Host
+    const scope = yield* Effect.scope
+    const timers = new Map<string, Fiber.Fiber<void>>()
+
+    const cancel = (id: string) => {
+      const timer = timers.get(id)
+
+      timers.delete(id)
+
+      return timer ? Fiber.interrupt(timer).pipe(Effect.forkIn(scope), Effect.asVoid) : Effect.void
+    }
+
+    warming.expiring((sessionID, afterSeconds) => Effect.gen(function* () {
+      const id = String(sessionID)
+
+      yield* cancel(id)
+
+      if (timers.size >= MAX_SESSIONS) yield* Effect.forEach([...timers.keys()], cancel, { discard: true })
+
+      timers.set(id, yield* Effect.sleep(Duration.seconds(afterSeconds)).pipe(
+        Effect.andThen(Effect.sync(() => { timers.delete(id) })),
+        Effect.andThen(renew(sessionID)),
+        Effect.asVoid,
+        Effect.forkIn(scope),
+      ))
+    }))
+
+    yield* host.event.subscribe().pipe(
+      Stream.runForEach((event) => (event.type === "session.execution.started" ? cancel(String(event.data.sessionID)) : Effect.void)),
+      Effect.catch((error) => Effect.logError("chauffeur: renewal events ended", error)),
+      Effect.forkScoped,
+    )
+  })
+}
 
 /**
  * The context's size at its latest measured reply, as OpenCode measures it,
@@ -226,7 +286,7 @@ export function cacheSeconds(listed: CacheSettings | undefined, variant?: string
 }
 
 /** The input window the host reports for `model`, if it does. */
-function windowOf(models: ReadonlyArray<ListedModel>, model: ModelRef): number | undefined {
+export function windowOf(models: ReadonlyArray<ListedModel>, model: ModelRef): number | undefined {
   const listed = models.find((entry) => entry.providerID === model.provider && entry.id === model.model)
   const window = listed ? listed.limit.input || listed.limit.context : 0
 

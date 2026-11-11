@@ -137,6 +137,10 @@ pub struct Renewal {
     /// Keeping an idle context's prompt cache warm, so renewal waits until
     /// warming stops and the cache expires.
     pub warming: Warming,
+    /// An idle session is renewed this long after its cache expires, so the
+    /// expiry has surely passed when it is judged: the last warming request
+    /// is timed from when its reply ended.
+    pub idle_margin_seconds: u64,
     /// Preferred summary models as `provider/model`, offered before the fast
     /// tier.
     pub pins: Vec<String>,
@@ -209,6 +213,9 @@ pub struct Warming {
 
 /// Longest a session may be kept warm.
 const MAX_WARMING_SECONDS: u64 = 24 * 60 * 60;
+
+/// Longest an expired idle session waits to be renewed.
+const MAX_IDLE_MARGIN_SECONDS: u64 = 60 * 60;
 
 impl Warming {
     /// How often to warm a `context_tokens` context whose provider keeps an
@@ -287,6 +294,12 @@ impl Renewal {
         if self.pins.len() > MAX_PINS || self.pins.iter().any(|pin| !pin.contains('/')) {
             return Err(format!(
                 "renewal.pins holds at most {MAX_PINS} provider/model entries"
+            ));
+        }
+
+        if self.idle_margin_seconds > MAX_IDLE_MARGIN_SECONDS {
+            return Err(format!(
+                "renewal.idle_margin_seconds is at most {MAX_IDLE_MARGIN_SECONDS}"
             ));
         }
 

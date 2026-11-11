@@ -4,8 +4,9 @@ import type { DaemonClient } from "../src/daemon.js"
 import type { HistoryMessage } from "../src/host.js"
 import type { Signal } from "../src/protocol.js"
 import { cacheSeconds, contextFacts, installRenewal, summaryRequest } from "../src/renewal.js"
+import type { ExpiryListener, WarmingControl } from "../src/warming.js"
 import { SHIPPED_TEXTS } from "../src/texts.js"
-import { fakeHost, type FakeHost, Hooks, install, noRulebooks, noSkills, sessionID as session, shippedTexts } from "./support.js"
+import { eventStream, fakeHost, type FakeHost, Hooks, install, noRulebooks, noSkills, sessionID as session, shippedTexts } from "./support.js"
 
 const opus = { providerID: "anthropic", id: "claude-opus-5-5", variant: "high" }
 
@@ -41,12 +42,15 @@ function setup(history: ReadonlyArray<unknown>, compact: boolean, overrides: Fak
   const generated: Array<{ readonly prompt: string; readonly model: { readonly id: string }; readonly parentID: string }> = []
   const children = new Map<string, { readonly parentID: string; readonly model: { readonly id: string } }>()
   const removed: string[] = []
+  const events = eventStream()
 
   const host = fakeHost({
+    location: { directory: "/projects/app" },
+    event: { subscribe: events.subscribe },
     session: {
       hook: hooks.register,
       context: () => Effect.succeed(history),
-      get: () => Effect.succeed({ model: opus }),
+      get: (input: { readonly sessionID: string }) => Effect.succeed({ model: opus, location: { directory: input.sessionID === "ses_elsewhere" ? "/projects/other" : "/projects/app" } }),
       compact: (input: { readonly sessionID: string }) => Effect.sync(() => { compactions.push(input.sessionID) }),
       create: (input: { readonly parentID: string; readonly model: { readonly id: string } }) => Effect.sync(() => {
         const id = `ses_child_${children.size}`
@@ -77,7 +81,12 @@ function setup(history: ReadonlyArray<unknown>, compact: boolean, overrides: Fak
     return compact ? [{ type: "compact", agent_id: value.agent_id, model: { provider: "anthropic", model: "claude-haiku-5" } }] : []
   }) }
 
-  return { hooks, signals, compactions, generated, removed, host, daemon }
+  return { hooks, signals, compactions, generated, removed, host, daemon, events }
+}
+
+/** Wait for `ms` of real time, letting the event handlers run. */
+function wait(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
 test("a cold context reports its size and idle time; the engine's compaction is queued and summarized by the cheaper model", async () => {
@@ -194,6 +203,31 @@ function history(...entries: ReadonlyArray<unknown>): ReadonlyArray<HistoryMessa
   return entries as ReadonlyArray<HistoryMessage>
 }
 
+test("an idle session the engine said would go cold is renewed once its cache expires, unless it ran again first", async () => {
+  const { signals, compactions, host, daemon, events } = setup([reply(30, 640_000)], true)
+  let expire: ExpiryListener = () => Effect.void
+  const warming: WarmingControl = { lastWarmed: () => undefined, expiring: (listener) => { expire = listener } }
+  const plugin = await install(installRenewal(warming), host, daemon)
+
+  try {
+    await Effect.runPromise(expire(session("ses_idle"), 0.1))
+    await Effect.runPromise(expire(session("ses_busy"), 0.1))
+    // Input woke this one before its cache expired: its own turn re-reads a warm cache.
+    await events.publish({ type: "session.execution.started", data: { sessionID: "ses_busy" } })
+    await wait(30)
+
+    expect(signals).toEqual([])
+
+    await wait(150)
+
+    expect(signals.map((value) => value.agent_id)).toEqual(["ses_idle"])
+    expect(signals[0]?.kind).toMatchObject({ type: "context_resumed", context_tokens: 640_000, cache_seconds: 3_600 })
+    expect(compactions).toEqual(["ses_idle"])
+  } finally {
+    await plugin.close()
+  }
+})
+
 test("the cache lifetime is the variant's cache.ttl, else the model's, in whole seconds", () => {
   const model = { settings: { cache: { ttl: "1h" } }, variants: [{ id: "fast", settings: { cache: { ttl: "5m" } } }, { id: "high", settings: {} }] }
 
@@ -219,7 +253,7 @@ test("facts come from the latest measured reply since the last compaction", () =
 test("a warming request after the latest reply restarts the idle time", async () => {
   const { signals, host, daemon } = setup([reply(50, 640_000)], false)
   const warmedAt = Date.now() - 3 * 60_000
-  const plugin = await install(installRenewal({ lastWarmed: () => warmedAt }), host, daemon)
+  const plugin = await install(installRenewal({ lastWarmed: () => warmedAt, expiring: () => undefined }), host, daemon)
 
   try {
     await Effect.runPromise(plugin.value.renew(session("ses_warmed")))

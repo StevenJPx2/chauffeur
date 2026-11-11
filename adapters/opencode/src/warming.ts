@@ -4,7 +4,7 @@ import { Daemon } from "./daemon.js"
 import { Host, type SessionID } from "./host.js"
 import { ref } from "./model-router.js"
 import { type CachePrices, type HostEffect, type Signal, signal } from "./protocol.js"
-import { cacheSeconds, contextFacts } from "./renewal.js"
+import { cacheSeconds, contextFacts, windowOf } from "./renewal.js"
 import { Texts } from "./texts.js"
 
 const MAX_SESSIONS = 256
@@ -39,7 +39,18 @@ type Cost = {
 export type WarmingControl = {
   /** When a warming request last refreshed the session's prompt cache, in epoch milliseconds. */
   readonly lastWarmed: (sessionID: string) => number | undefined
+  /**
+   * Hands `listener` each session the engine asked to renew once idle, and
+   * how many seconds from its turn's end, warming included.
+   */
+  readonly expiring: (listener: ExpiryListener) => void
 }
+
+/** When a session's cache was last read, in epoch milliseconds, and how long after that it is renewed. */
+type Expiry = { readonly since: number; readonly rest: number }
+
+/** Told a session goes cold `afterSeconds` from now, if it stays idle. */
+export type ExpiryListener = (sessionID: SessionID, afterSeconds: number) => Effect.Effect<void>
 
 /**
  * Keeps an idle session's prompt cache warm. When a session the user drives
@@ -58,6 +69,7 @@ export const installWarming: Effect.Effect<WarmingControl, never, Host | Daemon 
   const warmed = new Map<string, number>()
   /** Executions started per session, so a turn that ends after the next began is not warmed. */
   const executions = new Map<string, number>()
+  let expiring: ExpiryListener = () => Effect.void
 
   const started = (sessionID: string) => {
     if (!executions.has(sessionID) && executions.size >= MAX_SESSIONS) executions.clear()
@@ -76,7 +88,10 @@ export const installWarming: Effect.Effect<WarmingControl, never, Host | Daemon 
     return loop ? Fiber.interrupt(loop).pipe(Effect.forkIn(scope), Effect.asVoid) : Effect.void
   }
 
-  const warm = (sessionID: SessionID, everySeconds: number, times: number) => Effect.gen(function* () {
+  /** A warming request that misses the cache, its prompt shaped differently by another plugin, stops warming and moves the `expiry` up to when the cache last read lapses. */
+  const warm = (sessionID: SessionID, everySeconds: number, times: number, expiry?: Expiry) => Effect.gen(function* () {
+    let touched = expiry?.since ?? Date.now()
+
     for (let sent = 0; sent < times; sent += 1) {
       yield* Effect.sleep(Duration.seconds(everySeconds))
 
@@ -88,13 +103,17 @@ export const installWarming: Effect.Effect<WarmingControl, never, Host | Daemon 
 
           if (!warmed.has(String(sessionID)) && warmed.size >= MAX_SESSIONS) warmed.clear()
 
-          warmed.set(String(sessionID), Date.now())
+          touched = Date.now()
+          warmed.set(String(sessionID), touched)
         })),
         Effect.catch((error) => Effect.logWarning("chauffeur: a warming request failed", error).pipe(Effect.as(false))),
       )
 
-      // Another plugin shapes the session's prompt differently for a warming request.
-      if (missed) return yield* Effect.logWarning("chauffeur: stopped warming a session whose warming request missed its prompt cache", { sessionID })
+      if (!missed) continue
+
+      if (expiry) yield* expiring(sessionID, Math.max(0, touched + expiry.rest * 1_000 - Date.now()) / 1_000)
+
+      return yield* Effect.logWarning("chauffeur: stopped warming a session whose warming request missed its prompt cache", { sessionID })
     }
   })
 
@@ -105,16 +124,20 @@ export const installWarming: Effect.Effect<WarmingControl, never, Host | Daemon 
 
     if (!idle) return
 
-    const plan = warmPlan(yield* daemon.signal(idle), id)
+    const { plan, after } = idlePlan(yield* daemon.signal(idle), id)
 
     yield* stop(id)
 
     // A turn that began while the engine decided keeps its own cache warm.
-    if (!plan || executions.get(id) !== execution) return
+    if (executions.get(id) !== execution) return
+
+    if (after !== undefined) yield* expiring(sessionID, after)
+
+    if (!plan) return
 
     if (loops.size >= MAX_SESSIONS) yield* Effect.forEach([...loops.keys()], stop, { discard: true })
 
-    loops.set(id, yield* warm(sessionID, plan.every, plan.times).pipe(Effect.forkIn(scope)))
+    loops.set(id, yield* warm(sessionID, plan.every, plan.times, after === undefined ? undefined : { since: Date.now(), rest: after - plan.every * plan.times }).pipe(Effect.forkIn(scope)))
   }).pipe(
     // Warming fails open: the cache expires as it would without Chauffeur.
     Effect.catch((error) => Effect.logError("chauffeur: warming unavailable", error)),
@@ -135,7 +158,10 @@ export const installWarming: Effect.Effect<WarmingControl, never, Host | Daemon 
     Effect.forkScoped,
   )
 
-  return { lastWarmed: (sessionID) => warmed.get(sessionID) }
+  return {
+    lastWarmed: (sessionID) => warmed.get(sessionID),
+    expiring: (listener) => { expiring = listener },
+  }
 })
 
 /**
@@ -156,23 +182,29 @@ function idleSignal(sessionID: SessionID): Effect.Effect<Signal | undefined, unk
     if (!facts) return undefined
 
     const model = session.model ?? facts.model
-    const listed = (yield* host.model.list()).data.find((entry) => entry.providerID === model.providerID && entry.id === model.id)
+    const models = (yield* host.model.list()).data
+    const listed = models.find((entry) => entry.providerID === model.providerID && entry.id === model.id)
 
     return signal(String(sessionID), {
       type: "context_idle",
       model: ref(model),
       context_tokens: facts.tokens,
+      context_window: windowOf(models, ref(model)) ?? 0,
       prices: pricesAt(listed?.cost ?? [], facts.tokens),
       cache_seconds: cacheSeconds(listed, model.variant),
     })
   })
 }
 
-/** The engine's warming for session `id`, if it asked for any. */
-function warmPlan(effects: ReadonlyArray<HostEffect>, id: string): { readonly every: number; readonly times: number } | undefined {
-  const plan = effects.find((effect) => effect.type === "warm" && effect.agent_id === id)
+/** The engine's warming for session `id`, and the seconds after which to renew it if still idle, if it asked for either. */
+function idlePlan(effects: ReadonlyArray<HostEffect>, id: string) {
+  const warm = effects.find((effect) => effect.type === "warm" && effect.agent_id === id)
+  const renew = effects.find((effect) => effect.type === "renew_when_idle" && effect.agent_id === id)
 
-  return plan?.type === "warm" && plan.times > 0 && plan.every_seconds > 0 ? { every: plan.every_seconds, times: plan.times } : undefined
+  return {
+    plan: warm?.type === "warm" && warm.times > 0 && warm.every_seconds > 0 ? { every: warm.every_seconds, times: warm.times } : undefined,
+    after: renew?.type === "renew_when_idle" ? renew.after_seconds : undefined,
+  }
 }
 
 /**

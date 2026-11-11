@@ -89,6 +89,14 @@ pub enum Effect {
         every_seconds: u64,
         times: u32,
     },
+    /// The idle agent's prompt cache will have expired `after_seconds` from
+    /// now, warming included: if the agent is still idle then, ask whether
+    /// to renew its context, so whatever input comes next finds it renewed
+    /// instead of re-reading it cold.
+    RenewWhenIdle {
+        agent_id: String,
+        after_seconds: u64,
+    },
     /// The answer to a skill review: whether to add the skill.
     SkillVerdict {
         agent_id: String,

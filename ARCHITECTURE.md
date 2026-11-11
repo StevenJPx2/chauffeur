@@ -208,6 +208,8 @@ new effect and no adapter change:
 | `context`    | adds skills (the host resolves their bodies) and text to the conversation, at a `delivery`: `prompt` (with the user message being admitted), `steer` (the running turn), `resume` (wakes an idle agent), or `wait` (for the next turn) | skill exposure, tool exposure (Code Mode notes), rules |
 | `gate`       | delivers or withholds the integration event being gated                                                                                                                                                                                | event gate                                             |
 | `compact`    | compacts the context before the prompt being admitted, with the named model writing the summary; the agent keeps its own model                                                                                                         | model router (context renewal)                         |
+| `warm` | keeps the idle context's prompt cache warm: a transient request every so many seconds, at most so many times | model router (session warming) |
+| `renew_when_idle` | asks again whether to renew the context once its cache has expired, if the agent is still idle then | model router (context renewal) |
 
 Every `context` delivery lands in history at the tail, so the cached prefix
 stays intact. Ephemeral context, appended to one request in the `context` hook,
@@ -739,9 +741,27 @@ an hour, kept in plugin storage: its models go to the engine as unusable in
 later `context_resumed` signals, so the router picks a summary model
 elsewhere. A summary that skips the template passes over nothing.
 
+Input other than a prompt, such as an integration's synthetic message, a
+finished shell's notice or a subagent's reply, wakes a session without any hook
+OpenCode runs before the model request: OpenCode promotes it and sends the
+request within milliseconds of the wake, so a compaction queued then only runs
+after the cold re-read. Such a session is renewed while it is still idle
+instead. At a turn's end, the router answers `context_idle` for a context at
+least its budget, on a model neither fast-tier nor a last resort, with a
+`renew_when_idle` effect: `after_seconds` is the cache lifetime, plus the
+warming span (`every_seconds × times`), plus `renewal.idle_margin_seconds`
+(60), as the last warming request is timed from its reply's end. The adapter
+waits that long, unless the session's next execution starts first, then sends
+`context_resumed` as for a prompt; a yes queues the compaction on the idle
+session, which runs no model turn, so whatever input comes next finds a
+renewed context. A warming request that misses the cache stops warming and
+moves the renewal up to the cache lifetime and margin after the cache was last
+read. A timer does not survive a restart of OpenCode: a session
+idle across one is renewed by its next prompt.
+
 **Session warming.** When a session the user drives finishes a turn, the
-adapter sends `context_idle`: the session's model, its context size, and the
-model's prices at that size (the host's price tier the context reaches, in
+adapter sends `context_idle`: the session's model, its context size and the
+model's window, and the model's prices at that size (the host's price tier the context reaches, in
 millionths of a dollar per million tokens), and the model's `cache.ttl` when
 the user set one. The router answers with no
 question: a `warm` effect asking for a transient request every
@@ -849,9 +869,14 @@ Installed as a package, it also registers the hand-over skills in
   `execute.after` hook waits at most 3 s.
 - **`gate`:** the `chauffeur.gate` plugin RPC's reply.
 - **`compact`:** `session.compact` from the prompt hook, before admission,
-  and `session.hook("compaction")` sets the hook's `result` to the summary
-  the effect's model wrote in a temporary child session, only for a
-  compaction Chauffeur queued.
+  or on an idle session once its `renew_when_idle` delay passes, and
+  `session.hook("compaction")` sets the hook's `result` to the summary the
+  effect's model wrote in a temporary child session, only for a compaction
+  Chauffeur queued.
+- **`warm`:** `session.generate` with the keep-alive prompt, until the
+  session's next request of its own.
+- **`renew_when_idle`:** a timer in the plugin, cancelled by the session's
+  next `session.execution.started`.
 - **Skill loading:** a `skill` deny rule on every agent via `agent.transform`.
 
 ## Workspace

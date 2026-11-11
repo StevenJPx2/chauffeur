@@ -315,6 +315,9 @@ pub enum SignalKind {
         model: ModelRef,
         /// The prompt's size at the context's latest reply, in tokens.
         context_tokens: u64,
+        /// The model's input window in tokens; 0 when the host does not know it.
+        #[serde(default)]
+        context_window: u64,
         /// The model's prices at that size.
         #[serde(default)]
         prices: CachePrices,

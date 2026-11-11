@@ -1163,14 +1163,16 @@ fn prices(input: u64, cache_read: u64, cache_write: u64) -> CachePrices {
     }
 }
 
-/// A session on `key` going idle with a 120k-token context.
+/// A session on `key` going idle with a 60k-token context of a 1M-token
+/// window, under its 100k budget.
 fn idle(key: &str, prices: CachePrices) -> Signal {
     Signal {
         agent_id: "session".into(),
         at: 1,
         kind: SignalKind::ContextIdle {
             model: model(key),
-            context_tokens: 120_000,
+            context_tokens: 60_000,
+            context_window: 1_000_000,
             prices,
             cache_seconds: None,
         },
@@ -1263,6 +1265,70 @@ fn a_context_that_caching_cannot_save_or_a_limited_provider_is_not_warmed() {
     assert_eq!(
         limited.plan(&Situation::default(), &idle("openai/sol", opus)),
         warm(1_740, 2)
+    );
+}
+
+#[test]
+fn an_idle_context_over_its_budget_is_renewed_once_its_cache_and_warming_run_out() {
+    let opus = prices(4_000_000, 200_000, 5_000_000);
+    let over = |key: &str, cache_seconds: Option<u64>| {
+        let mut signal = idle(key, opus);
+
+        if let SignalKind::ContextIdle {
+            context_tokens,
+            cache_seconds: set,
+            ..
+        } = &mut signal.kind
+        {
+            *context_tokens = 550_000;
+            *set = cache_seconds;
+        }
+
+        signal
+    };
+    let renew = |after_seconds: u64| Effect::RenewWhenIdle {
+        agent_id: "session".into(),
+        after_seconds,
+    };
+    let warm = |every_seconds: u64, times: u32| Effect::Warm {
+        agent_id: "session".into(),
+        every_seconds,
+        times,
+    };
+    let plan = |signal: &Signal| router(&[]).plan(&Situation::default(), signal);
+
+    // A 1-hour cache warmed once at 59 minutes lasts until 1:59; a minute's
+    // margin later, the session is renewed if nothing woke it.
+    assert_eq!(
+        plan(&over("anthropic/opus", Some(3_600))),
+        Plan::Settled(vec![warm(3_540, 1), renew(3_540 + 3_600 + 60)])
+    );
+    // Not warmed: renewed a minute after the cache expires.
+    let mut unwarmed = over("anthropic/opus", Some(3_600));
+    if let SignalKind::ContextIdle { prices, .. } = &mut unwarmed.kind {
+        *prices = CachePrices::default();
+    }
+    assert_eq!(plan(&unwarmed), Plan::Settled(vec![renew(3_600 + 60)]));
+
+    // Under the budget, or on a fast-tier model: warmed only, or left alone.
+    assert_eq!(
+        plan(&idle("anthropic/opus", opus)),
+        Plan::Settled(vec![warm(240, 14)])
+    );
+    let mut cheap = over("anthropic/haiku", None);
+    if let SignalKind::ContextIdle { prices, .. } = &mut cheap.kind {
+        *prices = CachePrices::default();
+    }
+    assert_eq!(plan(&cheap), Plan::Skip);
+
+    // A provider the agent hit a usage limit on is not warmed, but is renewed.
+    let mut limited = router(&[]);
+    let failed = limit(false);
+    limited.plan(&Situation::default(), &failed);
+    limited.decide(&failed, Some(&[choice("openai/sol", 0.9)]));
+    assert_eq!(
+        limited.plan(&Situation::default(), &over("anthropic/opus", Some(3_600))),
+        Plan::Settled(vec![renew(3_600 + 60)])
     );
 }
 

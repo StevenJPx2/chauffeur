@@ -11,6 +11,7 @@
     "cache_seconds": { "anthropic": 300, "openai": 1800, "deepseek": 3600, "*": 300 },
     "budget": { "share": 0.215, "min_tokens": 50000, "max_tokens": 100000 },
     "warming": { "max_seconds": 3600, "lead_seconds": 60, "min_tokens": 20000 },
+    "idle_margin_seconds": 60,
     "pins": [],
     "bar": { "at": 0.7, "confidence": 0.4 }
   },

@@ -26,7 +26,7 @@ function wait(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-function setup(session: { readonly parentID?: string }, warm: { readonly every_seconds: number; readonly times: number }, usage?: { readonly read: number; readonly write: number }) {
+function setup(session: { readonly parentID?: string }, warm: { readonly every_seconds: number; readonly times: number }, usage?: { readonly read: number; readonly write: number }, renewAfter?: number) {
   const events = eventStream()
   const hooks = new Hooks()
   const signals: Signal[] = []
@@ -45,13 +45,16 @@ function setup(session: { readonly parentID?: string }, warm: { readonly every_s
         return usage ? { text: "OK", tokens: { input: 4, output: 4, reasoning: 0, cache: usage } } : { text: "OK" }
       }),
     },
-    model: { list: () => Effect.succeed({ data: [{ ...opus, cost }] }) },
+    model: { list: () => Effect.succeed({ data: [{ ...opus, cost, limit: { context: 1_000_000 } }] }) },
   })
 
   const daemon: DaemonClient = { skills: noSkills, rulebooks: noRulebooks, texts: shippedTexts, signal: (value) => Effect.sync(() => {
     signals.push(value)
 
-    return [{ type: "warm", agent_id: value.agent_id, ...warm }]
+    return [
+      { type: "warm", agent_id: value.agent_id, ...warm },
+      ...(renewAfter === undefined ? [] : [{ type: "renew_when_idle" as const, agent_id: value.agent_id, after_seconds: renewAfter }]),
+    ]
   }) }
 
   return { events, hooks, signals, generated, host, daemon }
@@ -69,6 +72,7 @@ test("a finished turn reports its context and prices, and the engine's warming r
       type: "context_idle",
       model: { provider: "anthropic", model: "claude-opus-5-5", variant: undefined },
       context_tokens: 120_000,
+      context_window: 1_000_000,
       prices: { input: 4_000_000, cache_read: 200_000, cache_write: 5_000_000 },
     })
     expect(generated.length).toBeGreaterThanOrEqual(2)
@@ -105,6 +109,45 @@ test("warming stops after the engine's count, and a subagent's session is never 
   } finally {
     await first.close()
     await second.close()
+  }
+})
+
+test("a session the engine said to renew once idle is handed to the expiry listener with its delay", async () => {
+  const { events, generated, host, daemon } = setup({}, { every_seconds: 60, times: 1 }, undefined, 3_660)
+  const plugin = await install(installWarming, host, daemon)
+  const told: Array<readonly [string, number]> = []
+
+  plugin.value.expiring((sessionID, afterSeconds) => Effect.sync(() => { told.push([String(sessionID), afterSeconds]) }))
+
+  try {
+    await events.publish({ type: "session.execution.succeeded", data: { sessionID: "ses_long" } })
+    await wait(30)
+
+    expect(told).toEqual([["ses_long", 3_660]])
+    expect(generated).toEqual([])
+  } finally {
+    await plugin.close()
+  }
+})
+
+test("a warming request that misses the cache moves the session's renewal up to its cache lifetime after the turn", async () => {
+  // Warmed every 0.05 s, 3 times; renewal planned 0.15 s of warming plus 0.1 s of lifetime and margin.
+  const { events, host, daemon } = setup({}, { every_seconds: 0.05, times: 3 }, { read: 1_217, write: 118_000 }, 0.25)
+  const plugin = await install(installWarming, host, daemon)
+  const told: Array<readonly [string, number]> = []
+
+  plugin.value.expiring((sessionID, afterSeconds) => Effect.sync(() => { told.push([String(sessionID), afterSeconds]) }))
+
+  try {
+    await events.publish({ type: "session.execution.succeeded", data: { sessionID: "ses_missed" } })
+    await wait(120)
+
+    expect(told[0]).toEqual(["ses_missed", 0.25])
+    // The first warming request missed at about 0.05 s: renewal 0.1 s after the turn, about 0.05 s on.
+    expect(told).toHaveLength(2)
+    expect(told[1]?.[1]).toBeLessThan(0.1)
+  } finally {
+    await plugin.close()
   }
 })
 

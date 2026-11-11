@@ -91,7 +91,7 @@ export type SignalKind =
     cache_seconds?: number | undefined
     available: Array<{ model: ModelRef; usable: boolean }>
   }
-  | { type: "context_idle"; model: ModelRef; context_tokens: number; prices: CachePrices; cache_seconds?: number | undefined }
+  | { type: "context_idle"; model: ModelRef; context_tokens: number; context_window: number; prices: CachePrices; cache_seconds?: number | undefined }
   | { type: "integration_event"; source: string; kind: string; summary: string; body: string; actionable: boolean; monitor: string }
 
 export type Signal = { agent_id: string; at: number; kind: SignalKind }
@@ -153,6 +153,7 @@ const HostEffect = Schema.Union([
   Schema.Struct({ type: Schema.Literal("gate"), agent_id: Schema.String, deliver: Schema.Boolean }),
   Schema.Struct({ type: Schema.Literal("compact"), agent_id: Schema.String, model: ModelRef }),
   Schema.Struct({ type: Schema.Literal("warm"), agent_id: Schema.String, every_seconds: Schema.Number, times: Schema.Number }),
+  Schema.Struct({ type: Schema.Literal("renew_when_idle"), agent_id: Schema.String, after_seconds: Schema.Number }),
 ])
 
 export type HostEffect = typeof HostEffect.Type

@@ -445,13 +445,18 @@ impl ModelRouter {
     }
 
     /// When a session goes idle, whether to keep its prompt cache warm, and
-    /// how. Decided from the model's cache lifetime and its
-    /// prices, with no question; a provider the agent hit a usage limit on is
-    /// not warmed.
-    fn warming(&self, signal: &Signal) -> Option<Judgment<Verdict>> {
+    /// how, and when to ask about renewing it once the cache has expired.
+    /// Decided from the model's cache lifetime, its prices and the context's
+    /// size, with no question. A provider the agent hit a usage limit on is
+    /// not warmed. A context over its budget, on a model that is neither
+    /// fast-tier nor a last resort, is renewed once the cache expires, so
+    /// input other than a prompt, which no hook sees before it runs, never
+    /// re-reads it cold.
+    fn idle(&self, signal: &Signal) -> Option<Judgment<Verdict>> {
         let SignalKind::ContextIdle {
             model,
             context_tokens,
+            context_window,
             prices,
             cache_seconds,
         } = &signal.kind
@@ -459,25 +464,28 @@ impl ModelRouter {
             return None;
         };
 
-        if self
+        let renewal = &self.config.renewal;
+        let lifetime = renewal.lifetime(&model.provider, *cache_seconds);
+        let limited = self
             .exhausted
             .get(&signal.agent_id)
-            .is_some_and(|providers| providers.contains(&model.provider))
-        {
-            return None;
-        }
+            .is_some_and(|providers| providers.contains(&model.provider));
+        let warm = if limited {
+            None
+        } else {
+            renewal.warming.plan(lifetime, *context_tokens, *prices)
+        };
+        let renews = self.current_tier(model) != Some(Tier::Fast)
+            && !self.config.is_last_resort(model)
+            && *context_tokens >= renewal.budget.tokens(*context_window);
+        let renew_after = renews.then(|| {
+            let warmed = warm.map_or(0, |(every, times)| every * u64::from(times));
 
-        let renewal = &self.config.renewal;
-        let (every_seconds, times) = renewal.warming.plan(
-            renewal.lifetime(&model.provider, *cache_seconds),
-            *context_tokens,
-            *prices,
-        )?;
+            lifetime + warmed + renewal.idle_margin_seconds
+        });
 
-        Some(Judgment::done(Verdict::Warm {
-            every_seconds,
-            times,
-        }))
+        (warm.is_some() || renew_after.is_some())
+            .then(|| Judgment::done(Verdict::Idle { warm, renew_after }))
     }
 
     /// The model to write a summary for an agent on `current`: a pinned
@@ -683,8 +691,12 @@ pub enum Verdict {
     /// The model to summarize the resumed context with, or `None` to leave
     /// the context as it is.
     Renew(Option<ModelRef>),
-    /// Keep the idle context's prompt cache warm.
-    Warm { every_seconds: u64, times: u32 },
+    /// Keep the idle context's prompt cache warm, every so many seconds and
+    /// how many times, and ask about renewing it so many seconds from now.
+    Idle {
+        warm: Option<(u64, u32)>,
+        renew_after: Option<u64>,
+    },
 }
 
 /// The model a failover judgment picked. A failed or unsure judgment falls
@@ -771,7 +783,7 @@ impl Judged for ModelRouter {
                 self.switch_back(signal, model.as_ref())
             }
             SignalKind::ContextResumed { .. } => self.renewal(signal),
-            SignalKind::ContextIdle { .. } => self.warming(signal),
+            SignalKind::ContextIdle { .. } => self.idle(signal),
             SignalKind::ToolResult { .. }
             | SignalKind::PermissionRequest { .. }
             | SignalKind::IntegrationEvent { .. }
@@ -808,14 +820,18 @@ impl Judged for ModelRouter {
             Verdict::SwitchBack(true) => self.return_to_origin(&agent_id),
             Verdict::SwitchBack(false) | Verdict::Renew(None) => Vec::new(),
             Verdict::Renew(Some(model)) => vec![Effect::Compact { agent_id, model }],
-            Verdict::Warm {
-                every_seconds,
-                times,
-            } => vec![Effect::Warm {
-                agent_id,
-                every_seconds,
-                times,
-            }],
+            Verdict::Idle { warm, renew_after } => warm
+                .map(|(every_seconds, times)| Effect::Warm {
+                    agent_id: agent_id.clone(),
+                    every_seconds,
+                    times,
+                })
+                .into_iter()
+                .chain(renew_after.map(|after_seconds| Effect::RenewWhenIdle {
+                    agent_id,
+                    after_seconds,
+                }))
+                .collect(),
         }
     }
 }
