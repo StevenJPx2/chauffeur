@@ -1,4 +1,5 @@
-import { Duration, Effect, Fiber, type Scope, Stream } from "effect"
+import type { Plugin } from "@opencode/plugin/effect"
+import { Duration, Effect, Fiber, Schema, type Scope, Stream } from "effect"
 import { Daemon } from "./daemon.js"
 import { Host, type SessionID } from "./host.js"
 import { ref } from "./model-router.js"
@@ -10,6 +11,23 @@ const MAX_SESSIONS = 256
 
 /** How long one warming request may take before it counts as failed. */
 const WARM_TIMEOUT: Duration.Input = "2 minutes"
+
+/** What OpenCode answers a warming request with. */
+export type WarmingReply = Effect.Success<ReturnType<Plugin.Context["session"]["generate"]>>
+
+/** A warming reply's cache usage, which OpenCode reports beside its text. */
+const CacheUsage = Schema.Struct({ tokens: Schema.Struct({ cache: Schema.Struct({ read: Schema.Number, write: Schema.Number }) }) })
+
+const reportsCache = Schema.is(CacheUsage)
+
+/**
+ * A warming request that wrote more of the cache than it read rebuilt it
+ * instead of keeping it: its prompt differs from the session's own, so the
+ * next one would pay the same again. A reply without cache usage is no miss.
+ */
+export function missedCache(reply: WarmingReply): boolean {
+  return reportsCache(reply) && reply.tokens.cache.read < reply.tokens.cache.write
+}
 
 /** One price tier of a model the host lists, in dollars per million tokens. */
 type Cost = {
@@ -61,15 +79,22 @@ export const installWarming: Effect.Effect<WarmingControl, never, Host | Daemon 
   const warm = (sessionID: SessionID, everySeconds: number, times: number) => Effect.gen(function* () {
     for (let sent = 0; sent < times; sent += 1) {
       yield* Effect.sleep(Duration.seconds(everySeconds))
-      yield* host.session.generate({ sessionID, prompt: texts.current().warming.prompt }).pipe(
+
+      const missed = yield* host.session.generate({ sessionID, prompt: texts.current().warming.prompt }).pipe(
         Effect.timeout(WARM_TIMEOUT),
-        Effect.andThen(() => Effect.sync(() => {
+        Effect.map(missedCache),
+        Effect.tap((miss) => Effect.sync(() => {
+          if (miss) return
+
           if (!warmed.has(String(sessionID)) && warmed.size >= MAX_SESSIONS) warmed.clear()
 
           warmed.set(String(sessionID), Date.now())
         })),
-        Effect.catch((error) => Effect.logWarning("chauffeur: a warming request failed", error)),
+        Effect.catch((error) => Effect.logWarning("chauffeur: a warming request failed", error).pipe(Effect.as(false))),
       )
+
+      // Another plugin shapes the session's prompt differently for a warming request.
+      if (missed) return yield* Effect.logWarning("chauffeur: stopped warming a session whose warming request missed its prompt cache", { sessionID })
     }
   })
 

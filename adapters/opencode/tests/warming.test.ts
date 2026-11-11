@@ -3,7 +3,7 @@ import { DateTime, Effect } from "effect"
 import type { DaemonClient } from "../src/daemon.js"
 import type { Signal } from "../src/protocol.js"
 import { SHIPPED_TEXTS } from "../src/texts.js"
-import { installWarming, pricesAt } from "../src/warming.js"
+import { installWarming, missedCache, pricesAt } from "../src/warming.js"
 import { eventStream, fakeHost, Hooks, install, noRulebooks, noSkills, shippedTexts } from "./support.js"
 
 const opus = { providerID: "anthropic", id: "claude-opus-5-5" }
@@ -26,7 +26,7 @@ function wait(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-function setup(session: { readonly parentID?: string }, warm: { readonly every_seconds: number; readonly times: number }) {
+function setup(session: { readonly parentID?: string }, warm: { readonly every_seconds: number; readonly times: number }, usage?: { readonly read: number; readonly write: number }) {
   const events = eventStream()
   const hooks = new Hooks()
   const signals: Signal[] = []
@@ -42,7 +42,7 @@ function setup(session: { readonly parentID?: string }, warm: { readonly every_s
       generate: (input: (typeof generated)[number]) => Effect.sync(() => {
         generated.push(input)
 
-        return { text: "OK" }
+        return usage ? { text: "OK", tokens: { input: 4, output: 4, reasoning: 0, cache: usage } } : { text: "OK" }
       }),
     },
     model: { list: () => Effect.succeed({ data: [{ ...opus, cost }] }) },
@@ -106,6 +106,35 @@ test("warming stops after the engine's count, and a subagent's session is never 
     await first.close()
     await second.close()
   }
+})
+
+test("a warming request that rebuilt the cache instead of reading it stops the warming and does not count as warm", async () => {
+  const missed = setup({}, { every_seconds: 0.01, times: 5 }, { read: 1_217, write: 118_000 })
+  const kept = setup({}, { every_seconds: 0.01, times: 3 }, { read: 118_000, write: 44 })
+  const first = await install(installWarming, missed.host, missed.daemon)
+  const second = await install(installWarming, kept.host, kept.daemon)
+
+  try {
+    await missed.events.publish({ type: "session.execution.succeeded", data: { sessionID: "ses_miss" } })
+    await kept.events.publish({ type: "session.execution.succeeded", data: { sessionID: "ses_hit" } })
+    await wait(100)
+
+    expect(missed.generated).toHaveLength(1)
+    expect(first.value.lastWarmed("ses_miss")).toBeUndefined()
+    expect(kept.generated).toHaveLength(3)
+    expect(second.value.lastWarmed("ses_hit")).toBeGreaterThan(Date.now() - 1_000)
+  } finally {
+    await first.close()
+    await second.close()
+  }
+})
+
+test("a reply misses the cache when it wrote more than it read; one without usage never does", () => {
+  const reply = (read: number, write: number) => ({ text: "OK", tokens: { cache: { read, write } } })
+
+  expect(missedCache(reply(1_217, 447_352))).toBe(true)
+  expect(missedCache(reply(13_007, 44))).toBe(false)
+  expect(missedCache({ text: "OK" })).toBe(false)
 })
 
 test("prices come from the tier the prompt reaches, in millionths of a dollar", () => {

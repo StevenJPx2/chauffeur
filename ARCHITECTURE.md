@@ -759,9 +759,14 @@ request with OpenCode's `session.generate`, the keep-alive prompt from
 request of its own; subagents' sessions are never warmed. Chauffeur's tool
 edits run on `generate` and `compaction` requests as well as the agent loop's,
 as OpenCode's own plugins do, so a warming request carries the same prompt
-prefix and refreshes the cache the next prompt reads. Once warming stops, the
-cache expires on its own, and the next prompt's `context_resumed` measures
-idle time from the last warming request. Leave OpenCode's own `warming`
+prefix and refreshes the cache the next prompt reads. Every other plugin that
+edits the request must do the same: one that adds system text only on
+`context` (sourcefed 0.4.0 did) gives a warming request another prefix, so it
+rewrites the whole context instead of reading it. A warming request that wrote
+more of the cache than it read stops the session's warming and does not count
+as a warm. Once warming stops, the cache expires on its own, and the next
+prompt's `context_resumed` measures idle time from the last warming request
+that read the cache. Leave OpenCode's own `warming`
 setting off, or both warm the session.
 
 ## Coupling
