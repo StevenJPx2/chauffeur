@@ -762,3 +762,23 @@ A field the evidence lacks fails the step as `invalid`, never `no`.
 | Concern      | Decision                                                                                                                  |
 | ------------ | ------------------------------------------------------------------------------------------------------------------------- |
 | Runaway code | Each call has a memory cap (16 MiB by default) and an interrupt at the step's deadline; overrunning either fails the step |
+
+## Rulebooks
+
+A rulebook is a set of rules that a slash command switches on for one session.
+`/goal ship the parser fix` keeps the agent working until the evidence shows
+the goal is met, and `/ticket` does the same for a ticket. A project adds its
+own books in `.chauffeur/rulebooks/`.
+
+The [`rulebooks` plugin](../plugins/rulebooks.md) runs them:
+
+- At start, it registers each book's command with `command.add`.
+- The command starts, pauses, resumes or clears the book in that session.
+- While a book runs, its rules go through `navigate` like any other rule, and
+  each delivery counts against the book's budget.
+
+A book keeps v1's fields (`args`, `budget`, `on_start`, `on_budget`). Its
+rules use the v2 [rule format](../migration/rule-format.md), and a rule ends
+the book with an `end` intent. The rest of the design is held until it is
+discussed; [slice 12](slices/slice-12.md) is written then, and cutover waits
+for it, since v1 users rely on `/goal`.
