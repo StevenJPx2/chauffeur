@@ -1304,7 +1304,8 @@ Files: `distribution/models/jev.json`,
 }
 ```
 
-The rule is in the plan's [Commit messages](../pluggability.md#commit-messages).
+The rule is in the rule format's
+[worked example](../../migration/rule-format.md#worked-example-conventional-commits).
 
 Verified by the end-to-end checks below.
 
