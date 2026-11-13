@@ -42,7 +42,7 @@ sequenceDiagram
     R->>J: the rule's plan, through core
     J-->>R: answers settled by confidence, or failures
     R-->>D: verdict, and the first then entry it meets
-    D-->>C: actions; each rule's run appended to the audit log
+    D-->>C: actions, and each rule's run appended to the audit log
 ```
 
 ```sh
