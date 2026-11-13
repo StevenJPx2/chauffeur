@@ -16,6 +16,9 @@ concurrency:
 jobs:
   rust:
     runs-on: ubuntu-latest
+    env:
+      # -D warnings reaches rustc and clippy only; this fails Cargo's own lints too.
+      CARGO_BUILD_WARNINGS: deny
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
