@@ -308,8 +308,9 @@ pub enum SignalKind {
         cache_seconds: Option<u64>,
         available: Vec<AvailableModel>,
     },
-    /// A session the user drives finished its turn, leaving its context in
-    /// the provider's prompt cache.
+    /// A session the user drives finished its turn, or paused it on a
+    /// question to the user, leaving its context in the provider's prompt
+    /// cache.
     ContextIdle {
         /// The session's model.
         model: ModelRef,
@@ -318,6 +319,11 @@ pub enum SignalKind {
         /// The model's input window in tokens; 0 when the host does not know it.
         #[serde(default)]
         context_window: u64,
+        /// The turn is waiting on the agent's own question to the user, not
+        /// finished: the context ends in an unanswered tool call, which a
+        /// warming request cannot send.
+        #[serde(default)]
+        awaiting_answer: bool,
         /// The model's prices at that size.
         #[serde(default)]
         prices: CachePrices,

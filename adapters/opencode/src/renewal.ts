@@ -5,12 +5,15 @@ import { currentContext, type HistoryMessage, Host, type SessionID } from "./hos
 import { available, hostModel, modelKey, ref } from "./model-router.js"
 import { signal, type ModelRef } from "./protocol.js"
 import { fill, type HostTexts, Texts } from "./texts.js"
-import type { WarmingControl } from "./warming.js"
+import type { PendingQuestion, WarmingControl } from "./warming.js"
 
 const MAX_SESSIONS = 256
 
 /** Admission waits this long for the engine's renewal decision, then proceeds as it is. */
 const DECISION_TIMEOUT: Duration.Input = "2 seconds"
+
+/** How long an interrupted turn may take to settle before its renewal is given up. */
+const SETTLE_TIMEOUT: Duration.Input = "30 seconds"
 
 /** How long the cheap model may take to write the summary before OpenCode compacts on the session's model. */
 const SUMMARY_TIMEOUT: Duration.Input = "3 minutes"
@@ -142,10 +145,10 @@ export const installRenewal = (warming: WarmingControl = { lastWarmed: () => und
 
   /**
    * Asks the engine whether a context resumed after `idleSeconds` should be
-   * renewed first; on a yes, queues OpenCode's compaction ahead of the new
-   * input, to be written by the engine's cheaper model. True when one was queued.
+   * renewed first: the model that writes its summary, and that model's
+   * window, on a yes.
    */
-  const judge = (sessionID: SessionID, model: HostModel, tokens: number, idleSeconds: number) => Effect.gen(function* () {
+  const decide = (sessionID: SessionID, model: HostModel, tokens: number, idleSeconds: number) => Effect.gen(function* () {
     const models: ReadonlyArray<ListedModel> = (yield* host.model.list()).data
 
     const effects = yield* daemon.signal(signal(String(sessionID), {
@@ -160,16 +163,21 @@ export const installRenewal = (warming: WarmingControl = { lastWarmed: () => und
 
     const compact = effects.find((effect) => effect.type === "compact" && effect.agent_id === String(sessionID))
 
-    if (compact?.type !== "compact") return false
+    return compact?.type === "compact" ? { model: compact.model, window: windowOf(models, compact.model) ?? UNKNOWN_WINDOW } : undefined
+  })
 
+  /** Queues OpenCode's compaction ahead of any new input, its summary to be written by `summary.model`. */
+  const queue = (sessionID: SessionID, summary: Summary) => Effect.gen(function* () {
     if (!pending.has(String(sessionID)) && pending.size >= MAX_SESSIONS) pending.clear()
 
-    pending.set(String(sessionID), { model: compact.model, window: windowOf(models, compact.model) ?? UNKNOWN_WINDOW, at: Date.now() })
+    pending.set(String(sessionID), { ...summary, at: Date.now() })
 
     yield* host.session.compact({ sessionID }).pipe(Effect.tapError(() => Effect.sync(() => pending.delete(String(sessionID)))))
+  })
 
-    return true
-  }).pipe(
+  /** On the engine's yes, queues the renewal; true when it was queued. */
+  const judge = (sessionID: SessionID, model: HostModel, tokens: number, idleSeconds: number) => decide(sessionID, model, tokens, idleSeconds).pipe(
+    Effect.flatMap((summary) => (summary ? queue(sessionID, summary).pipe(Effect.as(true)) : Effect.succeed(false))),
     // Renewal fails open: the input runs on the context as it is.
     Effect.catch((error) => Effect.logError("chauffeur: context renewal unavailable", error).pipe(Effect.as(false))),
   )
@@ -186,11 +194,57 @@ export const installRenewal = (warming: WarmingControl = { lastWarmed: () => und
     Effect.catch((error) => Effect.logError("chauffeur: context renewal unavailable", error).pipe(Effect.as(false))),
   )
 
-  yield* watchExpiry(renew, warming)
+  yield* watchExpiry(renew, yield* withdrawal(decide, queue), warming)
 
   return { renew }
 })
 
+
+/** Withdraws `question` and renews the session waiting on it, if the engine agrees and `open` still holds. */
+type Withdraw = (sessionID: SessionID, question: PendingQuestion, open: () => boolean) => Effect.Effect<void>
+
+/** The model that writes a renewal's summary, and its window. */
+type Summary = Omit<Pending, "at">
+
+/** The engine's answer to whether a context resumed after `idleSeconds` is renewed first: its summary on a yes. */
+type Decide = (sessionID: SessionID, model: HostModel, tokens: number, idleSeconds: number) => Effect.Effect<Summary | undefined, unknown>
+
+/** Queues OpenCode's compaction, its summary written by the summary's model. */
+type Queue = (sessionID: SessionID, summary: Summary) => Effect.Effect<void, unknown>
+
+/**
+ * The answer to a question the user left open past the cache's lifetime
+ * would re-read the whole context cold, and no hook runs before it does.
+ * On the engine's yes, the question is withdrawn by interrupting the turn
+ * waiting on it, which sends no request, the context renewed, and the agent
+ * told to ask it again, so the answer reaches the renewed context. `open`
+ * says whether the question still waits, checked last, as the user may
+ * answer while the engine decides.
+ */
+function withdrawal(decide: Decide, queue: Queue): Effect.Effect<Withdraw, never, Host | Texts> {
+  return Effect.gen(function* () {
+    const host = yield* Host
+    const texts = yield* Texts
+
+    return (sessionID, question, open) => Effect.gen(function* () {
+      const facts = contextFacts(yield* host.session.context({ sessionID }), Date.now())
+
+      if (!facts) return
+
+      // The cache was last written by the request that asked the question.
+      const idleSeconds = Math.max(0, Math.floor((Date.now() - question.asked) / 1_000))
+      const summary = yield* decide(sessionID, (yield* host.session.get({ sessionID })).model ?? facts.model, facts.tokens, idleSeconds)
+
+      if (!summary || !open()) return
+
+      yield* host.session.interrupt({ sessionID })
+      yield* host.session.wait({ sessionID }).pipe(Effect.timeout(SETTLE_TIMEOUT))
+      yield* queue(sessionID, summary)
+      yield* host.session.wait({ sessionID }).pipe(Effect.timeout(SUMMARY_TIMEOUT), Effect.ignore)
+      yield* host.session.synthetic({ sessionID, text: fill(texts.current().renewal.withdrawn_question, { questions: JSON.stringify(question.questions) }), resume: true })
+    }).pipe(Effect.catch((error) => Effect.logError("chauffeur: an open question was not renewed", error)))
+  })
+}
 
 /**
  * Renews an idle session once its prompt cache has expired, when the engine
@@ -200,12 +254,16 @@ export const installRenewal = (warming: WarmingControl = { lastWarmed: () => und
  * the context is renewed while nothing runs: whatever comes next finds it
  * renewed instead of re-reading it cold. The session's next execution
  * cancels its timer; `renew` asks the engine again with the idle time then.
+ * A session waiting on its question to the user is timed from the question,
+ * and its timer ends with the answer; `withdraw` handles it.
  */
-function watchExpiry(renew: (sessionID: SessionID) => Effect.Effect<boolean>, warming: WarmingControl): Effect.Effect<void, never, Host | Scope.Scope> {
+function watchExpiry(renew: (sessionID: SessionID) => Effect.Effect<boolean>, withdraw: Withdraw, warming: WarmingControl): Effect.Effect<void, never, Host | Scope.Scope> {
   return Effect.gen(function* () {
     const host = yield* Host
     const scope = yield* Effect.scope
     const timers = new Map<string, Fiber.Fiber<void>>()
+    /** Questions to the user that are still open. */
+    const open = new Set<string>()
 
     const cancel = (id: string) => {
       const timer = timers.get(id)
@@ -215,23 +273,39 @@ function watchExpiry(renew: (sessionID: SessionID) => Effect.Effect<boolean>, wa
       return timer ? Fiber.interrupt(timer).pipe(Effect.forkIn(scope), Effect.asVoid) : Effect.void
     }
 
-    warming.expiring((sessionID, afterSeconds) => Effect.gen(function* () {
+    warming.expiring((sessionID, afterSeconds, question) => Effect.gen(function* () {
       const id = String(sessionID)
 
       yield* cancel(id)
 
       if (timers.size >= MAX_SESSIONS) yield* Effect.forEach([...timers.keys()], cancel, { discard: true })
 
+      if (question && !open.has(question.id)) return
+
       timers.set(id, yield* Effect.sleep(Duration.seconds(afterSeconds)).pipe(
         Effect.andThen(Effect.sync(() => { timers.delete(id) })),
-        Effect.andThen(renew(sessionID)),
+        Effect.andThen(question ? withdraw(sessionID, question, () => open.has(question.id)) : renew(sessionID)),
         Effect.asVoid,
         Effect.forkIn(scope),
       ))
     }))
 
     yield* host.event.subscribe().pipe(
-      Stream.runForEach((event) => (event.type === "session.execution.started" ? cancel(String(event.data.sessionID)) : Effect.void)),
+      Stream.runForEach((event) => {
+        if (event.type === "form.created") {
+          if (open.size >= MAX_SESSIONS) open.clear()
+
+          return Effect.sync(() => { open.add(String(event.data.form.id)) })
+        }
+
+        if (event.type === "form.replied" || event.type === "form.cancelled") {
+          open.delete(String(event.data.id))
+
+          return cancel(String(event.data.sessionID))
+        }
+
+        return event.type === "session.execution.started" ? cancel(String(event.data.sessionID)) : Effect.void
+      }),
       Effect.catch((error) => Effect.logError("chauffeur: renewal events ended", error)),
       Effect.forkScoped,
     )

@@ -1173,6 +1173,7 @@ fn idle(key: &str, prices: CachePrices) -> Signal {
             model: model(key),
             context_tokens: 60_000,
             context_window: 1_000_000,
+            awaiting_answer: false,
             prices,
             cache_seconds: None,
         },
@@ -1309,6 +1310,17 @@ fn an_idle_context_over_its_budget_is_renewed_once_its_cache_and_warming_run_out
         *prices = CachePrices::default();
     }
     assert_eq!(plan(&unwarmed), Plan::Settled(vec![renew(3_600 + 60)]));
+
+    // Awaiting the answer to its question: never warmed, renewed a minute
+    // after the cache expires.
+    let mut asking = over("anthropic/opus", Some(3_600));
+    if let SignalKind::ContextIdle {
+        awaiting_answer, ..
+    } = &mut asking.kind
+    {
+        *awaiting_answer = true;
+    }
+    assert_eq!(plan(&asking), Plan::Settled(vec![renew(3_600 + 60)]));
 
     // Under the budget, or on a fast-tier model: warmed only, or left alone.
     assert_eq!(

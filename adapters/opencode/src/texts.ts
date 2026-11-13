@@ -42,6 +42,8 @@ const HostTextsSchema = Schema.Struct({
   }),
   /** The transient prompt that keeps an idle session's prompt cache warm. */
   warming: Schema.Struct({ prompt: Schema.String }),
+  /** Told to the agent whose open question Chauffeur withdrew to renew its context: `{questions}`. */
+  renewal: Schema.Struct({ withdrawn_question: Schema.String }),
   permission: Schema.Struct({ failed: Schema.String }),
   labels: Schema.Struct({ context: Schema.String, exposure: Schema.String }),
 })

@@ -1,7 +1,7 @@
 import type { Plugin } from "@opencode/plugin/effect"
-import { Duration, Effect, Fiber, Schema, type Scope, Stream } from "effect"
+import { Duration, Effect, Fiber, Option, Schema, type Scope, Stream } from "effect"
 import { Daemon } from "./daemon.js"
-import { Host, type SessionID } from "./host.js"
+import { Host, type SessionID, toSessionID } from "./host.js"
 import { ref } from "./model-router.js"
 import { type CachePrices, type HostEffect, type Signal, signal } from "./protocol.js"
 import { cacheSeconds, contextFacts, windowOf } from "./renewal.js"
@@ -41,16 +41,28 @@ export type WarmingControl = {
   readonly lastWarmed: (sessionID: string) => number | undefined
   /**
    * Hands `listener` each session the engine asked to renew once idle, and
-   * how many seconds from its turn's end, warming included.
+   * how many seconds from its turn's end, warming included, or from the
+   * question to the user it waits on.
    */
   readonly expiring: (listener: ExpiryListener) => void
+}
+
+/** The agent's question to the user that a session waits on, asked at `asked`, in epoch milliseconds, as the question tool took it. */
+export type PendingQuestion = { readonly id: string; readonly asked: number; readonly questions: ReadonlyArray<AskedQuestion> }
+
+/** One question as the question tool takes it. */
+export type AskedQuestion = {
+  readonly question: string
+  readonly header: string
+  readonly options: ReadonlyArray<{ readonly label: string; readonly description: string }>
+  readonly multiple: boolean
 }
 
 /** When a session's cache was last read, in epoch milliseconds, and how long after that it is renewed. */
 type Expiry = { readonly since: number; readonly rest: number }
 
-/** Told a session goes cold `afterSeconds` from now, if it stays idle. */
-export type ExpiryListener = (sessionID: SessionID, afterSeconds: number) => Effect.Effect<void>
+/** Told a session goes cold `afterSeconds` from now, if it stays idle, or still waits on `question`. */
+export type ExpiryListener = (sessionID: SessionID, afterSeconds: number, question?: PendingQuestion) => Effect.Effect<void>
 
 /**
  * Keeps an idle session's prompt cache warm. When a session the user drives
@@ -146,13 +158,13 @@ export const installWarming: Effect.Effect<WarmingControl, never, Host | Daemon 
   // Any request of the session's own ends its warming; a warming request is a `generate`, not a `context`.
   yield* host.session.hook("context", (event) => stop(String(event.sessionID)))
 
+  yield* watchQuestions((sessionID, afterSeconds, question) => expiring(sessionID, afterSeconds, question))
+
   yield* host.event.subscribe().pipe(
     Stream.runForEach((event) => {
       if (event.type === "session.execution.started") return started(event.data.sessionID)
 
-      return event.type === "session.execution.succeeded"
-        ? schedule(event.data.sessionID).pipe(Effect.forkIn(scope), Effect.asVoid)
-        : Effect.void
+      return event.type === "session.execution.succeeded" ? schedule(event.data.sessionID).pipe(Effect.forkIn(scope), Effect.asVoid) : Effect.void
     }),
     Effect.catch((error) => Effect.logError("chauffeur: warming events ended", error)),
     Effect.forkScoped,
@@ -164,12 +176,80 @@ export const installWarming: Effect.Effect<WarmingControl, never, Host | Daemon 
   }
 })
 
+/** A form OpenCode's question tool opened for the agent's question to the user. */
+const QuestionForm = Schema.Struct({ kind: Schema.Literal("question") })
+
+const isQuestion = Schema.is(QuestionForm)
+
+/** One field of a question form: a question, its short label, and its choices. */
+const QuestionField = Schema.Struct({
+  title: Schema.optional(Schema.String),
+  description: Schema.optional(Schema.String),
+  type: Schema.optional(Schema.String),
+  options: Schema.optional(Schema.Array(Schema.Struct({ label: Schema.String, description: Schema.optional(Schema.String) }))),
+})
+
+const decodeFields = Schema.decodeUnknownOption(Schema.Array(QuestionField))
+
+/** The fields of a form OpenCode opened. */
+type FormFields = Extract<Stream.Success<ReturnType<Plugin.Context["event"]["subscribe"]>>, { readonly type: "form.created" }>["data"]["form"]["fields"]
+
+/** A question form's fields as the question tool took them; undefined for fields of another shape. */
+function askedQuestions(fields: FormFields): ReadonlyArray<AskedQuestion> | undefined {
+  return Option.getOrUndefined(Option.map(decodeFields(fields), (decoded) => decoded.map((field) => ({
+    question: field.description ?? field.title ?? "",
+    header: field.title ?? "",
+    options: (field.options ?? []).map((option) => ({ label: option.label, description: option.description ?? "" })),
+    multiple: field.type === "multiselect",
+  }))))
+}
+
 /**
- * What a finished turn left in the cache, for the engine: the session's
- * model, context size and prices. Undefined for a subagent's session, one
- * in another location, or a context without a measured reply.
+ * Reports each question the agent asks the user to the engine, as its turn
+ * pauses on it: the context's cache then lapses while the user is away, and
+ * the answer would re-read it cold. When the engine asks to renew it once
+ * the cache expires, `tell` hears of it with the question.
  */
-function idleSignal(sessionID: SessionID): Effect.Effect<Signal | undefined, unknown, Host> {
+function watchQuestions(tell: ExpiryListener): Effect.Effect<void, never, Host | Daemon | Scope.Scope> {
+  return Effect.gen(function* () {
+    const host = yield* Host
+    const daemon = yield* Daemon
+    const scope = yield* Effect.scope
+
+    const asked = (sessionID: SessionID, question: PendingQuestion) => Effect.gen(function* () {
+      const idle = yield* idleSignal(sessionID, true)
+
+      if (!idle) return
+
+      const { after } = idlePlan(yield* daemon.signal(idle), String(sessionID))
+
+      if (after !== undefined) yield* tell(sessionID, after, question)
+    }).pipe(Effect.catch((error) => Effect.logError("chauffeur: a question to the user was not reported", error)))
+
+    yield* host.event.subscribe().pipe(
+      Stream.runForEach((event) => {
+        if (event.type !== "form.created" || !isQuestion(event.data.form.metadata)) return Effect.void
+
+        const { form } = event.data
+        const questions = askedQuestions(form.fields)
+
+        return questions ? asked(toSessionID(form.sessionID), { id: String(form.id), asked: Date.now(), questions }).pipe(Effect.forkIn(scope), Effect.asVoid) : Effect.void
+      }),
+      Effect.catch((error) => Effect.logError("chauffeur: question events ended", error)),
+      Effect.forkScoped,
+    )
+  })
+}
+
+/**
+ * What a finished turn, or one `awaitingAnswer` to the agent's question,
+ * left in the cache, for the engine: the session's model, context size and
+ * prices. While a question waits, the step that asked it is not measured
+ * yet, so the size is the latest measured reply before it. Undefined for a
+ * subagent's session, one in another location, or a context without a
+ * measured reply.
+ */
+function idleSignal(sessionID: SessionID, awaitingAnswer = false): Effect.Effect<Signal | undefined, unknown, Host> {
   return Effect.gen(function* () {
     const host = yield* Host
     const session = yield* host.session.get({ sessionID })
@@ -190,6 +270,7 @@ function idleSignal(sessionID: SessionID): Effect.Effect<Signal | undefined, unk
       model: ref(model),
       context_tokens: facts.tokens,
       context_window: windowOf(models, ref(model)) ?? 0,
+      awaiting_answer: awaitingAnswer,
       prices: pricesAt(listed?.cost ?? [], facts.tokens),
       cache_seconds: cacheSeconds(listed, model.variant),
     })

@@ -73,6 +73,7 @@ test("a finished turn reports its context and prices, and the engine's warming r
       model: { provider: "anthropic", model: "claude-opus-5-5", variant: undefined },
       context_tokens: 120_000,
       context_window: 1_000_000,
+      awaiting_answer: false,
       prices: { input: 4_000_000, cache_read: 200_000, cache_write: 5_000_000 },
     })
     expect(generated.length).toBeGreaterThanOrEqual(2)
@@ -124,6 +125,36 @@ test("a session the engine said to renew once idle is handed to the expiry liste
     await wait(30)
 
     expect(told).toEqual([["ses_long", 3_660]])
+    expect(generated).toEqual([])
+  } finally {
+    await plugin.close()
+  }
+})
+
+test("a question the agent asks the user is reported as awaiting an answer, never warmed, and handed to the expiry listener", async () => {
+  const { events, signals, generated, host, daemon } = setup({}, { every_seconds: 0.02, times: 2 }, undefined, 3_660)
+  const plugin = await install(installWarming, host, daemon)
+  const told: Array<readonly [string, number, unknown]> = []
+
+  const form = (id: string, kind: string) => ({ type: "form.created", data: { form: { id, sessionID: "ses_asking", title: "Questions", metadata: { kind }, fields: [
+    { key: "q0", title: "Colour", description: "Red or blue?", type: "string", options: [{ value: "Red", label: "Red", description: "Choose red" }], custom: true },
+  ] } } })
+
+  plugin.value.expiring((sessionID, afterSeconds, question) => Effect.sync(() => { told.push([String(sessionID), afterSeconds, question]) }))
+
+  try {
+    await events.publish(form("frm_mcp", "elicitation"))
+    await events.publish(form("frm_question", "question"))
+    await wait(80)
+
+    expect(signals).toHaveLength(1)
+    expect(signals[0]?.kind).toMatchObject({ type: "context_idle", awaiting_answer: true, context_tokens: 120_000 })
+    expect(told).toEqual([["ses_asking", 3_660, {
+      id: "frm_question",
+      asked: expect.any(Number),
+      questions: [{ question: "Red or blue?", header: "Colour", options: [{ label: "Red", description: "Choose red" }], multiple: false }],
+    }]])
+    // Its context ends in the unanswered call: the engine's warming is never sent.
     expect(generated).toEqual([])
   } finally {
     await plugin.close()

@@ -38,18 +38,43 @@ export class Hooks {
   }
 }
 
-type HostEvent = {
-  readonly type: string
-  readonly data: { readonly sessionID: string; readonly error?: { readonly type: string; readonly message: string } }
+/** A form the host opened, with the fields a test sets. */
+type FakeForm = {
+  readonly id: string
+  readonly sessionID: string
+  readonly title?: string
+  readonly metadata?: { readonly kind: string }
+  readonly fields?: ReadonlyArray<{
+    readonly key: string
+    readonly title: string
+    readonly description: string
+    readonly type: string
+    readonly options: ReadonlyArray<{ readonly value: string; readonly label: string; readonly description: string }>
+    readonly custom: boolean
+  }>
 }
 
-/** A host event stream the test publishes to. */
+type HostEvent = {
+  readonly type: string
+  readonly data:
+    | { readonly sessionID: string; readonly error?: { readonly type: string; readonly message: string } }
+    | { readonly id: string; readonly sessionID: string }
+    | { readonly form: FakeForm }
+}
+
+/** A host event stream the test publishes to; as the host's, every subscriber receives every event published after it subscribed. */
 export function eventStream() {
-  const queue = Effect.runSync(Queue.unbounded<HostEvent>())
+  const queues: Array<Queue.Queue<HostEvent>> = []
 
   return {
-    subscribe: () => Stream.fromQueue(queue),
-    publish: (event: HostEvent) => Effect.runPromise(Queue.offer(queue, event)),
+    subscribe: () => {
+      const queue = Effect.runSync(Queue.unbounded<HostEvent>())
+
+      queues.push(queue)
+
+      return Stream.fromQueue(queue)
+    },
+    publish: (event: HostEvent) => Effect.runPromise(Effect.forEach(queues, (queue) => Queue.offer(queue, event), { discard: true })),
   }
 }
 

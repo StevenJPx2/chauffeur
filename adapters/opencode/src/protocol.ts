@@ -91,7 +91,7 @@ export type SignalKind =
     cache_seconds?: number | undefined
     available: Array<{ model: ModelRef; usable: boolean }>
   }
-  | { type: "context_idle"; model: ModelRef; context_tokens: number; context_window: number; prices: CachePrices; cache_seconds?: number | undefined }
+  | { type: "context_idle"; model: ModelRef; context_tokens: number; context_window: number; awaiting_answer: boolean; prices: CachePrices; cache_seconds?: number | undefined }
   | { type: "integration_event"; source: string; kind: string; summary: string; body: string; actionable: boolean; monitor: string }
 
 export type Signal = { agent_id: string; at: number; kind: SignalKind }

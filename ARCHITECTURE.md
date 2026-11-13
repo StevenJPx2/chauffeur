@@ -209,7 +209,7 @@ new effect and no adapter change:
 | `gate`       | delivers or withholds the integration event being gated                                                                                                                                                                                | event gate                                             |
 | `compact`    | compacts the context before the prompt being admitted, with the named model writing the summary; the agent keeps its own model                                                                                                         | model router (context renewal)                         |
 | `warm` | keeps the idle context's prompt cache warm: a transient request every so many seconds, at most so many times | model router (session warming) |
-| `renew_when_idle` | asks again whether to renew the context once its cache has expired, if the agent is still idle then | model router (context renewal) |
+| `renew_when_idle` | asks again whether to renew the context once its cache has expired, if the agent is still idle then or still waiting on its question to the user | model router (context renewal) |
 
 Every `context` delivery lands in history at the tail, so the cached prefix
 stays intact. Ephemeral context, appended to one request in the `context` hook,
@@ -759,6 +759,21 @@ moves the renewal up to the cache lifetime and margin after the cache was last
 read. A timer does not survive a restart of OpenCode: a session
 idle across one is renewed by its next prompt.
 
+A turn paused on the agent's question to the user goes cold the same way, and
+the answer reaches the model as a tool result, with no hook before it. When
+OpenCode opens the question tool's form (`form.created`, `metadata.kind`
+`question`), the adapter sends `context_idle` with `awaiting_answer`. The step
+that asked is not measured until its tools finish, so the size is the latest
+measured reply before it; a question in a session's first turn is not
+reported. Such a context is never warmed, as it ends in an unanswered tool
+call, so `renew_when_idle` comes after the cache lifetime and margin alone. The
+answer, or the form's cancellation, stops the timer. When it fires, the
+adapter sends `context_resumed` with the time since the question; on a yes it
+interrupts the turn, which cancels the form and sends no request, queues the
+compaction, and once it is done sends a synthetic message
+(`renewal.withdrawn_question` in the host texts) telling the agent to ask the
+same questions again, so the answer reaches the renewed context.
+
 **Session warming.** When a session the user drives finishes a turn, the
 adapter sends `context_idle`: the session's model, its context size and the
 model's window, and the model's prices at that size (the host's price tier the context reaches, in
@@ -876,7 +891,9 @@ Installed as a package, it also registers the hand-over skills in
 - **`warm`:** `session.generate` with the keep-alive prompt, until the
   session's next request of its own.
 - **`renew_when_idle`:** a timer in the plugin, cancelled by the session's
-  next `session.execution.started`.
+  next `session.execution.started`, or for an open question by its
+  `form.replied` or `form.cancelled`; for a question, `session.interrupt`,
+  `session.compact`, then `session.synthetic` asking the agent to ask again.
 - **Skill loading:** a `skill` deny rule on every agent via `agent.transform`.
 
 ## Workspace

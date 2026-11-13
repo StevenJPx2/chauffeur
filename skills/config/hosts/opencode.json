@@ -45,6 +45,9 @@
   "warming": {
     "prompt": "This is a keep-alive request. Do not perform any work or use tools. Reply with exactly: OK"
   },
+  "renewal": {
+    "withdrawn_question": "Chauffeur withdrew your question to the user, which they had not answered, and renewed your context while they were away, so their answer does not re-read the whole expired context. Ask it again now with the question tool, exactly as before, and do nothing else until they answer. The questions were: {questions}"
+  },
   "permission": {
     "failed": "Chauffeur could not evaluate this request: {error}"
   },

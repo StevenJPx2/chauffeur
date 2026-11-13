@@ -152,11 +152,17 @@ fn detail(kind: &SignalKind) -> String {
             model,
             context_tokens,
             cache_seconds,
+            awaiting_answer,
             ..
         } => format!(
-            "{} {context_tokens} tokens{}",
+            "{} {context_tokens} tokens{}{}",
             model.key(),
-            cached_for(*cache_seconds)
+            cached_for(*cache_seconds),
+            if *awaiting_answer {
+                ", awaiting an answer"
+            } else {
+                ""
+            }
         ),
         SignalKind::TurnEnd { summary, .. } => summary.clone(),
         SignalKind::Rulebook {

@@ -43,6 +43,9 @@ function setup(history: ReadonlyArray<unknown>, compact: boolean, overrides: Fak
   const children = new Map<string, { readonly parentID: string; readonly model: { readonly id: string } }>()
   const removed: string[] = []
   const events = eventStream()
+  /** What the renewal asked of the session, in order. */
+  const actions: string[] = []
+  const synthetic: Array<{ readonly sessionID: string; readonly text: string; readonly resume?: boolean }> = []
 
   const host = fakeHost({
     location: { directory: "/projects/app" },
@@ -51,7 +54,20 @@ function setup(history: ReadonlyArray<unknown>, compact: boolean, overrides: Fak
       hook: hooks.register,
       context: () => Effect.succeed(history),
       get: (input: { readonly sessionID: string }) => Effect.succeed({ model: opus, location: { directory: input.sessionID === "ses_elsewhere" ? "/projects/other" : "/projects/app" } }),
-      compact: (input: { readonly sessionID: string }) => Effect.sync(() => { compactions.push(input.sessionID) }),
+      compact: (input: { readonly sessionID: string }) => Effect.sync(() => {
+        compactions.push(input.sessionID)
+        actions.push("compact")
+      }),
+      interrupt: () => Effect.sync(() => {
+        actions.push("interrupt")
+
+        return { interrupted: true }
+      }),
+      wait: () => Effect.sync(() => { actions.push("wait") }),
+      synthetic: (input: (typeof synthetic)[number]) => Effect.sync(() => {
+        synthetic.push(input)
+        actions.push("synthetic")
+      }),
       create: (input: { readonly parentID: string; readonly model: { readonly id: string } }) => Effect.sync(() => {
         const id = `ses_child_${children.size}`
 
@@ -81,7 +97,7 @@ function setup(history: ReadonlyArray<unknown>, compact: boolean, overrides: Fak
     return compact ? [{ type: "compact", agent_id: value.agent_id, model: { provider: "anthropic", model: "claude-haiku-5" } }] : []
   }) }
 
-  return { hooks, signals, compactions, generated, removed, host, daemon, events }
+  return { hooks, signals, compactions, generated, removed, host, daemon, events, actions, synthetic }
 }
 
 /** Wait for `ms` of real time, letting the event handlers run. */
@@ -228,6 +244,36 @@ test("an idle session the engine said would go cold is renewed once its cache ex
   }
 })
 
+test("a question left open past its cache's lifetime is withdrawn, the context renewed, and the agent told to ask it again", async () => {
+  const { signals, actions, synthetic, host, daemon, events } = setup([reply(70, 640_000)], true)
+  let expire: ExpiryListener = () => Effect.void
+  const warming: WarmingControl = { lastWarmed: () => undefined, expiring: (listener) => { expire = listener } }
+  const plugin = await install(installRenewal(warming), host, daemon)
+  const question = { asked: Date.now() - 3_700_000, questions: [{ question: "Red or blue?", header: "Colour", options: [{ label: "Red", description: "" }], multiple: false }] }
+
+  try {
+    await events.publish({ type: "form.created", data: { form: { id: "frm_open", sessionID: "ses_asking" } } })
+    await events.publish({ type: "form.created", data: { form: { id: "frm_answered", sessionID: "ses_answered" } } })
+    await wait(20)
+    await Effect.runPromise(expire(session("ses_asking"), 0.05, { id: "frm_open", ...question }))
+    await Effect.runPromise(expire(session("ses_answered"), 0.05, { id: "frm_answered", ...question }))
+    // The user answers this one before its cache expires: its own turn reads a warm cache.
+    await events.publish({ type: "form.replied", data: { id: "frm_answered", sessionID: "ses_answered" } })
+    await wait(200)
+
+    expect(signals.map((value) => value.agent_id)).toEqual(["ses_asking"])
+    expect(signals[0]?.kind).toMatchObject({ type: "context_resumed", context_tokens: 640_000 })
+    // Idle since the question was asked, not since the last measured reply.
+    expect(signals[0]?.kind.type === "context_resumed" && signals[0].kind.idle_seconds).toBe(3_700)
+    // Interrupted first, so no request re-reads the cold context; asked again only after the renewal.
+    expect(actions).toEqual(["interrupt", "wait", "compact", "wait", "synthetic"])
+    expect(synthetic[0]).toMatchObject({ sessionID: "ses_asking", resume: true })
+    expect(synthetic[0]?.text).toContain("\"question\":\"Red or blue?\"")
+  } finally {
+    await plugin.close()
+  }
+})
+
 test("the cache lifetime is the variant's cache.ttl, else the model's, in whole seconds", () => {
   const model = { settings: { cache: { ttl: "1h" } }, variants: [{ id: "fast", settings: { cache: { ttl: "5m" } } }, { id: "high", settings: {} }] }
 
@@ -244,10 +290,13 @@ test("the cache lifetime is the variant's cache.ttl, else the model's, in whole 
 })
 
 test("facts come from the latest measured reply since the last compaction", () => {
+  const compacted = history(reply(10, 5_000), { type: "compaction" })
+  const latest = history(reply(10, 5_000), reply(2, 9_000))
+  // Read after the replies, so their own clock reads never fall after it.
   const now = Date.now()
 
-  expect(contextFacts(history(reply(10, 5_000), { type: "compaction" }), now)).toBeUndefined()
-  expect(contextFacts(history(reply(10, 5_000), reply(2, 9_000)), now)).toMatchObject({ tokens: 9_000, idleSeconds: 120 })
+  expect(contextFacts(compacted, now)).toBeUndefined()
+  expect(contextFacts(latest, now)).toMatchObject({ tokens: 9_000, idleSeconds: 120 })
 })
 
 test("a warming request after the latest reply restarts the idle time", async () => {

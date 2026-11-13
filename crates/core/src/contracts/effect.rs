@@ -90,8 +90,9 @@ pub enum Effect {
         times: u32,
     },
     /// The idle agent's prompt cache will have expired `after_seconds` from
-    /// now, warming included: if the agent is still idle then, ask whether
-    /// to renew its context, so whatever input comes next finds it renewed
+    /// now, warming included: if the agent is still idle then, or still
+    /// waiting on its question to the user, ask whether to renew its context,
+    /// so whatever input comes next, the answer included, finds it renewed
     /// instead of re-reading it cold.
     RenewWhenIdle {
         agent_id: String,

@@ -451,12 +451,14 @@ impl ModelRouter {
     /// not warmed. A context over its budget, on a model that is neither
     /// fast-tier nor a last resort, is renewed once the cache expires, so
     /// input other than a prompt, which no hook sees before it runs, never
-    /// re-reads it cold.
+    /// re-reads it cold. A context awaiting the answer to the agent's
+    /// question is never warmed: it ends in an unanswered tool call.
     fn idle(&self, signal: &Signal) -> Option<Judgment<Verdict>> {
         let SignalKind::ContextIdle {
             model,
             context_tokens,
             context_window,
+            awaiting_answer,
             prices,
             cache_seconds,
         } = &signal.kind
@@ -470,7 +472,7 @@ impl ModelRouter {
             .exhausted
             .get(&signal.agent_id)
             .is_some_and(|providers| providers.contains(&model.provider));
-        let warm = if limited {
+        let warm = if limited || *awaiting_answer {
             None
         } else {
             renewal.warming.plan(lifetime, *context_tokens, *prices)
