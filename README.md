@@ -406,7 +406,10 @@ rebuilt on each push to `v2`.
 ## Develop
 
 The toolchain is pinned in `rust-toolchain.toml`, with Miri and the
-WebAssembly target. Local builds use [blaze](https://github.com/indexable-inc/blaze)
+WebAssembly target. The crates also build on stable Rust 1.100, their
+`rust-version`, which CI checks with `cargo +1.100.0 check`. Code in
+`chauffeur-core` and `chauffeur-judges` uses only APIs stable by Rust 1.99,
+because Kani 0.68's compiler predates 1.100. Local builds use [blaze](https://github.com/indexable-inc/blaze)
 and [bacon](https://dystroy.org/bacon/).
 
 ```sh

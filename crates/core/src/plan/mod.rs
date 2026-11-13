@@ -121,8 +121,7 @@ impl<Q> Plan<Q> {
             .collect();
         let answers = panel
             .get(name)
-            .map(|judge| judge.judge_all(&requests))
-            .unwrap_or_default();
+            .map_or_default(|judge| judge.judge_all(&requests));
         if answers.len() == indexes.len() {
             answers
         } else {

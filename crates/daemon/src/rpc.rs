@@ -65,8 +65,7 @@ fn call(router: &Router, method: &str, params: &Value) -> Result<Value, (i64, St
                 .collect();
             let refused = loaded
                 .as_ref()
-                .map(|loaded| loaded.refused.clone())
-                .unwrap_or_default();
+                .map_or_default(|loaded| loaded.refused.clone());
             Ok(
                 json!({ "version": env!("CARGO_PKG_VERSION"), "protocol": 1, "rules": rules, "refused": refused }),
             )

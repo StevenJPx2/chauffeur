@@ -86,7 +86,7 @@ fn step(step: &Value) -> String {
     } else {
         ""
     };
-    let p = p.map(|p| format!(" {p:.2}")).unwrap_or_default();
+    let p = p.map_or_default(|p| format!(" {p:.2}"));
     format!("{id} {outcome}{p} {model}{placeholder}")
 }
 

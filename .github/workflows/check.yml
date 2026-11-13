@@ -30,6 +30,18 @@ jobs:
       # Each benchmark once, so they keep building and running; timings are compared locally.
       - run: cargo bench --workspace --bench '*' --locked -- -benchtime 1x -count 1
 
+  msrv:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # The rust-version in Cargo.toml, exactly; the pinned nightly stays for the rest.
+      - run: rustup toolchain install 1.100.0 --profile minimal --target wasm32-unknown-unknown
+      - run: cargo +1.100.0 check --workspace --all-targets --locked
+      - run: cargo +1.100.0 check -p chauffeur-judges --no-default-features --all-targets --locked
+      - run: cargo +1.100.0 check -p chauffeur-playground --target wasm32-unknown-unknown --locked
+
   opencode:
     runs-on: ubuntu-latest
     defaults:
