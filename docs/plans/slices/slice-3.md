@@ -9,10 +9,10 @@ playground's Strategy tab. neo checks an iPhone screen through Chauffeur with it
 jev-distill student answers before Jev.
 
 This slice adds strategies with more than one step: a step's `after` names
-the earlier steps it waits for and the outcomes it needs, as in the
-[core plan model](../pluggability.md#core-plan-model). It also adds image evidence, the
-`student` format, and a tier that rests a failed model for 60 seconds before
-asking it again.
+the earlier steps it waits for and the outcomes it needs. The step machine
+underneath is [rungs](https://github.com/StevenJPx2/rungs/issues/1), shared
+with atelier. It also adds image evidence, the `student` format, and a tier
+that rests a failed model for 60 seconds before asking it again.
 
 ## What it builds
 
@@ -22,8 +22,37 @@ A step's `after` names the earlier steps it waits for and the outcomes it
 needs. Core validates a plan before any judge is asked, and drives it through
 the round API: `questions`, `answer` and `fail`.
 
-Files: `crates/core/src/after.rs`, `state.rs`, `proofs.rs`,
-`crates/core/tests/scenarios.rs`
+```mermaid
+flowchart LR
+    Rule["Rule's strategy<br/>names, near, when"] -- "lower" --> Plan["rungs::Plan<br/>indices, outcome sets"]
+    Plan --> Run["rungs::Run<br/>advance, settle, fail, skip"]
+    Core["core round API<br/>questions, answer, fail"] -- "one round per advance" --> Run
+    Run -- "steps to ask, over" --> Core
+```
+
+Core turns a plan's named steps into a `rungs::Plan` and keeps a `rungs::Run`
+for each run. rungs decides which steps start, which are skipped and when the
+run is over. Core keeps what rungs knows nothing about:
+
+| Core keeps      | How                                                                                                                                                   |
+| --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Names           | Step IDs become indices; events and verdicts carry the names                                                                                          |
+| `near`          | An answer settles as one outcome index: the answer times 2^k, plus which of the step's k `near` needs matched; each need lists the indices it accepts |
+| `when`          | The listed outcomes, `failed` as `Outcome::FAILED`, join the need's outcome set                                                                       |
+| The deadline    | With less than 500 ms left before the end, core skips every Pending step, so no escalation starts                                                     |
+| Batches         | A reply is settled on a copy of the run, kept only when every step in it settles                                                                      |
+| Failure reasons | `Failure::Timeout` and the rest stay in the events; rungs only records `FAILED`                                                                       |
+
+A string need is `Need::settled`, an object need `Need::outcome`, and `all`
+and `any` are a step's `after` and `after_any`. Every step has one attempt.
+
+Files: `crates/core/src/plan/run.rs`, `crates/core/src/plan/near.rs`,
+`crates/core/src/proofs.rs`, `crates/core/tests/scenarios.rs`, `deny.toml`
+
+```toml
+# crates/core/Cargo.toml
+rungs = { git = "https://github.com/StevenJPx2/rungs", tag = "v0.1.0" }
+```
 
 ```json
 "strategy": [
@@ -65,30 +94,28 @@ Verified by scenario tests:
 - `after` alone: a string need waits for a skipped step and then runs; an
   object need never matches a skipped step; `Failed` matches only when listed;
   a step with both `all` and `any` runs only when both hold.
-- Validation: an empty plan, a duplicate ID, `after` naming a later or unknown
-  step, an empty `when` list, and a judge the panel lacks, each rejected
+- Validation: an empty plan, more than 16 steps, a duplicate ID, `after`
+  naming a later or unknown step, an empty `when` list, more `near` needs on
+  one step than 126 outcomes hold, and a judge the panel lacks, each rejected
   before any judge is asked.
 - The round API: a reply naming an unknown, unasked or repeated step, or
   missing one, returns the unchanged round; each judge answers its share of a
   round in one call; a batch of the wrong length settles as `Failed`.
 
-And by Kani harnesses, each one invariant over at most three steps and a
-small outcome enum. The `after` rule and round state are written over step
-indices and outcome enums, with no strings or maps, so CBMC explores them in
-seconds; the names and events around them stay in the code that calls them:
+rungs' own Kani proofs cover the `after` rule: a step waits until every step
+it names has finished, starts exactly when its needs hold, is skipped only when
+they cannot, and a run never stalls and starts every step within `depth()`
+passes. Core's Kani harnesses cover what it adds, over at most three steps and
+a small outcome enum:
 
-- `a_step_waits_until_every_need_has_finished`: no decision while a named step
-  is `Pending` or `Asked`.
-- `a_decision_follows_the_rule`: `Run` exactly when every `all` need and, if
-  any, one `any` need is met.
-- `a_skipped_step_meets_only_needs_without_when`: skipped never matches a `when`.
-- `one_pass_settles_every_decidable_step`: skips propagate within one pass.
-- `a_pass_only_moves_pending_steps_forward`: each step is asked at most once.
-- `a_pass_with_no_open_round_asks_or_finishes`: a run never stalls, so it
-  finishes within one round per step.
 - `a_near_need_matches_only_within_its_margin`: a `near` need matches exactly
   when a P the rule acts on lies within the margin of its bar, or the outcome
   is in `when`.
+- `an_outcome_index_decodes_to_its_answer_and_near_matches`: encoding an
+  answer and its `near` matches as one index, then decoding it, gives both
+  back.
+- `a_reply_settles_all_of_its_steps_or_none`: a rejected reply leaves the
+  run unchanged.
 
 ### Lowering rules to plans
 

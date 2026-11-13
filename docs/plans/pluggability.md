@@ -199,7 +199,7 @@ on the intents it gets back.
 
 ```mermaid
 flowchart TB
-    Core["crates/core<br/>Generic plan state machine"]
+    Core["crates/core<br/>Generic plan state machine"] --> Rungs["rungs<br/>Step machine, shared with atelier"]
     O11y["crates/o11y<br/>Observes core events"] --> Core
     Protocol["crates/protocol<br/>Requests, rules, events, actions"] --> Core
     Protocol --> Judges
@@ -213,8 +213,10 @@ flowchart TB
     Playground["playground<br/>WASM + interactive tabs"] --> Protocol
 ```
 
-`crates/core` has no crate dependencies: no async runtime, HTTP, serde, UI,
-logging or plugin system. Error types use the standard library. Other crates
+`crates/core` has one crate dependency, [rungs](https://github.com/StevenJPx2/rungs/issues/1),
+the step machine it drives from slice 3, which is `no_std` with no
+dependencies of its own. Core has no async runtime, HTTP, serde, UI, logging
+or plugin system. Error types use the standard library. Other crates
 consume core's event data. Adding crates does not by itself increase the
 shipped binary: linked code and dependencies determine size.
 
