@@ -711,7 +711,7 @@ fn a_subagent_launched_without_a_model_is_judged_for_a_cheaper_one() {
     let task =
         json!({ "agent": "explore", "description": "Map auth", "prompt": "Find the auth flow." });
     let mut with_model = task.clone();
-    with_model["model"] = json!("anthropic/claude-sonnet-5-5");
+    with_model["model"] = json!("anthropic/claude-opus-5-5#low");
 
     assert!(cheaper(asked(&mut engine, &subagent_call(1, &task, false))));
     assert!(!cheaper(asked(

@@ -630,11 +630,27 @@ Set `"blacklist": []` to remove the shipped exclusion when Go is subscribed.
 rated candidate is left. The order is: same tier, then any tier on providers
 you use directly, then the last resort:
 
-| Tier     | Recommended                                                  | Fallbacks                            |
-| -------- | ------------------------------------------------------------ | ------------------------------------ |
-| Frontier | `claude-opus-5-5#high`, `gpt-6.1-sol#high`                   | `claude-opus-*`, `gpt-*-sol*`        |
-| Balanced | `claude-opus-5-5#low`, `claude-sonnet-5-5`, `gpt-6-luna#max` | `claude-sonnet-*`, `gpt-*-luna*#max` |
-| Fast     | `gpt-6-luna` (other variants)                                | `claude-haiku-*`, `gpt-*-luna*`      |
+| Tier      | Recommended                                 | Other variants and fallbacks                                                                                                               |
+| --------- | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| Frontier  | `claude-fable-5-2#high`, `gpt-6-astra#high` | `claude-fable-5-2`, `gpt-6-astra` (every other variant); `claude-fable-*`, `gpt-*-astra*`                                                  |
+| Balanced  | `claude-opus-5-5#high`, `gpt-6.1-sol#high`  | `claude-opus-5-5`, `gpt-6.1-sol` (every other variant, except Opus `#low`, which is Efficient); `claude-opus-*` (not `#low`), `gpt-*-sol*` |
+| Efficient | `claude-opus-5-5#low`, `gpt-6.1-terra#high` | `gpt-6.1-terra` (every other variant); `claude-opus-*#low`, `claude-sonnet-*`, `gpt-*-terra*`                                              |
+| Fast      | `gpt-6-luna` (every variant)                | `claude-haiku-*`, `gpt-*-luna*`                                                                                                            |
+
+A model's other variants keep its tier without the recommendation. A
+failover switches to the first variant a model's rows name in the target
+tier, so Opus is offered at `#high` in Balanced and at `#low` in Efficient,
+and Sol, Terra, Sonnet, Fable and Astra at `#high`. Frontier, Balanced and
+Efficient each recommend exactly one model per provider, so when Jev makes
+no confident pick the agent moves like for like, whatever order the host
+lists models in: Fable and Astra, Opus `#high` and Sol `#high`, Opus `#low`
+and Terra `#high`. A table may recommend at most one model per tier, which
+loading checks, so your `providers/<provider>.json` cannot bring back a
+choice by host order. Sonnet is Efficient but not recommended, so it comes
+after Opus `#low`. Luna is Fast at every variant, `#max` included. Only
+Fast models write summaries, and only a session on a Fast or last-resort
+model is left to the host's own compaction; an Efficient session is renewed
+like any other.
 
 Excluded: `*-fast`, Claude generation 4 (`claude-*-4`, `claude-*-4-*`), and
 `gpt-5*`, `gpt-4*`.

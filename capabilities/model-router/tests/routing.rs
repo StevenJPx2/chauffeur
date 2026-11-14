@@ -704,7 +704,25 @@ fn shipped_router() -> Judging<ModelRouter> {
     Judging::new(ModelRouter::new(providers, ModelRouterConfig::default()))
 }
 
+/// The host's models, in OpenCode's alphabetical order.
+const HOST_MODELS: [&str; 10] = [
+    "anthropic/claude-fable-5-2",
+    "anthropic/claude-opus-5-5",
+    "anthropic/claude-sonnet-5-5",
+    "openai/gpt-6-astra",
+    "openai/gpt-6-luna",
+    "openai/gpt-6.1-sol",
+    "openai/gpt-6.1-terra",
+    "opencode/claude-sonnet-5-5",
+    "opencode/fledge-alpha-free",
+    "opencode/ling-3.1-flash-free",
+];
+
 fn limit_on(current: &str) -> Signal {
+    limit_listed(current, &HOST_MODELS)
+}
+
+fn limit_listed(current: &str, listed: &[&str]) -> Signal {
     let mut signal = limit(false);
 
     if let SignalKind::ModelError {
@@ -714,21 +732,13 @@ fn limit_on(current: &str) -> Signal {
     } = &mut signal.kind
     {
         *failed = model(current);
-        *available = [
-            "anthropic/claude-opus-5-5",
-            "anthropic/claude-sonnet-5-5",
-            "openai/gpt-6.1-sol",
-            "openai/gpt-6-luna",
-            "opencode/claude-sonnet-5-5",
-            "opencode/fledge-alpha-free",
-            "opencode/ling-3.1-flash-free",
-        ]
-        .into_iter()
-        .map(|key| AvailableModel {
-            model: model(key),
-            usable: true,
-        })
-        .collect();
+        *available = listed
+            .iter()
+            .map(|key| AvailableModel {
+                model: model(key),
+                usable: true,
+            })
+            .collect();
     }
 
     signal
@@ -738,49 +748,62 @@ fn limit_on(current: &str) -> Signal {
 fn tiers_follow_thinking_variants_and_never_offer_the_same_model() {
     let mut router = shipped_router();
 
-    // Opus at high thinking is frontier: only gpt-6.1-sol matches, at high.
+    // Fable at high thinking is frontier: only gpt-6-astra matches, at high.
     assert_eq!(
         options(&router.plan(
+            &Situation::default(),
+            &limit_on("anthropic/claude-fable-5-2#high")
+        )),
+        vec!["openai/gpt-6-astra#high", STAY]
+    );
+    // Fable at its default thinking is frontier too, by its any-variant row.
+    assert_eq!(
+        options(&shipped_router().plan(
+            &Situation::default(),
+            &limit_on("anthropic/claude-fable-5-2")
+        )),
+        vec!["openai/gpt-6-astra#high", STAY]
+    );
+    // Opus at high thinking is balanced: gpt-6.1-sol at high. Luna, even at
+    // max, is fast.
+    assert_eq!(
+        options(&shipped_router().plan(
             &Situation::default(),
             &limit_on("anthropic/claude-opus-5-5#high")
         )),
         vec!["openai/gpt-6.1-sol#high", STAY]
     );
-    // Opus at its default thinking is frontier too, by the family's any-variant row.
-    assert_eq!(
-        options(&shipped_router().plan(
-            &Situation::default(),
-            &limit_on("anthropic/claude-opus-5-5")
-        )),
-        vec!["openai/gpt-6.1-sol#high", STAY]
-    );
-    // Opus at low thinking is balanced: gpt-6-luna at max thinking. Sonnet
-    // shares the anthropic limit, and the gateway copy is not used directly.
+    // Opus at low thinking is efficient: gpt-6.1-terra at high. Sonnet shares
+    // the anthropic limit, and the gateway copy is not used directly.
     assert_eq!(
         options(&shipped_router().plan(
             &Situation::default(),
             &limit_on("anthropic/claude-opus-5-5#low")
         )),
-        vec!["openai/gpt-6-luna#max", STAY]
+        vec!["openai/gpt-6.1-terra#high", STAY]
     );
 
-    // A switch carries the variant.
-    let signal = limit_on("anthropic/claude-opus-5-5#low");
+    // A switch carries the variant. A fresh agent: this one already hit the
+    // anthropic limit above.
+    let mut router = shipped_router();
+    let signal = limit_on("openai/gpt-6.1-terra#high");
     router.plan(&Situation::default(), &signal);
     let pick = Answer {
         id: "choice".into(),
-        value: AnswerValue::Choice("openai/gpt-6-luna#max".into()),
+        value: AnswerValue::Choice("anthropic/claude-opus-5-5#low".into()),
         confidence: Some(0.9),
     };
     assert!(matches!(
         router.decide(&signal, Some(&[pick])).as_slice(),
-        [Effect::Model { model: Some(model), .. }] if model.variant.as_deref() == Some("max") && model.model == "gpt-6-luna"
+        [Effect::Model { model: Some(model), .. }] if model.variant.as_deref() == Some("low") && model.model == "claude-opus-5-5"
     ));
 }
 
 #[test]
 fn an_agent_on_a_gateway_moves_to_its_tier_on_a_provider_used_directly() {
-    // claude-sonnet-5-5 through OpenCode's gateway is balanced, like the original.
+    // claude-sonnet-5-5 through OpenCode's gateway is efficient, like the
+    // original, so Opus at low thinking and Terra, recommended, come before
+    // the direct Sonnet.
     assert_eq!(
         options(&shipped_router().plan(
             &Situation::default(),
@@ -788,8 +811,8 @@ fn an_agent_on_a_gateway_moves_to_its_tier_on_a_provider_used_directly() {
         )),
         vec![
             "anthropic/claude-opus-5-5#low",
+            "openai/gpt-6.1-terra#high",
             "anthropic/claude-sonnet-5-5#high",
-            "openai/gpt-6-luna#max",
             STAY
         ]
     );
@@ -851,11 +874,46 @@ fn recommended_models_come_first_and_fast_or_old_editions_are_never_offered() {
     };
     assert!(options[0].description.contains("recommended"));
     assert!(!options[1].description.contains("recommended"));
+    assert!(!options[2].description.contains("recommended"));
+}
+
+#[test]
+fn without_a_confident_pick_each_tier_fails_over_like_for_like() {
+    let cases = [
+        ("anthropic/claude-fable-5-2#high", "openai/gpt-6-astra#high"),
+        ("openai/gpt-6-astra#high", "anthropic/claude-fable-5-2#high"),
+        ("anthropic/claude-opus-5-5#high", "openai/gpt-6.1-sol#high"),
+        ("openai/gpt-6.1-sol#high", "anthropic/claude-opus-5-5#high"),
+        ("anthropic/claude-opus-5-5#low", "openai/gpt-6.1-terra#high"),
+        // Sonnet is efficient too, but Opus at low thinking is recommended.
+        ("openai/gpt-6.1-terra#high", "anthropic/claude-opus-5-5#low"),
+    ];
+    let mut reversed = HOST_MODELS;
+    reversed.reverse();
+
+    for (from, to) in cases {
+        // Jev answers nothing, or a pick below the bar.
+        let unsure = [choice("anthropic/claude-sonnet-5-5#high", 0.1)];
+
+        for listed in [&HOST_MODELS, &reversed] {
+            for answers in [None, Some(&unsure[..])] {
+                let mut router = shipped_router();
+                let signal = limit_listed(from, listed);
+
+                router.plan(&Situation::default(), &signal);
+                assert_eq!(
+                    router.decide(&signal, answers),
+                    switch(to),
+                    "{from} listed {listed:?}"
+                );
+            }
+        }
+    }
 }
 
 #[test]
 fn with_no_same_tier_model_left_another_tier_comes_before_free_models() {
-    // gpt-6-luna at default thinking is the only fast model available.
+    // gpt-6-luna is the only fast model available.
     let offered =
         options(&shipped_router().plan(&Situation::default(), &limit_on("openai/gpt-6-luna")));
 
@@ -863,7 +921,7 @@ fn with_no_same_tier_model_left_another_tier_comes_before_free_models() {
         !offered.iter().any(|key| key.contains("free")),
         "{offered:?}"
     );
-    assert_eq!(offered[0], "anthropic/claude-opus-5-5#high");
+    assert_eq!(offered[0], "anthropic/claude-fable-5-2#high");
 }
 
 #[test]
@@ -1152,6 +1210,29 @@ fn the_summary_model_is_a_pin_then_fast_then_free_and_never_blacklisted() {
         decide(blocked, &["anthropic/haiku", "openai/spark"]),
         compact("openai/spark")
     );
+}
+
+#[test]
+fn with_the_shipped_tables_an_efficient_session_is_still_summarized_by_a_fast_model() {
+    for current in [
+        "anthropic/claude-opus-5-5#low",
+        "anthropic/claude-sonnet-5-5#high",
+        "openai/gpt-6.1-terra#high",
+    ] {
+        let mut router = shipped_router();
+        let mut signal = resumed(&HOST_MODELS, 1_000_000);
+
+        if let SignalKind::ContextResumed { model: on, .. } = &mut signal.kind {
+            *on = model(current);
+        }
+
+        router.plan(&Situation::default(), &signal);
+        assert_eq!(
+            router.decide(&signal, Some(&[renew(1.0)])),
+            compact("openai/gpt-6-luna"),
+            "{current}"
+        );
+    }
 }
 
 /// Prices in millionths of a dollar per million tokens: input, cache read, cache write.

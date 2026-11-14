@@ -8,12 +8,20 @@ use chauffeur_core::{AvailableModel, Effect, ModelRef, Signal, SignalKind};
 use chauffeur_daemon::{EngineHandle, EngineOptions};
 use serde_json::{Value, json};
 
-fn answer(request: &Value) -> Value {
+/// What Jev answers: a choice at a confidence.
+struct Judged {
+    choice: &'static str,
+    confidence: f64,
+}
+
+/// Jev's answer: `expected` must be offered, `other_tier` must not.
+fn answer(request: &Value, expected: &str, other_tier: &str, judged: &Judged) -> Value {
     let criteria = request["questions"]["model-router/choice"]["criteria"]
         .as_object()
         .expect("criteria");
 
-    assert!(criteria.contains_key("openai/gpt-6-sol#high"));
+    assert!(criteria.contains_key(expected), "{criteria:?}");
+    assert!(!criteria.contains_key(other_tier), "{criteria:?}");
     assert!(criteria.contains_key("stay"));
     assert!(
         request["state"]
@@ -22,7 +30,7 @@ fn answer(request: &Value) -> Value {
             .contains("Ran tool edit.")
     );
 
-    json!({"model-router/choice": {"type": "choice", "confidence": 0.8, "choice": "openai/gpt-6-sol#high"}})
+    json!({"model-router/choice": {"type": "choice", "confidence": judged.confidence, "choice": judged.choice}})
 }
 
 fn model(provider: &str, id: &str) -> ModelRef {
@@ -30,6 +38,13 @@ fn model(provider: &str, id: &str) -> ModelRef {
         provider: provider.into(),
         model: id.into(),
         variant: None,
+    }
+}
+
+fn at(provider: &str, id: &str, variant: &str) -> ModelRef {
+    ModelRef {
+        variant: Some(variant.into()),
+        ..model(provider, id)
     }
 }
 
@@ -41,9 +56,12 @@ fn signal(at: u64, kind: SignalKind) -> Signal {
     }
 }
 
-#[tokio::test]
-async fn usage_limit_switches_to_the_judged_same_tier_model() {
-    let (jev, server) = common::serve_jev(answer);
+/// A usage limit on `from` switches the agent to `to`, Jev having been
+/// offered `to` and not `other_tier`, whatever Jev judged.
+async fn fails_over(from: ModelRef, to: ModelRef, other_tier: &'static str, judged: Judged) {
+    let expected = to.key();
+    let (jev, server) =
+        common::serve_jev(move |request| answer(request, &expected, other_tier, &judged));
     let config_dir = std::env::temp_dir().join("chauffeur-daemon-test-config-absent");
     let engine = EngineHandle::spawn(EngineOptions {
         // No skills folder: no permission contracts or rules.
@@ -77,11 +95,15 @@ async fn usage_limit_switches_to_the_judged_same_tier_model() {
 
     assert!(engine.ingest(tool).await.expect("tool signal").is_empty());
 
+    // In OpenCode's alphabetical order.
     let available = [
+        model("anthropic", "claude-fable-5-2"),
         model("anthropic", "claude-opus-5-5"),
-        model("anthropic", "claude-sonnet-4-6"),
-        model("openai", "gpt-6-sol"),
+        model("anthropic", "claude-sonnet-5-5"),
+        model("openai", "gpt-6-astra"),
         model("openai", "gpt-6-luna"),
+        model("openai", "gpt-6.1-sol"),
+        model("openai", "gpt-6.1-terra"),
     ]
     .into_iter()
     .map(|model| AvailableModel {
@@ -92,11 +114,7 @@ async fn usage_limit_switches_to_the_judged_same_tier_model() {
     let limit = signal(
         2,
         SignalKind::ModelError {
-            // Opus at high thinking is frontier.
-            model: ModelRef {
-                variant: Some("high".into()),
-                ..model("anthropic", "claude-opus-5-5")
-            },
+            model: from,
             error_type: "rate_limit_error".into(),
             status: Some(429),
             message: "rate limit exceeded, retry in 20s".into(),
@@ -110,12 +128,99 @@ async fn usage_limit_switches_to_the_judged_same_tier_model() {
         effects,
         vec![Effect::Model {
             agent_id: "ses_test".into(),
-            model: Some(ModelRef {
-                variant: Some("high".into()),
-                ..model("openai", "gpt-6-sol")
-            })
+            model: Some(to)
         }]
     );
 
     server.join().expect("fixture");
+}
+
+/// Jev picks the same-tier model.
+#[tokio::test]
+async fn a_frontier_supervisor_fails_over_to_frontier_on_the_other_provider() {
+    fails_over(
+        at("anthropic", "claude-fable-5-2", "high"),
+        at("openai", "gpt-6-astra", "high"),
+        "openai/gpt-6.1-sol#high",
+        Judged {
+            choice: "openai/gpt-6-astra#high",
+            confidence: 0.8,
+        },
+    )
+    .await;
+}
+
+/// Jev picks the same-tier model.
+#[tokio::test]
+async fn a_balanced_worker_fails_over_to_balanced_on_the_other_provider() {
+    fails_over(
+        at("anthropic", "claude-opus-5-5", "high"),
+        at("openai", "gpt-6.1-sol", "high"),
+        "openai/gpt-6-astra#high",
+        Judged {
+            choice: "openai/gpt-6.1-sol#high",
+            confidence: 0.8,
+        },
+    )
+    .await;
+}
+
+/// Jev's pick is below the bar: the recommended same-tier model wins.
+#[tokio::test]
+async fn an_unsure_judge_still_sends_astra_to_fable() {
+    fails_over(
+        at("openai", "gpt-6-astra", "high"),
+        at("anthropic", "claude-fable-5-2", "high"),
+        "anthropic/claude-opus-5-5#high",
+        Judged {
+            choice: "anthropic/claude-sonnet-5-5#high",
+            confidence: 0.1,
+        },
+    )
+    .await;
+}
+
+/// Jev's pick is below the bar: the recommended same-tier model wins.
+#[tokio::test]
+async fn an_unsure_judge_still_sends_sol_to_opus() {
+    fails_over(
+        at("openai", "gpt-6.1-sol", "high"),
+        at("anthropic", "claude-opus-5-5", "high"),
+        "anthropic/claude-fable-5-2#high",
+        Judged {
+            choice: "anthropic/claude-sonnet-5-5#high",
+            confidence: 0.1,
+        },
+    )
+    .await;
+}
+
+/// Jev's pick is below the bar: the recommended same-tier model wins.
+#[tokio::test]
+async fn an_unsure_judge_still_sends_low_opus_to_terra() {
+    fails_over(
+        at("anthropic", "claude-opus-5-5", "low"),
+        at("openai", "gpt-6.1-terra", "high"),
+        "openai/gpt-6.1-sol#high",
+        Judged {
+            choice: "openai/gpt-6-luna",
+            confidence: 0.1,
+        },
+    )
+    .await;
+}
+
+/// Jev's pick is below the bar: Opus at low thinking wins over Sonnet.
+#[tokio::test]
+async fn an_unsure_judge_still_sends_terra_to_low_opus() {
+    fails_over(
+        at("openai", "gpt-6.1-terra", "high"),
+        at("anthropic", "claude-opus-5-5", "low"),
+        "anthropic/claude-opus-5-5#high",
+        Judged {
+            choice: "anthropic/claude-sonnet-5-5#high",
+            confidence: 0.1,
+        },
+    )
+    .await;
 }

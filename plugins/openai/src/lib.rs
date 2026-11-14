@@ -74,43 +74,53 @@ mod tests {
     }
 
     #[test]
-    fn luna_at_max_thinking_is_balanced_and_otherwise_fast() {
+    fn each_family_has_one_tier_at_every_variant() {
         let provider = OpenAiProvider::default();
+        let tier = |model: &str, variant: Option<&str>| provider.tier(model, variant);
 
-        assert_eq!(
-            provider.tier("gpt-6-sol", Some("high")),
-            Some(Tier::Frontier)
-        );
-        assert_eq!(
-            provider.tier("gpt-6-luna", Some("max")),
-            Some(Tier::Balanced)
-        );
-        assert_eq!(provider.tier("gpt-6-luna", Some("low")), Some(Tier::Fast));
-        assert_eq!(provider.tier("gpt-6-luna", None), Some(Tier::Fast));
-        assert_eq!(provider.variants("gpt-6-luna"), vec![Some("max"), None]);
-        // Family patterns cover new versions and their fast editions.
-        assert_eq!(provider.tier("gpt-6.1-sol", None), Some(Tier::Frontier));
-        assert_eq!(
-            provider.tier("gpt-6-sol", Some("high")),
-            Some(Tier::Frontier)
-        );
+        assert_eq!(tier("gpt-6-astra", Some("high")), Some(Tier::Frontier));
+        assert_eq!(tier("gpt-6-astra", Some("low")), Some(Tier::Frontier));
+        assert_eq!(tier("gpt-6.1-sol", Some("high")), Some(Tier::Balanced));
+        assert_eq!(tier("gpt-6.1-sol", Some("low")), Some(Tier::Balanced));
+        assert_eq!(tier("gpt-6.1-terra", Some("high")), Some(Tier::Efficient));
+        assert_eq!(tier("gpt-6.1-terra", Some("max")), Some(Tier::Efficient));
+        assert_eq!(tier("gpt-6.1-terra", None), Some(Tier::Efficient));
+        // Luna is fast at every variant, max included.
+        assert_eq!(tier("gpt-6-luna", Some("max")), Some(Tier::Fast));
+        assert_eq!(tier("gpt-6-luna", None), Some(Tier::Fast));
+        // A switch picks the first variant a model's rows name.
+        assert_eq!(provider.variants("gpt-6-astra"), vec![Some("high"), None]);
+        assert_eq!(provider.variants("gpt-6.1-sol"), vec![Some("high"), None]);
+        assert_eq!(provider.variants("gpt-6.1-terra"), vec![Some("high"), None]);
+        assert_eq!(provider.variants("gpt-6-luna"), vec![None]);
+        // Family patterns cover new versions.
+        assert_eq!(tier("gpt-6.1-astra", None), Some(Tier::Frontier));
+        assert_eq!(tier("gpt-6-sol", Some("high")), Some(Tier::Balanced));
+        assert_eq!(tier("gpt-6.2-terra", Some("high")), Some(Tier::Efficient));
+        assert_eq!(tier("gpt-6.1-luna", Some("max")), Some(Tier::Fast));
         // Fast editions and older generations have no tier.
-        assert_eq!(provider.tier("gpt-6.1-sol-fast", Some("high")), None);
-        assert_eq!(provider.tier("gpt-5.6-sol", None), None);
-        assert_eq!(provider.tier("gpt-6-astra", None), None);
-        // Only the named current models are recommended.
-        assert!(
+        assert_eq!(tier("gpt-6-astra-fast", Some("high")), None);
+        assert_eq!(tier("gpt-6.1-sol-fast", Some("high")), None);
+        assert_eq!(tier("gpt-6.1-terra-fast", Some("high")), None);
+        assert_eq!(tier("gpt-5.6-sol", None), None);
+    }
+
+    #[test]
+    fn only_the_named_current_models_are_recommended() {
+        let provider = OpenAiProvider::default();
+        let rated = |model: &str, variant: Option<&str>| {
             provider
-                .rating("gpt-6.1-sol", Some("high"))
-                .unwrap()
-                .recommended
-        );
-        assert!(
-            !provider
-                .rating("gpt-6-sol", Some("high"))
-                .unwrap()
-                .recommended
-        );
+                .rating(model, variant)
+                .map(|rating| rating.recommended)
+        };
+
+        assert_eq!(rated("gpt-6-astra", Some("high")), Some(true));
+        assert_eq!(rated("gpt-6.1-sol", Some("high")), Some(true));
+        assert_eq!(rated("gpt-6.1-terra", Some("high")), Some(true));
+        assert_eq!(rated("gpt-6-luna", None), Some(true));
+        assert_eq!(rated("gpt-6-astra", None), Some(false));
+        assert_eq!(rated("gpt-6.1-terra", Some("low")), Some(false));
+        assert_eq!(rated("gpt-6-sol", Some("high")), Some(false));
     }
 
     #[test]
@@ -120,13 +130,19 @@ mod tests {
         assert_eq!(
             provider.tiers(),
             [
-                recommended("gpt-6.1-sol", Some("high"), Tier::Frontier),
-                recommended("gpt-6.1-sol", None, Tier::Frontier),
-                recommended("gpt-6-luna", Some("max"), Tier::Balanced),
+                recommended("gpt-6-astra", Some("high"), Tier::Frontier),
+                row("gpt-6-astra", None, Tier::Frontier),
+                recommended("gpt-6.1-sol", Some("high"), Tier::Balanced),
+                row("gpt-6.1-sol", None, Tier::Balanced),
+                recommended("gpt-6.1-terra", Some("high"), Tier::Efficient),
+                row("gpt-6.1-terra", None, Tier::Efficient),
                 recommended("gpt-6-luna", None, Tier::Fast),
-                row("gpt-*-sol*", Some("high"), Tier::Frontier),
-                row("gpt-*-sol*", None, Tier::Frontier),
-                row("gpt-*-luna*", Some("max"), Tier::Balanced),
+                row("gpt-*-astra*", Some("high"), Tier::Frontier),
+                row("gpt-*-astra*", None, Tier::Frontier),
+                row("gpt-*-sol*", Some("high"), Tier::Balanced),
+                row("gpt-*-sol*", None, Tier::Balanced),
+                row("gpt-*-terra*", Some("high"), Tier::Efficient),
+                row("gpt-*-terra*", None, Tier::Efficient),
                 row("gpt-*-luna*", None, Tier::Fast),
             ]
         );
