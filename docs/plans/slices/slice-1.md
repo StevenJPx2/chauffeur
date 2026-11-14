@@ -1,6 +1,9 @@
 # Slice 1: Conventional Commits nudge in OpenCode
 
-**Status:** Implemented, released as `chauffeur-next` `1.0.0-rc.3`.
+**Status:** Implemented. Its latest release is `chauffeur-next` `1.0.0-rc.4`,
+which carries the fixes from the
+[state machines audit](../../audits/state-machines.md); the recording below
+shows `1.0.0-rc.3`.
 
 **You can:** install the rc beside v1 and add its OpenCode adapter to
 `plugins` in `opencode.jsonc`. When the agent commits with a message such as
