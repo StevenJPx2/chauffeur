@@ -66,6 +66,7 @@ fn runs_are_appended_with_their_time_in_a_folder_only_the_user_can_open() {
     let file = fs::metadata(folder.join("audit.jsonl")).unwrap();
     assert_eq!(file.permissions().mode() & 0o777, 0o600);
     assert_eq!(numbers(&recent(&folder, 1).unwrap()), [2]);
+    assert_eq!(recent(&folder, 0).unwrap(), Vec::<String>::new());
 }
 
 #[test]

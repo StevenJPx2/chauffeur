@@ -93,9 +93,7 @@ pub fn recent(folder: &Path, count: usize) -> io::Result<Vec<String>> {
         };
         for line in BufReader::new(file).lines() {
             lines.push_back(line?);
-            if lines.len() > count {
-                lines.pop_front();
-            }
+            lines.retain_back(count);
         }
     }
     Ok(lines.into())
@@ -150,9 +148,7 @@ fn start(
     let mut lines = VecDeque::with_capacity(count.min(1024));
     let mut keep = |line: &str| {
         lines.push_back(line.to_owned());
-        if lines.len() > count {
-            lines.pop_front();
-        }
+        lines.retain_back(count);
     };
     let rotated = open(&folder.join(ROTATED))?;
     // Moved aside since it was opened: its lines are the followed file's.
