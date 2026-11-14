@@ -34,6 +34,7 @@ fn paths(name: &str, models: &str) -> Paths {
         config: root.join("config"),
         distribution: PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../distribution"),
         state: root.join("state"),
+        models: None,
     }
 }
 

@@ -15,6 +15,14 @@ chauffeur daemon run --distribution ./distribution
 | Option                | Default                                                                  |
 | --------------------- | ------------------------------------------------------------------------ |
 | `--distribution PATH` | `$CHAUFFEUR_DISTRIBUTION`, or `share/<name>/` beside the binary's folder |
+| `--models FILE`       | The shipped models and your `models.json`; this file replaces both       |
+
+`--models` is for tests and the playground: a file of placeholders answers
+every tier, so no key is needed and no request leaves the machine.
+
+```sh
+chauffeur daemon run --models fixtures/placeholders.json
+```
 
 - **One per installation.** If a daemon already answers on the socket, it
   says so and exits 0, so starting it twice is harmless.
@@ -27,6 +35,12 @@ chauffeur daemon run --distribution ./distribution
   such as in a sandbox, it checks every 2 seconds.
 - **Keys** come from its own environment, so start it where the keys are set,
   or put them in the service's environment file when Homebrew runs it.
+- **Several calls per connection.** Each call runs on its own thread, at
+  most 16 open on one connection. `$/cancelRequest` cancels one by its ID,
+  and a connection that closes cancels everything it carried.
+- **Admission.** At most 16 calls run at once, 8 from harnesses
+  (`chauffeur.emit`) and 8 from callers (`chauffeur.navigate`); past that a
+  call is refused as `busy` at once, never queued.
 - **Every run** goes to the audit log; see [`audit`](audit.md).
 
 As a service:

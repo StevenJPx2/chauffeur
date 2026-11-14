@@ -23,6 +23,8 @@ const INLINE: &str = "inline";
 /// request it could not serve.
 const INVALID_PARAMS: i64 = -32_602;
 const SERVER_ERROR: i64 = -32_000;
+/// The code LSP gives a request its caller cancelled.
+const REQUEST_CANCELLED: i64 = -32_800;
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -226,6 +228,8 @@ pub enum Rejection {
     Deadline,
     /// An inline strategy names a judge with no model to ask.
     JudgeUnavailable(String),
+    /// The caller cancelled the request with `$/cancelRequest`.
+    Cancelled,
 }
 
 impl Rejection {
@@ -239,6 +243,7 @@ impl Rejection {
             Self::Busy => "busy",
             Self::Deadline => "deadline",
             Self::JudgeUnavailable(_) => "judge_unavailable",
+            Self::Cancelled => "cancelled",
         }
     }
 
@@ -248,6 +253,7 @@ impl Rejection {
         let code = match self {
             Self::Invalid(_) | Self::LimitExceeded(_) | Self::UnsupportedProtocol => INVALID_PARAMS,
             Self::Busy | Self::Deadline | Self::JudgeUnavailable(_) => SERVER_ERROR,
+            Self::Cancelled => REQUEST_CANCELLED,
         };
         let mut data = json!({ "reason": self.reason() });
         if let (Self::LimitExceeded(exceeded), Some(fields)) = (self, data.as_object_mut()) {
@@ -272,6 +278,7 @@ impl fmt::Display for Rejection {
             }
             Self::Busy => f.write_str("the daemon is at capacity for this caller"),
             Self::Deadline => f.write_str("the strategy did not finish within its deadline"),
+            Self::Cancelled => f.write_str("the caller cancelled the request"),
         }
     }
 }

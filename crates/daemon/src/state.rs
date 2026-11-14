@@ -37,8 +37,14 @@ pub struct Loaded {
 ///
 /// Models or redaction that cannot load.
 pub fn load(paths: &Paths, previous: Option<&Loaded>) -> Result<Loaded, DaemonError> {
-    let mut model_files = json_files(&paths.distribution.join("models"));
-    model_files.extend(existing(paths.config.join("models.json")));
+    let model_files = paths.models.clone().map_or_else(
+        || {
+            let mut files = json_files(&paths.distribution.join("models"));
+            files.extend(existing(paths.config.join("models.json")));
+            files
+        },
+        |models| vec![models],
+    );
     let models =
         Models::load(&model_files).map_err(|error| DaemonError::Config(error.to_string()))?;
 

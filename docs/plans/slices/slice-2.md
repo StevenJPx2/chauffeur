@@ -1,8 +1,8 @@
 # Slice 2: sourcefed triage
 
-**Status:** In progress: requests, intents and limits, admission and running
-are built; the daemon's socket and rule sources, the bindings and sourcefed's
-side are next.
+**Status:** In progress: requests, intents and limits, admission and running,
+and the daemon's socket are built; the rule sources, the bindings and
+sourcefed's side are next.
 
 **You can:** let sourcefed ask Chauffeur before it queues each event, so
 OpenCode, Pi, MCP and the CLI receive the same filtered stream, as in
@@ -50,8 +50,8 @@ result  intents       [{ "rule": "sourcefed/triage", "withhold": "event" }]
 ```
 
 A rejection is a JSON-RPC error whose `data.reason` names it: `invalid`,
-`limit_exceeded`, `judge_unavailable`, `busy`, `deadline` or
-`unsupported_protocol`.
+`limit_exceeded`, `judge_unavailable`, `busy`, `deadline`,
+`unsupported_protocol` or `cancelled`.
 
 A request with `strategy` in place of `on` ends with `{"verdict": {…}}`.
 `$CHAUFFEUR_SOCKET` defaults to `chauffeur/daemon.sock` in the user's runtime
@@ -120,6 +120,7 @@ impl Navigate {
     pub fn evidence(&self) -> &[(String, String)];
     pub fn candidates(&self) -> &[(String, String)];
     pub const fn target(&self) -> &Target;
+    pub fn into_target(self) -> Target;
     pub fn event(&self) -> Option<Event>;
 }
 
@@ -135,8 +136,8 @@ pub enum Target {
 
 A rejection is the JSON-RPC error a binding receives. `to_error` adds
 `limit` and `max` for a limit, and `accepted` for a protocol. The code is
-`-32602` for what the caller sent and `-32000` for what the daemon could
-not serve.
+`-32602` for what the caller sent, `-32000` for what the daemon could not
+serve, and `-32800` for a call its caller cancelled.
 
 ```rust
 pub enum Rejection {
@@ -146,6 +147,7 @@ pub enum Rejection {
     Busy,
     Deadline,
     JudgeUnavailable(String),
+    Cancelled,
 }
 
 impl Rejection {
@@ -438,7 +440,8 @@ Several calls per connection, `$/cancelRequest`, and cancelling on close;
 System Two in a project rule the user has not allowed and any model or
 placeholder entry from a project. Matching rules run concurrently.
 
-Files: `crates/daemon/src/socket.rs`, `rules.rs`
+Files: `crates/daemon/src/socket.rs`, `rpc.rs`, `route/navigate.rs`,
+`rules.rs`
 
 ```json
 { "jsonrpc": "2.0", "method": "$/cancelRequest", "params": { "id": 1 } }
@@ -452,8 +455,62 @@ distribution/rules/                     shipped
                                         System Two only where allowed
 ```
 
+Structure:
+
+Each request line is answered on its own thread, at most `MAX_CALLS`, 16,
+open on one connection; past that a call is refused as busy. A cancelled
+call is answered with code `-32800` and `data.reason` `cancelled`. A
+connection that closes, or a reply that cannot be written within 5 seconds,
+cancels every call it carries.
+
+```rust
+pub const MAX_CALLS: usize;
+pub const MAX_CONNECTIONS: usize;
+pub const MAX_LINE: usize;
+```
+
+The router admits each call for its source and holds the permit until the
+reply is written. `navigate` sends `rule_matched` for every hooked rule
+first, then each rule's `round_ready` and `step_settled` as it settles, at
+most 4,096 events, and returns the intents in the order the rules load. An
+inline strategy whose judge has no model is `judge_unavailable` before it
+runs, and one past its deadline is `deadline`.
+
+```rust
+impl Router {
+    pub fn admit(&self, source: Source) -> Result<Permit, Busy>;
+    pub fn emit(&self, event: &Event, deadline: Duration, cancel: &Cancel) -> Vec<Value>;
+    pub fn navigate(
+        &self,
+        request: Navigate,
+        cancel: &Cancel,
+        notify: &(dyn Fn(Value) + Sync),
+    ) -> Result<Value, Rejection>;
+}
+
+pub struct Paths {
+    pub name: String,
+    pub socket: PathBuf,
+    pub config: PathBuf,
+    pub distribution: PathBuf,
+    pub state: PathBuf,
+    pub models: Option<PathBuf>,
+}
+```
+
 Verified by:
 
+- `crates/daemon/tests/navigate.rs`, through the real socket:
+  - noise is withheld, with `rule_matched`, `round_ready` and
+    `step_settled` before the intents;
+  - an unhooked event returns no intents and no events;
+  - an inline strategy returns its verdict;
+  - rejections by reason: `unsupported_protocol`, `limit_exceeded`,
+    `judge_unavailable` and `deadline`;
+  - a fast call on a connection is not held up by a slow one;
+  - `$/cancelRequest` is answered as `cancelled` within a second;
+  - closing a connection cancels its 8 calls and frees their places;
+  - 10 navigations at once from one source: 8 answered, 2 `busy`.
 - Each of the four sources loads.
 - A project rule naming System Two, and a model or placeholder entry in a
   project's `.chauffeur/`, are refused.

@@ -5,7 +5,9 @@
 //! | Method | Params | Result |
 //! |---|---|---|
 //! | `chauffeur.emit` | `event`, `deadline_ms` | `actions`: what each hooked rule returned |
+//! | `chauffeur.navigate` | A request: `protocol`, `on` or `strategy`, `evidence`, `deadline_ms` | `intents`, or `verdict`; `chauffeur.event` notifications before it |
 //! | `chauffeur.status` | none | Version, protocol, loaded rules, refused rule files |
+//! | `$/cancelRequest` | `id` | Nothing: the call with that ID is answered as `cancelled` |
 
 pub mod audit;
 mod paths;
@@ -24,7 +26,7 @@ use notify::{PollWatcher, RecursiveMode, Watcher};
 
 pub use paths::{Paths, private_folder};
 pub use route::Router;
-pub use socket::{MAX_CONNECTIONS, MAX_LINE};
+pub use socket::{MAX_CALLS, MAX_CONNECTIONS, MAX_LINE};
 
 /// How long file changes settle before a reload.
 const SETTLE: Duration = Duration::from_millis(200);

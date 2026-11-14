@@ -56,6 +56,10 @@ enum Daemon {
         /// Shipped models, rules and safety patterns.
         #[arg(long)]
         distribution: Option<PathBuf>,
+        /// A models.json used in place of the shipped and your own, such as
+        /// placeholders for tests.
+        #[arg(long)]
+        models: Option<PathBuf>,
     },
     /// Print the running daemon's version, loaded rules and refused rule files.
     Status,
@@ -72,8 +76,15 @@ fn main() -> Result<ExitCode> {
         .unwrap_or_else(|| "chauffeur".to_owned());
     match Cli::parse().command {
         Command::Daemon {
-            command: Daemon::Run { distribution },
-        } => match chauffeur_daemon::run(&Paths::from_env(&name, distribution)) {
+            command:
+                Daemon::Run {
+                    distribution,
+                    models,
+                },
+        } => match chauffeur_daemon::run(&Paths {
+            models,
+            ..Paths::from_env(&name, distribution)
+        }) {
             Err(DaemonError::Running(socket)) => {
                 eprintln!(
                     "{name}: a daemon is already running on {}",
