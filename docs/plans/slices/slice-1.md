@@ -952,6 +952,7 @@ pub enum DaemonError {
     Running(PathBuf),
     SocketFolder { path, reason },
     Socket { path, source: io::Error },
+    Thread(io::Error),
     Config(String),
     Watch(notify::Error),
 }
@@ -991,8 +992,9 @@ impl Cooldowns {
 
 The audit log adds the time as `at`, to the microsecond, to each run and moves
 to `audit.1.jsonl` past 8 MiB. `recent` reads the last runs across both files,
-oldest first. `follow` calls back with the last runs and then each new one,
-through the one open file, so no run falls between them.
+oldest first. `follow` calls back with the last runs and then each new one
+until the callback breaks, through the one open file, so no run falls between
+them.
 
 ```rust
 pub struct Audit {
@@ -1007,12 +1009,17 @@ impl Audit {
 }
 
 pub fn recent(folder: &Path, count: usize) -> io::Result<Vec<String>>;
-pub fn follow(folder: &Path, count: usize, each: impl FnMut(&str)) -> io::Result<!>;
+pub fn follow<B>(
+    folder: &Path,
+    count: usize,
+    each: impl FnMut(&str) -> ControlFlow<B>,
+) -> io::Result<B>;
 ```
 
 `bind` leaves a socket another daemon answers on and replaces a stale one.
 `serve` gives each connection its own thread, 64 at most, with lines up to 1
-MiB; one more is told the daemon is busy, with error `-32000`, and closed. `handle` answers one JSON-RPC line, and nothing for a notification;
+MiB; one more is told the daemon is busy, with error `-32000`, and closed. A
+failed accept waits 50 ms before the next. `handle` answers one JSON-RPC line, and nothing for a notification;
 deadlines default to 3 seconds and stop at 30.
 
 ```rust
@@ -1072,7 +1079,8 @@ enum Daemon {
 `main` takes the installation's name from the executable's file name, then runs
 the daemon, or sends one call over the socket and prints the result. `--brief`
 prints one line per run: the local time, the rule, the session, each step's
-result and model, the time it took and what it returned.
+result and model, the time it took and what it returned. A reader that stops
+early, as `head` does, ends `audit` with success.
 
 ```rust
 fn main() -> Result<ExitCode>;

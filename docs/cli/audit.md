@@ -7,6 +7,7 @@ it works with no daemon running, and shows runs from before a restart.
 chauffeur audit                    # the last 20 runs, one JSON line each
 chauffeur audit 100
 chauffeur audit --follow --brief   # new runs as they happen, one short line each
+chauffeur audit 1000 | head -5     # stops with success when head has its lines
 ```
 
 | Argument or option | Does                                                                       |

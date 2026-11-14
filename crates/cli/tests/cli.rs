@@ -20,6 +20,10 @@ use serde_json::Value;
 
 const CHAUFFEUR: &str = env!("CARGO_BIN_EXE_chauffeur");
 
+/// One run as the audit log holds it.
+const RUN: &str =
+    r#"{"rule":"conventional-commits","session":"s1","elapsed_ms":1,"returned":"message.append"}"#;
+
 const NUDGING: &str = r#"{ "models": { "stand-in": { "format": "placeholder", "otherwise": { "yes": 0.94, "no": 0.06 } } },
                           "tiers": { "system-one": ["stand-in"] } }"#;
 
@@ -116,6 +120,19 @@ impl Install {
             .lines()
             .map(|line| serde_json::from_str(line).unwrap())
             .collect()
+    }
+
+    /// Appends `runs` runs to the audit log, as the daemon writes them.
+    fn log(&self, runs: usize) {
+        let log = self.root.join("state/chauffeur/audit.jsonl");
+        fs::create_dir_all(log.parent().unwrap()).unwrap();
+        fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&log)
+            .unwrap()
+            .write_all(format!("{RUN}\n").repeat(runs).as_bytes())
+            .unwrap();
     }
 
     /// Stops the daemon.
@@ -325,6 +342,85 @@ fn audit_follow_brief_prints_each_new_run_on_one_line() {
         "{line}"
     );
     assert!(line.ends_with("→ message.append"), "{line}");
+}
+
+#[test]
+fn audit_stops_quietly_when_its_reader_closes_the_pipe() {
+    let install = Install::new("closed-pipe");
+    // Far more than a pipe holds, so audit is still printing when it closes.
+    install.log(20_000);
+    let mut audit = install
+        .command()
+        .args(["audit", "20000"])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+
+    let mut first = String::new();
+    BufReader::new(audit.stdout.take().unwrap())
+        .read_line(&mut first)
+        .unwrap();
+    let output = audit.wait_with_output().unwrap();
+
+    assert_eq!(first.trim_end(), RUN);
+    assert!(output.status.success(), "{output:?}");
+    assert!(
+        output.stderr.is_empty(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn audit_follow_stops_quietly_when_its_reader_closes_the_pipe() {
+    let install = Install::new("closed-follow");
+    install.log(1);
+    // Stopped however the test ends, should it keep following.
+    let mut follower = DropGuard::new(
+        install
+            .command()
+            .args(["audit", "1", "--follow"])
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap(),
+        |mut follower| {
+            let _ = follower.kill();
+            let _ = follower.wait();
+        },
+    );
+
+    let mut first = String::new();
+    BufReader::new(follower.stdout.take().unwrap())
+        .read_line(&mut first)
+        .unwrap();
+    // Printed once the reader has gone.
+    install.log(1);
+    let started = Instant::now();
+    let status = loop {
+        if let Some(status) = follower.try_wait().unwrap() {
+            break status;
+        }
+        assert!(
+            started.elapsed() < Duration::from_secs(5),
+            "still following"
+        );
+        thread::sleep(Duration::from_millis(50));
+    };
+    let mut stderr = String::new();
+    follower
+        .stderr
+        .take()
+        .unwrap()
+        .read_to_string(&mut stderr)
+        .unwrap();
+
+    assert_eq!(first.trim_end(), RUN);
+    assert!(status.success(), "{status:?}: {stderr}");
+    assert!(stderr.is_empty(), "{stderr}");
 }
 
 #[test]

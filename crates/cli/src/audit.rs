@@ -1,6 +1,8 @@
 //! `chauffeur audit`: the runs in the audit log, read straight from its files,
 //! so it works with no daemon running.
 
+use std::io::{self, Write};
+use std::ops::ControlFlow;
 use std::path::Path;
 
 use chauffeur_daemon::audit as log;
@@ -8,27 +10,35 @@ use color_eyre::eyre::{Result, WrapErr};
 use serde_json::Value;
 
 /// Prints the last `count` runs from the audit log in `state`, oldest first,
-/// then, with `follow`, each run as it is written.
+/// then, with `follow`, each run as it is written. A reader that stops
+/// early, as `head` does, closes the pipe; printing then stops, and
+/// succeeds.
 pub fn print(state: &Path, count: usize, follow: bool, brief: bool) -> Result<()> {
+    let mut stdout = io::stdout().lock();
     let show = |line: &str| {
-        if brief {
-            println!("{}", summary(line));
+        let shown = if brief {
+            writeln!(stdout, "{}", summary(line))
         } else {
-            println!("{line}");
+            writeln!(stdout, "{line}")
+        };
+        shown.map_or_else(ControlFlow::Break, ControlFlow::Continue)
+    };
+    let stopped = if follow {
+        // One read for both, so no run falls between the recent and the new.
+        log::follow(state, count, show)
+            .wrap_err_with(|| format!("cannot follow the audit log in {}", state.display()))?
+    } else {
+        let lines = log::recent(state, count)
+            .wrap_err_with(|| format!("cannot read the audit log in {}", state.display()))?;
+        match lines.iter().map(String::as_str).try_for_each(show) {
+            ControlFlow::Continue(()) => return Ok(()),
+            ControlFlow::Break(error) => error,
         }
     };
-    if follow {
-        // One read for both, so no run falls between the recent and the new.
-        let Err(error) = log::follow(state, count, &show);
-        return Err(error)
-            .wrap_err_with(|| format!("cannot follow the audit log in {}", state.display()));
+    if stopped.kind() == io::ErrorKind::BrokenPipe {
+        return Ok(());
     }
-    let lines = log::recent(state, count)
-        .wrap_err_with(|| format!("cannot read the audit log in {}", state.display()))?;
-    for line in &lines {
-        show(line);
-    }
-    Ok(())
+    Err(stopped).wrap_err("cannot print the runs")
 }
 
 /// One short line for a run: when, the rule, the session, each step's

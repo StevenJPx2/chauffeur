@@ -55,6 +55,9 @@ pub enum DaemonError {
         /// Why.
         source: std::io::Error,
     },
+    /// The thread that reloads configuration could not start.
+    #[error("cannot start the reload thread: {0}")]
+    Thread(std::io::Error),
     /// Models or redaction could not load.
     #[error("{0}")]
     Config(String),
@@ -83,10 +86,7 @@ pub fn run(paths: &Paths) -> Result<!, DaemonError> {
     thread::Builder::new()
         .name("reload".into())
         .spawn(move || reload(&reloader, &reload_paths, &receive))
-        .map_err(|source| DaemonError::Socket {
-            path: paths.socket.clone(),
-            source,
-        })?;
+        .map_err(DaemonError::Thread)?;
     socket::serve(&listener, &router)
 }
 
@@ -134,5 +134,22 @@ fn reload(router: &Router, paths: &Paths, changes: &mpsc::Receiver<()>) {
             Ok(loaded) => router.replace(loaded),
             Err(error) => eprintln!("chauffeur: kept the loaded configuration: {error}"),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io;
+
+    use super::DaemonError;
+
+    #[test]
+    fn a_reload_thread_that_cannot_start_says_so() {
+        let error = DaemonError::Thread(io::Error::other("no thread left"));
+
+        assert_eq!(
+            error.to_string(),
+            "cannot start the reload thread: no thread left"
+        );
     }
 }
