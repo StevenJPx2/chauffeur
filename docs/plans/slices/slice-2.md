@@ -557,7 +557,8 @@ Structure:
 
 `chauffeur navigate` reads the whole of stdin as the request's `params`,
 sends it with ID 1, and copies every line it receives to stdout until the
-reply to it. It waits for the request's `deadline_ms` and 2 seconds more.
+reply to it. It waits for the request's `deadline_ms` and 2 seconds more,
+in all, however many events arrive.
 An `unsupported_protocol` rejection exits 2, as no daemon does, since a
 script can do nothing about either.
 

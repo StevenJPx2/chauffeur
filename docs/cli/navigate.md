@@ -19,11 +19,11 @@ EOF
 {"id":1,"jsonrpc":"2.0","result":{"intents":[{"rule":"sourcefed/triage","withhold":"event"}]}}
 ```
 
-| Exit | Means                                                                        |
-| ---- | ---------------------------------------------------------------------------- |
-| 0    | Intents or a verdict came back                                               |
-| 1    | The request was rejected, such as `limit_exceeded`, or stdin is not JSON     |
-| 2    | No daemon answers, it does not answer in time, or it speaks another protocol |
+| Exit | Means                                                                                         |
+| ---- | --------------------------------------------------------------------------------------------- |
+| 0    | Intents or a verdict came back                                                                |
+| 1    | The request was rejected, such as `limit_exceeded`, stdin is not JSON, or stdout closed first |
+| 2    | No daemon answers, it does not answer in time, or it speaks another protocol                  |
 
 A script tests the reply with `jq`:
 
@@ -35,5 +35,5 @@ fi
 ```
 
 It waits for the request's `deadline_ms`, 3 seconds by default, and 2
-seconds more. The socket is `$CHAUFFEUR_SOCKET`, or the installation's own.
+seconds more, in all, however many events arrive. The socket is `$CHAUFFEUR_SOCKET`, or the installation's own.
 The wire contract is in [Slice 2](../plans/slices/slice-2.md#wire-contract).
