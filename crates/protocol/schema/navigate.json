@@ -1,0 +1,447 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/wrkhse/chauffeur/blob/v2/crates/protocol/schema/navigate.json",
+  "title": "chauffeur.navigate",
+  "description": "The params of a chauffeur.navigate request, the chauffeur.event notifications it streams, and its result or error. Messages are JSON-RPC 2.0, one per line. The byte limit on evidence and candidates (256 KiB, names included) is checked by the daemon; JSON Schema cannot express it.",
+  "$ref": "#/$defs/request",
+  "$defs": {
+    "request": {
+      "type": "object",
+      "required": [
+        "protocol"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "protocol": {
+          "const": 1
+        },
+        "deadline_ms": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 30000,
+          "default": 3000
+        },
+        "on": {
+          "type": "string",
+          "description": "An event name, such as sourcefed.event: every rule whose on and when match answers.",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "strategy": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 32,
+          "items": {
+            "$ref": "#/$defs/step"
+          }
+        },
+        "judges": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/judge"
+          }
+        },
+        "asks": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/ask"
+          }
+        },
+        "evidence": {
+          "type": "object",
+          "maxProperties": 64,
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "candidates": {
+          "type": "object",
+          "maxProperties": 64,
+          "additionalProperties": {
+            "type": "string"
+          }
+        }
+      },
+      "oneOf": [
+        {
+          "required": [
+            "on"
+          ],
+          "not": {
+            "anyOf": [
+              {
+                "required": [
+                  "strategy"
+                ]
+              },
+              {
+                "required": [
+                  "judges"
+                ]
+              },
+              {
+                "required": [
+                  "asks"
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "required": [
+            "strategy"
+          ],
+          "not": {
+            "required": [
+              "on"
+            ]
+          }
+        }
+      ]
+    },
+    "step": {
+      "type": "object",
+      "required": [
+        "id",
+        "judge",
+        "ask"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "\\S"
+        },
+        "judge": {
+          "type": "string",
+          "description": "A name in judges, or a tier: facts, system-one, system-two, person."
+        },
+        "ask": {
+          "oneOf": [
+            {
+              "type": "string",
+              "description": "A name in asks."
+            },
+            {
+              "$ref": "#/$defs/ask"
+            }
+          ]
+        }
+      }
+    },
+    "judge": {
+      "type": "object",
+      "required": [
+        "tier"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "tier": {
+          "enum": [
+            "facts",
+            "system-one",
+            "system-two",
+            "person"
+          ]
+        },
+        "model": {
+          "type": "string"
+        },
+        "confidence": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/probability"
+            },
+            {
+              "type": "object",
+              "additionalProperties": {
+                "$ref": "#/$defs/probability"
+              },
+              "description": "One bar per outcome, covering every outcome of every step the judge answers."
+            }
+          ]
+        }
+      }
+    },
+    "ask": {
+      "type": "object",
+      "required": [
+        "instructions",
+        "outcomes"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "instructions": {
+          "type": "string",
+          "pattern": "\\S"
+        },
+        "outcomes": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 64,
+          "description": "Unique; unsure and failed are reserved.",
+          "items": {
+            "oneOf": [
+              {
+                "$ref": "#/$defs/outcome"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "value",
+                  "description"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "value": {
+                    "$ref": "#/$defs/outcome"
+                  },
+                  "description": {
+                    "type": "string"
+                  }
+                }
+              }
+            ]
+          },
+          "uniqueItems": true
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "The evidence blocks the judge sees. In an inline strategy, each must be one the request sends."
+        }
+      }
+    },
+    "outcome": {
+      "type": "string",
+      "pattern": "\\S",
+      "not": {
+        "enum": [
+          "unsure",
+          "failed"
+        ]
+      }
+    },
+    "probability": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "result": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "intents"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "intents": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/intent"
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "verdict"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "verdict": {
+              "type": "object",
+              "additionalProperties": {
+                "$ref": "#/$defs/settled"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "intent": {
+      "type": "object",
+      "required": [
+        "rule"
+      ],
+      "minProperties": 2,
+      "maxProperties": 2,
+      "properties": {
+        "rule": {
+          "type": "string"
+        }
+      },
+      "description": "The rule that produced it, and one intent such as { \"withhold\": \"event\" }."
+    },
+    "settled": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "answer"
+          ],
+          "properties": {
+            "answer": {
+              "$ref": "#/$defs/answer"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "failed"
+          ],
+          "properties": {
+            "failed": {
+              "enum": [
+                "unavailable",
+                "rate_limited",
+                "timeout",
+                "invalid",
+                "deadline"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "answer": {
+      "type": "object",
+      "required": [
+        "outcome",
+        "p",
+        "level",
+        "model",
+        "placeholder"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "outcome": {
+          "type": "string",
+          "description": "One of the question's outcomes, or unsure."
+        },
+        "p": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/probability"
+          },
+          "description": "Every outcome's probability, at most three decimals."
+        },
+        "level": {
+          "type": "number",
+          "minimum": 0,
+          "description": "The probability-weighted position in the outcome list."
+        },
+        "model": {
+          "type": "string"
+        },
+        "placeholder": {
+          "type": "boolean"
+        }
+      }
+    },
+    "event": {
+      "description": "The params of a chauffeur.event notification; id is the navigate request's.",
+      "type": "object",
+      "required": [
+        "id",
+        "event"
+      ],
+      "oneOf": [
+        {
+          "properties": {
+            "event": {
+              "const": "rule_matched"
+            }
+          },
+          "required": [
+            "rule"
+          ]
+        },
+        {
+          "properties": {
+            "event": {
+              "const": "round_ready"
+            },
+            "round": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "steps": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "round",
+            "steps"
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "properties": {
+                "event": {
+                  "const": "step_settled"
+                },
+                "step": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "step"
+              ]
+            },
+            {
+              "$ref": "#/$defs/settled"
+            }
+          ]
+        }
+      ]
+    },
+    "error": {
+      "description": "The data of a JSON-RPC error answering navigate.",
+      "type": "object",
+      "required": [
+        "reason"
+      ],
+      "properties": {
+        "reason": {
+          "enum": [
+            "invalid",
+            "limit_exceeded",
+            "unsupported_protocol",
+            "busy",
+            "deadline",
+            "judge_unavailable"
+          ]
+        },
+        "limit": {
+          "enum": [
+            "steps",
+            "outcomes",
+            "evidence_blocks",
+            "candidates",
+            "evidence_bytes",
+            "deadline_ms"
+          ]
+        },
+        "max": {
+          "type": "integer"
+        },
+        "accepted": {
+          "type": "array",
+          "items": {
+            "type": "integer"
+          }
+        }
+      }
+    }
+  }
+}

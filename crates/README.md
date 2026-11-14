@@ -2,14 +2,14 @@
 
 The Rust engine. Each crate depends only on the ones below it in this table.
 
-| Crate      | Holds                                                                                                                               |
-| ---------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| `cli`      | The `chauffeur` binary: `daemon run`, `daemon status`, `version`, `emit`, `audit`                                                   |
-| `daemon`   | The private Unix socket, JSON-RPC 2.0 lines, loading and reloading configuration, routing events to rules, cooldowns, the audit log |
-| `runtime`  | Running one rule for one event: redaction, pooled worker threads with a deadline                                                    |
-| `protocol` | Rule files and their checks, the `when` filter, `then` entries, harness events and their evidence                                   |
-| `judges`   | Questions, confidence, `models.json`, tiers in fallback order, and the `systemone` and `placeholder` formats                        |
-| `core`     | Plans of named steps, judges by name, events and the verdict. No dependencies                                                       |
+| Crate      | Holds                                                                                                                                                                                        |
+| ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `cli`      | The `chauffeur` binary: `daemon run`, `daemon status`, `version`, `emit`, `audit`                                                                                                            |
+| `daemon`   | The private Unix socket, JSON-RPC 2.0 lines, loading and reloading configuration, routing events to rules, cooldowns, the audit log                                                          |
+| `runtime`  | Running one rule for one event: redaction, pooled worker threads with a deadline                                                                                                             |
+| `protocol` | Rule files and their checks, the `when` filter, `then` entries, harness events and their evidence; `navigate` requests, their limits and rejections, intents, and a run's events on the wire |
+| `judges`   | Questions, confidence, `models.json`, tiers in fallback order, and the `systemone` and `placeholder` formats                                                                                 |
+| `core`     | Plans of named steps, judges by name, events and the verdict. No dependencies                                                                                                                |
 
 A module with several parts is a folder named after it, one file per
 concept, with a `README.md`:

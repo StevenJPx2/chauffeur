@@ -7,6 +7,7 @@ use super::ask;
 use super::error::RuleError;
 use super::file::{AskFile, JudgeFile, StepFile};
 use super::judge::{self, JudgeSpec};
+use crate::limits::{Limit, count};
 
 /// A strategy: the judges its steps name, and its steps as a core plan.
 /// A rule holds one, and a request may send one inline.
@@ -25,6 +26,22 @@ impl Strategy {
         asks: &BTreeMap<String, AskFile>,
         strategy: Vec<StepFile>,
     ) -> Result<Self, RuleError> {
+        let limit = |source| RuleError::Limit {
+            rule: id.to_owned(),
+            source,
+        };
+        Limit::Steps.check(count(strategy.len())).map_err(limit)?;
+        // Every ask, used or not, so an unused one cannot carry unbounded outcomes.
+        for ask in asks.values() {
+            Limit::Outcomes
+                .check(count(ask.outcomes.len()))
+                .map_err(limit)?;
+        }
+        if strategy.iter().any(|step| step.id.trim().is_empty()) {
+            return Err(RuleError::BlankStep {
+                rule: id.to_owned(),
+            });
+        }
         let mut specs = BTreeMap::new();
         for (name, judge) in judges {
             specs.insert(name.clone(), judge::judge_spec(id, &name, judge)?);

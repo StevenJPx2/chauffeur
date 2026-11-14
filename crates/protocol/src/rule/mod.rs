@@ -12,6 +12,7 @@ use std::time::Duration;
 use chauffeur_core::Plan;
 use chauffeur_judges::Question;
 pub use error::RuleError;
+pub use file::{AskFile, JudgeFile, StepFile};
 pub use judge::JudgeSpec;
 pub use strategy::Strategy;
 

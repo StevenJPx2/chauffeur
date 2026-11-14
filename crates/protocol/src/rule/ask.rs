@@ -4,6 +4,7 @@ use chauffeur_judges::{Label, Outcomes, Question};
 
 use super::error::RuleError;
 use super::file::{AskFile, AskRef, LabelFile, StepFile};
+use crate::limits::{Limit, count};
 
 /// The step's question: its inline ask, or the one it names in `asks`.
 pub(super) fn resolve_ask(
@@ -19,6 +20,12 @@ pub(super) fn resolve_ask(
             ask: name.clone(),
         })?,
     };
+    Limit::Outcomes
+        .check(count(ask.outcomes.len()))
+        .map_err(|source| RuleError::Limit {
+            rule: rule.to_owned(),
+            source,
+        })?;
     let labels = ask.outcomes.iter().map(|label| match label {
         LabelFile::Value(value) => Label::new(value.clone()),
         LabelFile::Described { value, description } => {

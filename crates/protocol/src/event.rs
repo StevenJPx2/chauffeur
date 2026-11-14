@@ -21,6 +21,12 @@ pub struct Event {
 }
 
 impl Event {
+    /// The event `name` with `fields`.
+    #[must_use]
+    pub const fn new(name: String, fields: Map<String, Value>) -> Self {
+        Self { name, fields }
+    }
+
     /// An event from its JSON object, named by its `event` field.
     ///
     /// # Errors

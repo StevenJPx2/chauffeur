@@ -1,6 +1,8 @@
 use chauffeur_core::PlanError;
 use chauffeur_judges::QuestionError;
 
+use crate::limits::Exceeded;
+
 /// Why a rule file was refused when it loaded. Each names the rule.
 #[derive(Debug, thiserror::Error)]
 pub enum RuleError {
@@ -53,6 +55,20 @@ pub enum RuleError {
         step: String,
         /// Why.
         reason: String,
+    },
+    /// A step has a blank ID.
+    #[error("rule `{rule}`: a step needs an `id`")]
+    BlankStep {
+        /// The rule's ID.
+        rule: String,
+    },
+    /// The strategy or one of its questions is over a limit.
+    #[error("rule `{rule}`: {source}")]
+    Limit {
+        /// The rule's ID.
+        rule: String,
+        /// Which limit, and by how much.
+        source: Exceeded,
     },
     /// The strategy is not a valid plan.
     #[error("rule `{rule}`: {source}")]
