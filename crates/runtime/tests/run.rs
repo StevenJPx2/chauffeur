@@ -14,7 +14,8 @@ use std::time::{Duration, Instant};
 use chauffeur_core::{Failure, Outcome};
 use chauffeur_judges::Models;
 use chauffeur_protocol::{Event, Rule};
-use chauffeur_runtime::{Context, Ran, Redactor, run};
+use chauffeur_protocol::{Navigate, Target};
+use chauffeur_runtime::{Cancel, Context, Ran, Redactor, run, run_strategy};
 
 fn repo(path: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -72,12 +73,15 @@ fn a_judge_sees_only_redacted_evidence() {
         r#"{{ "answers": [{{ "evidence": {{ "tool_call": {redacted:?} }}, "p": {{ "yes": 0.94, "no": 0.06 }} }}] }}"#
     );
 
-    let Ran::Settled { run: ran, then } = run(
+    let rule = commit_rule();
+    let ran = run(
         &placeholder("redacted", &answers),
-        &commit_rule(),
+        &rule,
         &commit(leaked),
         Duration::from_secs(2),
-    ) else {
+    );
+    let then = ran.then(&rule).cloned();
+    let Ran::Settled(ran) = ran else {
         panic!("the rule did not settle")
     };
 
@@ -93,12 +97,15 @@ fn a_judge_sees_only_redacted_evidence() {
 
 #[test]
 fn with_no_model_answering_the_step_fails_and_nothing_is_returned() {
-    let Ran::Settled { run: ran, then } = run(
+    let rule = commit_rule();
+    let ran = run(
         &placeholder("unanswered", r#"{ "answers": [] }"#),
-        &commit_rule(),
+        &rule,
         &commit("fixed stuff"),
         Duration::from_secs(2),
-    ) else {
+    );
+    let then = ran.then(&rule);
+    let Ran::Settled(ran) = &ran else {
         panic!("the rule did not settle")
     };
 
@@ -185,4 +192,88 @@ fn a_judge_slower_than_the_deadline_is_dropped() {
         sent.contains("[REDACTED]") && !sent.contains("AKIA"),
         "{sent}"
     );
+}
+
+/// A stand-in for Jev on loopback that answers once, after `delay`.
+fn slow_jev(delay: Duration) -> String {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let endpoint = format!("http://{}", listener.local_addr().unwrap());
+    thread::spawn(move || {
+        let Ok((stream, _)) = listener.accept() else {
+            return;
+        };
+        thread::sleep(delay);
+        drop(stream);
+    });
+    format!(
+        r#"{{ "models": {{ "jev": {{ "format": "systemone", "endpoint": "{endpoint}", "model": "jev-latest",
+                                  "key": {{ "env": "TYPESAFE_API_KEY" }}, "timeout_ms": 5000 }} }},
+             "tiers": {{ "system-one": ["jev"] }} }}"#
+    )
+}
+
+fn inline(evidence: &str) -> (Arc<chauffeur_protocol::Strategy>, Vec<(String, String)>) {
+    let navigate = Navigate::parse(&serde_json::json!({
+        "protocol": 1,
+        "judges": { "quick": { "tier": "system-one", "confidence": 0.7 } },
+        "strategy": [{ "id": "done", "judge": "quick",
+                       "ask": { "outcomes": ["yes", "no"], "evidence": ["log"],
+                                "instructions": "Is the migration finished?" } }],
+        "evidence": { "log": evidence }
+    }))
+    .unwrap();
+    let evidence = navigate.evidence().to_vec();
+    let strategy = match navigate.into_target() {
+        Target::Strategy(strategy) => Some(strategy),
+        Target::On(_) => None,
+    };
+    let strategy = strategy.unwrap();
+    (Arc::new(strategy), evidence)
+}
+
+fn in_ms(milliseconds: u64) -> Instant {
+    Instant::now()
+        .checked_add(Duration::from_millis(milliseconds))
+        .unwrap()
+}
+
+#[test]
+fn an_inline_strategy_settles_over_the_requests_evidence() {
+    let answers = r#"{ "answers": [{ "evidence": { "log": "migrated 42 of 42 tables" },
+                                     "p": { "yes": 0.9, "no": 0.1 } }] }"#;
+    let (strategy, evidence) = inline("migrated 42 of 42 tables");
+
+    let ran = run_strategy(
+        &placeholder("inline", answers),
+        &strategy,
+        &evidence,
+        in_ms(2_000),
+        &Cancel::new(),
+    );
+
+    let Ran::Settled(ran) = ran else {
+        panic!("the strategy did not settle: {ran:?}")
+    };
+    let Some(Outcome::Value(answer)) = ran.verdict.get("done") else {
+        panic!("no answer")
+    };
+    assert_eq!(answer.outcome().to_string(), "yes");
+}
+
+#[test]
+fn a_cancelled_run_returns_at_once_while_its_judge_is_still_asked() {
+    let (strategy, evidence) = inline("migrated 41 of 42 tables");
+    let context = context("cancelled", &slow_jev(Duration::from_secs(2)), &[]);
+    let cancel = Cancel::new();
+    let canceller = cancel.clone();
+    thread::spawn(move || {
+        thread::sleep(Duration::from_millis(100));
+        canceller.cancel();
+    });
+
+    let started = Instant::now();
+    let ran = run_strategy(&context, &strategy, &evidence, in_ms(4_000), &cancel);
+
+    assert!(matches!(ran, Ran::Cancelled), "{ran:?}");
+    assert!(started.elapsed() < Duration::from_millis(1_000));
 }

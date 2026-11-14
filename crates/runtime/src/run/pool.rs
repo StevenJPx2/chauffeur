@@ -1,6 +1,9 @@
-//! Worker threads kept between runs, so a run does not start a thread.
+//! Worker threads kept between runs, so a run does not start a thread, and
+//! bounded, so runs that outlive their deadline cannot start threads without
+//! end.
 
 use std::io;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::{self, SyncSender};
 use std::sync::{Arc, Mutex, Weak};
 use std::thread;
@@ -11,10 +14,13 @@ pub type Job = Box<dyn FnOnce() + Send>;
 /// Worker threads that wait for another job once theirs is done.
 ///
 /// A job goes to a waiting worker, or to a new one when none waits, so a
-/// slow job never holds up the next. At most `keep` workers wait; the others
-/// end, and so do the waiting ones when the pool is dropped.
+/// slow job never holds up the next. At most `keep` workers wait and at most
+/// `max` are alive; the others end, and so do the waiting ones when the pool
+/// is dropped.
 pub struct Pool {
     idle: Arc<Idle>,
+    alive: Arc<AtomicUsize>,
+    max: usize,
 }
 
 /// The workers waiting for a job, each by the sender that hands it one.
@@ -24,14 +30,16 @@ struct Idle {
 }
 
 impl Pool {
-    /// A pool that keeps at most `keep` workers waiting.
+    /// A pool that keeps at most `keep` workers waiting, and `max` alive.
     #[must_use]
-    pub fn new(keep: usize) -> Self {
+    pub fn new(keep: usize, max: usize) -> Self {
         Self {
             idle: Arc::new(Idle {
                 workers: Mutex::new(Vec::new()),
                 keep,
             }),
+            alive: Arc::new(AtomicUsize::new(0)),
+            max,
         }
     }
 
@@ -39,7 +47,7 @@ impl Pool {
     ///
     /// # Errors
     ///
-    /// When no worker waits and a new thread cannot start.
+    /// When no worker waits and `max` are alive, or a new thread cannot start.
     pub fn execute(&self, job: Job) -> io::Result<()> {
         let waiting = self
             .idle
@@ -62,12 +70,42 @@ impl Pool {
         self.idle.workers.lock().map_or(0, |workers| workers.len())
     }
 
+    /// How many workers are alive, waiting or working.
+    #[must_use]
+    pub fn alive(&self) -> usize {
+        self.alive.load(Ordering::SeqCst)
+    }
+
     fn start(&self, job: Job) -> io::Result<()> {
-        let idle = Arc::downgrade(&self.idle);
-        thread::Builder::new()
+        // Counted in first, so two callers cannot both take the last place.
+        if self.alive.fetch_add(1, Ordering::SeqCst) >= self.max {
+            self.alive.fetch_sub(1, Ordering::SeqCst);
+            return Err(io::Error::other(format!(
+                "all {} workers are busy",
+                self.max
+            )));
+        }
+        let (idle, alive) = (Arc::downgrade(&self.idle), Arc::clone(&self.alive));
+        let started = thread::Builder::new()
             .name("chauffeur worker".to_owned())
-            .spawn(move || work(&idle, job))
-            .map(drop)
+            .spawn(move || {
+                // Counted out however the worker ends, a panicking job included.
+                let _alive = Alive(alive);
+                work(&idle, job);
+            });
+        if started.is_err() {
+            self.alive.fetch_sub(1, Ordering::SeqCst);
+        }
+        started.map(drop)
+    }
+}
+
+/// One alive worker, counted out when its thread ends.
+struct Alive(Arc<AtomicUsize>);
+
+impl Drop for Alive {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::SeqCst);
     }
 }
 

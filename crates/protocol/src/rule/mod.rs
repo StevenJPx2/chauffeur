@@ -32,6 +32,12 @@ pub struct Rule {
     cooldown: Option<Duration>,
 }
 
+impl AsRef<Strategy> for Rule {
+    fn as_ref(&self) -> &Strategy {
+        &self.strategy
+    }
+}
+
 impl Rule {
     /// Parses and checks the rule file `text`, whose ID is `id`.
     ///
