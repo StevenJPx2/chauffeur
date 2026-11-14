@@ -1,0 +1,40 @@
+{
+  "name": "@fdcn/chauffeur",
+  "version": "1.0.0-rc.4",
+  "description": "Ask Chauffeur from any TypeScript program: navigate, and ask with a judge",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/wrkhse/chauffeur.git",
+    "directory": "packages/chauffeur"
+  },
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "exports": {
+    "./client": {
+      "types": "./dist/client/index.d.ts",
+      "default": "./dist/client/index.js"
+    },
+    "./judge": {
+      "types": "./dist/judge/index.d.ts",
+      "default": "./dist/judge/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "bun build src/client/index.ts src/judge/index.ts --root src --outdir dist --target node --format esm --splitting && tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test",
+    "check": "bun run typecheck && bun test && bun run build"
+  },
+  "devDependencies": {
+    "@types/bun": "1.4.2",
+    "ajv": "8.17.1",
+    "typescript": "7.0.2"
+  }
+}
