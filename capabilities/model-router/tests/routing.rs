@@ -714,13 +714,14 @@ fn limit_on(current: &str) -> Signal {
     } = &mut signal.kind
     {
         *failed = model(current);
+        // In OpenCode's alphabetical order: Sonnet before Opus, Luna before Sol.
         *available = [
             "anthropic/claude-fable-5-2",
-            "anthropic/claude-opus-5-5",
             "anthropic/claude-sonnet-5-5",
+            "anthropic/claude-opus-5-5",
             "openai/gpt-6-astra",
-            "openai/gpt-6.1-sol",
             "openai/gpt-6-luna",
+            "openai/gpt-6.1-sol",
             "opencode/claude-sonnet-5-5",
             "opencode/fledge-alpha-free",
             "opencode/ling-3.1-flash-free",
@@ -756,9 +757,10 @@ fn tiers_follow_thinking_variants_and_never_offer_the_same_model() {
         )),
         vec!["openai/gpt-6-astra#high", STAY]
     );
-    // Opus is balanced at every thinking variant: gpt-6.1-sol at high and
-    // gpt-6-luna at max. Sonnet shares the anthropic limit, and the gateway
-    // copy is not used directly.
+    // Opus is balanced at every thinking variant: gpt-6.1-sol at high, then
+    // gpt-6-luna at max, which the host lists first but is not recommended.
+    // Sonnet shares the anthropic limit, and the gateway copy is not used
+    // directly.
     assert_eq!(
         options(&shipped_router().plan(
             &Situation::default(),
@@ -790,7 +792,8 @@ fn tiers_follow_thinking_variants_and_never_offer_the_same_model() {
 
 #[test]
 fn an_agent_on_a_gateway_moves_to_its_tier_on_a_provider_used_directly() {
-    // claude-sonnet-5-5 through OpenCode's gateway is balanced, like the original.
+    // claude-sonnet-5-5 through OpenCode's gateway is balanced, like the
+    // original, so Opus and Sol, recommended, come before it and Luna.
     assert_eq!(
         options(&shipped_router().plan(
             &Situation::default(),
@@ -798,8 +801,8 @@ fn an_agent_on_a_gateway_moves_to_its_tier_on_a_provider_used_directly() {
         )),
         vec![
             "anthropic/claude-opus-5-5#high",
-            "anthropic/claude-sonnet-5-5#high",
             "openai/gpt-6.1-sol#high",
+            "anthropic/claude-sonnet-5-5#high",
             "openai/gpt-6-luna#max",
             STAY
         ]
@@ -853,8 +856,8 @@ fn recommended_models_come_first_and_fast_or_old_editions_are_never_offered() {
         options(&plan),
         vec![
             "openai/gpt-6.1-sol#high",
-            "openai/gpt-6-luna#max",
             "openai/gpt-6-sol#high",
+            "openai/gpt-6-luna#max",
             STAY
         ]
     );
@@ -866,8 +869,31 @@ fn recommended_models_come_first_and_fast_or_old_editions_are_never_offered() {
         unreachable!()
     };
     assert!(options[0].description.contains("recommended"));
-    assert!(options[1].description.contains("recommended"));
+    assert!(!options[1].description.contains("recommended"));
     assert!(!options[2].description.contains("recommended"));
+}
+
+#[test]
+fn without_a_confident_pick_opus_and_sol_fail_over_to_each_other() {
+    // The host lists Sonnet before Opus and Luna before Sol; Jev answers
+    // nothing, or below the bar.
+    let cases = [
+        ("anthropic/claude-opus-5-5#high", "openai/gpt-6.1-sol#high"),
+        ("openai/gpt-6.1-sol#high", "anthropic/claude-opus-5-5#high"),
+        ("openai/gpt-6.1-sol", "anthropic/claude-opus-5-5#high"),
+    ];
+
+    for (from, to) in cases {
+        let unsure = [choice("openai/gpt-6-luna#max", 0.1)];
+
+        for answers in [None, Some(&unsure[..])] {
+            let mut router = shipped_router();
+            let signal = limit_on(from);
+
+            router.plan(&Situation::default(), &signal);
+            assert_eq!(router.decide(&signal, answers), switch(to), "{from}");
+        }
+    }
 }
 
 #[test]

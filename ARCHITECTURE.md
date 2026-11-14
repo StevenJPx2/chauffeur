@@ -630,11 +630,20 @@ Set `"blacklist": []` to remove the shipped exclusion when Go is subscribed.
 rated candidate is left. The order is: same tier, then any tier on providers
 you use directly, then the last resort:
 
-| Tier     | Recommended                                                                                     | Fallbacks                                                      |
-| -------- | ----------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
-| Frontier | `claude-fable-5-2#high`, `gpt-6-astra#high`                                                     | `claude-fable-*`, `gpt-*-astra*`                                 |
-| Balanced | `claude-opus-5-5` (any variant), `gpt-6.1-sol#high`, `claude-sonnet-5-5`, `gpt-6-luna#max` | `claude-opus-*`, `gpt-*-sol*`, `claude-sonnet-*`, `gpt-*-luna*#max` |
-| Fast     | `gpt-6-luna` (other variants)                                                                   | `claude-haiku-*`, `gpt-*-luna*`                                  |
+| Tier     | Recommended                                                                    | Fallbacks                                                                                                            |
+| -------- | ------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------- |
+| Frontier | `claude-fable-5-2` (`#high`, default), `gpt-6-astra` (`#high`, default)        | `claude-fable-*`, `gpt-*-astra*`                                                                                     |
+| Balanced | `claude-opus-5-5` (`#high`, `#low`, default), `gpt-6.1-sol` (`#high`, default) | `claude-sonnet-5-5`, `gpt-6-luna` (`#max`), `claude-opus-*`, `gpt-*-sol*`, `claude-sonnet-*`, `gpt-*-luna*` (`#max`) |
+| Fast     | `gpt-6-luna` (default: every variant but `#max`)                               | `claude-haiku-*`, `gpt-*-luna*` (default)                                                                            |
+
+"Default" is a table's any-variant row: it covers the model's default
+thinking and every variant no other row names. A failover switches to the
+first variant a model's rows name, so `claude-opus-5-5` and `gpt-6.1-sol`
+are offered at `#high`. Balanced spans Sonnet and Luna at `#max` up to
+Opus and Sol at `#high`; only Opus and Sol are recommended there, so when
+Jev makes no confident pick, Opus fails over to Sol and Sol to Opus, like
+for like, whatever order the host lists models in. A Sonnet or Luna `#max`
+agent may therefore move up to Opus or Sol at `#high`.
 
 Excluded: `*-fast`, Claude generation 4 (`claude-*-4`, `claude-*-4-*`), and
 `gpt-5*`, `gpt-4*`.

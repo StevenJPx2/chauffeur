@@ -136,7 +136,9 @@ mod tests {
 
         assert_eq!(rated("claude-fable-5-2"), Some(true));
         assert_eq!(rated("claude-opus-5-5"), Some(true));
-        assert_eq!(rated("claude-sonnet-5-5"), Some(true));
+        // Sonnet is named for its variants, but not recommended: a
+        // balanced failover prefers Opus, like for like with Sol.
+        assert_eq!(rated("claude-sonnet-5-5"), Some(false));
         // An older 5.x model is a fallback of the same tier, not recommended.
         assert_eq!(rated("claude-fable-5-1"), Some(false));
         assert_eq!(
@@ -164,8 +166,8 @@ mod tests {
                 recommended("claude-opus-5-5", Some("high"), Tier::Balanced),
                 recommended("claude-opus-5-5", Some("low"), Tier::Balanced),
                 recommended("claude-opus-5-5", None, Tier::Balanced),
-                recommended("claude-sonnet-5-5", Some("high"), Tier::Balanced),
-                recommended("claude-sonnet-5-5", None, Tier::Balanced),
+                row("claude-sonnet-5-5", Some("high"), Tier::Balanced),
+                row("claude-sonnet-5-5", None, Tier::Balanced),
                 row("claude-fable-*", Some("high"), Tier::Frontier),
                 row("claude-fable-*", None, Tier::Frontier),
                 row("claude-opus-*", Some("high"), Tier::Balanced),

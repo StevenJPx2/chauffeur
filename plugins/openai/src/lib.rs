@@ -124,6 +124,15 @@ mod tests {
                 .unwrap()
                 .recommended
         );
+        // Luna at max is balanced but not recommended: a balanced failover
+        // prefers Sol, like for like with Opus.
+        assert!(
+            !provider
+                .rating("gpt-6-luna", Some("max"))
+                .unwrap()
+                .recommended
+        );
+        assert!(provider.rating("gpt-6-luna", None).unwrap().recommended);
     }
 
     #[test]
@@ -137,7 +146,7 @@ mod tests {
                 recommended("gpt-6-astra", None, Tier::Frontier),
                 recommended("gpt-6.1-sol", Some("high"), Tier::Balanced),
                 recommended("gpt-6.1-sol", None, Tier::Balanced),
-                recommended("gpt-6-luna", Some("max"), Tier::Balanced),
+                row("gpt-6-luna", Some("max"), Tier::Balanced),
                 recommended("gpt-6-luna", None, Tier::Fast),
                 row("gpt-*-astra*", Some("high"), Tier::Frontier),
                 row("gpt-*-astra*", None, Tier::Frontier),

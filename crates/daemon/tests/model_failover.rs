@@ -8,8 +8,14 @@ use chauffeur_core::{AvailableModel, Effect, ModelRef, Signal, SignalKind};
 use chauffeur_daemon::{EngineHandle, EngineOptions};
 use serde_json::{Value, json};
 
+/// What Jev answers: a choice at a confidence.
+struct Judged {
+    choice: &'static str,
+    confidence: f64,
+}
+
 /// Jev's answer: `expected` must be offered, `other_tier` must not.
-fn answer(request: &Value, expected: &str, other_tier: &str) -> Value {
+fn answer(request: &Value, expected: &str, other_tier: &str, judged: &Judged) -> Value {
     let criteria = request["questions"]["model-router/choice"]["criteria"]
         .as_object()
         .expect("criteria");
@@ -24,7 +30,7 @@ fn answer(request: &Value, expected: &str, other_tier: &str) -> Value {
             .contains("Ran tool edit.")
     );
 
-    json!({"model-router/choice": {"type": "choice", "confidence": 0.8, "choice": expected}})
+    json!({"model-router/choice": {"type": "choice", "confidence": judged.confidence, "choice": judged.choice}})
 }
 
 fn model(provider: &str, id: &str) -> ModelRef {
@@ -51,11 +57,11 @@ fn signal(at: u64, kind: SignalKind) -> Signal {
 }
 
 /// A usage limit on `from` switches the agent to `to`, Jev having been
-/// offered `to` and not `other_tier`.
-async fn fails_over(from: ModelRef, to: ModelRef, other_tier: &str) {
-    let expected = format!("{}/{}#high", to.provider, to.model);
-    let other_tier = other_tier.to_owned();
-    let (jev, server) = common::serve_jev(move |request| answer(request, &expected, &other_tier));
+/// offered `to` and not `other_tier`, whatever Jev judged.
+async fn fails_over(from: ModelRef, to: ModelRef, other_tier: &'static str, judged: Judged) {
+    let expected = to.key();
+    let (jev, server) =
+        common::serve_jev(move |request| answer(request, &expected, other_tier, &judged));
     let config_dir = std::env::temp_dir().join("chauffeur-daemon-test-config-absent");
     let engine = EngineHandle::spawn(EngineOptions {
         // No skills folder: no permission contracts or rules.
@@ -89,13 +95,14 @@ async fn fails_over(from: ModelRef, to: ModelRef, other_tier: &str) {
 
     assert!(engine.ingest(tool).await.expect("tool signal").is_empty());
 
+    // In OpenCode's alphabetical order: Sonnet before Opus, Luna before Sol.
     let available = [
         model("anthropic", "claude-fable-5-2"),
-        model("anthropic", "claude-opus-5-5"),
         model("anthropic", "claude-sonnet-5-5"),
+        model("anthropic", "claude-opus-5-5"),
         model("openai", "gpt-6-astra"),
-        model("openai", "gpt-6.1-sol"),
         model("openai", "gpt-6-luna"),
+        model("openai", "gpt-6.1-sol"),
     ]
     .into_iter()
     .map(|model| AvailableModel {
@@ -133,6 +140,10 @@ async fn a_frontier_supervisor_fails_over_to_frontier_on_the_other_provider() {
         high("anthropic", "claude-fable-5-2"),
         high("openai", "gpt-6-astra"),
         "openai/gpt-6.1-sol#high",
+        Judged {
+            choice: "openai/gpt-6-astra#high",
+            confidence: 0.8,
+        },
     )
     .await;
 }
@@ -143,6 +154,38 @@ async fn a_balanced_worker_fails_over_to_balanced_on_the_other_provider() {
         high("anthropic", "claude-opus-5-5"),
         high("openai", "gpt-6.1-sol"),
         "openai/gpt-6-astra#high",
+        Judged {
+            choice: "openai/gpt-6.1-sol#high",
+            confidence: 0.8,
+        },
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn an_unsure_judge_still_sends_opus_to_sol() {
+    fails_over(
+        high("anthropic", "claude-opus-5-5"),
+        high("openai", "gpt-6.1-sol"),
+        "openai/gpt-6-astra#high",
+        Judged {
+            choice: "openai/gpt-6-luna#max",
+            confidence: 0.1,
+        },
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn an_unsure_judge_still_sends_sol_to_opus() {
+    fails_over(
+        high("openai", "gpt-6.1-sol"),
+        high("anthropic", "claude-opus-5-5"),
+        "anthropic/claude-fable-5-2#high",
+        Judged {
+            choice: "anthropic/claude-sonnet-5-5#high",
+            confidence: 0.1,
+        },
     )
     .await;
 }
