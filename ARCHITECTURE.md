@@ -630,11 +630,11 @@ Set `"blacklist": []` to remove the shipped exclusion when Go is subscribed.
 rated candidate is left. The order is: same tier, then any tier on providers
 you use directly, then the last resort:
 
-| Tier     | Recommended                                                  | Fallbacks                            |
-| -------- | ------------------------------------------------------------ | ------------------------------------ |
-| Frontier | `claude-opus-5-5#high`, `gpt-6.1-sol#high`                   | `claude-opus-*`, `gpt-*-sol*`        |
-| Balanced | `claude-opus-5-5#low`, `claude-sonnet-5-5`, `gpt-6-luna#max` | `claude-sonnet-*`, `gpt-*-luna*#max` |
-| Fast     | `gpt-6-luna` (other variants)                                | `claude-haiku-*`, `gpt-*-luna*`      |
+| Tier     | Recommended                                                                                     | Fallbacks                                                      |
+| -------- | ----------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| Frontier | `claude-fable-5-2#high`, `gpt-6-astra#high`                                                     | `claude-fable-*`, `gpt-*-astra*`                                 |
+| Balanced | `claude-opus-5-5` (any variant), `gpt-6.1-sol#high`, `claude-sonnet-5-5`, `gpt-6-luna#max` | `claude-opus-*`, `gpt-*-sol*`, `claude-sonnet-*`, `gpt-*-luna*#max` |
+| Fast     | `gpt-6-luna` (other variants)                                                                   | `claude-haiku-*`, `gpt-*-luna*`                                  |
 
 Excluded: `*-fast`, Claude generation 4 (`claude-*-4`, `claude-*-4-*`), and
 `gpt-5*`, `gpt-4*`.

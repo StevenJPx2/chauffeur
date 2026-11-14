@@ -715,8 +715,10 @@ fn limit_on(current: &str) -> Signal {
     {
         *failed = model(current);
         *available = [
+            "anthropic/claude-fable-5-2",
             "anthropic/claude-opus-5-5",
             "anthropic/claude-sonnet-5-5",
+            "openai/gpt-6-astra",
             "openai/gpt-6.1-sol",
             "openai/gpt-6-luna",
             "opencode/claude-sonnet-5-5",
@@ -738,30 +740,38 @@ fn limit_on(current: &str) -> Signal {
 fn tiers_follow_thinking_variants_and_never_offer_the_same_model() {
     let mut router = shipped_router();
 
-    // Opus at high thinking is frontier: only gpt-6.1-sol matches, at high.
+    // Fable at high thinking is frontier: only gpt-6-astra matches, at high.
     assert_eq!(
         options(&router.plan(
             &Situation::default(),
-            &limit_on("anthropic/claude-opus-5-5#high")
+            &limit_on("anthropic/claude-fable-5-2#high")
         )),
-        vec!["openai/gpt-6.1-sol#high", STAY]
+        vec!["openai/gpt-6-astra#high", STAY]
     );
-    // Opus at its default thinking is frontier too, by the family's any-variant row.
+    // Fable at its default thinking is frontier too, by its any-variant row.
     assert_eq!(
         options(&shipped_router().plan(
             &Situation::default(),
-            &limit_on("anthropic/claude-opus-5-5")
+            &limit_on("anthropic/claude-fable-5-2")
         )),
-        vec!["openai/gpt-6.1-sol#high", STAY]
+        vec!["openai/gpt-6-astra#high", STAY]
     );
-    // Opus at low thinking is balanced: gpt-6-luna at max thinking. Sonnet
-    // shares the anthropic limit, and the gateway copy is not used directly.
+    // Opus is balanced at every thinking variant: gpt-6.1-sol at high and
+    // gpt-6-luna at max. Sonnet shares the anthropic limit, and the gateway
+    // copy is not used directly.
+    assert_eq!(
+        options(&shipped_router().plan(
+            &Situation::default(),
+            &limit_on("anthropic/claude-opus-5-5#high")
+        )),
+        vec!["openai/gpt-6.1-sol#high", "openai/gpt-6-luna#max", STAY]
+    );
     assert_eq!(
         options(&shipped_router().plan(
             &Situation::default(),
             &limit_on("anthropic/claude-opus-5-5#low")
         )),
-        vec!["openai/gpt-6-luna#max", STAY]
+        vec!["openai/gpt-6.1-sol#high", "openai/gpt-6-luna#max", STAY]
     );
 
     // A switch carries the variant.
@@ -787,8 +797,9 @@ fn an_agent_on_a_gateway_moves_to_its_tier_on_a_provider_used_directly() {
             &limit_on("opencode/claude-sonnet-5-5")
         )),
         vec![
-            "anthropic/claude-opus-5-5#low",
+            "anthropic/claude-opus-5-5#high",
             "anthropic/claude-sonnet-5-5#high",
+            "openai/gpt-6.1-sol#high",
             "openai/gpt-6-luna#max",
             STAY
         ]
@@ -840,7 +851,12 @@ fn recommended_models_come_first_and_fast_or_old_editions_are_never_offered() {
 
     assert_eq!(
         options(&plan),
-        vec!["openai/gpt-6.1-sol#high", "openai/gpt-6-sol#high", STAY]
+        vec![
+            "openai/gpt-6.1-sol#high",
+            "openai/gpt-6-luna#max",
+            "openai/gpt-6-sol#high",
+            STAY
+        ]
     );
 
     let Plan::Ask(questions) = &plan else {
@@ -850,7 +866,8 @@ fn recommended_models_come_first_and_fast_or_old_editions_are_never_offered() {
         unreachable!()
     };
     assert!(options[0].description.contains("recommended"));
-    assert!(!options[1].description.contains("recommended"));
+    assert!(options[1].description.contains("recommended"));
+    assert!(!options[2].description.contains("recommended"));
 }
 
 #[test]
@@ -863,7 +880,7 @@ fn with_no_same_tier_model_left_another_tier_comes_before_free_models() {
         !offered.iter().any(|key| key.contains("free")),
         "{offered:?}"
     );
-    assert_eq!(offered[0], "anthropic/claude-opus-5-5#high");
+    assert_eq!(offered[0], "anthropic/claude-fable-5-2#high");
 }
 
 #[test]

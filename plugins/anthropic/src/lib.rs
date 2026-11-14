@@ -81,30 +81,44 @@ mod tests {
     }
 
     #[test]
-    fn opus_tiers_follow_its_thinking_variant() {
+    fn fable_is_frontier_and_opus_balanced_at_every_thinking_variant() {
         let provider = AnthropicProvider::default();
 
         assert_eq!(
-            provider.tier("claude-opus-5-5", Some("high")),
+            provider.tier("claude-fable-5-2", Some("high")),
             Some(Tier::Frontier)
+        );
+        assert_eq!(
+            provider.tier("claude-fable-5-2", None),
+            Some(Tier::Frontier)
+        );
+        assert_eq!(
+            provider.tier("claude-opus-5-5", Some("high")),
+            Some(Tier::Balanced)
         );
         assert_eq!(
             provider.tier("claude-opus-5-5", Some("low")),
             Some(Tier::Balanced)
         );
-        // Any other thinking variant, and the default, is frontier.
         assert_eq!(
             provider.tier("claude-opus-5-5", Some("max")),
+            Some(Tier::Balanced)
+        );
+        assert_eq!(provider.tier("claude-opus-5-5", None), Some(Tier::Balanced));
+        // Family patterns cover versions the table does not name.
+        assert_eq!(
+            provider.tier("claude-fable-5-3", Some("max")),
             Some(Tier::Frontier)
         );
-        assert_eq!(provider.tier("claude-opus-5-5", None), Some(Tier::Frontier));
-        // Family patterns cover versions the table does not name.
         assert_eq!(
             provider.tier("claude-sonnet-5-5", Some("medium")),
             Some(Tier::Balanced)
         );
         assert_eq!(provider.tier("claude-haiku-5", None), Some(Tier::Fast));
-        assert_eq!(provider.tier("claude-fable-5-1", None), None);
+        assert_eq!(
+            provider.variants("claude-fable-5-2"),
+            vec![Some("high"), None]
+        );
         assert_eq!(
             provider.variants("claude-opus-5-5"),
             vec![Some("high"), Some("low"), None]
@@ -120,12 +134,19 @@ mod tests {
                 .map(|rating| rating.recommended)
         };
 
+        assert_eq!(rated("claude-fable-5-2"), Some(true));
         assert_eq!(rated("claude-opus-5-5"), Some(true));
         assert_eq!(rated("claude-sonnet-5-5"), Some(true));
         // An older 5.x model is a fallback of the same tier, not recommended.
+        assert_eq!(rated("claude-fable-5-1"), Some(false));
+        assert_eq!(
+            provider.tier("claude-fable-5-1", None),
+            Some(Tier::Frontier)
+        );
         assert_eq!(rated("claude-opus-5"), Some(false));
-        assert_eq!(provider.tier("claude-opus-5", None), Some(Tier::Frontier));
+        assert_eq!(provider.tier("claude-opus-5", None), Some(Tier::Balanced));
         // Fast editions and generation 4 have no tier at all.
+        assert_eq!(rated("claude-fable-5-2-fast"), None);
         assert_eq!(rated("claude-opus-5-5-fast"), None);
         assert_eq!(rated("claude-opus-4-8"), None);
         assert_eq!(rated("claude-sonnet-4-6"), None);
@@ -138,14 +159,18 @@ mod tests {
         assert_eq!(
             provider.tiers(),
             [
-                recommended("claude-opus-5-5", Some("high"), Tier::Frontier),
+                recommended("claude-fable-5-2", Some("high"), Tier::Frontier),
+                recommended("claude-fable-5-2", None, Tier::Frontier),
+                recommended("claude-opus-5-5", Some("high"), Tier::Balanced),
                 recommended("claude-opus-5-5", Some("low"), Tier::Balanced),
-                recommended("claude-opus-5-5", None, Tier::Frontier),
+                recommended("claude-opus-5-5", None, Tier::Balanced),
                 recommended("claude-sonnet-5-5", Some("high"), Tier::Balanced),
                 recommended("claude-sonnet-5-5", None, Tier::Balanced),
-                row("claude-opus-*", Some("high"), Tier::Frontier),
+                row("claude-fable-*", Some("high"), Tier::Frontier),
+                row("claude-fable-*", None, Tier::Frontier),
+                row("claude-opus-*", Some("high"), Tier::Balanced),
                 row("claude-opus-*", Some("low"), Tier::Balanced),
-                row("claude-opus-*", None, Tier::Frontier),
+                row("claude-opus-*", None, Tier::Balanced),
                 row("claude-sonnet-*", Some("high"), Tier::Balanced),
                 row("claude-sonnet-*", None, Tier::Balanced),
                 row("claude-haiku-*", None, Tier::Fast),
