@@ -555,6 +555,82 @@ if (done.ok && done.outcome === "yes") {
 
 Structure:
 
+The client is `@fdcn/chauffeur`, built for Node 22 and Bun. `navigate` opens
+a connection of its own and closes it once the result arrives or the signal
+aborts. It rejects with a `NavigateError` carrying the daemon's `reason` and
+`limit`, or with `unavailable` for no daemon, another protocol, or no
+answer two seconds past the deadline; a reason it does not know reads as
+`invalid`. An aborted signal rejects with its reason. Each event goes to
+`onEvent` as it arrives, and a listener that throws ends only its own call.
+
+```ts
+function navigate<R extends NavigateRequest>(
+  request: R,
+  options?: {
+    signal?: AbortSignal
+    onEvent?: (event: NavigationEvent) => void
+    socket?: string
+    name?: string
+  }
+): Promise<Navigated<R>> // { intents } for an event, { verdict } for a strategy
+
+function connect(where?: { socket?: string; name?: string }): Chauffeur
+
+type Chauffeur = {
+  navigate<R extends NavigateRequest>(
+    request: R,
+    options?: CallOptions
+  ): Promise<Navigated<R>>
+  close(): void
+}
+
+class NavigateError extends Error {
+  readonly reason: Reason // "invalid" | "limit_exceeded" | "busy" | "deadline" | …
+  readonly limit?: string
+  readonly max?: number
+}
+
+function socketPath(where?: Where, env?: Env): string
+```
+
+`connect` keeps one connection for every call and sends `$/cancelRequest`
+when a call's signal aborts; after the daemon restarts, the next call opens
+another; a call on a closed client is `unavailable` and opens nothing. `ask`
+sends a one-step inline strategy whose step names the evidence it sends, and
+never rejects, an abort reading as `cancelled`: its result is an answer typed from the
+question's outcomes, or `{ ok: false, reason }`.
+
+```ts
+function judge(spec: {
+  tier: Tier
+  model?: string
+  confidence?: number | Record<string, number>
+}): Judge
+function noul(instructions: string): Question<"yes" | "no">
+
+function ask<O extends string>(
+  question: Question<O>,
+  options: {
+    judge: Judge
+    evidence?: Blocks
+    signal?: AbortSignal
+    deadlineMs?: number
+    client?: Chauffeur
+  }
+): Promise<Asked<O>>
+
+type Asked<O extends string> =
+  | {
+      ok: true
+      outcome: O | "unsure"
+      p: Record<O, number>
+      level: number
+      model: string
+      placeholder: boolean
+    }
+  | { ok: false; reason: Failure | Reason }
+```
+
 `chauffeur navigate` reads the whole of stdin as the request's `params`,
 sends it with ID 1, and copies every line it receives to stdout until the
 reply to it. It waits for the request's `deadline_ms` and 2 seconds more,
@@ -580,7 +656,18 @@ Verified by:
   fixture identically and return the same verdicts.
 - Aborting any caller cancels the navigation; an unsupported protocol reports
   as `unavailable`.
-- `ask`'s result types reject impossible outcomes at compile time.
+- `ask`'s result types reject impossible outcomes at compile time:
+  `packages/chauffeur/test/types.test.ts` holds `@ts-expect-error` lines the
+  typecheck fails on if they compile.
+- `packages/chauffeur/test/daemon.test.ts`, in CI against the built daemon:
+  the client and `chauffeur navigate` accept and reject all 51 fixtures alike,
+  but for the one without `protocol`, which the client always sends;
+  `ask`, the client and `chauffeur navigate` give one verdict; an abort from
+  each is a cancelled run in the audit log. Every accepted fixture fits the
+  schema.
+- `packages/chauffeur/test/client.test.ts` and `judge.test.ts`, against a
+  stand-in daemon: events, rejections, no daemon, a hang-up, a silent daemon,
+  aborts on both connections, and reconnecting after a restart.
 - `crates/cli/tests/navigate.rs` runs `chauffeur navigate` against a daemon
   on a test thread: an event prints its events then the intents, every
   fixture exits 0, 1 or 2 with its reason and limit, no daemon exits 2, and
