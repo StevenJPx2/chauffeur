@@ -142,8 +142,11 @@ sequenceDiagram
 ## Quality gates
 
 A slice's rc ships only when every gate passes on its final tree. `check.yml`
-runs format, lints, the MSRV check, tests, benchmarks once and the package smoke
-test on each push to `v2`; the rest run locally before the tag.
+runs format, lints, the MSRV check, tests, Miri, Kani, benchmarks once and the
+package smoke test on each pull request and push to `v2`, and mutation testing
+over each pull request's changed lines. These run on GitHub's disposable
+runners, since they execute generated code and spawn processes. The rest run
+locally before the tag.
 
 | Gate       | Run                                                                                                                                                     | Passes when                                                                                                                            |
 | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
