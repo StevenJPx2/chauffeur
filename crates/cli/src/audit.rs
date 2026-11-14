@@ -2,7 +2,7 @@
 //! daemon's audit log, one line each, and with `--follow` every new one as
 //! it is written.
 
-use std::io::{Read, Seek, SeekFrom};
+use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::Path;
 use std::time::Duration;
 
@@ -35,16 +35,29 @@ pub fn run(args: &[String], path: &Path) -> Result<(), String> {
     let text = std::fs::read_to_string(path)
         .map_err(|error| format!("read {}: {error}", path.display()))?;
     let lines: Vec<&str> = text.lines().collect();
+    let mut stdout = io::stdout().lock();
 
     for line in &lines[lines.len().saturating_sub(options.count)..] {
-        println!("{}", render_line(line, options.brief));
+        if let Err(error) = writeln!(stdout, "{}", render_line(line, options.brief)) {
+            return stopped(&error);
+        }
     }
 
     if options.follow {
-        follow(path, metadata.len(), options.brief)?;
+        follow(path, metadata.len(), options.brief, &mut stdout)?;
     }
 
     Ok(())
+}
+
+/// Printing ends at a failed write. A reader that stops early, as `head`
+/// does, closes the pipe once it has the lines it wanted, so that is success.
+fn stopped(error: &io::Error) -> Result<(), String> {
+    if error.kind() == io::ErrorKind::BrokenPipe {
+        Ok(())
+    } else {
+        Err(format!("print the audit log: {error}"))
+    }
 }
 
 fn parse(args: &[String]) -> Result<Options, String> {
@@ -75,9 +88,10 @@ fn parse(args: &[String]) -> Result<Options, String> {
     Ok(options)
 }
 
-/// Print each complete line appended after `offset`, until interrupted. A
-/// file that shrinks was rotated or cleared, so reading starts over.
-fn follow(path: &Path, mut offset: u64, brief: bool) -> Result<(), String> {
+/// Print each complete line appended after `offset` to `out`, until
+/// interrupted or a write fails. A file that shrinks was rotated or cleared,
+/// so reading starts over.
+fn follow(path: &Path, mut offset: u64, brief: bool, out: &mut impl Write) -> Result<(), String> {
     let mut partial = String::new();
 
     loop {
@@ -107,7 +121,9 @@ fn follow(path: &Path, mut offset: u64, brief: bool) -> Result<(), String> {
 
         while let Some(end) = partial.find('\n') {
             let line: String = partial.drain(..=end).collect();
-            println!("{}", render_line(line.trim_end(), brief));
+            if let Err(error) = writeln!(out, "{}", render_line(line.trim_end(), brief)) {
+                return stopped(&error);
+            }
         }
     }
 }
