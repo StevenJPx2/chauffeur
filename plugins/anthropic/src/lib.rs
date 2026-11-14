@@ -212,6 +212,12 @@ mod tests {
                 "recommends the pattern m-*",
             ),
             (
+                "rivals",
+                r#"{ "tiers": [ { "model": "claude-opus-5-5", "variant": "low", "tier": "efficient", "recommended": true },
+                               { "model": "claude-sonnet-5-5", "variant": null, "tier": "efficient", "recommended": true } ] }"#,
+                "row 0 already recommends claude-opus-5-5",
+            ),
+            (
                 "exclusion",
                 r#"{ "tiers": [], "exclude": [" "] }"#,
                 "empty exclude pattern",

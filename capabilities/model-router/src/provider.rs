@@ -91,8 +91,8 @@ impl TierTable {
     }
 
     /// The table, if every model is named, each (model, variant) row is
-    /// unique, only exact rows recommend, and it has at most
-    /// [`MAX_TIER_ROWS`] rows and exclusions.
+    /// unique, only exact rows recommend, each tier recommends at most one
+    /// model, and it has at most [`MAX_TIER_ROWS`] rows and exclusions.
     ///
     /// # Errors
     ///
@@ -139,7 +139,38 @@ impl TierTable {
             }
         }
 
+        self.one_recommended_per_tier()?;
+
         Ok(self)
+    }
+
+    /// A failover with no confident pick takes the first recommended
+    /// candidate, so a second recommended model in one tier would leave the
+    /// choice to the host's list order.
+    fn one_recommended_per_tier(&self) -> Result<(), String> {
+        let recommended: Vec<(usize, &TierEntry)> = self
+            .tiers
+            .iter()
+            .enumerate()
+            .filter(|(_, entry)| entry.recommended)
+            .collect();
+
+        for (at, (index, entry)) in recommended.iter().enumerate() {
+            let rival = recommended[..at]
+                .iter()
+                .find(|(_, earlier)| earlier.tier == entry.tier && earlier.model != entry.model);
+
+            if let Some((earlier, other)) = rival {
+                return Err(format!(
+                    "tier row {index} recommends {} as {}, but row {earlier} already recommends {}; recommend one model per tier",
+                    entry.model,
+                    entry.tier.label(),
+                    other.model
+                ));
+            }
+        }
+
+        Ok(())
     }
 }
 
@@ -235,7 +266,7 @@ pub fn glob(pattern: &str, text: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::glob;
+    use super::{TierTable, glob};
 
     #[test]
     fn patterns_match_model_families() {
@@ -248,5 +279,41 @@ mod tests {
         assert!(glob("exact", "exact"));
         assert!(!glob("exact", "exactly"));
         assert!(!glob("a*a", "a"));
+    }
+
+    #[test]
+    fn a_tier_recommends_at_most_one_model() {
+        let row = |model: &str, variant: &str, tier: &str| {
+            format!(
+                r#"{{ "model": "{model}", "variant": "{variant}", "tier": "{tier}", "recommended": true }}"#
+            )
+        };
+        let table =
+            |rows: &[String]| TierTable::parse(&format!(r#"{{ "tiers": [{}] }}"#, rows.join(",")));
+
+        // One model at several variants of a tier, and one model per tier.
+        assert!(
+            table(&[
+                row("opus", "high", "balanced"),
+                row("opus", "max", "balanced")
+            ])
+            .is_ok()
+        );
+        assert!(
+            table(&[
+                row("opus", "high", "balanced"),
+                row("opus", "low", "efficient")
+            ])
+            .is_ok()
+        );
+        assert_eq!(
+            table(&[
+                row("opus", "low", "efficient"),
+                row("haiku", "high", "fast"),
+                row("sonnet", "high", "efficient"),
+            ])
+            .unwrap_err(),
+            "tier row 2 recommends sonnet as efficient, but row 0 already recommends opus; recommend one model per tier"
+        );
     }
 }
