@@ -283,7 +283,8 @@ Answering --> [*] : the reply cannot be written
   - At most 64 connections are served at once. Before S1 a 65th was closed
     with no word, which a caller could not tell from a daemon that stopped.
   - A request with an `id` gets one reply line, written in one write.
-  - An idle connection holds its slot with no time limit (O7).
+  - A connection frees its slot however it ends, a panic included. An idle
+    one holds its slot with no time limit (O7).
 
 | From      | On                                 | To        | Then                                       |
 | --------- | ---------------------------------- | --------- | ------------------------------------------ |

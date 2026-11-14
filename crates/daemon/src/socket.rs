@@ -1,4 +1,5 @@
 use std::io::{BufRead, BufReader, Read, Write};
+use std::mem::DropGuard;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::Path;
 use std::sync::Arc;
@@ -53,21 +54,24 @@ pub fn serve(listener: &UnixListener, router: &Arc<Router>) -> ! {
         let Ok((stream, _)) = listener.accept() else {
             continue;
         };
-        if open.fetch_add(1, Ordering::SeqCst) >= MAX_CONNECTIONS {
+        let taken = open.fetch_add(1, Ordering::SeqCst);
+        // Freed however the connection ends, a panic included.
+        let slot = DropGuard::new(Arc::clone(&open), |open| {
             open.fetch_sub(1, Ordering::SeqCst);
+        });
+        if taken >= MAX_CONNECTIONS {
+            drop(slot);
             busy(stream);
             continue;
         }
-        let (router, served) = (Arc::clone(router), Arc::clone(&open));
-        let spawned = thread::Builder::new()
+        let router = Arc::clone(router);
+        // A thread that cannot start drops this closure, and the slot with it.
+        let _ = thread::Builder::new()
             .name("connection".into())
             .spawn(move || {
                 connection(&router, stream);
-                served.fetch_sub(1, Ordering::SeqCst);
+                drop(slot);
             });
-        if spawned.is_err() {
-            open.fetch_sub(1, Ordering::SeqCst);
-        }
     }
 }
 
