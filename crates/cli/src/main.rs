@@ -2,6 +2,7 @@
 //! audit log.
 
 mod audit;
+mod navigate;
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::net::UnixStream;
@@ -35,6 +36,10 @@ enum Command {
         #[arg(long, default_value_t = 3_000)]
         deadline_ms: u64,
     },
+    /// Send one navigate request, read as JSON on stdin, and print each
+    /// JSON-RPC message that comes back. Exits 0 with intents or a verdict, 1
+    /// when rejected, 2 when no daemon answers.
+    Navigate,
     /// Print the most recent runs from the audit log, oldest first.
     Audit {
         /// How many runs.
@@ -111,6 +116,10 @@ fn main() -> Result<ExitCode> {
                 "chauffeur.emit",
                 &json!({ "event": event, "deadline_ms": deadline_ms }),
             )?)
+        }
+        Command::Navigate => {
+            let socket = Paths::from_env(&name, None).socket;
+            Ok(navigate::navigate(&socket, &mut std::io::stdin(), &mut std::io::stdout()).into())
         }
         Command::Audit {
             count,
