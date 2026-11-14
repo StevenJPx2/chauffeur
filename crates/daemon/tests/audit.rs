@@ -8,6 +8,7 @@
 
 use std::fs::{self, OpenOptions};
 use std::io::Write;
+use std::ops::ControlFlow;
 use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 
@@ -159,11 +160,20 @@ fn a_log_that_cannot_be_read_is_an_error() {
     assert!(recent(&folder, 10).is_err());
 }
 
+/// Sends each line `follow` calls back with, and stops it once nothing
+/// receives them.
+fn forward(send: mpsc::Sender<String>) -> impl FnMut(&str) -> ControlFlow<()> {
+    move |line| match send.send(line.to_owned()) {
+        Ok(()) => ControlFlow::Continue(()),
+        Err(_) => ControlFlow::Break(()),
+    }
+}
+
 /// Follows the log in `folder` on its own thread, once it has started.
 fn followed(folder: &std::path::Path) -> mpsc::Receiver<String> {
     let (send, received) = mpsc::channel();
     let watched = folder.to_owned();
-    thread::spawn(move || follow(&watched, 0, |line| drop(send.send(line.to_owned()))));
+    thread::spawn(move || follow(&watched, 0, forward(send)));
     thread::sleep(Duration::from_millis(400));
     received
 }
@@ -227,7 +237,7 @@ fn following_a_log_that_cannot_be_read_is_an_error() {
     let (send, ended) = mpsc::channel();
 
     thread::spawn(move || {
-        let _ = send.send(follow(&folder, 0, |_| {}).is_err());
+        let _ = send.send(follow(&folder, 0, |_| ControlFlow::<()>::Continue(())).is_err());
     });
 
     assert_eq!(ended.recv_timeout(Duration::from_secs(2)), Ok(true));
@@ -241,7 +251,7 @@ fn following_reads_each_new_line_once_across_a_move_aside() {
     let audit = Audit::new(&folder, line * 2);
     let (send, received) = mpsc::channel();
     let watched = folder;
-    thread::spawn(move || follow(&watched, 0, |line| drop(send.send(line.to_owned()))));
+    thread::spawn(move || follow(&watched, 0, forward(send)));
     thread::sleep(Duration::from_millis(400));
 
     let mut seen = Vec::new();
@@ -281,7 +291,7 @@ fn following_starts_with_the_recent_runs_and_misses_none_written_meanwhile() {
     let (send, received) = mpsc::channel();
     let watched = folder;
 
-    thread::spawn(move || follow(&watched, 2, |line| drop(send.send(line.to_owned()))));
+    thread::spawn(move || follow(&watched, 2, forward(send)));
     // Written while it starts: before it reads the log, or after.
     for index in 4..=40 {
         audit.append(run(index)).unwrap();
@@ -309,7 +319,7 @@ fn a_line_still_being_written_when_following_starts_comes_once_whole() {
     let (send, received) = mpsc::channel();
     let watched = folder;
 
-    thread::spawn(move || follow(&watched, 5, |line| drop(send.send(line.to_owned()))));
+    thread::spawn(move || follow(&watched, 5, forward(send)));
     thread::sleep(Duration::from_millis(400));
     writeln!(file, " }}").unwrap();
 
@@ -332,7 +342,7 @@ fn following_starts_with_the_last_runs_across_both_files() {
     }
     let (send, received) = mpsc::channel();
 
-    thread::spawn(move || follow(&folder, 3, |line| drop(send.send(line.to_owned()))));
+    thread::spawn(move || follow(&folder, 3, forward(send)));
 
     assert_eq!(
         whole(&collected(&received, Duration::from_millis(400))),
@@ -351,10 +361,59 @@ fn a_log_moved_aside_as_following_starts_is_read_once() {
     fs::hard_link(folder.join("audit.jsonl"), folder.join("audit.1.jsonl")).unwrap();
     let (send, received) = mpsc::channel();
 
-    thread::spawn(move || follow(&folder, 10, |line| drop(send.send(line.to_owned()))));
+    thread::spawn(move || follow(&folder, 10, forward(send)));
 
     assert_eq!(
         whole(&collected(&received, Duration::from_millis(400))),
         [1, 2]
+    );
+}
+
+#[test]
+fn following_stops_with_what_each_breaks_with_among_the_recent_runs() {
+    let folder = folder("follow-break-recent");
+    let audit = Audit::new(&folder, u64::MAX);
+    for index in 1..=3 {
+        audit.append(run(index)).unwrap();
+    }
+    let mut seen = Vec::new();
+
+    let stopped = follow(&folder, 3, |line| {
+        seen.push(line.to_owned());
+        if seen.len() == 2 {
+            ControlFlow::Break("enough")
+        } else {
+            ControlFlow::Continue(())
+        }
+    });
+
+    assert_eq!(stopped.unwrap(), "enough");
+    assert_eq!(whole(&seen), [1, 2]);
+}
+
+#[test]
+fn following_stops_with_what_each_breaks_with_on_a_new_run() {
+    let folder = folder("follow-break-new");
+    let audit = Audit::new(&folder, u64::MAX);
+    audit.append(run(1)).unwrap();
+    let (send, stopped) = mpsc::channel();
+    thread::spawn(move || {
+        let _ = send.send(follow(&folder, 0, |line| ControlFlow::Break(line.to_owned())).ok());
+    });
+
+    // Written until one arrives, however long following takes to start.
+    let mut index = 1;
+    let line = loop {
+        index += 1;
+        audit.append(run(index)).unwrap();
+        if let Ok(line) = stopped.recv_timeout(Duration::from_millis(300)) {
+            break line.unwrap();
+        }
+        assert!(index < 20, "following never stopped");
+    };
+
+    assert!(
+        (2..=index).contains(&whole(&[line])[0]),
+        "a run after the first"
     );
 }

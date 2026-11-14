@@ -3,6 +3,7 @@
 use std::collections::VecDeque;
 use std::fs::{self, DirBuilder, File, OpenOptions};
 use std::io::{self, BufRead, BufReader, Read, Write};
+use std::ops::ControlFlow;
 use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -100,8 +101,8 @@ pub fn recent(folder: &Path, count: usize) -> io::Result<Vec<String>> {
 }
 
 /// Calls `each` with the last `count` lines of the log in `folder`, oldest
-/// first, then with every line written from then on. It returns only when
-/// reading fails.
+/// first, then with every line written from then on, until `each` breaks.
+/// It returns what `each` broke with, or an error when reading fails.
 ///
 /// The recent lines are read through the file that is then followed, so no
 /// line is written between them unseen. That file stays open, so when the
@@ -111,27 +112,36 @@ pub fn recent(folder: &Path, count: usize) -> io::Result<Vec<String>> {
 /// # Errors
 ///
 /// The log exists but cannot be read.
-pub fn follow(folder: &Path, count: usize, mut each: impl FnMut(&str)) -> io::Result<!> {
+pub fn follow<B>(
+    folder: &Path,
+    count: usize,
+    mut each: impl FnMut(&str) -> ControlFlow<B>,
+) -> io::Result<B> {
     let path = folder.join(FILE);
     let mut following = open(&path)?;
     let mut partial = String::new();
-    for line in start(folder, following.as_mut(), &mut partial, count)? {
-        each(&line);
+    let recent = start(folder, following.as_mut(), &mut partial, count)?;
+    if let ControlFlow::Break(value) = recent.iter().map(String::as_str).try_for_each(&mut each) {
+        return Ok(value);
     }
     loop {
         thread::sleep(FOLLOW_EVERY);
         // Looked at first: every line of the old file was written before
         // the move, so reading it next finds them all.
         let moved = moved(&path, following.as_ref());
-        if let Some(file) = following.as_mut() {
-            read_lines(file, &mut partial, &mut each)?;
+        if let Some(file) = following.as_mut()
+            && let ControlFlow::Break(value) = read_lines(file, &mut partial, &mut each)?
+        {
+            return Ok(value);
         }
         if moved {
             // Lines are written whole, so a part left over never ends.
             partial.clear();
             following = open(&path)?;
-            if let Some(file) = following.as_mut() {
-                read_lines(file, &mut partial, &mut each)?;
+            if let Some(file) = following.as_mut()
+                && let ControlFlow::Break(value) = read_lines(file, &mut partial, &mut each)?
+            {
+                return Ok(value);
             }
         }
     }
@@ -200,16 +210,19 @@ fn moved(path: &Path, following: Option<&File>) -> bool {
 }
 
 /// Reads what was added to `file` and calls `each` with every line it
-/// ends; a part with no newline yet waits in `partial`.
-fn read_lines(
+/// ends, until `each` breaks; a part with no newline yet waits in
+/// `partial`.
+fn read_lines<B>(
     file: &mut File,
     partial: &mut String,
-    each: &mut impl FnMut(&str),
-) -> io::Result<()> {
+    each: &mut impl FnMut(&str) -> ControlFlow<B>,
+) -> io::Result<ControlFlow<B>> {
     file.read_to_string(partial)?;
     while let Some(end) = partial.find('\n') {
         let line: String = partial.drain(..=end).collect();
-        each(line.trim_end());
+        if let ControlFlow::Break(value) = each(line.trim_end()) {
+            return Ok(ControlFlow::Break(value));
+        }
     }
-    Ok(())
+    Ok(ControlFlow::Continue(()))
 }
