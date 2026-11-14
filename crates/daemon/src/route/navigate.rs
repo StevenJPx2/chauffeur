@@ -126,7 +126,6 @@ impl Router {
             Ran::Refused(reason) => Some(reason.clone()),
             Ran::Settled(_) | Ran::Deadline | Ran::Cancelled => None,
         };
-        let deadline_passed = matches!(ran, Ran::Deadline);
         let run = log_entry::ended(&mut entry, ran);
         if let Err(error) = self.audit.append(Value::Object(entry)) {
             eprintln!("chauffeur: a run was not written to the audit log: {error}");
@@ -139,8 +138,8 @@ impl Router {
                 Ok(json!({ "verdict": progress::verdict(&run.verdict) }))
             }
             (None, Some(reason)) => Err(Rejection::JudgeUnavailable(reason)),
-            (None, None) if deadline_passed => Err(Rejection::Deadline),
-            (None, None) => Err(Rejection::Cancelled),
+            // A cancelled run is answered as cancelled by `navigate`.
+            (None, None) => Err(Rejection::Deadline),
         }
     }
 }

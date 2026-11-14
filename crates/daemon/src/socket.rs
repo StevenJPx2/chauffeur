@@ -1,12 +1,15 @@
 use std::io::{BufRead, BufReader, Read, Write};
 use std::mem::DropGuard;
+use std::net::Shutdown;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::Path;
+use std::sync::atomic::AtomicBool;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::thread;
 use std::time::Duration;
 
+use chauffeur_protocol::Rejection;
 use chauffeur_runtime::Cancel;
 use serde_json::{Value, json};
 
@@ -25,8 +28,6 @@ const BUSY_WRITE: Duration = Duration::from_millis(100);
 const WRITE: Duration = Duration::from_secs(5);
 /// The most calls open at once on one connection.
 pub const MAX_CALLS: usize = 16;
-/// The code for a call the daemon cannot take now.
-const BUSY: i64 = -32_000;
 
 /// Binds the socket in its private folder. A socket another daemon answers
 /// on is left alone; a stale one is replaced.
@@ -96,51 +97,55 @@ fn busy(mut stream: UnixStream) {
 }
 
 /// Reads request lines and answers each on its own thread, so a slow
-/// navigation does not hold up the next call. `$/cancelRequest` cancels a
-/// call by its ID, and the connection closing, or a reply that cannot be
-/// written, cancels every call it carries. An oversized line gets an error
-/// and closes the connection.
+/// navigation does not hold up the next call. A call is checked and admitted
+/// before its thread starts. `$/cancelRequest` cancels a call by its ID; a
+/// notification for any other method runs nothing. The connection closing,
+/// or a reply that cannot be written, cancels every call it carries. An
+/// oversized line gets an error and closes the connection.
 fn connection(router: &Router, stream: UnixStream) {
     let Ok(writer) = stream.try_clone() else {
         return;
     };
     // A caller that stops reading cannot hold its calls' places for long.
     let _ = writer.set_write_timeout(Some(WRITE));
-    let writer = Mutex::new(writer);
+    let wire = Wire {
+        writer: Mutex::new(writer),
+        dead: AtomicBool::new(false),
+    };
     let calls = Calls::default();
     thread::scope(|scope| {
         let mut reader = BufReader::new(stream);
         let mut line = Vec::new();
-        while let Some(request) = next(&mut reader, &mut line, &writer) {
+        while let Some(request) = next(&mut reader, &mut line, &wire) {
             if request.method == rpc::CANCEL {
                 calls.cancel(request.params.get("id"));
                 continue;
             }
-            let Some(cancel) = calls.open(request.id.as_ref()) else {
-                let id = request.id.unwrap_or(Value::Null);
-                let busy = rpc::error(
-                    &id,
-                    BUSY,
-                    &format!("{MAX_CALLS} calls are open on this connection"),
-                );
-                if send(&writer, &busy).is_err() {
-                    break;
-                }
+            let Some(id) = request.id.clone() else {
                 continue;
             };
-            let (calls, writer) = (&calls, &writer);
+            if let Err(refused) = calls.room(&id) {
+                let _ = wire.send(&refused);
+                continue;
+            }
+            let call = match rpc::prepare(router, request) {
+                Ok(call) => call,
+                Err(refused) => {
+                    let _ = wire.send(&refused);
+                    continue;
+                }
+            };
+            let cancel = calls.open(id.clone());
+            let (calls, wire) = (&calls, &wire);
             scope.spawn(move || {
                 let notify = |message: Value| {
-                    if send(writer, &message).is_err() {
+                    if wire.send(&message).is_err() {
                         calls.cancel_all();
                     }
                 };
-                let id = request.id.clone();
-                let (reply, permit) = rpc::answer(router, request, &cancel, &notify);
-                calls.close(id.as_ref());
-                if let Some(reply) = reply
-                    && send(writer, &reply).is_err()
-                {
+                let (reply, permit) = call.answer(router, &cancel, &notify);
+                calls.close(&id);
+                if wire.send(&reply).is_err() {
                     calls.cancel_all();
                 }
                 // Held until the reply is written.
@@ -158,7 +163,7 @@ fn connection(router: &Router, stream: UnixStream) {
 fn next(
     reader: &mut BufReader<UnixStream>,
     line: &mut Vec<u8>,
-    writer: &Mutex<UnixStream>,
+    wire: &Wire,
 ) -> Option<rpc::Request> {
     loop {
         line.clear();
@@ -169,7 +174,7 @@ fn next(
             Ok(0) | Err(_) => return None,
             Ok(_) if line.len() > MAX_LINE => {
                 let reply = rpc::error(&Value::Null, -32_600, "the request line is over 1 MiB");
-                let _ = send(writer, &reply);
+                let _ = wire.send(&reply);
                 return None;
             }
             Ok(_) => {}
@@ -180,45 +185,84 @@ fn next(
         }
         match rpc::parse(text.trim()) {
             Ok(request) => return Some(request),
-            Err(reply) => send(writer, &reply).ok()?,
+            Err(reply) => wire.send(&reply).ok()?,
         }
+    }
+}
+
+/// The writing side of a connection. Once a write fails, or times out
+/// partway through a line, the connection is dead: nothing more is written,
+/// and shutting it down ends the reader too.
+struct Wire {
+    writer: Mutex<UnixStream>,
+    dead: AtomicBool,
+}
+
+impl Wire {
+    /// Writes `message` and its newline in one write. Formatted straight to
+    /// the socket, a message would go out in many small writes, each waking
+    /// the caller.
+    fn send(&self, message: &Value) -> std::io::Result<()> {
+        if self.dead.load(Ordering::SeqCst) {
+            return Err(std::io::ErrorKind::BrokenPipe.into());
+        }
+        let mut line = message.to_string();
+        line.push('\n');
+        let mut writer = self.writer.lock().unwrap_or_else(PoisonError::into_inner);
+        let written = writer.write_all(line.as_bytes());
+        if written.is_err() {
+            self.dead.store(true, Ordering::SeqCst);
+            let _ = writer.shutdown(Shutdown::Both);
+        }
+        written
     }
 }
 
 /// The calls open on one connection, each with its cancellation by ID.
 #[derive(Default)]
 struct Calls {
-    open: Mutex<Vec<(Option<Value>, Cancel)>>,
+    open: Mutex<Vec<(Value, Cancel)>>,
 }
 
 impl Calls {
-    /// A cancellation for a new call, unless [`MAX_CALLS`] are open.
-    fn open(&self, id: Option<&Value>) -> Option<Cancel> {
-        let cancel = Cancel::new();
-        let mut open = self.open.lock().unwrap_or_else(PoisonError::into_inner);
-        if open.len() >= MAX_CALLS {
-            return None;
+    /// Whether a call `id` may open: its ID is not in use, and fewer than
+    /// [`MAX_CALLS`] are open. Only the reader opens calls, so the answer
+    /// holds until it does.
+    fn room(&self, id: &Value) -> Result<(), Value> {
+        let (taken, count) = {
+            let open = self.open.lock().unwrap_or_else(PoisonError::into_inner);
+            (open.iter().any(|(open, _)| open == id), open.len())
+        };
+        if taken {
+            return Err(rpc::duplicate(id));
         }
-        open.push((id.cloned(), cancel.clone()));
-        drop(open);
-        Some(cancel)
+        if count >= MAX_CALLS {
+            let busy = Rejection::Busy.to_error();
+            return Err(json!({ "jsonrpc": "2.0", "id": id, "error": busy }));
+        }
+        Ok(())
+    }
+
+    /// Opens the call `id` and gives its cancellation.
+    fn open(&self, id: Value) -> Cancel {
+        let cancel = Cancel::new();
+        self.open
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push((id, cancel.clone()));
+        cancel
     }
 
     /// Forgets the call `id` once it has its reply.
-    fn close(&self, id: Option<&Value>) {
+    fn close(&self, id: &Value) {
         let mut open = self.open.lock().unwrap_or_else(PoisonError::into_inner);
-        if let Some(index) = open.iter().position(|(open, _)| open.as_ref() == id) {
-            open.swap_remove(index);
-        }
+        open.retain(|(open, _)| open != id);
     }
 
-    /// Cancels every open call with `id`.
+    /// Cancels the open call with `id`.
     fn cancel(&self, id: Option<&Value>) {
-        let Some(id) = id else {
-            return;
-        };
         let open = self.open.lock().unwrap_or_else(PoisonError::into_inner);
-        for (_, cancel) in open.iter().filter(|(open, _)| open.as_ref() == Some(id)) {
+        for (_, cancel) in open.iter().filter(|(open, _)| Some(open) == id) {
             cancel.cancel();
         }
     }
@@ -230,16 +274,4 @@ impl Calls {
             cancel.cancel();
         }
     }
-}
-
-/// Writes `reply` and its newline in one write. Formatted straight to the
-/// socket, a reply would go out in many small writes, each waking the
-/// caller.
-fn send(writer: &Mutex<UnixStream>, reply: &Value) -> std::io::Result<()> {
-    let mut line = reply.to_string();
-    line.push('\n');
-    writer
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner)
-        .write_all(line.as_bytes())
 }

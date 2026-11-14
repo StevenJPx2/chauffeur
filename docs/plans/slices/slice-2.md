@@ -457,11 +457,14 @@ distribution/rules/                     shipped
 
 Structure:
 
-Each request line is answered on its own thread, at most `MAX_CALLS`, 16,
-open on one connection; past that a call is refused as busy. A cancelled
+Each request is checked and admitted on the reading thread, then answered
+on its own, at most `MAX_CALLS`, 16, open on one connection; past that a
+call is refused as `busy`. An ID already open is refused with `-32600`, and a
+notification for any method but `$/cancelRequest` runs nothing. A cancelled
 call is answered with code `-32800` and `data.reason` `cancelled`. A
-connection that closes, or a reply that cannot be written within 5 seconds,
-cancels every call it carries.
+connection that closes, even only its writing side, cancels every call it
+carries; so does a write that fails or takes over 5 seconds, after which
+nothing more is written and the connection is shut.
 
 ```rust
 pub const MAX_CALLS: usize;
@@ -509,6 +512,8 @@ Verified by:
     `judge_unavailable` and `deadline`;
   - a fast call on a connection is not held up by a slow one;
   - `$/cancelRequest` is answered as `cancelled` within a second;
+  - a second call with an open ID is refused and the first still answers;
+  - a `chauffeur.navigate` notification runs nothing;
   - closing a connection cancels its 8 calls and frees their places;
   - 10 navigations at once from one source: 8 answered, 2 `busy`.
 - Each of the four sources loads.

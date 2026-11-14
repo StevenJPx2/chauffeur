@@ -445,3 +445,88 @@ fn two_matching_rules_both_return_and_a_late_one_drops_only_its_own() {
             .any(|run| run["rule"] == "sourcefed/late" && run["deadline"] == true)
     );
 }
+
+#[test]
+fn a_second_call_with_an_open_id_is_refused_and_the_first_still_answers() {
+    let paths = paths("duplicate", &models(Duration::from_millis(500)));
+    let mut caller = Caller::new(start(&paths));
+
+    caller.navigate(1, &slow_inline(3_000));
+    caller.navigate(1, &slow_inline(3_000));
+    let refused = caller.message();
+    let answered = caller.until_reply(1);
+
+    assert_eq!(refused["error"]["code"], -32_600, "{refused}");
+    assert!(
+        answered.last().unwrap().get("result").is_some(),
+        "{answered:?}"
+    );
+}
+
+#[test]
+fn a_navigate_sent_as_a_notification_runs_nothing() {
+    let paths = paths("notification", &models(Duration::ZERO));
+    let mut caller = Caller::new(start(&paths));
+
+    let request =
+        json!({ "jsonrpc": "2.0", "method": "chauffeur.navigate", "params": event("CI failed") });
+    writeln!(caller.stream, "{request}").unwrap();
+    let status = json!({ "jsonrpc": "2.0", "id": 2, "method": "chauffeur.status" });
+    writeln!(caller.stream, "{status}").unwrap();
+
+    assert_eq!(caller.message()["id"], 2);
+    assert_eq!(runs(&paths), Vec::<Value>::new());
+}
+
+#[test]
+fn a_connection_carries_more_calls_one_after_another_than_it_holds_at_once() {
+    let paths = paths("many", &models(Duration::ZERO));
+    let mut caller = Caller::new(start(&paths));
+
+    for id in 1..=40 {
+        caller.navigate(id, &event("CI failed"));
+        let reply = caller.until_reply(id).pop().unwrap();
+        assert_eq!(
+            reply["result"],
+            json!({ "intents": [] }),
+            "call {id}: {reply}"
+        );
+    }
+}
+
+#[test]
+fn a_call_that_finishes_leaves_the_others_cancellable() {
+    let paths = paths("cancel-after", &models(Duration::from_secs(3)));
+    let mut caller = Caller::new(start(&paths));
+
+    caller.navigate(1, &slow_inline(10_000));
+    caller.navigate(2, &event("CI failed"));
+    caller.until_reply(2);
+    let started = Instant::now();
+    caller.cancel(1);
+    let reply = caller.until_reply(1).pop().unwrap();
+
+    assert_eq!(reply["error"]["data"]["reason"], "cancelled", "{reply}");
+    assert!(started.elapsed() < Duration::from_secs(1));
+}
+
+#[test]
+fn a_line_over_the_limit_is_an_invalid_request_and_closes_the_connection() {
+    let paths = paths("oversized", &models(Duration::ZERO));
+    let mut caller = Caller::new(start(&paths));
+
+    // Written from a thread: the daemon stops reading at the limit.
+    let mut writer = caller.stream.try_clone().unwrap();
+    thread::spawn(move || {
+        let _ = writeln!(writer, "{}", "x".repeat(chauffeur_daemon::MAX_LINE + 10));
+    });
+    let reply = caller.message();
+
+    assert_eq!(reply["error"]["code"], -32_600, "{reply}");
+    let mut rest = String::new();
+    assert_eq!(
+        caller.reader.read_line(&mut rest).unwrap_or(0),
+        0,
+        "closed: {rest}"
+    );
+}

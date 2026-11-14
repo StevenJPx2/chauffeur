@@ -48,87 +48,109 @@ pub fn parse(line: &str) -> Result<Request, Value> {
     })
 }
 
-/// Answers `request`, with `notify` given each notification it streams.
-/// The reply is none for a notification. The permit, when the call was
-/// admitted, is held until the caller has sent the reply.
-pub fn answer(
-    router: &Router,
-    request: Request,
-    cancel: &Cancel,
-    notify: &(dyn Fn(Value) + Sync),
-) -> (Option<Value>, Option<Permit>) {
-    let id = request.id.clone().unwrap_or(Value::Null);
-    let (result, permit) = match request.method.as_str() {
-        "chauffeur.emit" => emit(router, &request.params, cancel),
-        "chauffeur.navigate" => navigate(router, &id, &request.params, cancel, notify),
-        "chauffeur.status" => (Ok(status(router)), None),
-        other => (
-            Err(error_object(
-                METHOD_NOT_FOUND,
-                &format!("no method `{other}`"),
-            )),
-            None,
-        ),
-    };
-    let reply = request.id.map(|id| match result {
-        Ok(result) => json!({ "jsonrpc": "2.0", "id": id, "result": result }),
-        Err(error) => json!({ "jsonrpc": "2.0", "id": id, "error": error }),
-    });
-    (reply, permit)
+/// A call checked and admitted, ready to run on a thread of its own.
+pub struct Call {
+    id: Value,
+    work: Work,
+    /// Held until the reply is written; none for a call that needs no place.
+    permit: Option<Permit>,
 }
 
-fn emit(
-    router: &Router,
-    params: &Value,
-    cancel: &Cancel,
-) -> (Result<Value, Value>, Option<Permit>) {
+enum Work {
+    Emit(Event, Duration),
+    Navigate(Navigate),
+    Status,
+}
+
+/// Checks `request`'s params, then admits it for its source, so a call that
+/// is malformed, over a limit or busy is answered at once, before any thread
+/// starts.
+///
+/// # Errors
+///
+/// The error reply to send.
+pub fn prepare(router: &Router, request: Request) -> Result<Call, Value> {
+    let id = request.id.unwrap_or(Value::Null);
+    let refuse = |error: Value| json!({ "jsonrpc": "2.0", "id": id, "error": error });
+    let (work, source) = match request.method.as_str() {
+        "chauffeur.emit" => (
+            Work::Emit(
+                event(&request.params).map_err(refuse)?,
+                deadline(&request.params),
+            ),
+            Some(Source::Harness),
+        ),
+        "chauffeur.navigate" => {
+            let navigate = Navigate::parse(&request.params)
+                .map_err(|rejection| refuse(rejection.to_error()))?;
+            (Work::Navigate(navigate), Some(Source::Integration))
+        }
+        "chauffeur.status" => (Work::Status, None),
+        other => {
+            return Err(refuse(error_object(
+                METHOD_NOT_FOUND,
+                &format!("no method `{other}`"),
+            )));
+        }
+    };
+    let permit = source
+        .map(|source| router.admit(source))
+        .transpose()
+        .map_err(|_| refuse(Rejection::Busy.to_error()))?;
+    Ok(Call { id, work, permit })
+}
+
+impl Call {
+    /// Runs the call, with `notify` given each notification it streams, and
+    /// returns its reply and the permit to drop once the reply is written.
+    pub fn answer(
+        self,
+        router: &Router,
+        cancel: &Cancel,
+        notify: &(dyn Fn(Value) + Sync),
+    ) -> (Value, Option<Permit>) {
+        let id = self.id;
+        let result = match self.work {
+            Work::Emit(event, deadline) => {
+                Ok(json!({ "actions": router.emit(&event, deadline, cancel) }))
+            }
+            Work::Navigate(request) => {
+                let progress = |mut event: Value| {
+                    if let Some(fields) = event.as_object_mut() {
+                        fields.insert("id".into(), id.clone());
+                    }
+                    notify(
+                        json!({ "jsonrpc": "2.0", "method": "chauffeur.event", "params": event }),
+                    );
+                };
+                router
+                    .navigate(request, cancel, &progress)
+                    .map_err(|rejection| rejection.to_error())
+            }
+            Work::Status => Ok(status(router)),
+        };
+        let reply = match result {
+            Ok(result) => json!({ "jsonrpc": "2.0", "id": id, "result": result }),
+            Err(error) => json!({ "jsonrpc": "2.0", "id": id, "error": error }),
+        };
+        (reply, self.permit)
+    }
+}
+
+fn event(params: &Value) -> Result<Event, Value> {
     let event = params
         .get("event")
-        .ok_or_else(|| error_object(INVALID_PARAMS, "no `event`"))
-        .and_then(|event| {
-            Event::parse(&event.to_string())
-                .map_err(|error| error_object(INVALID_PARAMS, &error.to_string()))
-        });
-    let event = match event {
-        Ok(event) => event,
-        Err(error) => return (Err(error), None),
-    };
-    let Ok(permit) = router.admit(Source::Harness) else {
-        return (Err(Rejection::Busy.to_error()), None);
-    };
-    let deadline = params
+        .ok_or_else(|| error_object(INVALID_PARAMS, "no `event`"))?;
+    Event::parse(&event.to_string())
+        .map_err(|error| error_object(INVALID_PARAMS, &error.to_string()))
+}
+
+fn deadline(params: &Value) -> Duration {
+    params
         .get("deadline_ms")
         .and_then(Value::as_u64)
         .map_or(DEFAULT_DEADLINE, Duration::from_millis)
-        .min(MAX_DEADLINE);
-    let actions = router.emit(&event, deadline, cancel);
-    (Ok(json!({ "actions": actions })), Some(permit))
-}
-
-fn navigate(
-    router: &Router,
-    id: &Value,
-    params: &Value,
-    cancel: &Cancel,
-    notify: &(dyn Fn(Value) + Sync),
-) -> (Result<Value, Value>, Option<Permit>) {
-    let request = match Navigate::parse(params) {
-        Ok(request) => request,
-        Err(rejection) => return (Err(rejection.to_error()), None),
-    };
-    let Ok(permit) = router.admit(Source::Integration) else {
-        return (Err(Rejection::Busy.to_error()), None);
-    };
-    let progress = |mut event: Value| {
-        if let Some(fields) = event.as_object_mut() {
-            fields.insert("id".into(), id.clone());
-        }
-        notify(json!({ "jsonrpc": "2.0", "method": "chauffeur.event", "params": event }));
-    };
-    let result = router
-        .navigate(request, cancel, &progress)
-        .map_err(|rejection| rejection.to_error());
-    (result, Some(permit))
+        .min(MAX_DEADLINE)
 }
 
 fn status(router: &Router) -> Value {
@@ -150,4 +172,13 @@ fn error_object(code: i64, message: &str) -> Value {
 /// An error reply to `id`.
 pub fn error(id: &Value, code: i64, message: &str) -> Value {
     json!({ "jsonrpc": "2.0", "id": id, "error": error_object(code, message) })
+}
+
+/// The error reply to a call whose ID is already open on its connection.
+pub fn duplicate(id: &Value) -> Value {
+    error(
+        id,
+        INVALID_REQUEST,
+        "a call with this id is already open on this connection",
+    )
 }
