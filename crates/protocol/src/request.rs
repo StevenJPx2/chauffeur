@@ -139,6 +139,12 @@ impl Navigate {
         &self.target
     }
 
+    /// The event or the inline strategy, taken from the request.
+    #[must_use]
+    pub fn into_target(self) -> Target {
+        self.target
+    }
+
     /// The event rules are matched against: named by `on`, with each
     /// evidence block as a field. None for an inline strategy.
     #[must_use]

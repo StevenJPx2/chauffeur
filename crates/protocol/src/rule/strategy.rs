@@ -17,6 +17,12 @@ pub struct Strategy {
     plan: Plan<Question>,
 }
 
+impl AsRef<Self> for Strategy {
+    fn as_ref(&self) -> &Self {
+        self
+    }
+}
+
 impl Strategy {
     /// Checks the strategy of `id`: each step's judge and question, and each
     /// judge's confidence against the outcomes of the steps it answers.

@@ -110,23 +110,22 @@ impl Router {
         let ran = run(&loaded.context, rule, event, deadline);
         let elapsed = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
         entry.insert("elapsed_ms".into(), json!(elapsed));
-        let returned = match ran {
-            Ran::Settled { run, then } => {
+        let returned = ran.then(rule).cloned();
+        match ran {
+            Ran::Settled(run) => {
                 entry.insert(
                     "steps".into(),
                     log_entry::steps(&run.verdict.iter().collect::<Vec<_>>()),
                 );
-                then
             }
             Ran::Refused(reason) => {
                 entry.insert("refused".into(), json!(reason));
-                None
             }
-            Ran::Deadline => {
+            // Nothing cancels an emitted event; its caller waits for it.
+            Ran::Deadline | Ran::Cancelled => {
                 entry.insert("deadline".into(), json!(true));
-                None
             }
-        };
+        }
         // Runs that settle at once in one session may all have passed
         // `cooling`; only the first to fire returns its action.
         let action = returned.and_then(|then| {

@@ -43,7 +43,7 @@ fn held(pool: &Pool, release: Receiver<()>, done: mpsc::Sender<()>) {
 
 #[test]
 fn a_finished_worker_takes_the_next_job() {
-    let pool = Pool::new(1);
+    let pool = Pool::new(1, 8);
 
     let first = thread_of(&pool);
     assert!(eventually(|| pool.waiting() == 1));
@@ -55,7 +55,7 @@ fn a_finished_worker_takes_the_next_job() {
 
 #[test]
 fn a_busy_worker_does_not_hold_up_the_next_job() {
-    let pool = Pool::new(1);
+    let pool = Pool::new(1, 8);
     let (release, wait) = mpsc::channel();
     let (done, finished) = mpsc::channel();
     held(&pool, wait, done);
@@ -69,7 +69,7 @@ fn a_busy_worker_does_not_hold_up_the_next_job() {
 
 #[test]
 fn at_most_keep_workers_wait() {
-    let pool = Pool::new(2);
+    let pool = Pool::new(2, 8);
     let (done, finished) = mpsc::channel();
     let releases: Vec<_> = (0..3)
         .map(|_| {

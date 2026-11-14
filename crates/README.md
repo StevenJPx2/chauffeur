@@ -14,18 +14,18 @@ The Rust engine. Each crate depends only on the ones below it in this table.
 A module with several parts is a folder named after it, one file per
 concept, with a `README.md`:
 
-| Folder                                               | Holds                                                                                  |
-| ---------------------------------------------------- | -------------------------------------------------------------------------------------- |
-| [`core/src/plan/`](core/src/plan/)                   | Plans, steps, outcomes and failures                                                    |
-| [`judges/src/question/`](judges/src/question/)       | Questions and their outcomes                                                           |
-| [`judges/src/confidence/`](judges/src/confidence/)   | Probabilities and how an answer settles                                                |
-| [`judges/src/config/`](judges/src/config/)           | `models.json`                                                                          |
-| [`judges/src/placeholder/`](judges/src/placeholder/) | Recorded and fixed answers                                                             |
-| [`judges/src/tiers/`](judges/src/tiers/)             | `system_one/`, `system_two/`, `facts/`, `person/`, and fallback across a tier's models |
-| [`protocol/src/rule/`](protocol/src/rule/)           | Loading and checking a rule file                                                       |
-| [`runtime/src/redact/`](runtime/src/redact/)         | Redacting evidence                                                                     |
-| [`runtime/src/run/`](runtime/src/run/)               | Running a rule within a deadline, and the worker pool                                  |
-| [`daemon/src/route/`](daemon/src/route/)             | Routing events to rules, cooldowns, the log                                            |
+| Folder                                               | Holds                                                                                   |
+| ---------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| [`core/src/plan/`](core/src/plan/)                   | Plans, steps, outcomes and failures                                                     |
+| [`judges/src/question/`](judges/src/question/)       | Questions and their outcomes                                                            |
+| [`judges/src/confidence/`](judges/src/confidence/)   | Probabilities and how an answer settles                                                 |
+| [`judges/src/config/`](judges/src/config/)           | `models.json`                                                                           |
+| [`judges/src/placeholder/`](judges/src/placeholder/) | Recorded and fixed answers                                                              |
+| [`judges/src/tiers/`](judges/src/tiers/)             | `system_one/`, `system_two/`, `facts/`, `person/`, and fallback across a tier's models  |
+| [`protocol/src/rule/`](protocol/src/rule/)           | Loading and checking a rule file                                                        |
+| [`runtime/src/redact/`](runtime/src/redact/)         | Redacting evidence                                                                      |
+| [`runtime/src/run/`](runtime/src/run/)               | Running a strategy within a deadline or until cancelled, the worker pool, the event log |
+| [`daemon/src/route/`](daemon/src/route/)             | Routing events to rules, cooldowns, the log                                             |
 
 ## One event
 
