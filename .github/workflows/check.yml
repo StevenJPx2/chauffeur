@@ -91,7 +91,10 @@ jobs:
         env:
           BASE: ${{ github.event.pull_request.base.sha }}
         run: git diff "$BASE"...HEAD -- '*.rs' > pr.diff
-      - run: cargo mutants --in-diff pr.diff --no-shuffle -vV
+      # Exit 3 is timeouts and nothing missed: a mutant that hangs the tests is
+      # caught by them, as the audits count it. Exit 2, a missed mutant, fails.
+      - name: cargo mutants
+        run: cargo mutants --in-diff pr.diff --no-shuffle -vV || test $? -eq 3
       - if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
