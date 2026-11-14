@@ -10,7 +10,8 @@ publish.workspace = true
 
 [dependencies]
 chauffeur-core = { workspace = true }
-chauffeur-judges = { workspace = true }
+# The types only: the formats that reach models are the runtime's.
+chauffeur-judges = { workspace = true, default-features = false }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }

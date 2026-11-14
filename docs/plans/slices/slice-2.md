@@ -352,6 +352,49 @@ Verified by:
   as `unavailable`.
 - `ask`'s result types reject impossible outcomes at compile time.
 
+### The navigate tab
+
+The playground's _Navigate_ tab checks a request as the daemon does and runs
+it against rule files, each step answered by a stand-in reply, so a rule's
+triage can be tried in a browser with no daemon or model.
+
+Files: `playground/wasm/src/navigate.rs`, `playground/src/features/navigate.ts`
+
+```json
+{
+  "request": {
+    "protocol": 1,
+    "on": "sourcefed.event",
+    "evidence": { "event": "thanks, looks good 👍" }
+  },
+  "rules": { "sourcefed/triage": { "on": "sourcefed.event", "…": "…" } },
+  "answers": { "screen": { "yes": 0.06, "no": 0.94 } }
+}
+```
+
+Structure:
+
+`navigate` takes the request, rule files by ID and each step's reply by step
+ID, and returns the events and the intents or verdict, the rejection a caller
+gets, or an error for input it cannot read. A step with no reply fails as
+`unavailable`, as with no model; a rule that does not load is listed in
+`refused`. The protocol crate takes `chauffeur-judges` without its model
+formats, so it builds for the browser.
+
+```rust
+#[wasm_bindgen]
+pub fn navigate(input: &str) -> String;
+```
+
+Verified by:
+
+- `playground/wasm/tests/navigate.rs`: noise withheld after the run's
+  events; unsure, a failure and no reply give no intent; an inline verdict; a
+  refused rule; a rejection over a limit.
+- The tab in Chrome, from `vite preview` of the release build: each example
+  shows its events, then withhold, no intent, a verdict, or the
+  `unsupported_protocol` rejection.
+
 ### sourcefed
 
 Its daemon navigates before queuing each event, its installer adds

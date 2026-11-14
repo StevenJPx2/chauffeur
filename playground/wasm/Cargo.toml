@@ -12,7 +12,9 @@ publish.workspace = true
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
+chauffeur-core = { workspace = true }
 chauffeur-judges = { workspace = true, default-features = false }
+chauffeur-protocol = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 wasm-bindgen = { workspace = true }

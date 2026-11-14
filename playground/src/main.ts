@@ -11,11 +11,12 @@ import "@awesome.me/webawesome/dist/components/textarea/textarea.js"
 import "./style.css"
 import { createApp, reactive } from "petite-vue"
 import type { Feature } from "./feature.ts"
+import { navigate } from "./features/navigate.ts"
 import { question } from "./features/question.ts"
 import init, { version } from "./wasm/chauffeur_playground.js"
 
 /** Every feature under test, one tab each, in tab order. */
-const features: ReadonlyArray<Feature> = [question]
+const features: ReadonlyArray<Feature> = [question, navigate]
 
 /** The tab the URL names, or the first one. */
 function named(): string {
