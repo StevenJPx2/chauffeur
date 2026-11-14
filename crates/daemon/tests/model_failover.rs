@@ -41,9 +41,9 @@ fn model(provider: &str, id: &str) -> ModelRef {
     }
 }
 
-fn high(provider: &str, id: &str) -> ModelRef {
+fn at(provider: &str, id: &str, variant: &str) -> ModelRef {
     ModelRef {
-        variant: Some("high".into()),
+        variant: Some(variant.into()),
         ..model(provider, id)
     }
 }
@@ -95,14 +95,15 @@ async fn fails_over(from: ModelRef, to: ModelRef, other_tier: &'static str, judg
 
     assert!(engine.ingest(tool).await.expect("tool signal").is_empty());
 
-    // In OpenCode's alphabetical order: Sonnet before Opus, Luna before Sol.
+    // In OpenCode's alphabetical order.
     let available = [
         model("anthropic", "claude-fable-5-2"),
-        model("anthropic", "claude-sonnet-5-5"),
         model("anthropic", "claude-opus-5-5"),
+        model("anthropic", "claude-sonnet-5-5"),
         model("openai", "gpt-6-astra"),
         model("openai", "gpt-6-luna"),
         model("openai", "gpt-6.1-sol"),
+        model("openai", "gpt-6.1-terra"),
     ]
     .into_iter()
     .map(|model| AvailableModel {
@@ -134,11 +135,12 @@ async fn fails_over(from: ModelRef, to: ModelRef, other_tier: &'static str, judg
     server.join().expect("fixture");
 }
 
+/// Jev picks the same-tier model.
 #[tokio::test]
 async fn a_frontier_supervisor_fails_over_to_frontier_on_the_other_provider() {
     fails_over(
-        high("anthropic", "claude-fable-5-2"),
-        high("openai", "gpt-6-astra"),
+        at("anthropic", "claude-fable-5-2", "high"),
+        at("openai", "gpt-6-astra", "high"),
         "openai/gpt-6.1-sol#high",
         Judged {
             choice: "openai/gpt-6-astra#high",
@@ -148,11 +150,12 @@ async fn a_frontier_supervisor_fails_over_to_frontier_on_the_other_provider() {
     .await;
 }
 
+/// Jev picks the same-tier model.
 #[tokio::test]
 async fn a_balanced_worker_fails_over_to_balanced_on_the_other_provider() {
     fails_over(
-        high("anthropic", "claude-opus-5-5"),
-        high("openai", "gpt-6.1-sol"),
+        at("anthropic", "claude-opus-5-5", "high"),
+        at("openai", "gpt-6.1-sol", "high"),
         "openai/gpt-6-astra#high",
         Judged {
             choice: "openai/gpt-6.1-sol#high",
@@ -162,26 +165,58 @@ async fn a_balanced_worker_fails_over_to_balanced_on_the_other_provider() {
     .await;
 }
 
+/// Jev's pick is below the bar: the recommended same-tier model wins.
 #[tokio::test]
-async fn an_unsure_judge_still_sends_opus_to_sol() {
+async fn an_unsure_judge_still_sends_astra_to_fable() {
     fails_over(
-        high("anthropic", "claude-opus-5-5"),
-        high("openai", "gpt-6.1-sol"),
-        "openai/gpt-6-astra#high",
+        at("openai", "gpt-6-astra", "high"),
+        at("anthropic", "claude-fable-5-2", "high"),
+        "anthropic/claude-opus-5-5#high",
         Judged {
-            choice: "openai/gpt-6-luna#max",
+            choice: "anthropic/claude-sonnet-5-5#high",
             confidence: 0.1,
         },
     )
     .await;
 }
 
+/// Jev's pick is below the bar: the recommended same-tier model wins.
 #[tokio::test]
 async fn an_unsure_judge_still_sends_sol_to_opus() {
     fails_over(
-        high("openai", "gpt-6.1-sol"),
-        high("anthropic", "claude-opus-5-5"),
+        at("openai", "gpt-6.1-sol", "high"),
+        at("anthropic", "claude-opus-5-5", "high"),
         "anthropic/claude-fable-5-2#high",
+        Judged {
+            choice: "anthropic/claude-sonnet-5-5#high",
+            confidence: 0.1,
+        },
+    )
+    .await;
+}
+
+/// Jev's pick is below the bar: the recommended same-tier model wins.
+#[tokio::test]
+async fn an_unsure_judge_still_sends_low_opus_to_terra() {
+    fails_over(
+        at("anthropic", "claude-opus-5-5", "low"),
+        at("openai", "gpt-6.1-terra", "high"),
+        "openai/gpt-6.1-sol#high",
+        Judged {
+            choice: "openai/gpt-6-luna",
+            confidence: 0.1,
+        },
+    )
+    .await;
+}
+
+/// Jev's pick is below the bar: Opus at low thinking wins over Sonnet.
+#[tokio::test]
+async fn an_unsure_judge_still_sends_terra_to_low_opus() {
+    fails_over(
+        at("openai", "gpt-6.1-terra", "high"),
+        at("anthropic", "claude-opus-5-5", "low"),
+        "anthropic/claude-opus-5-5#high",
         Judged {
             choice: "anthropic/claude-sonnet-5-5#high",
             confidence: 0.1,

@@ -134,8 +134,8 @@ test("the subagent tool's description carries the cheaper-model guidance once", 
   rewriteDescriptions(tools, SHIPPED_TEXTS)
 
   expect(tools.subagent.description).toBe(`Spawns an agent in a child session.\n\n${SUBAGENT_GUIDANCE}`)
-  expect(SUBAGENT_GUIDANCE).toContain("anthropic/claude-sonnet-5-5")
-  expect(SUBAGENT_GUIDANCE).toContain("openai/gpt-6-luna")
+  expect(SUBAGENT_GUIDANCE).toContain("anthropic/claude-opus-5-5#low")
+  expect(SUBAGENT_GUIDANCE).toContain("openai/gpt-6.1-terra#high")
 })
 
 test("each request's tools take the configured descriptions, and the guidance follows the new subagent text", async () => {

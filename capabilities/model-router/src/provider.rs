@@ -14,6 +14,7 @@ pub const MAX_TIER_ROWS: usize = 256;
 pub enum Tier {
     Frontier,
     Balanced,
+    Efficient,
     Fast,
 }
 
@@ -23,6 +24,7 @@ impl Tier {
         match self {
             Self::Frontier => "frontier",
             Self::Balanced => "balanced",
+            Self::Efficient => "efficient",
             Self::Fast => "fast",
         }
     }

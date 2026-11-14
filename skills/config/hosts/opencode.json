@@ -21,7 +21,7 @@
     "write": "Create or overwrite a file; missing folders are created. For partial changes use edit."
   },
   "subagent": {
-    "guidance": "The user asks that subagents doing routine work, such as searching, reading and summarising, or mechanical edits, run on a cheaper model from your own provider: pass model \"anthropic/claude-sonnet-5-5\" when you run on Claude Fable or Opus, or \"openai/gpt-6-luna\" when you run on GPT-6 Astra or GPT-6.1 Sol. Keep your own model for hard design, debugging or review."
+    "guidance": "The user asks that subagents doing routine work, such as searching, reading and summarising, or mechanical edits, run on a cheaper model from your own provider: pass model \"anthropic/claude-opus-5-5#low\" when you run on Claude Fable or Opus, or \"openai/gpt-6.1-terra#high\" when you run on GPT-6 Astra or GPT-6.1 Sol. Keep your own model for hard design, debugging or review."
   },
   "rulebook": {
     "description": "{description} {usage}, or pause | resume | clear.",

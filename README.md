@@ -176,8 +176,9 @@ Leave OpenCode's own `warming` setting off, or sessions are warmed twice.
 ### And quietly
 
 - **Cheaper subagents.** When the agent hands routine work (searching, reading,
-  mechanical edits) to a subagent, Chauffeur steers it to a cheaper model from
-  the same provider, such as Sonnet under Fable or Opus.
+  mechanical edits) to a subagent, Chauffeur steers it to the same provider's
+  efficient tier: Opus at low thinking under Fable or Opus, GPT-6.1 Terra at
+  high under Astra or Sol.
 - **Questions with options.** When the agent ends its turn by asking you
   something in plain text, Chauffeur steers it to the question tool, so the
   ways forward arrive as options you can pick and the turn carries on.

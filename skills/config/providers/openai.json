@@ -1,16 +1,18 @@
 {
   "tiers": [
     { "model": "gpt-6-astra", "variant": "high", "tier": "frontier", "recommended": true },
-    { "model": "gpt-6-astra", "variant": null, "tier": "frontier", "recommended": true },
+    { "model": "gpt-6-astra", "variant": null, "tier": "frontier" },
     { "model": "gpt-6.1-sol", "variant": "high", "tier": "balanced", "recommended": true },
-    { "model": "gpt-6.1-sol", "variant": null, "tier": "balanced", "recommended": true },
-    { "model": "gpt-6-luna", "variant": "max", "tier": "balanced" },
+    { "model": "gpt-6.1-sol", "variant": null, "tier": "balanced" },
+    { "model": "gpt-6.1-terra", "variant": "high", "tier": "efficient", "recommended": true },
+    { "model": "gpt-6.1-terra", "variant": null, "tier": "efficient" },
     { "model": "gpt-6-luna", "variant": null, "tier": "fast", "recommended": true },
     { "model": "gpt-*-astra*", "variant": "high", "tier": "frontier" },
     { "model": "gpt-*-astra*", "variant": null, "tier": "frontier" },
     { "model": "gpt-*-sol*", "variant": "high", "tier": "balanced" },
     { "model": "gpt-*-sol*", "variant": null, "tier": "balanced" },
-    { "model": "gpt-*-luna*", "variant": "max", "tier": "balanced" },
+    { "model": "gpt-*-terra*", "variant": "high", "tier": "efficient" },
+    { "model": "gpt-*-terra*", "variant": null, "tier": "efficient" },
     { "model": "gpt-*-luna*", "variant": null, "tier": "fast" }
   ],
   "exclude": ["*-fast", "gpt-5*", "gpt-4*"]
