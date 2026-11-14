@@ -1,4 +1,4 @@
-use std::io::{BufRead, BufReader, Read, Write};
+use std::io::{self, BufRead, BufReader, Read, Write};
 use std::mem::DropGuard;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::Path;
@@ -20,6 +20,10 @@ pub const MAX_LINE: usize = 1 << 20;
 pub const MAX_CONNECTIONS: usize = 64;
 /// How long telling a caller the daemon is busy may take.
 const BUSY_WRITE: Duration = Duration::from_millis(100);
+/// How long a failed accept waits before the next. An error that lasts,
+/// such as running out of file descriptors, leaves the connection waiting,
+/// so accepting again at once would fail at once, over and over.
+const ACCEPT_RETRY: Duration = Duration::from_millis(50);
 
 /// Binds the socket in its private folder. A socket another daemon answers
 /// on is left alone; a stale one is replaced.
@@ -46,14 +50,13 @@ pub fn bind(socket: &Path) -> Result<UnixListener, DaemonError> {
 }
 
 /// Serves connections for as long as the process runs, each on its own
-/// thread; a connection that fails to be accepted is skipped. A connection
-/// past [`MAX_CONNECTIONS`] is told the daemon is busy and closed.
+/// thread. A failed accept is tried again after [`ACCEPT_RETRY`]. A
+/// connection past [`MAX_CONNECTIONS`] is told the daemon is busy and
+/// closed.
 pub fn serve(listener: &UnixListener, router: &Arc<Router>) -> ! {
     let open = Arc::new(AtomicUsize::new(0));
     loop {
-        let Ok((stream, _)) = listener.accept() else {
-            continue;
-        };
+        let stream = next(|| listener.accept().map(|(stream, _)| stream));
         let taken = open.fetch_add(1, Ordering::SeqCst);
         // Freed however the connection ends, a panic included.
         let slot = DropGuard::new(Arc::clone(&open), |open| {
@@ -72,6 +75,17 @@ pub fn serve(listener: &UnixListener, router: &Arc<Router>) -> ! {
                 connection(&router, stream);
                 drop(slot);
             });
+    }
+}
+
+/// The next connection `accept` gives. A failed accept waits
+/// [`ACCEPT_RETRY`] before the next.
+fn next<S>(mut accept: impl FnMut() -> io::Result<S>) -> S {
+    loop {
+        if let Ok(stream) = accept() {
+            return stream;
+        }
+        thread::sleep(ACCEPT_RETRY);
     }
 }
 
@@ -124,8 +138,50 @@ fn connection(router: &Router, stream: UnixStream) {
 /// Writes `reply` and its newline in one write. Formatted straight to the
 /// socket, a reply would go out in many small writes, each waking the
 /// caller.
-fn send(writer: &mut impl Write, reply: &Value) -> std::io::Result<()> {
+fn send(writer: &mut impl Write, reply: &Value) -> io::Result<()> {
     let mut line = reply.to_string();
     line.push('\n');
     writer.write_all(line.as_bytes())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io;
+    use std::time::Instant;
+
+    use super::{ACCEPT_RETRY, next};
+
+    /// An error that lasts, such as `EMFILE`, fails every accept at once;
+    /// waiting between them keeps the loop from spinning a core.
+    #[test]
+    fn each_failed_accept_waits_before_the_next() {
+        let mut calls = 0_u32;
+        let started = Instant::now();
+
+        let accepted = next(|| {
+            calls = calls.saturating_add(1);
+            if calls <= 3 {
+                Err(io::Error::other("too many open files"))
+            } else {
+                Ok(calls)
+            }
+        });
+
+        assert_eq!(accepted, 4, "accepted on the fourth try");
+        assert!(
+            started.elapsed() >= ACCEPT_RETRY.saturating_mul(3),
+            "{:?} for three failed accepts",
+            started.elapsed()
+        );
+    }
+
+    #[test]
+    fn an_accept_that_succeeds_does_not_wait() {
+        let started = Instant::now();
+
+        let accepted = next(|| io::Result::Ok("connection"));
+
+        assert_eq!(accepted, "connection");
+        assert!(started.elapsed() < ACCEPT_RETRY, "{:?}", started.elapsed());
+    }
 }

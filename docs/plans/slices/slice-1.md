@@ -1012,7 +1012,8 @@ pub fn follow(folder: &Path, count: usize, each: impl FnMut(&str)) -> io::Result
 
 `bind` leaves a socket another daemon answers on and replaces a stale one.
 `serve` gives each connection its own thread, 64 at most, with lines up to 1
-MiB; one more is told the daemon is busy, with error `-32000`, and closed. `handle` answers one JSON-RPC line, and nothing for a notification;
+MiB; one more is told the daemon is busy, with error `-32000`, and closed. A
+failed accept waits 50 ms before the next. `handle` answers one JSON-RPC line, and nothing for a notification;
 deadlines default to 3 seconds and stop at 30.
 
 ```rust
