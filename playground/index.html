@@ -46,6 +46,45 @@
       </div>
     </template>
 
+    <template id="navigate">
+      <div class="wa-grid">
+        <div class="wa-stack">
+          <wa-select label="Example" @change="load($event.target.value)">
+            <wa-option v-for="name in names" :key="name" :value="name" :selected="name === example">{{ name }}</wa-option>
+          </wa-select>
+          <wa-textarea label="Request, rules and stand-in replies" hint="request: the chauffeur.navigate params; rules: rule files by ID; answers: each step's p, or { failed }" :value="source" @input="update($event.target.value)" rows="24" spellcheck="false"></wa-textarea>
+        </div>
+        <div class="wa-stack">
+          <wa-callout v-if="result && 'error' in result" variant="danger">{{ result.error }}</wa-callout>
+          <wa-card v-else-if="result && 'rejected' in result">
+            <span slot="header">Rejected</span>
+            <div class="wa-stack">
+              <wa-badge variant="danger" class="settled">{{ result.rejected.data.reason }}</wa-badge>
+              <span>{{ result.rejected.message }}</span>
+              <pre>{{ pretty(result.rejected) }}</pre>
+            </div>
+          </wa-card>
+          <template v-else-if="result">
+            <wa-card>
+              <span slot="header">Events, as the caller receives them</span>
+              <ol class="events">
+                <li v-for="(event, index) in result.events" :key="index"><code>{{ event.event }}</code> <pre>{{ pretty(event) }}</pre></li>
+              </ol>
+            </wa-card>
+            <wa-card>
+              <span slot="header">Result</span>
+              <div class="wa-stack">
+                <wa-badge v-if="result.result.intents && result.result.intents.length" variant="warning" class="settled">{{ result.result.intents.map((intent) => Object.keys(intent).filter((key) => key !== 'rule').join(', ')).join('; ') }}</wa-badge>
+                <wa-badge v-else-if="result.result.intents" variant="success" class="settled">no intent: the caller's default</wa-badge>
+                <pre>{{ pretty(result.result) }}</pre>
+                <wa-callout v-for="reason in result.refused || []" :key="reason" variant="danger">{{ reason }}</wa-callout>
+              </div>
+            </wa-card>
+          </template>
+        </div>
+      </div>
+    </template>
+
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

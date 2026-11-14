@@ -39,3 +39,10 @@ wa-textarea::part(textarea) {
   padding: 0;
   list-style: none;
 }
+
+.events {
+  display: grid;
+  gap: var(--wa-space-xs);
+  margin: 0;
+  padding-inline-start: var(--wa-space-l);
+}

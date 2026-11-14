@@ -1,10 +1,12 @@
 //! The Rust side of the playground: functions the browser page calls,
 //! compiled to WebAssembly.
 
+mod navigate;
 mod question;
 
 use wasm_bindgen::prelude::wasm_bindgen;
 
+pub use navigate::navigate;
 pub use question::settle;
 
 /// The playground's version, shown in the page heading.
