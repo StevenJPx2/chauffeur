@@ -913,7 +913,7 @@ fn without_a_confident_pick_each_tier_fails_over_like_for_like() {
 
 #[test]
 fn with_no_same_tier_model_left_another_tier_comes_before_free_models() {
-    // gpt-6-luna at default thinking is the only fast model available.
+    // gpt-6-luna is the only fast model available.
     let offered =
         options(&shipped_router().plan(&Situation::default(), &limit_on("openai/gpt-6-luna")));
 
