@@ -174,6 +174,17 @@ describe.skipIf(!BIN)("against the real daemon", () => {
       )
       const { status, reply } = cli(each.params)
 
+      // The client always sends its own protocol, so a request without one
+      // reaches the daemon as version 1; only the CLI can send it bare.
+      if (!Array.isArray(each.params) && !("protocol" in each.params)) {
+        expect({ name: each.name, client: Object.keys(client as object) }).toEqual({
+          name: each.name,
+          client: ["result"]
+        })
+        expect({ name: each.name, status }).toEqual({ name: each.name, status: 1 })
+        continue
+      }
+
       if (each.expect) {
         expect({ name: each.name, client }).toEqual({
           name: each.name,

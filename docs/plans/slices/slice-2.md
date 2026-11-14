@@ -660,7 +660,8 @@ Verified by:
   `packages/chauffeur/test/types.test.ts` holds `@ts-expect-error` lines the
   typecheck fails on if they compile.
 - `packages/chauffeur/test/daemon.test.ts`, in CI against the built daemon:
-  the client and `chauffeur navigate` accept and reject all 51 fixtures alike;
+  the client and `chauffeur navigate` accept and reject all 51 fixtures alike,
+  but for the one without `protocol`, which the client always sends;
   `ask`, the client and `chauffeur navigate` give one verdict; an abort from
   each is a cancelled run in the audit log. Every accepted fixture fits the
   schema.
