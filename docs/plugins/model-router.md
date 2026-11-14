@@ -36,7 +36,11 @@ sequenceDiagram
   likely cleared?". A model the user picks clears the origin.
 
 The tier tables are `distribution/providers/<provider>.json`; the user's file
-of the same name replaces a table's `tiers`. The models left behind and the
+of the same name replaces a table's `tiers`. There are four tiers: frontier
+(Claude Fable, GPT-6 Astra), balanced (Claude Opus and GPT-6.1 Sol at high),
+efficient (Opus at low, GPT-6.1 Terra) and fast. A table recommends at most
+one model per tier, and one that recommends two fails to load, so a failover
+with no confident pick goes to the other provider's model of the same tier. The models left behind and the
 providers that hit limits are kept in the plugin's storage.
 
 ## Commands

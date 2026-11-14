@@ -20,6 +20,8 @@ the prompt ran on the user's own model. In v2 these are the
 | A failed summary passes over its provider for an hour                                                                                                               | The same, in the plugin's state                                                                                                   |
 | OpenCode's template from `hosts/opencode.json`                                                                                                                      | The adapter's `compaction.before` supplies it                                                                                     |
 | The summary model writes only a compaction that starts within 2 minutes; a later one is OpenCode's own                                                              | The same window, in `compaction.before`                                                                                           |
+| `renew_when_idle`: a context at its budget renewed while idle, after the cache lifetime, the warming span and 60 s, unless the session runs first                   | `session.idle` in the plugin, with the same delay                                                                                 |
+| `awaiting_answer`: a turn waiting on the agent's question renewed after the cache lifetime and 60 s; the turn is interrupted and the agent asked to ask again       | The harness's question event; `session.interrupt`, `session.compact`, then `message.append`                                       |
 
 ## Warming
 
@@ -27,7 +29,8 @@ the prompt ran on the user's own model. In v2 these are the
 | --------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
 | `context_idle` after a turn the user drives                                                                                                   | `session.idle`                                                                              |
 | A keep-alive every `cache_seconds − 60`, within an hour, while each costs less than re-sending; once, at 59 minutes, for a 1-hour `cache.ttl` | The same schedule, from the plugin's options and the event's `cache_seconds` and prices     |
-| Not warmed: under 20,000 tokens, an unknown cache-read price, a limited provider, a subagent                                                  | The same                                                                                    |
+| Not warmed: under 20,000 tokens, an unknown cache-read price, a limited provider, a subagent, a turn waiting on a question                    | The same                                                                                    |
+| A warming request that writes more of the cache than it reads stops the session's warming                                                     | The same                                                                                    |
 | `session.generate` with the keep-alive prompt                                                                                                 | `session.warm`; where the harness only has its own warming setting, the plugin does nothing |
 
 `model-router.json`'s `renewal` settings become the two plugins'
