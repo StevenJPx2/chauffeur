@@ -32,6 +32,7 @@ fn start(root: &Path) -> Paths {
         config: root.join("config"),
         distribution: PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../distribution"),
         state: root.join("state"),
+        models: None,
     };
     let running = paths.clone();
     thread::spawn(move || chauffeur_daemon::run(&running));

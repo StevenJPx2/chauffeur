@@ -72,6 +72,12 @@ impl Fallback {
         Ok(Self::new(built))
     }
 
+    /// Whether no model is left to ask.
+    #[must_use]
+    pub const fn is_empty(&self) -> bool {
+        self.models.is_empty()
+    }
+
     /// One result per question, in order. With no model left to ask, a
     /// question fails as unavailable.
     #[must_use]
