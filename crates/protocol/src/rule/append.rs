@@ -47,27 +47,20 @@ fn check_parts(fields: &Map<String, Value>) -> Result<(), String> {
 }
 
 fn check_delivery(fields: &Map<String, Value>) -> Result<(), String> {
-    let delivery = fields.get("delivery").and_then(Value::as_str);
-
-    if delivery.is_some_and(|delivery| DELIVERIES.contains(&delivery)) {
-        return Ok(());
-    }
-
-    Err("`message.append` needs a `delivery` of `now`, `next` or `wake`".to_owned())
+    fields
+        .get("delivery")
+        .and_then(Value::as_str)
+        .is_some_and(|delivery| DELIVERIES.contains(&delivery))
+        .ok_or_else(|| "`message.append` needs a `delivery` of `now`, `next` or `wake`".to_owned())
 }
 
 fn check_label(label: &Value) -> Result<(), String> {
-    let fits = label.as_str().is_some_and(|label| {
-        let length = label.chars().count();
+    label
+        .as_str()
+        .is_some_and(|label| {
+            let length = label.chars().count();
 
-        !label.trim().is_empty() && !label.contains(['\n', '\r']) && length <= MAX_LABEL
-    });
-
-    if fits {
-        Ok(())
-    } else {
-        Err(format!(
-            "`label` must be one line of 1 to {MAX_LABEL} characters"
-        ))
-    }
+            !label.trim().is_empty() && !label.contains(['\n', '\r']) && length <= MAX_LABEL
+        })
+        .ok_or_else(|| format!("`label` must be one line of 1 to {MAX_LABEL} characters"))
 }
