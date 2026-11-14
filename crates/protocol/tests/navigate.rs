@@ -111,6 +111,17 @@ fn an_event_request_matches_rules_by_its_on_and_evidence() {
         [("event".to_owned(), "CI failed".to_owned())]
     );
     assert_eq!(navigate.candidates(), []);
+
+    let recall = Navigate::parse(&json!({
+        "protocol": 1, "on": "opencode-history.recall", "candidates": { "p4": "…", "p1": "…" }
+    }))
+    .unwrap();
+    let names: Vec<&str> = recall
+        .candidates()
+        .iter()
+        .map(|(name, _)| name.as_str())
+        .collect();
+    assert_eq!(names, ["p1", "p4"], "in name order");
 }
 
 #[test]
@@ -138,6 +149,12 @@ fn an_intent_carries_its_rule_and_reads_back() {
 
     let intent = Intent::new(rule.id(), &rule.then()[0]);
     let wire = intent.to_json();
+
+    assert_eq!(
+        (intent.rule(), intent.name()),
+        ("sourcefed/triage", "withhold")
+    );
+    assert_eq!(intent.payload(), &json!("event"));
 
     assert_eq!(
         wire,
