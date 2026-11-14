@@ -202,3 +202,64 @@ fn a_request_that_is_not_json_exits_1() {
     assert_eq!(output.status.code(), Some(1));
     assert!(String::from_utf8_lossy(&output.stderr).contains("not JSON"));
 }
+
+/// Kills the daemon a test started, however the test ends.
+struct Daemon(std::process::Child);
+
+impl Drop for Daemon {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
+}
+
+// It starts the binary's daemon and kills it, so it runs only in CI.
+#[test]
+fn the_daemon_answers_from_the_models_file_it_is_given() {
+    let root = std::env::temp_dir().join(format!("chauffeur-cli-models-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&root);
+    fs::create_dir_all(root.join("config/chauffeur/rules/sourcefed")).unwrap();
+    fs::write(root.join("placeholders.json"), PLACEHOLDERS).unwrap();
+    fs::write(
+        root.join("config/chauffeur/rules/sourcefed/triage.json"),
+        TRIAGE,
+    )
+    .unwrap();
+    let paths = Paths {
+        socket: root.join("run/daemon.sock"),
+        ..Paths::from_env("chauffeur-test", None)
+    };
+    let _daemon = Daemon(
+        Command::new(CHAUFFEUR)
+            .args(["daemon", "run", "--models"])
+            .arg(root.join("placeholders.json"))
+            .env("CHAUFFEUR_SOCKET", &paths.socket)
+            .env("XDG_CONFIG_HOME", root.join("config"))
+            .env("XDG_STATE_HOME", root.join("state"))
+            .env("CHAUFFEUR_DISTRIBUTION", repo("distribution"))
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap(),
+    );
+    let started = Instant::now();
+    while UnixStream::connect(&paths.socket).is_err() {
+        assert!(
+            started.elapsed() < Duration::from_secs(10),
+            "the daemon did not start"
+        );
+        thread::sleep(Duration::from_millis(20));
+    }
+
+    let output = navigate(
+        &paths,
+        r#"{ "protocol": 1, "on": "sourcefed.event", "evidence": { "event": "ok" } }"#,
+    );
+
+    let messages = lines(&output);
+    let settled = &messages[2]["params"]["answer"];
+    assert_eq!(
+        (settled["model"].as_str(), settled["placeholder"].as_bool()),
+        (Some("stand-in"), Some(true))
+    );
+}
