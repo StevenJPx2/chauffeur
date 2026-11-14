@@ -1,6 +1,8 @@
 # Slice 2: sourcefed triage
 
-**Status:** Planned.
+**Status:** In progress: requests, intents and limits are built; admission,
+the daemon's socket and rule sources, the bindings and sourcefed's side are
+next.
 
 **You can:** let sourcefed ask Chauffeur before it queues each event, so
 OpenCode, Pi, MCP and the CLI receive the same filtered stream, as in
@@ -25,8 +27,8 @@ flowchart LR
 
 ## Wire contract
 
-A `navigate` request, `event` notifications, then the result, as
-[JSON-RPC 2.0](../pluggability.md#json-rpc-2-0) lines. `chauffeur navigate` reads the request's
+A `chauffeur.navigate` request, `chauffeur.event` notifications, then the
+result, as [JSON-RPC 2.0](../pluggability.md#json-rpc-2-0) lines. `chauffeur navigate` reads the request's
 `params` on stdin and prints the messages it receives:
 
 ```sh
@@ -42,11 +44,12 @@ goes, then the result. Their contents, in order:
 ```text
 event   rule_matched  { "rule": "sourcefed/triage" }
 event   round_ready   { "rule": "sourcefed/triage", "round": 1, "steps": ["screen"] }
-event   step_settled  { "step": "screen", "answer": { "outcome": "no", … } }
+event   step_settled  { "rule": "sourcefed/triage", "step": "screen",
+                        "answer": { "outcome": "no", … } }
 result  intents       [{ "rule": "sourcefed/triage", "withhold": "event" }]
 ```
 
-A rejection is a JSON-RPC error whose `data.reason` names it:
+A rejection is a JSON-RPC error whose `data.reason` names it: `invalid`,
 `limit_exceeded`, `judge_unavailable`, `busy`, `deadline` or
 `unsupported_protocol`.
 
@@ -55,8 +58,9 @@ A request with `strategy` in place of `on` ends with `{"verdict": {…}}`.
 directory: `$XDG_RUNTIME_DIR`, or `$TMPDIR` on macOS.
 
 - **Answers and failures** are distinct: a step settles to
-  `{"answer": {"outcome", "p", "level"}}` or `{"failed": "<reason>"}`.
-  Probabilities have at most three decimals.
+  `{"answer": {"outcome", "p", "level", "model", "placeholder"}}` or
+  `{"failed": "<reason>"}`. Probabilities and the level have at most three
+  decimals, and `placeholder` marks a stand-in's answer.
 - **Intents** carry the rule that produced them. A rule's intents are dropped
   if its strategy misses the deadline; other rules' intents still return.
 - **Evidence** is named once per navigation and referenced by steps, so a
@@ -67,7 +71,8 @@ directory: `$XDG_RUNTIME_DIR`, or `$TMPDIR` on macOS.
 - **Limits**, checked before admission: 32 steps per strategy, counting each
   copy `for_each` makes; 16 `after` entries per step; 64 outcomes per
   question; 64 evidence blocks and candidates; 256 KiB of evidence; 30 s
-  deadline. Each rejection names its limit.
+  deadline. Each rejection names its limit. The `after` and `for_each`
+  limits are checked with those fields, in slices 3 and 4.
 
 ## What it builds
 
@@ -78,7 +83,8 @@ The `navigate` request and its intents, the limits above, and the one
 replay.
 
 Files: `crates/protocol/src/request.rs`, `intent.rs`, `limits.rs`,
-`schema/navigate.json`, `fixtures/`
+`progress.rs`, `rule/strategy.rs`, `schema/navigate.json`,
+`fixtures/navigate.json`
 
 ```json
 {
@@ -92,11 +98,164 @@ Files: `crates/protocol/src/request.rs`, `intent.rs`, `limits.rs`,
 }
 ```
 
+Structure:
+
+`Navigate::parse` checks a request's `params` in order: the protocol first, so
+a newer caller's fields read as `unsupported_protocol`, then the fields, the
+limits, and an inline strategy. A request without `deadline_ms` gets
+`DEFAULT_DEADLINE`, 3 seconds. An empty `on` is refused, and so is an inline
+step naming evidence the request does not send. `event` is what rules match:
+named by `on`, with each evidence block as a field, so a block named `event`
+stays a field.
+
+```rust
+pub const PROTOCOLS: [u64; 1];
+pub const DEFAULT_DEADLINE: Duration;
+
+pub struct Navigate { … }
+
+impl Navigate {
+    pub fn parse(params: &Value) -> Result<Self, Rejection>;
+    pub const fn deadline(&self) -> Duration;
+    pub fn evidence(&self) -> &[(String, String)];
+    pub fn candidates(&self) -> &[(String, String)];
+    pub const fn target(&self) -> &Target;
+    pub fn event(&self) -> Option<Event>;
+}
+
+impl Event {
+    pub const fn new(name: String, fields: Map<String, Value>) -> Self;
+}
+
+pub enum Target {
+    On(String),
+    Strategy(Strategy),
+}
+```
+
+A rejection is the JSON-RPC error a binding receives. `to_error` adds
+`limit` and `max` for a limit, and `accepted` for a protocol. The code is
+`-32602` for what the caller sent and `-32000` for what the daemon could
+not serve.
+
+```rust
+pub enum Rejection {
+    Invalid(String),
+    LimitExceeded(Exceeded),
+    UnsupportedProtocol,
+    Busy,
+    Deadline,
+    JudgeUnavailable(String),
+}
+
+impl Rejection {
+    pub const fn reason(&self) -> &'static str;
+    pub fn to_error(&self) -> Value;
+}
+
+impl Display for Rejection {}
+impl Error for Rejection {}
+impl From<Exceeded> for Rejection {}
+impl From<RuleError> for Rejection {}
+```
+
+Rule files are held to the same limits as requests: a strategy of 33 steps,
+or an ask of 65 outcomes, used or not, is refused when it loads, as
+`RuleError::Limit`; a blank step ID is `RuleError::BlankStep`.
+
+```rust
+pub enum Limit {
+    Steps,
+    Outcomes,
+    EvidenceBlocks,
+    Candidates,
+    EvidenceBytes,
+    Deadline,
+}
+
+impl Limit {
+    pub const ALL: [Self; 6];
+    pub const fn name(self) -> &'static str;
+    pub const fn max(self) -> u64;
+    pub const fn check(self, count: u64) -> Result<(), Exceeded>;
+}
+
+pub struct Exceeded {
+    pub limit: Limit,
+    pub count: u64,
+}
+
+impl Display for Exceeded {}
+impl Error for Exceeded {}
+```
+
+A rule and an inline strategy share `Strategy`: the judges its steps name
+and its steps as a core plan.
+
+```rust
+pub struct Strategy { … }
+
+impl Strategy {
+    pub const fn judges(&self) -> &BTreeMap<String, JudgeSpec>;
+    pub const fn plan(&self) -> &Plan<Question>;
+}
+
+impl Rule {
+    pub const fn strategy(&self) -> &Strategy;
+}
+```
+
+An intent is one object on the wire, `rule` and the intent itself.
+`from_json` refuses an object with no `rule` or more than one intent, and a
+rule file may not name a `then` entry `rule`.
+
+```rust
+pub struct Intent { … }
+
+impl Intent {
+    pub fn new(rule: &str, then: &Then) -> Self;
+    pub fn from_json(value: &Value) -> Option<Self>;
+    pub fn to_json(&self) -> Value;
+    pub fn rule(&self) -> &str;
+    pub fn name(&self) -> &str;
+    pub const fn payload(&self) -> &Value;
+}
+```
+
+`progress` turns a run into what the caller sees: the `chauffeur.event`
+params, without the request's `id`, and the verdict by step.
+
+```rust
+pub mod progress {
+    pub fn rule_matched(rule: &str) -> Value;
+    pub fn run_events(rule: Option<&str>, events: &[RunEvent<Answer>]) -> Vec<Value>;
+    pub fn settled(outcome: &Outcome<Answer>) -> Value;
+    pub fn verdict(verdict: &Verdict<Answer>) -> Value;
+}
+```
+
+The fixtures are one file of cases, each with `params` and either
+`"expect": "on"` or `"strategy"`, or a `reject` with its `reason` and
+`limit`. A case with `fill` has `text` repeated `times` put in the named
+block of its `evidence` or `candidates` before it is sent, so the file stays
+small.
+
+```json
+{
+  "name": "evidence over 256 KiB",
+  "params": { "protocol": 1, "on": "sourcefed.event", "evidence": { "log": "" } },
+  "fill": [{ "in": "evidence", "name": "log", "text": "€", "times": 87381 }],
+  "reject": { "reason": "limit_exceeded", "limit": "evidence_bytes" }
+}
+```
+
 Verified by:
 
 - Round-trip and rejection cases for every limit and malformed field,
   including duplicate outcomes, reserved outcome names and a per-outcome
-  confidence that misses an outcome.
+  confidence that misses an outcome: `crates/protocol/tests/navigate.rs`
+  replays the 51 fixture cases and checks that every limit has one, at
+  and over it, bytes counted as UTF-8 across evidence and candidates.
 
 ### Admission and running
 

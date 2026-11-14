@@ -1,0 +1,2607 @@
+{
+  "cases": [
+    {
+      "name": "an event with evidence",
+      "params": {
+        "protocol": 1,
+        "deadline_ms": 3000,
+        "on": "sourcefed.event",
+        "evidence": {
+          "event": "codecov[bot] commented on #42: Coverage 81.2% (+0.3%)",
+          "monitor": "PR #42 in wrkhse/chauffeur",
+          "thread": "PR #42: feat(cli): add navigate"
+        }
+      },
+      "expect": "on"
+    },
+    {
+      "name": "an event with candidates",
+      "params": {
+        "protocol": 1,
+        "on": "opencode-history.recall",
+        "evidence": {
+          "message": "how did we fix the socket?"
+        },
+        "candidates": {
+          "p1": "…",
+          "p4": "…"
+        }
+      },
+      "expect": "on"
+    },
+    {
+      "name": "an event with no deadline takes the default",
+      "params": {
+        "protocol": 1,
+        "on": "sourcefed.event",
+        "evidence": {
+          "event": "CI failed"
+        }
+      },
+      "expect": "on"
+    },
+    {
+      "name": "an inline noul with a named judge",
+      "params": {
+        "protocol": 1,
+        "deadline_ms": 3000,
+        "judges": {
+          "quick": {
+            "tier": "system-one",
+            "confidence": 0.7
+          }
+        },
+        "strategy": [
+          {
+            "id": "done",
+            "judge": "quick",
+            "ask": {
+              "outcomes": [
+                "yes",
+                "no"
+              ],
+              "evidence": [
+                "log"
+              ],
+              "instructions": "Is the migration finished?"
+            }
+          }
+        ],
+        "evidence": {
+          "log": "migrated 42 of 42 tables"
+        }
+      },
+      "expect": "strategy"
+    },
+    {
+      "name": "an inline step naming a tier",
+      "params": {
+        "protocol": 1,
+        "strategy": [
+          {
+            "id": "done",
+            "judge": "system-one",
+            "ask": {
+              "outcomes": [
+                "yes",
+                "no"
+              ],
+              "evidence": [
+                "log"
+              ],
+              "instructions": "Is the migration finished?"
+            }
+          }
+        ],
+        "evidence": {
+          "log": "…"
+        }
+      },
+      "expect": "strategy"
+    },
+    {
+      "name": "an inline step naming an ask",
+      "params": {
+        "protocol": 1,
+        "judges": {
+          "quick": {
+            "tier": "system-one",
+            "confidence": 0.7
+          }
+        },
+        "asks": {
+          "finished": {
+            "outcomes": [
+              "yes",
+              "no"
+            ],
+            "evidence": [
+              "log"
+            ],
+            "instructions": "Is the migration finished?"
+          }
+        },
+        "strategy": [
+          {
+            "id": "done",
+            "judge": "quick",
+            "ask": "finished"
+          }
+        ],
+        "evidence": {
+          "log": "…"
+        }
+      },
+      "expect": "strategy"
+    },
+    {
+      "name": "a per-outcome confidence covering every outcome",
+      "params": {
+        "protocol": 1,
+        "deadline_ms": 3000,
+        "judges": {
+          "careful": {
+            "tier": "system-one",
+            "confidence": {
+              "yes": 0.9,
+              "no": 0.95
+            }
+          }
+        },
+        "strategy": [
+          {
+            "id": "done",
+            "judge": "careful",
+            "ask": {
+              "outcomes": [
+                "yes",
+                "no"
+              ],
+              "evidence": [
+                "log"
+              ],
+              "instructions": "Is the migration finished?"
+            }
+          }
+        ],
+        "evidence": {
+          "log": "migrated 42 of 42 tables"
+        }
+      },
+      "expect": "strategy"
+    },
+    {
+      "name": "described outcomes",
+      "params": {
+        "protocol": 1,
+        "deadline_ms": 3000,
+        "judges": {
+          "quick": {
+            "tier": "system-one",
+            "confidence": 0.7
+          }
+        },
+        "strategy": [
+          {
+            "id": "act",
+            "judge": "quick",
+            "ask": {
+              "instructions": "What should the agent do with this message?",
+              "outcomes": [
+                "act",
+                "ignore",
+                {
+                  "value": "ask-user",
+                  "description": "Unclear; the user decides"
+                }
+              ],
+              "evidence": [
+                "log"
+              ]
+            }
+          }
+        ],
+        "evidence": {
+          "log": "migrated 42 of 42 tables"
+        }
+      },
+      "expect": "strategy"
+    },
+    {
+      "name": "32 steps",
+      "params": {
+        "protocol": 1,
+        "deadline_ms": 3000,
+        "judges": {
+          "quick": {
+            "tier": "system-one",
+            "confidence": 0.7
+          }
+        },
+        "strategy": [
+          {
+            "id": "s0",
+            "judge": "quick",
+            "ask": {
+              "outcomes": [
+                "yes",
+                "no"
+              ],
+              "evidence": [
+                "log"
+              ],
+              "instructions": "Is the migration finished?"
+            }
+          },
+          {
+            "id": "s1",
+            "judge": "quick",
+            "ask": {
+              "outcomes": [
+                "yes",
+                "no"
+              ],
+              "evidence": [
+                "log"
+              ],
+              "instructions": "Is the migration finished?"
+            }
+          },
+          {
+            "id": "s2",
+            "judge": "quick",
+            "ask": {
+              "outcomes": [
+                "yes",
+                "no"
+              ],
+              "evidence": [
+                "log"
+              ],
+              "instructions": "Is the migration finished?"
+            }
+          },
+          {
+            "id": "s3",
+            "judge": "quick",
+            "ask": {
+              "outcomes": [
+                "yes",
+                "no"
+              ],
+              "evidence": [
+                "log"
+              ],
+              "instructions": "Is the migration finished?"
+            }
+          },
+          {
+            "id": "s4",
+            "judge": "quick",
+            "ask": {
+              "outcomes": [
+                "yes",
+                "no"
+              ],
+              "evidence": [
+                "log"
+              ],
+              "instructions": "Is the migration finished?"
+            }
+          },
+          {
+            "id": "s5",
+            "judge": "quick",
+            "ask": {
+              "outcomes": [
+                "yes",
+                "no"
+              ],
+              "evidence": [
+                "log"
+              ],
+              "instructions": "Is the migration finished?"
+            }
+          },
+          {
+            "id": "s6",
+            "judge": "quick",
+            "ask": {
+              "outcomes": [
+                "yes",
+                "no"
+              ],
+              "evidence": [
+                "log"
+              ],
+              "instructions": "Is the migration finished?"
+            }
+          },
+          {
+            "id": "s7",
+            "judge": "quick",
+            "ask": {
+              "outcomes": [
+                "yes",
+                "no"
+              ],
+              "evidence": [
+                "log"
+              ],
+              "instructions": "Is the migration finished?"
+            }
+          },
+          {
+            "id": "s8",
+            "judge": "quick",
+            "ask": {
+              "outcomes": [
+                "yes",
+                "no"
+              ],
+              "evidence": [
+                "log"
+              ],
+              "instructions": "Is the migration finished?"
+            }
+          },
+          {
+            "id": "s9",
+            "judge": "quick",
+            "ask": {
+              "outcomes": [
+                "yes",
+                "no"
+              ],
+              "evidence": [
+                "log"
+              ],
+              "instructions": "Is the migration finished?"
+            }
+          },
+          {
+            "id": "s10",
+            "judge": "quick",
+            "ask": {
+              "outcomes": [
+                "yes",
+                "no"
+              ],
+              "evidence": [
+                "log"
+              ],
+              "instructions": "Is the migration finished?"
+            }
+          },
+          {
+            "id": "s11",
+            "judge": "quick",
+            "ask": {
+              "outcomes": [
+                "yes",
+                "no"
+              ],
+              "evidence": [
+                "log"
+              ],
+              "instructions": "Is the migration finished?"
+            }
+          },
+          {
+            "id": "s12",
+            "judge": "quick",
+            "ask": {
+              "outcomes": [
+                "yes",
+                "no"
+              ],
+              "evidence": [
+                "log"
+              ],
+              "instructions": "Is the migration finished?"
+            }
+          },
+          {
+            "id": "s13",
+            "judge": "quick",
+            "ask": {
+              "outcomes": [
+                "yes",
+                "no"
+              ],
+              "evidence": [
+                "log"
+              ],
+              "instructions": "Is the migration finished?"
+            }
+          },
+          {
+            "id": "s14",
+            "judge": "quick",
+            "ask": {
+              "outcomes": [
+                "yes",
+                "no"
+              ],
+              "evidence": [
+                "log"
+              ],
+              "instructions": "Is the migration finished?"
+            }
+          },
+          {
+            "id": "s15",
+            "judge": "quick",
+            "ask": {
+              "outcomes": [
+                "yes",
+                "no"
+              ],
+              "evidence": [
+                "log"
+              ],
+              "instructions": "Is the migration finished?"
+            }
+          },
+          {
+            "id": "s16",
+            "judge": "quick",
+            "ask": {
+              "outcomes": [
+                "yes",
+                "no"
+              ],
+              "evidence": [
+                "log"
+              ],
+              "instructions": "Is the migration finished?"
+            }
+          },
+          {
+            "id": "s17",
+            "judge": "quick",
+            "ask": {
+              "outcomes": [
+                "yes",
+                "no"
+              ],
+              "evidence": [
+                "log"
+              ],
+              "instructions": "Is the migration finished?"
+            }
+          },
+          {
+            "id": "s18",
+            "judge": "quick",
+            "ask": {
+              "outcomes": [
+                "yes",
+                "no"
+              ],
+              "evidence": [
+                "log"
+              ],
+              "instructions": "Is the migration finished?"
+            }
+          },
+          {
+            "id": "s19",
+            "judge": "quick",
+            "ask": {
+              "outcomes": [
+                "yes",
+                "no"
+              ],
+              "evidence": [
+                "log"
+              ],
+              "instructions": "Is the migration finished?"
+            }
+          },
+          {
+            "id": "s20",
+            "judge": "quick",
+            "ask": {
+              "outcomes": [
+                "yes",
+                "no"
+              ],
+              "evidence": [
+                "log"
+              ],
+              "instructions": "Is the migration finished?"
+            }
+          },
+          {
+            "id": "s21",
+            "judge": "quick",
+            "ask": {
+              "outcomes": [
+                "yes",
+                "no"
+              ],
+              "evidence": [
+                "log"
+              ],
+              "instructions": "Is the migration finished?"
+            }
+          },
+          {
+            "id": "s22",
+            "judge": "quick",
+            "ask": {
+              "outcomes": [
+                "yes",
+                "no"
+              ],
+              "evidence": [
+                "log"
+              ],
+              "instructions": "Is the migration finished?"
+            }
+          },
+          {
+            "id": "s23",
+            "judge": "quick",
+            "ask": {
+              "outcomes": [
+                "yes",
+                "no"
+              ],
+              "evidence": [
+                "log"
+              ],
+              "instructions": "Is the migration finished?"
+            }
+          },
+          {
+            "id": "s24",
+            "judge": "quick",
+            "ask": {
+              "outcomes": [
+                "yes",
+                "no"
+              ],
+              "evidence": [
+                "log"
+              ],
+              "instructions": "Is the migration finished?"
+            }
+          },
+          {
+            "id": "s25",
+            "judge": "quick",
+            "ask": {
+              "outcomes": [
+                "yes",
+                "no"
+              ],
+              "evidence": [
+                "log"
+              ],
+              "instructions": "Is the migration finished?"
+            }
+          },
+          {
+            "id": "s26",
+            "judge": "quick",
+            "ask": {
+              "outcomes": [
+                "yes",
+                "no"
+              ],
+              "evidence": [
+                "log"
+              ],
+              "instructions": "Is the migration finished?"
+            }
+          },
+          {
+            "id": "s27",
+            "judge": "quick",
+            "ask": {
+              "outcomes": [
+                "yes",
+                "no"
+              ],
+              "evidence": [
+                "log"
+              ],
+              "instructions": "Is the migration finished?"
+            }
+          },
+          {
+            "id": "s28",
+            "judge": "quick",
+            "ask": {
+              "outcomes": [
+                "yes",
+                "no"
+              ],
+              "evidence": [
+                "log"
+              ],
+              "instructions": "Is the migration finished?"
+            }
+          },
+          {
+            "id": "s29",
+            "judge": "quick",
+            "ask": {
+              "outcomes": [
+                "yes",
+                "no"
+              ],
+              "evidence": [
+                "log"
+              ],
+              "instructions": "Is the migration finished?"
+            }
+          },
+          {
+            "id": "s30",
+            "judge": "quick",
+            "ask": {
+              "outcomes": [
+                "yes",
+                "no"
+              ],
+              "evidence": [
+                "log"
+              ],
+              "instructions": "Is the migration finished?"
+            }
+          },
+          {
+            "id": "s31",
+            "judge": "quick",
+            "ask": {
+              "outcomes": [
+                "yes",
+                "no"
+              ],
+              "evidence": [
+                "log"
+              ],
+              "instructions": "Is the migration finished?"
+            }
+          }
+        ],
+        "evidence": {
+          "log": "migrated 42 of 42 tables"
+        }
+      },
+      "expect": "strategy"
+    },
+    {
+      "name": "64 outcomes",
+      "params": {
+        "protocol": 1,
+        "deadline_ms": 3000,
+        "judges": {
+          "quick": {
+            "tier": "system-one",
+            "confidence": 0.7
+          }
+        },
+        "strategy": [
+          {
+            "id": "pick",
+            "judge": "quick",
+            "ask": {
+              "instructions": "Which?",
+              "outcomes": [
+                "o0",
+                "o1",
+                "o2",
+                "o3",
+                "o4",
+                "o5",
+                "o6",
+                "o7",
+                "o8",
+                "o9",
+                "o10",
+                "o11",
+                "o12",
+                "o13",
+                "o14",
+                "o15",
+                "o16",
+                "o17",
+                "o18",
+                "o19",
+                "o20",
+                "o21",
+                "o22",
+                "o23",
+                "o24",
+                "o25",
+                "o26",
+                "o27",
+                "o28",
+                "o29",
+                "o30",
+                "o31",
+                "o32",
+                "o33",
+                "o34",
+                "o35",
+                "o36",
+                "o37",
+                "o38",
+                "o39",
+                "o40",
+                "o41",
+                "o42",
+                "o43",
+                "o44",
+                "o45",
+                "o46",
+                "o47",
+                "o48",
+                "o49",
+                "o50",
+                "o51",
+                "o52",
+                "o53",
+                "o54",
+                "o55",
+                "o56",
+                "o57",
+                "o58",
+                "o59",
+                "o60",
+                "o61",
+                "o62",
+                "o63"
+              ]
+            }
+          }
+        ],
+        "evidence": {
+          "log": "migrated 42 of 42 tables"
+        }
+      },
+      "expect": "strategy"
+    },
+    {
+      "name": "64 evidence blocks",
+      "params": {
+        "protocol": 1,
+        "deadline_ms": 3000,
+        "on": "sourcefed.event",
+        "evidence": {
+          "b0": "x",
+          "b1": "x",
+          "b2": "x",
+          "b3": "x",
+          "b4": "x",
+          "b5": "x",
+          "b6": "x",
+          "b7": "x",
+          "b8": "x",
+          "b9": "x",
+          "b10": "x",
+          "b11": "x",
+          "b12": "x",
+          "b13": "x",
+          "b14": "x",
+          "b15": "x",
+          "b16": "x",
+          "b17": "x",
+          "b18": "x",
+          "b19": "x",
+          "b20": "x",
+          "b21": "x",
+          "b22": "x",
+          "b23": "x",
+          "b24": "x",
+          "b25": "x",
+          "b26": "x",
+          "b27": "x",
+          "b28": "x",
+          "b29": "x",
+          "b30": "x",
+          "b31": "x",
+          "b32": "x",
+          "b33": "x",
+          "b34": "x",
+          "b35": "x",
+          "b36": "x",
+          "b37": "x",
+          "b38": "x",
+          "b39": "x",
+          "b40": "x",
+          "b41": "x",
+          "b42": "x",
+          "b43": "x",
+          "b44": "x",
+          "b45": "x",
+          "b46": "x",
+          "b47": "x",
+          "b48": "x",
+          "b49": "x",
+          "b50": "x",
+          "b51": "x",
+          "b52": "x",
+          "b53": "x",
+          "b54": "x",
+          "b55": "x",
+          "b56": "x",
+          "b57": "x",
+          "b58": "x",
+          "b59": "x",
+          "b60": "x",
+          "b61": "x",
+          "b62": "x",
+          "b63": "x"
+        }
+      },
+      "expect": "on"
+    },
+    {
+      "name": "64 candidates",
+      "params": {
+        "protocol": 1,
+        "deadline_ms": 3000,
+        "on": "sourcefed.event",
+        "evidence": {
+          "event": "codecov[bot] commented on #42: Coverage 81.2% (+0.3%)",
+          "monitor": "PR #42 in wrkhse/chauffeur",
+          "thread": "PR #42: feat(cli): add navigate"
+        },
+        "candidates": {
+          "p0": "x",
+          "p1": "x",
+          "p2": "x",
+          "p3": "x",
+          "p4": "x",
+          "p5": "x",
+          "p6": "x",
+          "p7": "x",
+          "p8": "x",
+          "p9": "x",
+          "p10": "x",
+          "p11": "x",
+          "p12": "x",
+          "p13": "x",
+          "p14": "x",
+          "p15": "x",
+          "p16": "x",
+          "p17": "x",
+          "p18": "x",
+          "p19": "x",
+          "p20": "x",
+          "p21": "x",
+          "p22": "x",
+          "p23": "x",
+          "p24": "x",
+          "p25": "x",
+          "p26": "x",
+          "p27": "x",
+          "p28": "x",
+          "p29": "x",
+          "p30": "x",
+          "p31": "x",
+          "p32": "x",
+          "p33": "x",
+          "p34": "x",
+          "p35": "x",
+          "p36": "x",
+          "p37": "x",
+          "p38": "x",
+          "p39": "x",
+          "p40": "x",
+          "p41": "x",
+          "p42": "x",
+          "p43": "x",
+          "p44": "x",
+          "p45": "x",
+          "p46": "x",
+          "p47": "x",
+          "p48": "x",
+          "p49": "x",
+          "p50": "x",
+          "p51": "x",
+          "p52": "x",
+          "p53": "x",
+          "p54": "x",
+          "p55": "x",
+          "p56": "x",
+          "p57": "x",
+          "p58": "x",
+          "p59": "x",
+          "p60": "x",
+          "p61": "x",
+          "p62": "x",
+          "p63": "x"
+        }
+      },
+      "expect": "on"
+    },
+    {
+      "name": "evidence of exactly 256 KiB, names included",
+      "params": {
+        "protocol": 1,
+        "deadline_ms": 3000,
+        "on": "sourcefed.event",
+        "evidence": {}
+      },
+      "expect": "on",
+      "fill": [
+        {
+          "in": "evidence",
+          "name": "log",
+          "text": "a",
+          "times": 262141
+        }
+      ]
+    },
+    {
+      "name": "a deadline of 30 s",
+      "params": {
+        "protocol": 1,
+        "deadline_ms": 30000,
+        "on": "sourcefed.event",
+        "evidence": {
+          "event": "codecov[bot] commented on #42: Coverage 81.2% (+0.3%)",
+          "monitor": "PR #42 in wrkhse/chauffeur",
+          "thread": "PR #42: feat(cli): add navigate"
+        }
+      },
+      "expect": "on"
+    },
+    {
+      "name": "not an object",
+      "params": [
+        1,
+        2
+      ],
+      "reject": {
+        "reason": "invalid"
+      }
+    },
+    {
+      "name": "no protocol",
+      "params": {
+        "on": "sourcefed.event"
+      },
+      "reject": {
+        "reason": "invalid"
+      }
+    },
+    {
+      "name": "an unknown protocol",
+      "params": {
+        "protocol": 2,
+        "deadline_ms": 3000,
+        "on": "sourcefed.event",
+        "evidence": {
+          "event": "codecov[bot] commented on #42: Coverage 81.2% (+0.3%)",
+          "monitor": "PR #42 in wrkhse/chauffeur",
+          "thread": "PR #42: feat(cli): add navigate"
+        }
+      },
+      "reject": {
+        "reason": "unsupported_protocol"
+      }
+    },
+    {
+      "name": "a protocol as a string",
+      "params": {
+        "protocol": "1",
+        "deadline_ms": 3000,
+        "on": "sourcefed.event",
+        "evidence": {
+          "event": "codecov[bot] commented on #42: Coverage 81.2% (+0.3%)",
+          "monitor": "PR #42 in wrkhse/chauffeur",
+          "thread": "PR #42: feat(cli): add navigate"
+        }
+      },
+      "reject": {
+        "reason": "unsupported_protocol"
+      }
+    },
+    {
+      "name": "a protocol as a fraction",
+      "params": {
+        "protocol": 1.5,
+        "deadline_ms": 3000,
+        "on": "sourcefed.event",
+        "evidence": {
+          "event": "codecov[bot] commented on #42: Coverage 81.2% (+0.3%)",
+          "monitor": "PR #42 in wrkhse/chauffeur",
+          "thread": "PR #42: feat(cli): add navigate"
+        }
+      },
+      "reject": {
+        "reason": "unsupported_protocol"
+      }
+    },
+    {
+      "name": "a negative protocol",
+      "params": {
+        "protocol": -1,
+        "deadline_ms": 3000,
+        "on": "sourcefed.event",
+        "evidence": {
+          "event": "codecov[bot] commented on #42: Coverage 81.2% (+0.3%)",
+          "monitor": "PR #42 in wrkhse/chauffeur",
+          "thread": "PR #42: feat(cli): add navigate"
+        }
+      },
+      "reject": {
+        "reason": "unsupported_protocol"
+      }
+    },
+    {
+      "name": "both on and strategy",
+      "params": {
+        "protocol": 1,
+        "deadline_ms": 3000,
+        "judges": {
+          "quick": {
+            "tier": "system-one",
+            "confidence": 0.7
+          }
+        },
+        "strategy": [
+          {
+            "id": "done",
+            "judge": "quick",
+            "ask": {
+              "outcomes": [
+                "yes",
+                "no"
+              ],
+              "evidence": [
+                "log"
+              ],
+              "instructions": "Is the migration finished?"
+            }
+          }
+        ],
+        "evidence": {
+          "log": "migrated 42 of 42 tables"
+        },
+        "on": "sourcefed.event"
+      },
+      "reject": {
+        "reason": "invalid"
+      }
+    },
+    {
+      "name": "neither on nor strategy",
+      "params": {
+        "protocol": 1,
+        "evidence": {}
+      },
+      "reject": {
+        "reason": "invalid"
+      }
+    },
+    {
+      "name": "an empty on",
+      "params": {
+        "protocol": 1,
+        "deadline_ms": 3000,
+        "on": " ",
+        "evidence": {
+          "event": "codecov[bot] commented on #42: Coverage 81.2% (+0.3%)",
+          "monitor": "PR #42 in wrkhse/chauffeur",
+          "thread": "PR #42: feat(cli): add navigate"
+        }
+      },
+      "reject": {
+        "reason": "invalid"
+      }
+    },
+    {
+      "name": "judges with on",
+      "params": {
+        "protocol": 1,
+        "deadline_ms": 3000,
+        "on": "sourcefed.event",
+        "evidence": {
+          "event": "codecov[bot] commented on #42: Coverage 81.2% (+0.3%)",
+          "monitor": "PR #42 in wrkhse/chauffeur",
+          "thread": "PR #42: feat(cli): add navigate"
+        },
+        "judges": {
+          "quick": {
+            "tier": "system-one",
+            "confidence": 0.7
+          }
+        }
+      },
+      "reject": {
+        "reason": "invalid"
+      }
+    },
+    {
+      "name": "asks with on",
+      "params": {
+        "protocol": 1,
+        "deadline_ms": 3000,
+        "on": "sourcefed.event",
+        "evidence": {
+          "event": "codecov[bot] commented on #42: Coverage 81.2% (+0.3%)",
+          "monitor": "PR #42 in wrkhse/chauffeur",
+          "thread": "PR #42: feat(cli): add navigate"
+        },
+        "asks": {
+          "finished": {
+            "outcomes": [
+              "yes",
+              "no"
+            ],
+            "evidence": [
+              "log"
+            ],
+            "instructions": "Is the migration finished?"
+          }
+        }
+      },
+      "reject": {
+        "reason": "invalid"
+      }
+    },
+    {
+      "name": "an unknown field",
+      "params": {
+        "protocol": 1,
+        "deadline_ms": 3000,
+        "on": "sourcefed.event",
+        "evidence": {
+          "event": "codecov[bot] commented on #42: Coverage 81.2% (+0.3%)",
+          "monitor": "PR #42 in wrkhse/chauffeur",
+          "thread": "PR #42: feat(cli): add navigate"
+        },
+        "callback": "notify()"
+      },
+      "reject": {
+        "reason": "invalid"
+      }
+    },
+    {
+      "name": "evidence that is not text",
+      "params": {
+        "protocol": 1,
+        "deadline_ms": 3000,
+        "on": "sourcefed.event",
+        "evidence": {
+          "event": 42
+        }
+      },
+      "reject": {
+        "reason": "invalid"
+      }
+    },
+    {
+      "name": "a deadline of 0",
+      "params": {
+        "protocol": 1,
+        "deadline_ms": 0,
+        "on": "sourcefed.event",
+        "evidence": {
+          "event": "codecov[bot] commented on #42: Coverage 81.2% (+0.3%)",
+          "monitor": "PR #42 in wrkhse/chauffeur",
+          "thread": "PR #42: feat(cli): add navigate"
+        }
+      },
+      "reject": {
+        "reason": "invalid"
+      }
+    },
+    {
+      "name": "a deadline over 30 s",
+      "params": {
+        "protocol": 1,
+        "deadline_ms": 30001,
+        "on": "sourcefed.event",
+        "evidence": {
+          "event": "codecov[bot] commented on #42: Coverage 81.2% (+0.3%)",
+          "monitor": "PR #42 in wrkhse/chauffeur",
+          "thread": "PR #42: feat(cli): add navigate"
+        }
+      },
+      "reject": {
+        "reason": "limit_exceeded",
+        "limit": "deadline_ms"
+      }
+    },
+    {
+      "name": "65 evidence blocks",
+      "params": {
+        "protocol": 1,
+        "deadline_ms": 3000,
+        "on": "sourcefed.event",
+        "evidence": {
+          "b0": "x",
+          "b1": "x",
+          "b2": "x",
+          "b3": "x",
+          "b4": "x",
+          "b5": "x",
+          "b6": "x",
+          "b7": "x",
+          "b8": "x",
+          "b9": "x",
+          "b10": "x",
+          "b11": "x",
+          "b12": "x",
+          "b13": "x",
+          "b14": "x",
+          "b15": "x",
+          "b16": "x",
+          "b17": "x",
+          "b18": "x",
+          "b19": "x",
+          "b20": "x",
+          "b21": "x",
+          "b22": "x",
+          "b23": "x",
+          "b24": "x",
+          "b25": "x",
+          "b26": "x",
+          "b27": "x",
+          "b28": "x",
+          "b29": "x",
+          "b30": "x",
+          "b31": "x",
+          "b32": "x",
+          "b33": "x",
+          "b34": "x",
+          "b35": "x",
+          "b36": "x",
+          "b37": "x",
+          "b38": "x",
+          "b39": "x",
+          "b40": "x",
+          "b41": "x",
+          "b42": "x",
+          "b43": "x",
+          "b44": "x",
+          "b45": "x",
+          "b46": "x",
+          "b47": "x",
+          "b48": "x",
+          "b49": "x",
+          "b50": "x",
+          "b51": "x",
+          "b52": "x",
+          "b53": "x",
+          "b54": "x",
+          "b55": "x",
+          "b56": "x",
+          "b57": "x",
+          "b58": "x",
+          "b59": "x",
+          "b60": "x",
+          "b61": "x",
+          "b62": "x",
+          "b63": "x",
+          "b64": "x"
+        }
+      },
+      "reject": {
+        "reason": "limit_exceeded",
+        "limit": "evidence_blocks"
+      }
+    },
+    {
+      "name": "65 candidates",
+      "params": {
+        "protocol": 1,
+        "deadline_ms": 3000,
+        "on": "sourcefed.event",
+        "evidence": {
+          "event": "codecov[bot] commented on #42: Coverage 81.2% (+0.3%)",
+          "monitor": "PR #42 in wrkhse/chauffeur",
+          "thread": "PR #42: feat(cli): add navigate"
+        },
+        "candidates": {
+          "p0": "x",
+          "p1": "x",
+          "p2": "x",
+          "p3": "x",
+          "p4": "x",
+          "p5": "x",
+          "p6": "x",
+          "p7": "x",
+          "p8": "x",
+          "p9": "x",
+          "p10": "x",
+          "p11": "x",
+          "p12": "x",
+          "p13": "x",
+          "p14": "x",
+          "p15": "x",
+          "p16": "x",
+          "p17": "x",
+          "p18": "x",
+          "p19": "x",
+          "p20": "x",
+          "p21": "x",
+          "p22": "x",
+          "p23": "x",
+          "p24": "x",
+          "p25": "x",
+          "p26": "x",
+          "p27": "x",
+          "p28": "x",
+          "p29": "x",
+          "p30": "x",
+          "p31": "x",
+          "p32": "x",
+          "p33": "x",
+          "p34": "x",
+          "p35": "x",
+          "p36": "x",
+          "p37": "x",
+          "p38": "x",
+          "p39": "x",
+          "p40": "x",
+          "p41": "x",
+          "p42": "x",
+          "p43": "x",
+          "p44": "x",
+          "p45": "x",
+          "p46": "x",
+          "p47": "x",
+          "p48": "x",
+          "p49": "x",
+          "p50": "x",
+          "p51": "x",
+          "p52": "x",
+          "p53": "x",
+          "p54": "x",
+          "p55": "x",
+          "p56": "x",
+          "p57": "x",
+          "p58": "x",
+          "p59": "x",
+          "p60": "x",
+          "p61": "x",
+          "p62": "x",
+          "p63": "x",
+          "p64": "x"
+        }
+      },
+      "reject": {
+        "reason": "limit_exceeded",
+        "limit": "candidates"
+      }
+    },
+    {
+      "name": "evidence over 256 KiB",
+      "params": {
+        "protocol": 1,
+        "deadline_ms": 3000,
+        "on": "sourcefed.event",
+        "evidence": {}
+      },
+      "reject": {
+        "reason": "limit_exceeded",
+        "limit": "evidence_bytes"
+      },
+      "fill": [
+        {
+          "in": "evidence",
+          "name": "log",
+          "text": "a",
+          "times": 262142
+        }
+      ]
+    },
+    {
+      "name": "evidence and candidates over 256 KiB together",
+      "params": {
+        "protocol": 1,
+        "deadline_ms": 3000,
+        "on": "sourcefed.event",
+        "evidence": {},
+        "candidates": {}
+      },
+      "reject": {
+        "reason": "limit_exceeded",
+        "limit": "evidence_bytes"
+      },
+      "fill": [
+        {
+          "in": "evidence",
+          "name": "log",
+          "text": "a",
+          "times": 131070
+        },
+        {
+          "in": "candidates",
+          "name": "p1",
+          "text": "a",
+          "times": 131070
+        }
+      ]
+    },
+    {
+      "name": "evidence over 256 KiB in bytes, not characters",
+      "params": {
+        "protocol": 1,
+        "deadline_ms": 3000,
+        "on": "sourcefed.event",
+        "evidence": {}
+      },
+      "reject": {
+        "reason": "limit_exceeded",
+        "limit": "evidence_bytes"
+      },
+      "fill": [
+        {
+          "in": "evidence",
+          "name": "log",
+          "text": "€",
+          "times": 87381
+        }
+      ]
+    },
+    {
+      "name": "33 steps",
+      "params": {
+        "protocol": 1,
+        "deadline_ms": 3000,
+        "judges": {
+          "quick": {
+            "tier": "system-one",
+            "confidence": 0.7
+          }
+        },
+        "strategy": [
+          {
+            "id": "s0",
+            "judge": "quick",
+            "ask": {
+              "outcomes": [
+                "yes",
+                "no"
+              ],
+              "evidence": [
+                "log"
+              ],
+              "instructions": "Is the migration finished?"
+            }
+          },
+          {
+            "id": "s1",
+            "judge": "quick",
+            "ask": {
+              "outcomes": [
+                "yes",
+                "no"
+              ],
+              "evidence": [
+                "log"
+              ],
+              "instructions": "Is the migration finished?"
+            }
+          },
+          {
+            "id": "s2",
+            "judge": "quick",
+            "ask": {
+              "outcomes": [
+                "yes",
+                "no"
+              ],
+              "evidence": [
+                "log"
+              ],
+              "instructions": "Is the migration finished?"
+            }
+          },
+          {
+            "id": "s3",
+            "judge": "quick",
+            "ask": {
+              "outcomes": [
+                "yes",
+                "no"
+              ],
+              "evidence": [
+                "log"
+              ],
+              "instructions": "Is the migration finished?"
+            }
+          },
+          {
+            "id": "s4",
+            "judge": "quick",
+            "ask": {
+              "outcomes": [
+                "yes",
+                "no"
+              ],
+              "evidence": [
+                "log"
+              ],
+              "instructions": "Is the migration finished?"
+            }
+          },
+          {
+            "id": "s5",
+            "judge": "quick",
+            "ask": {
+              "outcomes": [
+                "yes",
+                "no"
+              ],
+              "evidence": [
+                "log"
+              ],
+              "instructions": "Is the migration finished?"
+            }
+          },
+          {
+            "id": "s6",
+            "judge": "quick",
+            "ask": {
+              "outcomes": [
+                "yes",
+                "no"
+              ],
+              "evidence": [
+                "log"
+              ],
+              "instructions": "Is the migration finished?"
+            }
+          },
+          {
+            "id": "s7",
+            "judge": "quick",
+            "ask": {
+              "outcomes": [
+                "yes",
+                "no"
+              ],
+              "evidence": [
+                "log"
+              ],
+              "instructions": "Is the migration finished?"
+            }
+          },
+          {
+            "id": "s8",
+            "judge": "quick",
+            "ask": {
+              "outcomes": [
+                "yes",
+                "no"
+              ],
+              "evidence": [
+                "log"
+              ],
+              "instructions": "Is the migration finished?"
+            }
+          },
+          {
+            "id": "s9",
+            "judge": "quick",
+            "ask": {
+              "outcomes": [
+                "yes",
+                "no"
+              ],
+              "evidence": [
+                "log"
+              ],
+              "instructions": "Is the migration finished?"
+            }
+          },
+          {
+            "id": "s10",
+            "judge": "quick",
+            "ask": {
+              "outcomes": [
+                "yes",
+                "no"
+              ],
+              "evidence": [
+                "log"
+              ],
+              "instructions": "Is the migration finished?"
+            }
+          },
+          {
+            "id": "s11",
+            "judge": "quick",
+            "ask": {
+              "outcomes": [
+                "yes",
+                "no"
+              ],
+              "evidence": [
+                "log"
+              ],
+              "instructions": "Is the migration finished?"
+            }
+          },
+          {
+            "id": "s12",
+            "judge": "quick",
+            "ask": {
+              "outcomes": [
+                "yes",
+                "no"
+              ],
+              "evidence": [
+                "log"
+              ],
+              "instructions": "Is the migration finished?"
+            }
+          },
+          {
+            "id": "s13",
+            "judge": "quick",
+            "ask": {
+              "outcomes": [
+                "yes",
+                "no"
+              ],
+              "evidence": [
+                "log"
+              ],
+              "instructions": "Is the migration finished?"
+            }
+          },
+          {
+            "id": "s14",
+            "judge": "quick",
+            "ask": {
+              "outcomes": [
+                "yes",
+                "no"
+              ],
+              "evidence": [
+                "log"
+              ],
+              "instructions": "Is the migration finished?"
+            }
+          },
+          {
+            "id": "s15",
+            "judge": "quick",
+            "ask": {
+              "outcomes": [
+                "yes",
+                "no"
+              ],
+              "evidence": [
+                "log"
+              ],
+              "instructions": "Is the migration finished?"
+            }
+          },
+          {
+            "id": "s16",
+            "judge": "quick",
+            "ask": {
+              "outcomes": [
+                "yes",
+                "no"
+              ],
+              "evidence": [
+                "log"
+              ],
+              "instructions": "Is the migration finished?"
+            }
+          },
+          {
+            "id": "s17",
+            "judge": "quick",
+            "ask": {
+              "outcomes": [
+                "yes",
+                "no"
+              ],
+              "evidence": [
+                "log"
+              ],
+              "instructions": "Is the migration finished?"
+            }
+          },
+          {
+            "id": "s18",
+            "judge": "quick",
+            "ask": {
+              "outcomes": [
+                "yes",
+                "no"
+              ],
+              "evidence": [
+                "log"
+              ],
+              "instructions": "Is the migration finished?"
+            }
+          },
+          {
+            "id": "s19",
+            "judge": "quick",
+            "ask": {
+              "outcomes": [
+                "yes",
+                "no"
+              ],
+              "evidence": [
+                "log"
+              ],
+              "instructions": "Is the migration finished?"
+            }
+          },
+          {
+            "id": "s20",
+            "judge": "quick",
+            "ask": {
+              "outcomes": [
+                "yes",
+                "no"
+              ],
+              "evidence": [
+                "log"
+              ],
+              "instructions": "Is the migration finished?"
+            }
+          },
+          {
+            "id": "s21",
+            "judge": "quick",
+            "ask": {
+              "outcomes": [
+                "yes",
+                "no"
+              ],
+              "evidence": [
+                "log"
+              ],
+              "instructions": "Is the migration finished?"
+            }
+          },
+          {
+            "id": "s22",
+            "judge": "quick",
+            "ask": {
+              "outcomes": [
+                "yes",
+                "no"
+              ],
+              "evidence": [
+                "log"
+              ],
+              "instructions": "Is the migration finished?"
+            }
+          },
+          {
+            "id": "s23",
+            "judge": "quick",
+            "ask": {
+              "outcomes": [
+                "yes",
+                "no"
+              ],
+              "evidence": [
+                "log"
+              ],
+              "instructions": "Is the migration finished?"
+            }
+          },
+          {
+            "id": "s24",
+            "judge": "quick",
+            "ask": {
+              "outcomes": [
+                "yes",
+                "no"
+              ],
+              "evidence": [
+                "log"
+              ],
+              "instructions": "Is the migration finished?"
+            }
+          },
+          {
+            "id": "s25",
+            "judge": "quick",
+            "ask": {
+              "outcomes": [
+                "yes",
+                "no"
+              ],
+              "evidence": [
+                "log"
+              ],
+              "instructions": "Is the migration finished?"
+            }
+          },
+          {
+            "id": "s26",
+            "judge": "quick",
+            "ask": {
+              "outcomes": [
+                "yes",
+                "no"
+              ],
+              "evidence": [
+                "log"
+              ],
+              "instructions": "Is the migration finished?"
+            }
+          },
+          {
+            "id": "s27",
+            "judge": "quick",
+            "ask": {
+              "outcomes": [
+                "yes",
+                "no"
+              ],
+              "evidence": [
+                "log"
+              ],
+              "instructions": "Is the migration finished?"
+            }
+          },
+          {
+            "id": "s28",
+            "judge": "quick",
+            "ask": {
+              "outcomes": [
+                "yes",
+                "no"
+              ],
+              "evidence": [
+                "log"
+              ],
+              "instructions": "Is the migration finished?"
+            }
+          },
+          {
+            "id": "s29",
+            "judge": "quick",
+            "ask": {
+              "outcomes": [
+                "yes",
+                "no"
+              ],
+              "evidence": [
+                "log"
+              ],
+              "instructions": "Is the migration finished?"
+            }
+          },
+          {
+            "id": "s30",
+            "judge": "quick",
+            "ask": {
+              "outcomes": [
+                "yes",
+                "no"
+              ],
+              "evidence": [
+                "log"
+              ],
+              "instructions": "Is the migration finished?"
+            }
+          },
+          {
+            "id": "s31",
+            "judge": "quick",
+            "ask": {
+              "outcomes": [
+                "yes",
+                "no"
+              ],
+              "evidence": [
+                "log"
+              ],
+              "instructions": "Is the migration finished?"
+            }
+          },
+          {
+            "id": "s32",
+            "judge": "quick",
+            "ask": {
+              "outcomes": [
+                "yes",
+                "no"
+              ],
+              "evidence": [
+                "log"
+              ],
+              "instructions": "Is the migration finished?"
+            }
+          }
+        ],
+        "evidence": {
+          "log": "migrated 42 of 42 tables"
+        }
+      },
+      "reject": {
+        "reason": "limit_exceeded",
+        "limit": "steps"
+      }
+    },
+    {
+      "name": "65 outcomes",
+      "params": {
+        "protocol": 1,
+        "deadline_ms": 3000,
+        "judges": {
+          "quick": {
+            "tier": "system-one",
+            "confidence": 0.7
+          }
+        },
+        "strategy": [
+          {
+            "id": "pick",
+            "judge": "quick",
+            "ask": {
+              "instructions": "Which?",
+              "outcomes": [
+                "o0",
+                "o1",
+                "o2",
+                "o3",
+                "o4",
+                "o5",
+                "o6",
+                "o7",
+                "o8",
+                "o9",
+                "o10",
+                "o11",
+                "o12",
+                "o13",
+                "o14",
+                "o15",
+                "o16",
+                "o17",
+                "o18",
+                "o19",
+                "o20",
+                "o21",
+                "o22",
+                "o23",
+                "o24",
+                "o25",
+                "o26",
+                "o27",
+                "o28",
+                "o29",
+                "o30",
+                "o31",
+                "o32",
+                "o33",
+                "o34",
+                "o35",
+                "o36",
+                "o37",
+                "o38",
+                "o39",
+                "o40",
+                "o41",
+                "o42",
+                "o43",
+                "o44",
+                "o45",
+                "o46",
+                "o47",
+                "o48",
+                "o49",
+                "o50",
+                "o51",
+                "o52",
+                "o53",
+                "o54",
+                "o55",
+                "o56",
+                "o57",
+                "o58",
+                "o59",
+                "o60",
+                "o61",
+                "o62",
+                "o63",
+                "o64"
+              ]
+            }
+          }
+        ],
+        "evidence": {
+          "log": "migrated 42 of 42 tables"
+        }
+      },
+      "reject": {
+        "reason": "limit_exceeded",
+        "limit": "outcomes"
+      }
+    },
+    {
+      "name": "an unused ask with 65 outcomes",
+      "params": {
+        "protocol": 1,
+        "deadline_ms": 3000,
+        "judges": {
+          "quick": {
+            "tier": "system-one",
+            "confidence": 0.7
+          }
+        },
+        "strategy": [
+          {
+            "id": "done",
+            "judge": "quick",
+            "ask": {
+              "outcomes": [
+                "yes",
+                "no"
+              ],
+              "evidence": [
+                "log"
+              ],
+              "instructions": "Is the migration finished?"
+            }
+          }
+        ],
+        "evidence": {
+          "log": "migrated 42 of 42 tables"
+        },
+        "asks": {
+          "unused": {
+            "instructions": "Which?",
+            "outcomes": [
+              "o0",
+              "o1",
+              "o2",
+              "o3",
+              "o4",
+              "o5",
+              "o6",
+              "o7",
+              "o8",
+              "o9",
+              "o10",
+              "o11",
+              "o12",
+              "o13",
+              "o14",
+              "o15",
+              "o16",
+              "o17",
+              "o18",
+              "o19",
+              "o20",
+              "o21",
+              "o22",
+              "o23",
+              "o24",
+              "o25",
+              "o26",
+              "o27",
+              "o28",
+              "o29",
+              "o30",
+              "o31",
+              "o32",
+              "o33",
+              "o34",
+              "o35",
+              "o36",
+              "o37",
+              "o38",
+              "o39",
+              "o40",
+              "o41",
+              "o42",
+              "o43",
+              "o44",
+              "o45",
+              "o46",
+              "o47",
+              "o48",
+              "o49",
+              "o50",
+              "o51",
+              "o52",
+              "o53",
+              "o54",
+              "o55",
+              "o56",
+              "o57",
+              "o58",
+              "o59",
+              "o60",
+              "o61",
+              "o62",
+              "o63",
+              "o64"
+            ]
+          }
+        }
+      },
+      "reject": {
+        "reason": "limit_exceeded",
+        "limit": "outcomes"
+      }
+    },
+    {
+      "name": "one outcome",
+      "params": {
+        "protocol": 1,
+        "deadline_ms": 3000,
+        "judges": {
+          "quick": {
+            "tier": "system-one",
+            "confidence": 0.7
+          }
+        },
+        "strategy": [
+          {
+            "id": "pick",
+            "judge": "quick",
+            "ask": {
+              "instructions": "Which?",
+              "outcomes": [
+                "yes"
+              ]
+            }
+          }
+        ],
+        "evidence": {
+          "log": "migrated 42 of 42 tables"
+        }
+      },
+      "reject": {
+        "reason": "invalid"
+      }
+    },
+    {
+      "name": "duplicate outcomes",
+      "params": {
+        "protocol": 1,
+        "deadline_ms": 3000,
+        "judges": {
+          "quick": {
+            "tier": "system-one",
+            "confidence": 0.7
+          }
+        },
+        "strategy": [
+          {
+            "id": "pick",
+            "judge": "quick",
+            "ask": {
+              "instructions": "Which?",
+              "outcomes": [
+                "yes",
+                "no",
+                "yes"
+              ]
+            }
+          }
+        ],
+        "evidence": {
+          "log": "migrated 42 of 42 tables"
+        }
+      },
+      "reject": {
+        "reason": "invalid"
+      }
+    },
+    {
+      "name": "a reserved outcome",
+      "params": {
+        "protocol": 1,
+        "deadline_ms": 3000,
+        "judges": {
+          "quick": {
+            "tier": "system-one",
+            "confidence": 0.7
+          }
+        },
+        "strategy": [
+          {
+            "id": "pick",
+            "judge": "quick",
+            "ask": {
+              "instructions": "Which?",
+              "outcomes": [
+                "yes",
+                "unsure"
+              ]
+            }
+          }
+        ],
+        "evidence": {
+          "log": "migrated 42 of 42 tables"
+        }
+      },
+      "reject": {
+        "reason": "invalid"
+      }
+    },
+    {
+      "name": "a per-outcome confidence missing an outcome",
+      "params": {
+        "protocol": 1,
+        "deadline_ms": 3000,
+        "judges": {
+          "careful": {
+            "tier": "system-one",
+            "confidence": {
+              "yes": 0.9
+            }
+          }
+        },
+        "strategy": [
+          {
+            "id": "done",
+            "judge": "careful",
+            "ask": {
+              "outcomes": [
+                "yes",
+                "no"
+              ],
+              "evidence": [
+                "log"
+              ],
+              "instructions": "Is the migration finished?"
+            }
+          }
+        ],
+        "evidence": {
+          "log": "migrated 42 of 42 tables"
+        }
+      },
+      "reject": {
+        "reason": "invalid"
+      }
+    },
+    {
+      "name": "a per-outcome confidence with an outcome the step lacks",
+      "params": {
+        "protocol": 1,
+        "deadline_ms": 3000,
+        "judges": {
+          "careful": {
+            "tier": "system-one",
+            "confidence": {
+              "yes": 0.9,
+              "no": 0.9,
+              "maybe": 0.9
+            }
+          }
+        },
+        "strategy": [
+          {
+            "id": "done",
+            "judge": "careful",
+            "ask": {
+              "outcomes": [
+                "yes",
+                "no"
+              ],
+              "evidence": [
+                "log"
+              ],
+              "instructions": "Is the migration finished?"
+            }
+          }
+        ],
+        "evidence": {
+          "log": "migrated 42 of 42 tables"
+        }
+      },
+      "reject": {
+        "reason": "invalid"
+      }
+    },
+    {
+      "name": "a confidence over 1",
+      "params": {
+        "protocol": 1,
+        "deadline_ms": 3000,
+        "judges": {
+          "quick": {
+            "tier": "system-one",
+            "confidence": 1.5
+          }
+        },
+        "strategy": [
+          {
+            "id": "done",
+            "judge": "quick",
+            "ask": {
+              "outcomes": [
+                "yes",
+                "no"
+              ],
+              "evidence": [
+                "log"
+              ],
+              "instructions": "Is the migration finished?"
+            }
+          }
+        ],
+        "evidence": {
+          "log": "migrated 42 of 42 tables"
+        }
+      },
+      "reject": {
+        "reason": "invalid"
+      }
+    },
+    {
+      "name": "a step naming an unknown judge",
+      "params": {
+        "protocol": 1,
+        "deadline_ms": 3000,
+        "judges": {
+          "quick": {
+            "tier": "system-one",
+            "confidence": 0.7
+          }
+        },
+        "strategy": [
+          {
+            "id": "done",
+            "judge": "nobody",
+            "ask": {
+              "outcomes": [
+                "yes",
+                "no"
+              ],
+              "evidence": [
+                "log"
+              ],
+              "instructions": "Is the migration finished?"
+            }
+          }
+        ],
+        "evidence": {
+          "log": "migrated 42 of 42 tables"
+        }
+      },
+      "reject": {
+        "reason": "invalid"
+      }
+    },
+    {
+      "name": "a step naming an unknown ask",
+      "params": {
+        "protocol": 1,
+        "deadline_ms": 3000,
+        "judges": {
+          "quick": {
+            "tier": "system-one",
+            "confidence": 0.7
+          }
+        },
+        "strategy": [
+          {
+            "id": "done",
+            "judge": "quick",
+            "ask": "missing"
+          }
+        ],
+        "evidence": {
+          "log": "migrated 42 of 42 tables"
+        }
+      },
+      "reject": {
+        "reason": "invalid"
+      }
+    },
+    {
+      "name": "a step naming evidence the request does not send",
+      "params": {
+        "protocol": 1,
+        "deadline_ms": 3000,
+        "judges": {
+          "quick": {
+            "tier": "system-one",
+            "confidence": 0.7
+          }
+        },
+        "strategy": [
+          {
+            "id": "done",
+            "judge": "quick",
+            "ask": {
+              "outcomes": [
+                "yes",
+                "no"
+              ],
+              "evidence": [
+                "log"
+              ],
+              "instructions": "Is the migration finished?"
+            }
+          }
+        ],
+        "evidence": {
+          "other": "…"
+        }
+      },
+      "reject": {
+        "reason": "invalid"
+      }
+    },
+    {
+      "name": "two steps with one ID",
+      "params": {
+        "protocol": 1,
+        "deadline_ms": 3000,
+        "judges": {
+          "quick": {
+            "tier": "system-one",
+            "confidence": 0.7
+          }
+        },
+        "strategy": [
+          {
+            "id": "done",
+            "judge": "quick",
+            "ask": {
+              "outcomes": [
+                "yes",
+                "no"
+              ],
+              "evidence": [
+                "log"
+              ],
+              "instructions": "Is the migration finished?"
+            }
+          },
+          {
+            "id": "done",
+            "judge": "quick",
+            "ask": {
+              "outcomes": [
+                "yes",
+                "no"
+              ],
+              "evidence": [
+                "log"
+              ],
+              "instructions": "Is the migration finished?"
+            }
+          }
+        ],
+        "evidence": {
+          "log": "migrated 42 of 42 tables"
+        }
+      },
+      "reject": {
+        "reason": "invalid"
+      }
+    },
+    {
+      "name": "a blank step ID",
+      "params": {
+        "protocol": 1,
+        "deadline_ms": 3000,
+        "judges": {
+          "quick": {
+            "tier": "system-one",
+            "confidence": 0.7
+          }
+        },
+        "strategy": [
+          {
+            "id": " ",
+            "judge": "quick",
+            "ask": {
+              "outcomes": [
+                "yes",
+                "no"
+              ],
+              "evidence": [
+                "log"
+              ],
+              "instructions": "Is the migration finished?"
+            }
+          }
+        ],
+        "evidence": {
+          "log": "migrated 42 of 42 tables"
+        }
+      },
+      "reject": {
+        "reason": "invalid"
+      }
+    },
+    {
+      "name": "an empty strategy",
+      "params": {
+        "protocol": 1,
+        "deadline_ms": 3000,
+        "judges": {
+          "quick": {
+            "tier": "system-one",
+            "confidence": 0.7
+          }
+        },
+        "strategy": [],
+        "evidence": {
+          "log": "migrated 42 of 42 tables"
+        }
+      },
+      "reject": {
+        "reason": "invalid"
+      }
+    },
+    {
+      "name": "blank instructions",
+      "params": {
+        "protocol": 1,
+        "deadline_ms": 3000,
+        "judges": {
+          "quick": {
+            "tier": "system-one",
+            "confidence": 0.7
+          }
+        },
+        "strategy": [
+          {
+            "id": "done",
+            "judge": "quick",
+            "ask": {
+              "outcomes": [
+                "yes",
+                "no"
+              ],
+              "instructions": " "
+            }
+          }
+        ],
+        "evidence": {
+          "log": "migrated 42 of 42 tables"
+        }
+      },
+      "reject": {
+        "reason": "invalid"
+      }
+    },
+    {
+      "name": "an ask with no instructions",
+      "params": {
+        "protocol": 1,
+        "deadline_ms": 3000,
+        "judges": {
+          "quick": {
+            "tier": "system-one",
+            "confidence": 0.7
+          }
+        },
+        "strategy": [
+          {
+            "id": "done",
+            "judge": "quick",
+            "ask": {
+              "outcomes": [
+                "yes",
+                "no"
+              ]
+            }
+          }
+        ],
+        "evidence": {
+          "log": "migrated 42 of 42 tables"
+        }
+      },
+      "reject": {
+        "reason": "invalid"
+      }
+    }
+  ]
+}

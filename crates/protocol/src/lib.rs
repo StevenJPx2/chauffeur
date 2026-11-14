@@ -1,4 +1,5 @@
-//! Rule files, the events they hook, and the actions or intents they return.
+//! Rule files, the events they hook, and the actions or intents they return;
+//! `navigate` requests, their limits, and what a navigation reports.
 //!
 //! ```
 //! use chauffeur_protocol::{Event, Rule};
@@ -23,11 +24,18 @@
 //! ```
 
 mod event;
+mod intent;
+mod limits;
+pub mod progress;
+mod request;
 mod rule;
 mod then;
 mod when;
 
 pub use event::{Event, EventError};
-pub use rule::{JudgeSpec, Rule, RuleError};
+pub use intent::Intent;
+pub use limits::{Exceeded, Limit};
+pub use request::{DEFAULT_DEADLINE, Navigate, PROTOCOLS, Rejection, Target};
+pub use rule::{JudgeSpec, Rule, RuleError, Strategy};
 pub use then::{Expect, Then};
 pub use when::When;

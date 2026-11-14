@@ -3,15 +3,18 @@ mod ask;
 mod error;
 mod file;
 mod judge;
+mod strategy;
 mod then;
 
 use std::collections::BTreeMap;
 use std::time::Duration;
 
-use chauffeur_core::{Plan, Step};
-use chauffeur_judges::{ConfidenceError, Question};
+use chauffeur_core::Plan;
+use chauffeur_judges::Question;
 pub use error::RuleError;
+pub use file::{AskFile, JudgeFile, StepFile};
 pub use judge::JudgeSpec;
+pub use strategy::Strategy;
 
 use crate::event::Event;
 use crate::then::Then;
@@ -24,8 +27,7 @@ pub struct Rule {
     id: String,
     on: String,
     when: When,
-    judges: BTreeMap<String, JudgeSpec>,
-    plan: Plan<Question>,
+    strategy: Strategy,
     then: Vec<Then>,
     cooldown: Option<Duration>,
 }
@@ -41,39 +43,18 @@ impl Rule {
             rule: id.to_owned(),
             source,
         })?;
-        let mut judges = BTreeMap::new();
-        for (name, judge) in file.judges {
-            judges.insert(name.clone(), judge::judge_spec(id, &name, judge)?);
-        }
-        let mut steps = Vec::with_capacity(file.strategy.len());
-        for step in file.strategy {
-            let question = ask::resolve_ask(id, &step, &file.asks)?;
-            let spec = judge::resolve_judge(id, &step, &mut judges)?;
-            spec.confidence
-                .check(question.outcomes())
-                .map_err(|error: ConfidenceError| RuleError::Confidence {
-                    rule: id.to_owned(),
-                    step: step.id.clone(),
-                    reason: error.to_string(),
-                })?;
-            steps.push(Step::new(step.id, step.judge, question));
-        }
-        let plan = Plan::new(steps).map_err(|source| RuleError::Plan {
-            rule: id.to_owned(),
-            source,
-        })?;
+        let strategy = Strategy::build(id, file.judges, &file.asks, file.strategy)?;
         let then = file
             .then
             .into_iter()
             .enumerate()
-            .map(|(index, entry)| then::resolve_then(id, index, entry, &plan))
+            .map(|(index, entry)| then::resolve_then(id, index, entry, strategy.plan()))
             .collect::<Result<_, _>>()?;
         Ok(Self {
             id: id.to_owned(),
             on: file.on,
             when: file.when,
-            judges,
-            plan,
+            strategy,
             then,
             cooldown: file.cooldown_seconds.map(Duration::from_secs),
         })
@@ -91,16 +72,22 @@ impl Rule {
         &self.id
     }
 
+    /// The strategy it runs.
+    #[must_use]
+    pub const fn strategy(&self) -> &Strategy {
+        &self.strategy
+    }
+
     /// The judges its steps name, including tiers named directly.
     #[must_use]
     pub const fn judges(&self) -> &BTreeMap<String, JudgeSpec> {
-        &self.judges
+        self.strategy.judges()
     }
 
     /// Its strategy as a core plan.
     #[must_use]
     pub const fn plan(&self) -> &Plan<Question> {
-        &self.plan
+        self.strategy.plan()
     }
 
     /// Its `then` entries, in order.

@@ -38,6 +38,10 @@ pub(super) fn resolve_then(
     }
     let mut does = entry.does.into_iter();
     match (does.next(), does.next()) {
+        // Two entries are refused below whatever their names.
+        (Some((name, _)), None) if name == "rule" => Err(refuse(
+            "cannot name an action or intent `rule`, which names the rule on the wire".to_owned(),
+        )),
         (Some((name, payload)), None) => {
             if name == "message.append" {
                 check_append(&payload).map_err(refuse)?;
