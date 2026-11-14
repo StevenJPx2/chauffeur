@@ -8,6 +8,7 @@
 
 use std::fs;
 use std::io::{BufRead, BufReader, Read, Write};
+use std::mem::DropGuard;
 use std::net::TcpListener;
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
@@ -280,12 +281,19 @@ fn the_audit_log_outlasts_the_daemon_that_wrote_it() {
 fn audit_follow_brief_prints_each_new_run_on_one_line() {
     let mut install = Install::new("follow");
     install.start();
-    let mut follower = install
-        .command()
-        .args(["audit", "0", "--follow", "--brief"])
-        .stdout(Stdio::piped())
-        .spawn()
-        .unwrap();
+    // Stopped however the test ends: it would otherwise follow forever.
+    let mut follower = DropGuard::new(
+        install
+            .command()
+            .args(["audit", "0", "--follow", "--brief"])
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap(),
+        |mut follower| {
+            let _ = follower.kill();
+            let _ = follower.wait();
+        },
+    );
     let stdout = follower.stdout.take().unwrap();
     let (send, lines) = std::sync::mpsc::channel();
     thread::spawn(move || {
@@ -298,8 +306,7 @@ fn audit_follow_brief_prints_each_new_run_on_one_line() {
 
     install.json(&["emit"], BAD_COMMIT);
     let line = lines.recv_timeout(Duration::from_secs(5));
-    let _ = follower.kill();
-    let _ = follower.wait();
+    drop(follower);
 
     let line = line.unwrap();
     let time: Vec<char> = line.chars().take(8).collect();
