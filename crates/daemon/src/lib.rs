@@ -63,18 +63,19 @@ pub enum DaemonError {
     Watch(#[from] notify::Error),
 }
 
-/// Loads everything for `paths`, binds the socket and serves until the
-/// listener fails. Configuration that changes is reloaded; a change that
+/// Loads everything for `paths`, binds the socket and serves for as long as
+/// the process runs. Configuration that changes is reloaded; a change that
 /// does not load keeps what was loaded before.
 ///
 /// # Errors
 ///
-/// A [`DaemonError`] if the daemon cannot start.
-pub fn run(paths: &Paths) -> Result<(), DaemonError> {
+/// A [`DaemonError`] if the daemon cannot start, the only way it returns.
+pub fn run(paths: &Paths) -> Result<!, DaemonError> {
     // Watch before the first load, so a change made while it loads, or just
     // after the socket opens, still reloads.
     let (send, receive) = mpsc::channel();
-    let watcher = watch(&[&paths.distribution, &paths.config], &send)?;
+    // Bound until the process ends: dropping it stops watching.
+    let _watcher = watch(&[&paths.distribution, &paths.config], &send)?;
     let audit = audit::Audit::new(&paths.state, audit::MAX_BYTES);
     let router = Arc::new(Router::new(state::load(paths, None)?, audit));
     let listener = socket::bind(&paths.socket)?;
@@ -86,9 +87,7 @@ pub fn run(paths: &Paths) -> Result<(), DaemonError> {
             path: paths.socket.clone(),
             source,
         })?;
-    socket::serve(&listener, &router);
-    drop(watcher);
-    Ok(())
+    socket::serve(&listener, &router)
 }
 
 /// Watches `folders` with the platform's watcher, or by polling when that

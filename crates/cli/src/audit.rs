@@ -19,7 +19,8 @@ pub fn print(state: &Path, count: usize, follow: bool, brief: bool) -> Result<()
     };
     if follow {
         // One read for both, so no run falls between the recent and the new.
-        return log::follow(state, count, &show)
+        let Err(error) = log::follow(state, count, &show);
+        return Err(error)
             .wrap_err_with(|| format!("cannot follow the audit log in {}", state.display()));
     }
     let lines = log::recent(state, count)

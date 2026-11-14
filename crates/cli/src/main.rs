@@ -74,7 +74,6 @@ fn main() -> Result<ExitCode> {
         Command::Daemon {
             command: Daemon::Run { distribution },
         } => match chauffeur_daemon::run(&Paths::from_env(&name, distribution)) {
-            Ok(()) => Ok(ExitCode::SUCCESS),
             Err(DaemonError::Running(socket)) => {
                 eprintln!(
                     "{name}: a daemon is already running on {}",

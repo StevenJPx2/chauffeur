@@ -44,11 +44,15 @@ pub fn bind(socket: &Path) -> Result<UnixListener, DaemonError> {
     })
 }
 
-/// Serves connections until the listener fails, each on its own thread. A
-/// connection past [`MAX_CONNECTIONS`] is told the daemon is busy and closed.
-pub fn serve(listener: &UnixListener, router: &Arc<Router>) {
+/// Serves connections for as long as the process runs, each on its own
+/// thread; a connection that fails to be accepted is skipped. A connection
+/// past [`MAX_CONNECTIONS`] is told the daemon is busy and closed.
+pub fn serve(listener: &UnixListener, router: &Arc<Router>) -> ! {
     let open = Arc::new(AtomicUsize::new(0));
-    for stream in listener.incoming().filter_map(Result::ok) {
+    loop {
+        let Ok((stream, _)) = listener.accept() else {
+            continue;
+        };
         if open.fetch_add(1, Ordering::SeqCst) >= MAX_CONNECTIONS {
             open.fetch_sub(1, Ordering::SeqCst);
             busy(stream);

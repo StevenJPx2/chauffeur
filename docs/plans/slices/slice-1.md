@@ -898,7 +898,7 @@ Files: `crates/daemon/src/paths.rs`, `state.rs`, `rpc.rs`, `socket.rs`,
 ```rust
 // The socket, configuration, distribution and state folders.
 let paths = Paths::from_env("chauffeur", None);
-chauffeur_daemon::run(&paths)?; // serves until the listener fails
+chauffeur_daemon::run(&paths)?; // returns only if it cannot start
 
 let router = Router::new(loaded, Audit::new(&paths.state, MAX_BYTES));
 let actions = router.emit(&event, Duration::from_millis(1500));
@@ -937,7 +937,7 @@ one of the same ID, and a rule file that does not load is refused alone, with
 why, while the rule it held before still runs.
 
 ```rust
-pub fn run(paths: &Paths) -> Result<(), DaemonError>;
+pub fn run(paths: &Paths) -> Result<!, DaemonError>;
 
 pub struct Loaded {
     pub rules: Vec<Arc<Rule>>,
@@ -1007,7 +1007,7 @@ impl Audit {
 }
 
 pub fn recent(folder: &Path, count: usize) -> io::Result<Vec<String>>;
-pub fn follow(folder: &Path, count: usize, each: impl FnMut(&str)) -> io::Result<()>;
+pub fn follow(folder: &Path, count: usize, each: impl FnMut(&str)) -> io::Result<!>;
 ```
 
 `bind` leaves a socket another daemon answers on and replaces a stale one.
@@ -1017,7 +1017,7 @@ deadlines default to 3 seconds and stop at 30.
 
 ```rust
 pub fn bind(socket: &Path) -> Result<UnixListener, DaemonError>;
-pub fn serve(listener: &UnixListener, router: &Arc<Router>);
+pub fn serve(listener: &UnixListener, router: &Arc<Router>) -> !;
 pub fn handle(router: &Router, line: &str) -> Option<Value>;
 ```
 

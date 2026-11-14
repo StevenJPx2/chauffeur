@@ -102,7 +102,8 @@ pub fn recent(folder: &Path, count: usize) -> io::Result<Vec<String>> {
 }
 
 /// Calls `each` with the last `count` lines of the log in `folder`, oldest
-/// first, then with every line written from then on, until reading fails.
+/// first, then with every line written from then on. It returns only when
+/// reading fails.
 ///
 /// The recent lines are read through the file that is then followed, so no
 /// line is written between them unseen. That file stays open, so when the
@@ -112,7 +113,7 @@ pub fn recent(folder: &Path, count: usize) -> io::Result<Vec<String>> {
 /// # Errors
 ///
 /// The log exists but cannot be read.
-pub fn follow(folder: &Path, count: usize, mut each: impl FnMut(&str)) -> io::Result<()> {
+pub fn follow(folder: &Path, count: usize, mut each: impl FnMut(&str)) -> io::Result<!> {
     let path = folder.join(FILE);
     let mut following = open(&path)?;
     let mut partial = String::new();
