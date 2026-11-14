@@ -31,14 +31,14 @@ why.
 
 In order of impact. Each links the machine it breaks.
 
-| #   | Severity | Machine                                  | What could happen                                                    | Issue                                                  | Fixed in  |
-| --- | -------- | ---------------------------------------- | -------------------------------------------------------------------- | ------------------------------------------------------ | --------- |
-| S1  | High     | [A request](#a-request-from-the-adapter) | OpenCode waits forever on a tool call when the daemon hangs up       | [#1](https://github.com/StevenJPx2/chauffeur/issues/1) | `4a005a0` |
-| S2  | High     | [A rule file](#a-rule-file)              | A rule saved halfway through an edit stops running                   | [#2](https://github.com/StevenJPx2/chauffeur/issues/2) | `102d5ae` |
-| S3  | High     | [A rule file](#a-rule-file)              | A folder linked back to `rules/` loads one rule 512 times            | [#2](https://github.com/StevenJPx2/chauffeur/issues/2) | `c5991be` |
-| S4  | Medium   | [Cooldowns](#a-cooldown)                 | Events at once in one session each return the action                 | [#3](https://github.com/StevenJPx2/chauffeur/issues/3) | `83e697e` |
-| S5  | Low      | [Following the log](#following-the-log)  | `audit --follow` skips runs written while it starts                  | [#4](https://github.com/StevenJPx2/chauffeur/issues/4) | `4c8eebb` |
-| S6  | Low      | [The audit log](#the-audit-log)          | Times change width, so they do not sort, and a test fails 1 run in 8 | [#4](https://github.com/StevenJPx2/chauffeur/issues/4) | `527b26d` |
+| #   | Severity | Machine                                  | What could happen                                                    | Issue                                              | Fixed in  |
+| --- | -------- | ---------------------------------------- | -------------------------------------------------------------------- | -------------------------------------------------- | --------- |
+| S1  | High     | [A request](#a-request-from-the-adapter) | OpenCode waits forever on a tool call when the daemon hangs up       | [#1](https://github.com/wrkhse/chauffeur/issues/1) | `4a005a0` |
+| S2  | High     | [A rule file](#a-rule-file)              | A rule saved halfway through an edit stops running                   | [#2](https://github.com/wrkhse/chauffeur/issues/2) | `102d5ae` |
+| S3  | High     | [A rule file](#a-rule-file)              | A folder linked back to `rules/` loads one rule 512 times            | [#2](https://github.com/wrkhse/chauffeur/issues/2) | `c5991be` |
+| S4  | Medium   | [Cooldowns](#a-cooldown)                 | Events at once in one session each return the action                 | [#3](https://github.com/wrkhse/chauffeur/issues/3) | `83e697e` |
+| S5  | Low      | [Following the log](#following-the-log)  | `audit --follow` skips runs written while it starts                  | [#4](https://github.com/wrkhse/chauffeur/issues/4) | `4c8eebb` |
+| S6  | Low      | [The audit log](#the-audit-log)          | Times change width, so they do not sort, and a test fails 1 run in 8 | [#4](https://github.com/wrkhse/chauffeur/issues/4) | `527b26d` |
 
 `e2b169d` adds the tests mutation testing asked for after the fixes.
 
@@ -144,13 +144,13 @@ microsecond; the test passed 60 runs in a row.
 | --- | ------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
 | O1  | A cooldown starts when the daemon returns an action, even when the adapter has stopped waiting or OpenCode refuses the message. | Only when delivery fails; the adapter logs it.                                                                    | The daemon learns nothing about delivery; reporting it back is a protocol change.                    |
 | O2  | A run past its deadline keeps its worker until its models' timeouts end, and new runs start new threads with no cap.            | Each late job ends within its tier's timeouts, 3 seconds a model by default; 64 connections limit how many start. | Bounded in practice. Slice 3 ends each step 1 second before the caller's deadline.                   |
-| O4  | Accept errors are skipped in a loop, so one that persists, such as running out of file descriptors, would spin a core.          | Not reproduced: 64 connections leave descriptors to spare.                                                        | Nothing to reproduce; tracked in [#10](https://github.com/StevenJPx2/chauffeur/issues/10).           |
+| O4  | Accept errors are skipped in a loop, so one that persists, such as running out of file descriptors, would spin a core.          | Not reproduced: 64 connections leave descriptors to spare.                                                        | Nothing to reproduce; tracked in [#10](https://github.com/wrkhse/chauffeur/issues/10).               |
 | O5  | A poisoned lock turns cooldowns off and makes `emit` return nothing.                                                            | Unreachable: nothing done under these locks can panic.                                                            | Nothing to reproduce.                                                                                |
 | O6  | Events with no session share one cooldown, under the session `""`.                                                              | Only through `chauffeur emit` without `session`; the adapter always sends one.                                    | No caller depends on it.                                                                             |
 | O7  | An idle connection holds its slot with no time limit.                                                                           | Only a client that connects and stays silent; the adapter and the CLI close theirs.                               | Programs that keep a connection open are planned with `connect()` in slice 2; a limit belongs there. |
 | O8  | A deadline is never a step's `failed`, so a `then` entry for `failed` does not run on a deadline.                               | Yes: a late run returns nothing.                                                                                  | Slice 3 ends steps before the deadline, so they fail as `deadline` in time.                          |
 | O9  | Two daemons sharing one state folder can interleave moving the log aside.                                                       | Only with two sockets set by `CHAUFFEUR_SOCKET` and one `XDG_STATE_HOME`.                                         | One daemon per installation is the supported setup.                                                  |
-| O10 | The reload thread failing to start is reported as a socket error.                                                               | Only when no thread can start.                                                                                    | Wording only; tracked in [#11](https://github.com/StevenJPx2/chauffeur/issues/11).                   |
+| O10 | The reload thread failing to start is reported as a socket error.                                                               | Only when no thread can start.                                                                                    | Wording only; tracked in [#11](https://github.com/wrkhse/chauffeur/issues/11).                       |
 
 ## The machines
 

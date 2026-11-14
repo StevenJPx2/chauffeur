@@ -13,7 +13,7 @@ import { resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { tarballName } from "./package.mjs"
 
-const REPOSITORY = "https://github.com/StevenJPx2/chauffeur"
+const REPOSITORY = "https://github.com/wrkhse/chauffeur"
 const DOWNLOADS = `${REPOSITORY}/releases/download`
 
 /** Homebrew's OS and CPU blocks for each target, in the order they render. */

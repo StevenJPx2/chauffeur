@@ -10,7 +10,7 @@ jev-distill student answers before Jev.
 
 This slice adds strategies with more than one step: a step's `after` names
 the earlier steps it waits for and the outcomes it needs. The step machine
-underneath is [rungs](https://github.com/StevenJPx2/rungs/issues/1), shared
+underneath is [rungs](https://github.com/wrkhse/rungs/issues/1), shared
 with atelier. It also adds image evidence, the `student` format, and a tier
 that rests a failed model for 60 seconds before asking it again.
 
@@ -51,7 +51,7 @@ Files: `crates/core/src/plan/run.rs`, `crates/core/src/plan/near.rs`,
 
 ```toml
 # crates/core/Cargo.toml
-rungs = { git = "https://github.com/StevenJPx2/rungs", tag = "v0.1.0" }
+rungs = { git = "https://github.com/wrkhse/rungs", tag = "v0.1.0" }
 ```
 
 ```json

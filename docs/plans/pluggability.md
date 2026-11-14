@@ -214,7 +214,7 @@ flowchart TB
     Playground["playground<br/>WASM + interactive tabs"] --> Protocol
 ```
 
-`crates/core` has one crate dependency, [rungs](https://github.com/StevenJPx2/rungs/issues/1),
+`crates/core` has one crate dependency, [rungs](https://github.com/wrkhse/rungs/issues/1),
 the step machine it drives from slice 3, which is `no_std` with no
 dependencies of its own. Core has no async runtime, HTTP, serde, UI, logging
 or plugin system. Error types use the standard library. Other crates
