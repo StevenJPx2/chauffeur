@@ -11,7 +11,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use chauffeur_runtime::{
-    Admission, Busy, Cancel, Capacity, EventLog, Pool, Source, Waited, within,
+    Admission, Busy, Cancel, Capacity, EventLog, Ledger, Pool, Source, Waited, within,
 };
 
 const WAIT: Duration = Duration::from_secs(5);
@@ -46,6 +46,7 @@ fn a_flood_of_81_with_capacity_8_admits_8_and_refuses_73() {
         .partition(Result::is_ok);
 
     assert_eq!((admitted.len(), refused.len()), (8, 73));
+    assert_eq!(admission.in_use().total(), 8);
     assert!(refused.iter().all(|busy| matches!(
         busy,
         Err(Busy {
@@ -73,6 +74,8 @@ fn one_source_at_its_share_leaves_room_for_another() {
             share: true
         }
     );
+    let busy = admission.admit(Source::Harness).unwrap_err();
+    assert_eq!(busy.to_string(), "the harness share of capacity is in use");
     let integration = admission.admit(Source::Integration).unwrap();
     assert_eq!(integration.source(), Source::Integration);
     assert_eq!(admission.in_use().held(Source::Harness), 8);
@@ -90,13 +93,30 @@ fn a_full_capacity_refuses_every_source() {
         admission.admit(Source::Harness).unwrap(),
     ];
 
+    let busy = admission.admit(Source::Integration).unwrap_err();
     assert_eq!(
-        admission.admit(Source::Integration).unwrap_err(),
+        busy,
         Busy {
             from: Source::Integration,
             share: false
         }
     );
+    assert_eq!(busy.to_string(), "every share of capacity is in use");
+    assert_eq!(Source::Integration.name(), "integration");
+}
+
+#[test]
+fn giving_back_what_a_source_never_took_changes_nothing() {
+    let mut ledger = Ledger::new(Capacity::DAEMON);
+    ledger.take(Source::Harness).unwrap();
+
+    ledger.give(Source::Integration);
+
+    assert_eq!(ledger.total(), 1);
+    assert_eq!(ledger.held(Source::Harness), 1);
+    ledger.give(Source::Harness);
+    ledger.give(Source::Harness);
+    assert_eq!(ledger.total(), 0);
 }
 
 #[test]
