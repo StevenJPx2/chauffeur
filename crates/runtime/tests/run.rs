@@ -110,6 +110,32 @@ fn with_no_model_answering_the_step_fails_and_nothing_is_returned() {
 }
 
 #[test]
+fn a_run_whose_worker_stops_is_refused_at_once_not_late() {
+    let models = r#"{ "models": { "jev": { "format": "systemone", "endpoint": "http://127.0.0.1:9", "model": "jev-latest",
+                                          "key": { "env": "TYPESAFE_API_KEY" } } },
+                      "tiers": { "system-one": ["jev"] } }"#;
+    let context = Arc::into_inner(context("stopped", models, &[])).unwrap();
+    let context = Arc::new(Context {
+        keys: Box::new(|_| panic!("the worker stops while it builds the judges")),
+        ..context
+    });
+
+    let started = Instant::now();
+    let ran = run(
+        &context,
+        &commit_rule(),
+        &commit("fixed stuff"),
+        Duration::from_secs(5),
+    );
+
+    assert!(
+        matches!(&ran, Ran::Refused(reason) if reason.contains("worker")),
+        "{ran:?}"
+    );
+    assert!(started.elapsed() < Duration::from_secs(1));
+}
+
+#[test]
 fn a_judge_slower_than_the_deadline_is_dropped() {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let endpoint = format!("http://{}", listener.local_addr().unwrap());

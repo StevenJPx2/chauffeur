@@ -1,6 +1,6 @@
 mod pool;
 
-use std::sync::mpsc;
+use std::sync::mpsc::{self, RecvTimeoutError};
 use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 
@@ -42,7 +42,8 @@ pub enum Ran {
         /// What the rule returns, if any entry was met.
         then: Option<Then>,
     },
-    /// The rule could not run, such as a placeholder whose answers would not load.
+    /// The rule could not run, such as a placeholder whose answers would not
+    /// load, or a worker that stopped.
     Refused(String),
     /// The deadline passed first; a late result is dropped.
     Deadline,
@@ -66,7 +67,12 @@ pub fn run(context: &Arc<Context>, rule: &Arc<Rule>, event: &Event, deadline: Du
     if let Err(error) = started {
         return Ran::Refused(format!("cannot start a worker: {error}"));
     }
-    receive.recv_timeout(deadline).unwrap_or(Ran::Deadline)
+    match receive.recv_timeout(deadline) {
+        Ok(ran) => ran,
+        Err(RecvTimeoutError::Timeout) => Ran::Deadline,
+        // The worker dropped its sender without sending: it stopped.
+        Err(RecvTimeoutError::Disconnected) => Ran::Refused("the run's worker stopped".to_owned()),
+    }
 }
 
 fn run_now(context: &Context, rule: &Rule, evidence: &Evidence) -> Ran {

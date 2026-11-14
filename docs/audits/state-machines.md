@@ -144,7 +144,6 @@ microsecond; the test passed 60 runs in a row.
 | --- | ------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
 | O1  | A cooldown starts when the daemon returns an action, even when the adapter has stopped waiting or OpenCode refuses the message. | Only when delivery fails; the adapter logs it.                                                                    | The daemon learns nothing about delivery; reporting it back is a protocol change.                    |
 | O2  | A run past its deadline keeps its worker until its models' timeouts end, and new runs start new threads with no cap.            | Each late job ends within its tier's timeouts, 3 seconds a model by default; 64 connections limit how many start. | Bounded in practice. Slice 3 ends each step 1 second before the caller's deadline.                   |
-| O3  | A worker that panics is reported as a missed deadline, at once.                                                                 | No panic found: the workspace denies `unwrap`, `expect`, `panic`, `unreachable`, `todo` and indexing.             | Nothing to reproduce.                                                                                |
 | O4  | Accept errors are skipped in a loop, so one that persists, such as running out of file descriptors, would spin a core.          | Not reproduced: 64 connections leave descriptors to spare.                                                        | Nothing to reproduce.                                                                                |
 | O5  | A poisoned lock turns cooldowns off and makes `emit` return nothing.                                                            | Unreachable: nothing done under these locks can panic.                                                            | Nothing to reproduce.                                                                                |
 | O6  | Events with no session share one cooldown, under the session `""`.                                                              | Only through `chauffeur emit` without `session`; the adapter always sends one.                                    | No caller depends on it.                                                                             |
@@ -358,7 +357,7 @@ stateDiagram-v2
 Hooked --> Cooling : fired in this session within its cooldown
 Hooked --> Judging : not cooling down
 Judging --> Settled : every step answered or failed in time
-Judging --> Refused : no judge could be built
+Judging --> Refused : no judge could be built, or the worker stopped
 Judging --> Late : the deadline passed first
 Settled --> Returned : a then entry is met, and it fires first
 Settled --> Cooling : a then entry is met, but another run fired first
@@ -383,6 +382,7 @@ Logged --> [_]
 | Hooked  | the pair fired within the cooldown     | Cooling  | `cooldown: true`, no steps       |
 | Judging | the worker answers within the deadline | Settled  | `steps`, `elapsed_ms`            |
 | Judging | a fallback cannot be built             | Refused  | `refused` and why                |
+| Judging | the worker stops without answering     | Refused  | `refused` and why                |
 | Judging | the deadline passes                    | Late     | `deadline: true`                 |
 | Settled | an entry is met and `try_fire` wins    | Returned | `returned` and the action's name |
 | Settled | an entry is met and `try_fire` loses   | Cooling  | `steps` and `cooldown: true`     |
@@ -427,8 +427,8 @@ Waiting --> [*] : the pool is gone
     worker (O2).
   - A job's result reaches its run through a channel that holds one; after
     the deadline nothing reads it.
-  - A worker that dies drops that channel, and its run reports a missed
-    deadline at once (O3).
+  - A worker that stops drops that channel, and its run is refused at once,
+    not reported as late.
 
 ### Fallback over a tier's models
 
