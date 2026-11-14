@@ -29,7 +29,11 @@ jobs:
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - run: cargo clippy -p chauffeur-judges --no-default-features --all-targets --locked -- -D warnings
       - run: cargo clippy -p chauffeur-playground --target wasm32-unknown-unknown --locked -- -D warnings
-      - run: cargo test --workspace --locked
+      - uses: taiki-e/install-action@4a76afe23f9e08d2d9550fb56e556444e8611d21 # v2.90.4
+        with:
+          tool: cargo-nextest
+      - run: cargo nextest run --workspace --locked
+      - run: cargo test --doc --workspace --locked
       # Each benchmark once, so they keep building and running; timings are compared locally.
       - run: cargo bench --workspace --bench '*' --locked -- -benchtime 1x -count 1
 
@@ -44,6 +48,55 @@ jobs:
       - run: cargo +1.100.0 check --workspace --all-targets --locked
       - run: cargo +1.100.0 check -p chauffeur-judges --no-default-features --all-targets --locked
       - run: cargo +1.100.0 check -p chauffeur-playground --target wasm32-unknown-unknown --locked
+
+  # The proofs run on GitHub's disposable runners, never on a developer's
+  # machine: they execute generated code and the tests spawn processes.
+  miri:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: cargo miri setup
+      - run: cargo miri test -p chauffeur-core --locked
+
+  kani:
+    runs-on: ubuntu-latest
+    env:
+      KANI_VERSION: 0.68.0
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # Kani brings its own nightly; the pinned one stays for the rest.
+      - run: cargo install --locked kani-verifier --version "$KANI_VERSION"
+      - run: cargo kani setup
+      - run: cargo kani -p chauffeur-judges
+
+  # Every viable mutant in the lines a pull request changes must be caught;
+  # an equivalent one is excluded in .cargo/mutants.toml, with why.
+  mutants:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: taiki-e/install-action@4a76afe23f9e08d2d9550fb56e556444e8611d21 # v2.90.4
+        with:
+          tool: cargo-mutants,cargo-nextest
+      - name: The pull request's diff
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: git diff "$BASE"...HEAD -- '*.rs' > pr.diff
+      - run: cargo mutants --in-diff pr.diff --no-shuffle -vV
+      - if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: mutants.out
+          path: mutants.out
 
   opencode:
     runs-on: ubuntu-latest
