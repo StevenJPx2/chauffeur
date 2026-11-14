@@ -89,7 +89,7 @@ impl Loaded {
 }
 
 fn load_rule(folder: &Path, path: &Path) -> Result<Rule, String> {
-    let id = path.strip_prefix(folder).unwrap_or(path).with_extension("");
+    let id = path.trim_prefix(folder).with_extension("");
     let id = id.to_string_lossy().replace(std::path::MAIN_SEPARATOR, "/");
     let text = std::fs::read_to_string(path).map_err(|error| error.to_string())?;
     Rule::parse(&id, &text).map_err(|error| error.to_string())
