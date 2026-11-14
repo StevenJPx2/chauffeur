@@ -553,6 +553,27 @@ if (done.ok && done.outcome === "yes") {
 }
 ```
 
+Structure:
+
+`chauffeur navigate` reads the whole of stdin as the request's `params`,
+sends it with ID 1, and copies every line it receives to stdout until the
+reply to it. It waits for the request's `deadline_ms` and 2 seconds more,
+in all, however many events arrive.
+An `unsupported_protocol` rejection exits 2, as no daemon does, since a
+script can do nothing about either.
+
+```rust
+pub enum Ended {
+    Answered,
+    Rejected,
+    Unavailable,
+}
+
+impl From<Ended> for ExitCode {}
+
+pub fn navigate(socket: &Path, input: &mut impl Read, output: &mut impl Write) -> Ended;
+```
+
 Verified by:
 
 - The client, `/judge` and `chauffeur navigate` accept and reject every
@@ -560,6 +581,10 @@ Verified by:
 - Aborting any caller cancels the navigation; an unsupported protocol reports
   as `unavailable`.
 - `ask`'s result types reject impossible outcomes at compile time.
+- `crates/cli/tests/navigate.rs` runs `chauffeur navigate` against a daemon
+  on a test thread: an event prints its events then the intents, every
+  fixture exits 0, 1 or 2 with its reason and limit, no daemon exits 2, and
+  stdin that is not JSON exits 1.
 
 ### sourcefed
 
