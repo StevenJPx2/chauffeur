@@ -31,14 +31,17 @@ why.
 
 In order of impact. Each links the machine it breaks.
 
-| #   | Severity | Machine                                  | What could happen                                                    | Issue                                              | Fixed in  |
-| --- | -------- | ---------------------------------------- | -------------------------------------------------------------------- | -------------------------------------------------- | --------- |
-| S1  | High     | [A request](#a-request-from-the-adapter) | OpenCode waits forever on a tool call when the daemon hangs up       | [#1](https://github.com/wrkhse/chauffeur/issues/1) | `4a005a0` |
-| S2  | High     | [A rule file](#a-rule-file)              | A rule saved halfway through an edit stops running                   | [#2](https://github.com/wrkhse/chauffeur/issues/2) | `102d5ae` |
-| S3  | High     | [A rule file](#a-rule-file)              | A folder linked back to `rules/` loads one rule 512 times            | [#2](https://github.com/wrkhse/chauffeur/issues/2) | `c5991be` |
-| S4  | Medium   | [Cooldowns](#a-cooldown)                 | Events at once in one session each return the action                 | [#3](https://github.com/wrkhse/chauffeur/issues/3) | `83e697e` |
-| S5  | Low      | [Following the log](#following-the-log)  | `audit --follow` skips runs written while it starts                  | [#4](https://github.com/wrkhse/chauffeur/issues/4) | `4c8eebb` |
-| S6  | Low      | [The audit log](#the-audit-log)          | Times change width, so they do not sort, and a test fails 1 run in 8 | [#4](https://github.com/wrkhse/chauffeur/issues/4) | `527b26d` |
+| #   | Severity | Machine                                   | What could happen                                                      | Issue                                                | Fixed in                                           |
+| --- | -------- | ----------------------------------------- | ---------------------------------------------------------------------- | ---------------------------------------------------- | -------------------------------------------------- |
+| S1  | High     | [A request](#a-request-from-the-adapter)  | OpenCode waits forever on a tool call when the daemon hangs up         | [#1](https://github.com/wrkhse/chauffeur/issues/1)   | `4a005a0`                                          |
+| S2  | High     | [A rule file](#a-rule-file)               | A rule saved halfway through an edit stops running                     | [#2](https://github.com/wrkhse/chauffeur/issues/2)   | `102d5ae`                                          |
+| S3  | High     | [A rule file](#a-rule-file)               | A folder linked back to `rules/` loads one rule 512 times              | [#2](https://github.com/wrkhse/chauffeur/issues/2)   | `c5991be`                                          |
+| S4  | Medium   | [Cooldowns](#a-cooldown)                  | Events at once in one session each return the action                   | [#3](https://github.com/wrkhse/chauffeur/issues/3)   | `83e697e`                                          |
+| S5  | Low      | [Following the log](#following-the-log)   | `audit --follow` skips runs written while it starts                    | [#4](https://github.com/wrkhse/chauffeur/issues/4)   | `4c8eebb`                                          |
+| S6  | Low      | [The audit log](#the-audit-log)           | Times change width, so they do not sort, and a test fails 1 run in 8   | [#4](https://github.com/wrkhse/chauffeur/issues/4)   | `527b26d`                                          |
+| S7  | Low      | [Following the log](#following-the-log)   | `chauffeur audit \| head` crashes with exit 101                        | [#12](https://github.com/wrkhse/chauffeur/issues/12) | [#18](https://github.com/wrkhse/chauffeur/pull/18) |
+| O4  | Low      | [The daemon process](#the-daemon-process) | A failed accept is tried again at once, so one that lasts spins a core | [#10](https://github.com/wrkhse/chauffeur/issues/10) | [#18](https://github.com/wrkhse/chauffeur/pull/18) |
+| O10 | Low      | [The daemon process](#the-daemon-process) | A reload thread that cannot start is reported as a socket error        | [#11](https://github.com/wrkhse/chauffeur/issues/11) | [#18](https://github.com/wrkhse/chauffeur/pull/18) |
 
 `e2b169d` adds the tests mutation testing asked for after the fixes.
 
@@ -138,24 +141,65 @@ text, and `a_log_at_exactly_its_bound_stays_and_a_line_over_it_still_starts_one`
 failed in 4 of 30 runs on the audited commit. Now `at` is always to the
 microsecond; the test passed 60 runs in a row.
 
+### S7. Low: `chauffeur audit | head` crashed
+
+`chauffeur audit` printed with `println!`, which panics when stdout is a
+closed pipe: Rust ignores `SIGPIPE`, so the write fails with `EPIPE`.
+`chauffeur audit 20000 | head -1` exited with 101 and color-eyre's crash
+report, "failed printing to stdout: Broken pipe". `--follow` did the same at
+the first run written after `head` exited.
+
+Now `audit` writes to a locked stdout and, when the pipe closes, stops with
+success. `follow` stops when its callback breaks, and returns what it broke
+with.
+
+Tests: `audit_stops_quietly_when_its_reader_closes_the_pipe`,
+`audit_follow_stops_quietly_when_its_reader_closes_the_pipe`,
+`following_stops_with_what_each_breaks_with_among_the_recent_runs` and
+`following_stops_with_what_each_breaks_with_on_a_new_run`.
+
+### O4. Low: a failed accept was tried again at once
+
+`serve` skipped a connection that failed to be accepted and called `accept`
+again at once, so an error that lasts would spin a core. On Linux, a daemon
+started with 32 or 33 descriptors, with connections held past them for 4
+seconds, failed `accept` with `EMFILE` over and over, but never for good:
+Linux takes the descriptor before `accept` waits, and the daemon closed each
+connection it had no descriptor to copy, which freed one. The error lasts
+only when served connections hold every descriptor as `accept` runs, which
+takes losing a race.
+
+Now a failed accept waits 50 ms before the next, so an error that lasts costs
+20 accepts a second.
+
+Test: `each_failed_accept_waits_before_the_next`, which gives the accept loop
+three failures before a connection.
+
+### O10. Low: a reload thread that could not start was a socket error
+
+`run` reported a reload thread that failed to spawn as
+`DaemonError::Socket`, `cannot bind <socket>: …`, although the socket was
+bound. Now it is `DaemonError::Thread`, `cannot start the reload thread: …`.
+It happens only when no thread can start, so the test checks the message.
+
+Test: `a_reload_thread_that_cannot_start_says_so`.
+
 ### Seen, not fixed
 
 | #   | What                                                                                                                            | Reached                                                                                                           | Why it stays for now                                                                                 |
 | --- | ------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
 | O1  | A cooldown starts when the daemon returns an action, even when the adapter has stopped waiting or OpenCode refuses the message. | Only when delivery fails; the adapter logs it.                                                                    | The daemon learns nothing about delivery; reporting it back is a protocol change.                    |
 | O2  | A run past its deadline keeps its worker until its models' timeouts end, and new runs start new threads with no cap.            | Each late job ends within its tier's timeouts, 3 seconds a model by default; 64 connections limit how many start. | Bounded in practice. Slice 3 ends each step 1 second before the caller's deadline.                   |
-| O4  | Accept errors are skipped in a loop, so one that persists, such as running out of file descriptors, would spin a core.          | Not reproduced: 64 connections leave descriptors to spare.                                                        | Nothing to reproduce; tracked in [#10](https://github.com/wrkhse/chauffeur/issues/10).               |
 | O5  | A poisoned lock turns cooldowns off and makes `emit` return nothing.                                                            | Unreachable: nothing done under these locks can panic.                                                            | Nothing to reproduce.                                                                                |
 | O6  | Events with no session share one cooldown, under the session `""`.                                                              | Only through `chauffeur emit` without `session`; the adapter always sends one.                                    | No caller depends on it.                                                                             |
 | O7  | An idle connection holds its slot with no time limit.                                                                           | Only a client that connects and stays silent; the adapter and the CLI close theirs.                               | Programs that keep a connection open are planned with `connect()` in slice 2; a limit belongs there. |
 | O8  | A deadline is never a step's `failed`, so a `then` entry for `failed` does not run on a deadline.                               | Yes: a late run returns nothing.                                                                                  | Slice 3 ends steps before the deadline, so they fail as `deadline` in time.                          |
 | O9  | Two daemons sharing one state folder can interleave moving the log aside.                                                       | Only with two sockets set by `CHAUFFEUR_SOCKET` and one `XDG_STATE_HOME`.                                         | One daemon per installation is the supported setup.                                                  |
-| O10 | The reload thread failing to start is reported as a socket error.                                                               | Only when no thread can start.                                                                                    | Wording only; tracked in [#11](https://github.com/wrkhse/chauffeur/issues/11).                       |
 
 ## The machines
 
 Each machine below has its states, what always holds (its invariants), and a
-table of how it moves. A move that S1 to S6 made impossible is noted where it
+table of how it moves. A move that a fix made impossible is noted where it
 was.
 
 ### The daemon process
@@ -171,7 +215,7 @@ Watching --> [_] : cannot watch
 Loading --> Binding : models, redaction and rules loaded
 Loading --> [_] : models or redaction refused
 Binding --> Serving : socket bound in a private folder
-Binding --> [_] : another daemon answers, or the folder is not private
+Binding --> [_] : another daemon answers, the folder is not private, or the reload thread cannot start
 Serving --> Serving : a connection, or a reload
 ```
 
@@ -180,8 +224,9 @@ Serving --> Serving : a connection, or a reload
     and a stale one is replaced.
   - Watching starts before the first load, so a change made while it starts
     still reloads.
-  - Serving has no end of its own: the listener's connections never run out
-    (O4).
+  - Serving has no end of its own: the listener's connections never run out.
+    A failed accept waits 50 ms before the next, so one that lasts does not
+    spin a core. Before O4 it was tried again at once.
 
 | From     | On                                   | To      | Then                                  |
 | -------- | ------------------------------------ | ------- | ------------------------------------- |
@@ -190,6 +235,7 @@ Serving --> Serving : a connection, or a reload
 | Loading  | models or redaction do not load      | exit    | the error names the file              |
 | Binding  | another daemon answers on the socket | exit 0  | the CLI says one is already running   |
 | Binding  | the folder is open to others         | exit    | the error says it must have mode 0700 |
+| Binding  | the reload thread cannot start       | exit    | the error says so (O10)               |
 | Binding  | bound                                | Serving | the reload thread starts              |
 
 ### The loaded configuration
@@ -488,7 +534,7 @@ Starting --> Waiting : no log yet
 Waiting --> Following : the log appears, read from its start
 Following --> Following : new lines, every 250 ms
 Following --> Following : moved aside, the old file read to its end, then the new one from its start
-Following --> [_] : a read fails
+Following --> [_] : a read or a write fails, or the pipe it prints to closes
 ```
 
 - **Invariants**
@@ -497,3 +543,6 @@ Following --> [_] : a read fails
   - A part of a line waits until it ends.
   - A move aside is looked for before reading, so the old file is read to its
     end before the new one is opened.
+  - A reader that stops early, as `head` does, ends `audit` with success;
+    any other failed write is an error. Before S7 the closed pipe crashed it
+    with exit 101.
